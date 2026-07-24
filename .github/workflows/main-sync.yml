@@ -1,0 +1,22 @@
+name: main-sync
+
+# Notifies the harness when main advances so it can run downstream automation.
+# Fire-and-forget: never blocks this repo and always succeeds, regardless of the
+# request outcome.
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify harness of main advance
+        continue-on-error: true
+        run: |
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.DISPATCH_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/greptile-projects/vivarium-harness/dispatches \
+            -d '{"event_type":"armb-main-push","client_payload":{"sha":"${{ github.sha }}"}}' || true
