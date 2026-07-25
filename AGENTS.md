@@ -55,7 +55,11 @@ whenever dependencies change or the web job fails before it starts.
   point is `src/app/page.tsx`, shared shell is `layout.tsx`, global styles are
   `globals.css`. Tailwind v4 is wired through PostCSS
   (`postcss.config.mjs`); there is no `tailwind.config` file.
-- **API** — a single `main.go` registering handlers on a `net/http` mux with
+- **API** — `main.go` registers handlers on a `net/http` mux, while the
+  `storage` package owns filesystem-backed bare Git repositories. Construct a
+  store with `storage.New`, then use `Create`, `Open`, and `Inspect`; repository
+  IDs are opaque 32-character lowercase hex strings and must not be treated as
+  names. The API uses
   Go 1.22+ method-and-path patterns (`"GET /health"`). It has no third-party
   dependencies and no `go.sum`; adding a dependency means the api workflow's
   `cache: false` line should flip to `cache-dependency-path: apps/api/go.sum`.
