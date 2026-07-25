@@ -1,4 +1,4 @@
-# vivarium-b
+# vivarium-komodo
 
 Monorepo.
 

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "vivarium-b",
+      "name": "vivarium-komodo",
     },
     "apps/web": {
       "name": "web",

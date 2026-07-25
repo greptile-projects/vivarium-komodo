@@ -1,3 +1,3 @@
-module github.com/greptile-projects/vivarium-b/apps/api
+module github.com/greptile-projects/vivarium-komodo/apps/api
 
 go 1.26
