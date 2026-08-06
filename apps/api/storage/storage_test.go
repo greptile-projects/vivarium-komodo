@@ -382,6 +382,95 @@ func TestCreatedRepositoryIsRecognizedByGit(t *testing.T) {
 	}
 }
 
+func TestRepositoryStoragePassesFullGitFsck(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	store, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := store.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var repositoryStorage storage.RepositoryStorage = repository
+
+	writeObject := func(objectType storage.ObjectType, content []byte) storage.ObjectID {
+		t.Helper()
+		id, err := repositoryStorage.WriteObject(objectType, content)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	writeCommit := func(tree storage.ObjectID, parents []storage.ObjectID, timestamp int, subject string) storage.ObjectID {
+		t.Helper()
+		var content strings.Builder
+		fmt.Fprintf(&content, "tree %s\n", tree)
+		for _, parent := range parents {
+			fmt.Fprintf(&content, "parent %s\n", parent)
+		}
+		fmt.Fprintf(&content, "author Ada Lovelace <ada@example.com> %d +0000\n", timestamp)
+		fmt.Fprintf(&content, "committer Ada Lovelace <ada@example.com> %d +0000\n\n%s\n", timestamp, subject)
+		return writeObject(storage.CommitObject, []byte(content.String()))
+	}
+
+	readmeID := writeObject(storage.BlobObject, []byte("# Complete storage foundation\n"))
+	scriptID := writeObject(storage.BlobObject, []byte("#!/bin/sh\necho compatible\n"))
+	docsTreeContent := append([]byte("100755 verify.sh\x00"), mustDecodeObjectID(t, scriptID)...)
+	docsTreeID := writeObject(storage.TreeObject, docsTreeContent)
+	rootTreeContent := append([]byte("100644 README.md\x00"), mustDecodeObjectID(t, readmeID)...)
+	rootTreeContent = append(rootTreeContent, []byte("40000 docs\x00")...)
+	rootTreeContent = append(rootTreeContent, mustDecodeObjectID(t, docsTreeID)...)
+	rootTreeID := writeObject(storage.TreeObject, rootTreeContent)
+
+	initialID := writeCommit(rootTreeID, nil, 10, "Create project")
+	mainID := writeCommit(rootTreeID, []storage.ObjectID{initialID}, 20, "Advance main")
+	featureID := writeCommit(rootTreeID, []storage.ObjectID{initialID}, 30, "Build feature")
+	mergeID := writeCommit(rootTreeID, []storage.ObjectID{mainID, featureID}, 40, "Merge feature")
+	tagContent := []byte("object " + string(mergeID) + "\n" +
+		"type commit\n" +
+		"tag v1.0.0\n" +
+		"tagger Ada Lovelace <ada@example.com> 50 +0000\n\n" +
+		"Storage foundation complete\n")
+	tagID := writeObject(storage.TagObject, tagContent)
+	writeObject(storage.BlobObject, []byte("intentionally unreachable but valid\n"))
+
+	for _, reference := range []storage.Reference{
+		{Name: "refs/heads/main", ObjectID: mergeID},
+		{Name: "refs/heads/feature", ObjectID: featureID},
+		{Name: "refs/tags/v1.0.0", ObjectID: tagID},
+		{Name: "refs/tags/latest", ObjectID: mergeID},
+		{Name: "refs/aliases/stable", Target: "refs/tags/v1.0.0"},
+	} {
+		if err := repositoryStorage.CreateReference(reference); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if tree, err := repositoryStorage.ReadTree(rootTreeID); err != nil || len(tree.Entries) != 2 {
+		t.Fatalf("ReadTree returned %+v, %v", tree, err)
+	}
+	if commit, err := repositoryStorage.ReadCommit(mergeID); err != nil || len(commit.Parents) != 2 {
+		t.Fatalf("ReadCommit returned %+v, %v", commit, err)
+	}
+	if objects, err := repositoryStorage.ListObjects(); err != nil || len(objects) != 10 {
+		t.Fatalf("ListObjects returned %d objects, %v", len(objects), err)
+	}
+	if references, err := repositoryStorage.ListReferences(); err != nil || len(references) != 6 {
+		t.Fatalf("ListReferences returned %d references, %v", len(references), err)
+	}
+
+	command := exec.Command("git", "--git-dir="+repository.GitDir(), "fsck", "--full")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git fsck --full failed: %v\n%s", err, output)
+	}
+	assertGitOutput(t, repository.GitDir(), string(mergeID), "rev-parse", "main")
+	assertGitOutput(t, repository.GitDir(), string(mergeID), "rev-parse", "v1.0.0^{}")
+	assertGitOutput(t, repository.GitDir(), "4", "rev-list", "--count", "--all")
+}
+
 func TestManageReferencesAndDefaultBranch(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
