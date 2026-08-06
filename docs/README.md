@@ -78,9 +78,9 @@ repository passes `git fsck --full`, proving both reachable graph integrity and
 the validity of enumerated unreachable objects without writing storage files
 outside the package boundary.
 
-## Git remote read access
+## Git remote access
 
-A repository's read-only smart-HTTP remote URL is
+A repository's smart-HTTP remote URL is
 `http://<host>:<port>/repositories/<repository ID>`. The API handles the
 `info/refs?service=git-upload-pack` discovery request and protocol-v2
 `git-upload-pack` exchange by opening the repository through `RepositoryStore`
@@ -97,5 +97,12 @@ and executable modes. Cloning an empty repository also succeeds and selects its
 unborn default branch, ready for an initial commit. Existing clones can fetch
 newly reachable objects and updated remote-tracking state, then fast-forward the
 checked-out primary branch with `git pull` without recloning. Upload-pack's
-negotiation limits that transfer to objects the client is missing. Write
-operations are not yet served.
+negotiation limits that transfer to objects the client is missing.
+
+Write discovery and requests use the corresponding `git-receive-pack` smart
+HTTP endpoints. A stock client may create the configured primary branch in an
+empty repository and subsequently fast-forward it. Receive policy rejects
+updates to other refs, primary-branch deletion, and non-fast-forward history
+replacement. Validation runs while incoming objects remain in Git's quarantine,
+so rejected pushes publish neither their references nor their objects. Explicit
+destructive operations remain reserved for a later remote-lifecycle capability.
