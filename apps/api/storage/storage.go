@@ -34,6 +34,12 @@ type RepositoryStore interface {
 	Open(ID) (*Repository, error)
 }
 
+// ObjectStore persists and retrieves immutable Git objects.
+type ObjectStore interface {
+	WriteObject(ObjectType, []byte) (ObjectID, error)
+	ReadObject(ObjectID) (Object, error)
+}
+
 // Store creates and reopens repositories beneath one storage root.
 type Store struct {
 	root string
