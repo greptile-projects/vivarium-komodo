@@ -68,7 +68,11 @@ whenever dependencies change or the web job fails before it starts.
   also implement
   `ReferenceStore` for direct and symbolic references, including packed direct
   refs, `HEAD`, and the default branch; do not write reference files outside
-  that boundary.
+  that boundary. Read-only smart HTTP is served at `/repositories/{ID}` by
+  invoking stock `git upload-pack` against `Repository.GitDir`; the API runtime
+  therefore requires `git` on `PATH`. Repository data is rooted at
+  `$REPOSITORY_ROOT`, defaulting to `apps/api/repositories` when started via the
+  documented root command.
   The package has no third-party
   dependencies and no `go.sum`; adding a dependency means the api workflow's
   `cache: false` line should flip to `cache-dependency-path: apps/api/go.sum`.

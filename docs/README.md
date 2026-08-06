@@ -8,7 +8,9 @@ written down here as they're decided, not before.
 - `apps/web` — Next.js frontend. Starts at `src/app/page.tsx`; routes are
   file-based under `src/app`. `bun dev` from the repo root.
 - `apps/api` — Go HTTP API. Starts at `main.go`, where routes are registered on
-  the mux. `bun run dev:api` from the repo root, serves on `:8080`.
+  the mux. `bun run dev:api` from the repo root, serves on `:8080`. Persistent
+  repositories live beneath `$REPOSITORY_ROOT`, or `apps/api/repositories` by
+  default.
 
 ## Git repository storage
 
@@ -75,3 +77,20 @@ and an unreachable object exclusively through `RepositoryStorage`. The entire
 repository passes `git fsck --full`, proving both reachable graph integrity and
 the validity of enumerated unreachable objects without writing storage files
 outside the package boundary.
+
+## Git remote discovery
+
+A repository's read-only smart-HTTP remote URL is
+`http://<host>:<port>/repositories/<repository ID>`. The API handles the
+`info/refs?service=git-upload-pack` discovery request and protocol-v2
+`git-upload-pack` exchange by opening the repository through `RepositoryStore`
+and invoking stock Git against the handle's `GitDir`. `git` must therefore be
+available on the API process's `PATH`.
+
+The server forwards Git's negotiated protocol version and emits the standard
+smart-HTTP media types and service preamble. This lets an unmodified
+`git ls-remote` enumerate loose or packed references and, for a populated
+repository, report symbolic `HEAD` as the repository's configured default
+branch. An empty repository is advertised successfully with no object IDs;
+protocol v2 carries its unborn `HEAD` state even though `git ls-remote` prints
+no ref line until the first branch reference exists.
