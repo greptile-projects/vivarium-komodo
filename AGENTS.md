@@ -58,7 +58,8 @@ whenever dependencies change or the web job fails before it starts.
 - **API** — `main.go` registers handlers on a `net/http` mux with Go 1.22+
   method-and-path patterns (`"GET /health"`). The `storage` package owns bare
   Git repository lifecycles; use its `RepositoryStore` boundary rather than
-  constructing repository directories elsewhere. Repository handles implement
+  constructing repository directories elsewhere. `RepositoryStorage` is the
+  complete application-facing contract for an open repository. Handles implement
   `ObjectStore` for immutable blob, tree, commit, and tag storage, including
   deterministic enumeration of verified loose objects; do not write loose
   object files outside that boundary. `GraphStore` parses tree entries and

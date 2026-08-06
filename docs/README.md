@@ -18,9 +18,26 @@ IDs. `Create` atomically publishes a repository, `Open` validates and reopens it
 by ID, and `Inspect` reports its identity and whether it is bare and empty.
 
 Each repository uses `main` as its unborn default branch and has a standard
-bare Git layout at `<store root>/<repository ID>`. `Repository.GitDir` exists
-for later object, reference, and remote operations that must interoperate with
-stock Git; directory creation itself remains the storage package's concern.
+bare Git layout at `<store root>/<repository ID>`. `Repository.GitDir` exposes
+that location only for integration with stock Git plumbing, such as the future
+remote transport; application code performs storage operations through the
+interfaces below, and directory creation remains the storage package's concern.
+
+`RepositoryStorage` is the complete read/write contract for an open repository.
+It combines the immutable `ObjectStore`, read-only `GraphStore`, mutable
+`ReferenceStore`, stable repository identity, and high-level inspection. The
+only persistent writes are content-addressed object creation and reference
+changes: Git objects are immutable and therefore have no update or delete
+operation. `RepositoryStore` owns creation and reopening of repository handles.
+The contract covers every platform storage operation:
+
+- lifecycle — `RepositoryStore.Create` and `Open`, then `ID` and `Inspect`;
+- objects — `WriteObject`, `ReadObject`, and `ListObjects`;
+- graph views — `ReadTree` and `ReadCommit`;
+- references — `CreateReference`, `ReadReference`, `UpdateReference`,
+  `ListReferences`, and `DeleteReference`;
+- default branch — `DefaultBranch` and `SetDefaultBranch`, backed by symbolic
+  `HEAD`.
 
 Repository handles also implement `ObjectStore`. `WriteObject` accepts a blob,
 tree, commit, or annotated tag's exact content, derives its SHA-1 object ID from
@@ -51,3 +68,10 @@ while retaining the exact commit content for attribution, messages, and
 additional headers. Following those IDs reconstructs both snapshots and merge
 ancestry, and the underlying canonical objects and references remain directly
 usable by stock `git cat-file` and `git log`.
+
+Compatibility coverage constructs a nested snapshot, branched and merged
+history, an annotated tag, a lightweight tag, symbolic and direct references,
+and an unreachable object exclusively through `RepositoryStorage`. The entire
+repository passes `git fsck --full`, proving both reachable graph integrity and
+the validity of enumerated unreachable objects without writing storage files
+outside the package boundary.

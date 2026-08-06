@@ -48,6 +48,17 @@ type GraphStore interface {
 	ReadCommit(ObjectID) (Commit, error)
 }
 
+// RepositoryStorage is the complete application-facing boundary for an open
+// repository. Objects are immutable, so writes create content-addressed
+// objects; all mutable repository state is managed through references.
+type RepositoryStorage interface {
+	ObjectStore
+	GraphStore
+	ReferenceStore
+	ID() ID
+	Inspect() (Info, error)
+}
+
 // Store creates and reopens repositories beneath one storage root.
 type Store struct {
 	root string
@@ -58,6 +69,8 @@ type Repository struct {
 	id     ID
 	gitDir string
 }
+
+var _ RepositoryStorage = (*Repository)(nil)
 
 // New creates a store rooted at root, or opens it if it already exists.
 func New(root string) (*Store, error) {
@@ -119,7 +132,8 @@ func (r *Repository) ID() ID {
 	return r.id
 }
 
-// GitDir returns the bare repository directory for Git storage operations.
+// GitDir returns the bare repository directory for interoperability with stock
+// Git plumbing. Application storage operations should use RepositoryStorage.
 func (r *Repository) GitDir() string {
 	return r.gitDir
 }
