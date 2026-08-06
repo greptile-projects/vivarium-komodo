@@ -61,7 +61,10 @@ whenever dependencies change or the web job fails before it starts.
   constructing repository directories elsewhere. Repository handles implement
   `ObjectStore` for immutable blob, tree, commit, and tag storage, including
   deterministic enumeration of verified loose objects; do not write loose
-  object files outside that boundary. Repository handles also implement
+  object files outside that boundary. `GraphStore` parses tree entries and
+  commit snapshot/parent links so callers can recursively traverse repository
+  contents and ancestry without parsing raw object bytes. Repository handles
+  also implement
   `ReferenceStore` for direct and symbolic references, including packed direct
   refs, `HEAD`, and the default branch; do not write reference files outside
   that boundary.
