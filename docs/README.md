@@ -33,3 +33,12 @@ objects written by stock Git, and returns them in object-ID order with their
 verified identity, type, byte size, and exact content. Its results match
 `git cat-file --batch-all-objects` for repositories managed through this
 boundary.
+
+Repository handles also implement `ReferenceStore`. Callers can atomically
+create and update direct references to verified objects, create symbolic
+references, read and deterministically list references (including symbolic
+`HEAD`), and delete references. `DefaultBranch` and `SetDefaultBranch` expose
+the branch selected by `HEAD`, including an unborn branch. Reference files use
+Git's ordinary formats, so changes are immediately visible to stock Git;
+direct references packed by Git remain readable, listable, updatable, and
+deletable through the same interface.

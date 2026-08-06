@@ -61,7 +61,11 @@ whenever dependencies change or the web job fails before it starts.
   constructing repository directories elsewhere. Repository handles implement
   `ObjectStore` for immutable blob, tree, commit, and tag storage, including
   deterministic enumeration of verified loose objects; do not write loose
-  object files outside that boundary. The package has no third-party
+  object files outside that boundary. Repository handles also implement
+  `ReferenceStore` for direct and symbolic references, including packed direct
+  refs, `HEAD`, and the default branch; do not write reference files outside
+  that boundary.
+  The package has no third-party
   dependencies and no `go.sum`; adding a dependency means the api workflow's
   `cache: false` line should flip to `cache-dependency-path: apps/api/go.sum`.
   The port comes from `$PORT`, defaulting to `8080`.

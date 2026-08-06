@@ -255,6 +255,149 @@ func TestCreatedRepositoryIsRecognizedByGit(t *testing.T) {
 	}
 }
 
+func TestManageReferencesAndDefaultBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	store, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := store.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var references storage.ReferenceStore = repository
+
+	if branch, err := references.DefaultBranch(); err != nil || branch != "refs/heads/main" {
+		t.Fatalf("DefaultBranch returned %q, %v", branch, err)
+	}
+	first, err := repository.WriteObject(storage.BlobObject, []byte("first"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := repository.WriteObject(storage.BlobObject, []byte("second"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	main := storage.Reference{Name: "refs/heads/main", ObjectID: first}
+	if err := references.CreateReference(main); err != nil {
+		t.Fatal(err)
+	}
+	if err := references.CreateReference(main); !errors.Is(err, storage.ErrReferenceExists) {
+		t.Fatalf("duplicate CreateReference returned %v", err)
+	}
+	main.ObjectID = second
+	if err := references.UpdateReference(main); err != nil {
+		t.Fatal(err)
+	}
+	if err := references.CreateReference(storage.Reference{Name: "refs/aliases/current", Target: "refs/heads/main"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := references.SetDefaultBranch("refs/heads/trunk"); err != nil {
+		t.Fatal(err)
+	}
+
+	listed, err := references.ListReferences()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantNames := []storage.ReferenceName{"HEAD", "refs/aliases/current", "refs/heads/main"}
+	if len(listed) != len(wantNames) {
+		t.Fatalf("ListReferences returned %+v", listed)
+	}
+	for index, want := range wantNames {
+		if listed[index].Name != want {
+			t.Fatalf("reference %d is %q, want %q", index, listed[index].Name, want)
+		}
+	}
+	assertGitOutput(t, repository.GitDir(), "refs/heads/trunk", "symbolic-ref", "HEAD")
+	assertGitOutput(t, repository.GitDir(), string(second), "rev-parse", "refs/aliases/current")
+
+	if err := references.DeleteReference("refs/aliases/current"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := references.ReadReference("refs/aliases/current"); !errors.Is(err, storage.ErrReferenceNotFound) {
+		t.Fatalf("deleted ReadReference returned %v", err)
+	}
+	if err := references.DeleteReference("HEAD"); !errors.Is(err, storage.ErrInvalidRefName) {
+		t.Fatalf("DeleteReference HEAD returned %v", err)
+	}
+}
+
+func TestReferenceValidationAndErrors(t *testing.T) {
+	store, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := store.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := repository.WriteObject(storage.BlobObject, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []storage.ReferenceName{"main", "refs/../HEAD", "refs/heads/bad.lock", "refs/heads/a b"} {
+		err := repository.CreateReference(storage.Reference{Name: name, ObjectID: id})
+		if !errors.Is(err, storage.ErrInvalidRefName) {
+			t.Fatalf("CreateReference(%q) returned %v", name, err)
+		}
+	}
+	if err := repository.CreateReference(storage.Reference{Name: "refs/heads/main", ObjectID: id, Target: "refs/heads/other"}); !errors.Is(err, storage.ErrInvalidReference) {
+		t.Fatalf("ambiguous reference returned %v", err)
+	}
+	if err := repository.UpdateReference(storage.Reference{Name: "refs/heads/missing", ObjectID: id}); !errors.Is(err, storage.ErrReferenceNotFound) {
+		t.Fatalf("missing UpdateReference returned %v", err)
+	}
+	if err := repository.SetDefaultBranch("refs/tags/v1"); !errors.Is(err, storage.ErrInvalidRefName) {
+		t.Fatalf("SetDefaultBranch tag returned %v", err)
+	}
+}
+
+func TestPackedReferencesRemainManageable(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	store, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := store.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := repository.WriteObject(storage.BlobObject, []byte("packed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := repository.WriteObject(storage.BlobObject, []byte("loose override"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := storage.ReferenceName("refs/tags/example")
+	if err := repository.CreateReference(storage.Reference{Name: name, ObjectID: first}); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("git", "--git-dir="+repository.GitDir(), "pack-refs", "--all")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git pack-refs failed: %v\n%s", err, output)
+	}
+	if reference, err := repository.ReadReference(name); err != nil || reference.ObjectID != first {
+		t.Fatalf("ReadReference packed ref returned %+v, %v", reference, err)
+	}
+	if err := repository.UpdateReference(storage.Reference{Name: name, ObjectID: second}); err != nil {
+		t.Fatal(err)
+	}
+	assertGitOutput(t, repository.GitDir(), string(second), "rev-parse", string(name))
+	if err := repository.DeleteReference(name); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ReadReference(name); !errors.Is(err, storage.ErrReferenceNotFound) {
+		t.Fatalf("packed reference survived deletion: %v", err)
+	}
+}
+
 func TestOpenRejectsUnknownInvalidAndMalformedRepositories(t *testing.T) {
 	store, err := storage.New(t.TempDir())
 	if err != nil {
