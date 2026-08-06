@@ -158,6 +158,76 @@ func TestGitFetchAndPullAdvanceExistingWorkingCopy(t *testing.T) {
 	assertFile(t, filepath.Join(clone, "CONTRIBUTING.md"), "Collaborate here.\n", 0)
 }
 
+func TestGitPushCreatesAndFastForwardsPrimaryBranchWithoutPublishingRejectedObjects(t *testing.T) {
+	requireGit(t)
+	store, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := store.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.SetDefaultBranch("refs/heads/trunk"); err != nil {
+		t.Fatal(err)
+	}
+	server := gitServer(t, store)
+	remote := server.URL + "/repositories/" + string(repository.ID())
+
+	workingCopy := filepath.Join(t.TempDir(), "publisher")
+	gitCommand(t, "", "init", "--initial-branch=trunk", workingCopy)
+	gitOutput(t, workingCopy, "config", "user.name", "Ada Lovelace")
+	gitOutput(t, workingCopy, "config", "user.email", "ada@example.com")
+	gitOutput(t, workingCopy, "remote", "add", "origin", remote)
+	if err := os.WriteFile(filepath.Join(workingCopy, "README.md"), []byte("# Project\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	gitOutput(t, workingCopy, "add", "README.md")
+	gitOutput(t, workingCopy, "commit", "-m", "Start project")
+	firstCommit := gitOutput(t, workingCopy, "rev-parse", "HEAD")
+	gitOutput(t, workingCopy, "push", "--set-upstream", "origin", "trunk")
+	if remoteHead := gitOutput(t, repository.GitDir(), "rev-parse", "refs/heads/trunk"); remoteHead != firstCommit {
+		t.Fatalf("initial pushed head = %s, want %s", remoteHead, firstCommit)
+	}
+
+	if err := os.WriteFile(filepath.Join(workingCopy, "README.md"), []byte("# Project\n\nReady to collaborate.\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	gitOutput(t, workingCopy, "commit", "-am", "Invite collaborators")
+	secondCommit := gitOutput(t, workingCopy, "rev-parse", "HEAD")
+	gitOutput(t, workingCopy, "push", "origin", "trunk")
+	if remoteHead := gitOutput(t, repository.GitDir(), "rev-parse", "refs/heads/trunk"); remoteHead != secondCommit {
+		t.Fatalf("fast-forward pushed head = %s, want %s", remoteHead, secondCommit)
+	}
+
+	objectsBefore, err := repository.ListObjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitOutput(t, workingCopy, "reset", "--hard", firstCommit)
+	if err := os.WriteFile(filepath.Join(workingCopy, "README.md"), []byte("# Rewritten project\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	gitOutput(t, workingCopy, "commit", "-am", "Rewrite published history")
+	rejectedCommit := gitOutput(t, workingCopy, "rev-parse", "HEAD")
+	gitFails(t, workingCopy, "push", "origin", "trunk")
+	if remoteHead := gitOutput(t, repository.GitDir(), "rev-parse", "refs/heads/trunk"); remoteHead != secondCommit {
+		t.Fatalf("rejected push changed head to %s, want %s", remoteHead, secondCommit)
+	}
+	objectsAfter, err := repository.ListObjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(objectsAfter) != len(objectsBefore) {
+		t.Fatalf("rejected push changed object count from %d to %d", len(objectsBefore), len(objectsAfter))
+	}
+	gitFails(t, repository.GitDir(), "cat-file", "-e", rejectedCommit+"^{commit}")
+	gitFails(t, workingCopy, "push", "origin", ":trunk")
+	if remoteHead := gitOutput(t, repository.GitDir(), "rev-parse", "refs/heads/trunk"); remoteHead != secondCommit {
+		t.Fatalf("rejected deletion changed head to %s, want %s", remoteHead, secondCommit)
+	}
+}
+
 func TestGitLsRemoteSupportsEmptyRepository(t *testing.T) {
 	requireGit(t)
 	store, err := storage.New(t.TempDir())
@@ -243,6 +313,17 @@ func gitClone(t *testing.T, remote string) string {
 func gitOutput(t *testing.T, directory string, arguments ...string) string {
 	t.Helper()
 	command := exec.Command("git", append([]string{"-C", directory}, arguments...)...)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(arguments, " "), err, output)
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func gitCommand(t *testing.T, directory string, arguments ...string) string {
+	t.Helper()
+	command := exec.Command("git", arguments...)
+	command.Dir = directory
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(arguments, " "), err, output)
