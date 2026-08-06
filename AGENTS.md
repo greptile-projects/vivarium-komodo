@@ -71,10 +71,12 @@ whenever dependencies change or the web job fails before it starts.
   that boundary. Smart HTTP is served at `/repositories/{ID}` by invoking stock
   `git upload-pack` and `git receive-pack` against `Repository.GitDir`; stock clients
   can discover, clone, fetch, and pull empty or populated repositories,
-  including checkout and fast-forward updates of the configured default branch.
-  Pushes may create or fast-forward only that primary branch; deletion,
-  non-fast-forward updates, and updates to other refs are rejected in Git's
-  receive quarantine so their objects and references are not published.
+  including checkout and updates of the configured default branch. Pushes may
+  create, fast-forward, explicitly force-update, or delete only that primary
+  branch. Updates to other refs are rejected in Git's receive quarantine so
+  their objects and references are not published. Git's receive protocol has
+  no force flag: the stock client enforces the ordinary non-fast-forward guard
+  and sends the update only when the caller explicitly requests force.
   The API runtime therefore requires `git` on
   `PATH`. Repository data is rooted at
   `$REPOSITORY_ROOT`, defaulting to `apps/api/repositories` when started via the

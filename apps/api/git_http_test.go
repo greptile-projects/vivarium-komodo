@@ -158,7 +158,7 @@ func TestGitFetchAndPullAdvanceExistingWorkingCopy(t *testing.T) {
 	assertFile(t, filepath.Join(clone, "CONTRIBUTING.md"), "Collaborate here.\n", 0)
 }
 
-func TestGitPushCreatesAndFastForwardsPrimaryBranchWithoutPublishingRejectedObjects(t *testing.T) {
+func TestGitPushCompletesPrimaryBranchLifecycleWithoutPublishingRejectedObjects(t *testing.T) {
 	requireGit(t)
 	store, err := storage.New(t.TempDir())
 	if err != nil {
@@ -200,31 +200,76 @@ func TestGitPushCreatesAndFastForwardsPrimaryBranchWithoutPublishingRejectedObje
 		t.Fatalf("fast-forward pushed head = %s, want %s", remoteHead, secondCommit)
 	}
 
-	objectsBefore, err := repository.ListObjects()
-	if err != nil {
-		t.Fatal(err)
-	}
 	gitOutput(t, workingCopy, "reset", "--hard", firstCommit)
 	if err := os.WriteFile(filepath.Join(workingCopy, "README.md"), []byte("# Rewritten project\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 	gitOutput(t, workingCopy, "commit", "-am", "Rewrite published history")
-	rejectedCommit := gitOutput(t, workingCopy, "rev-parse", "HEAD")
+	replacementCommit := gitOutput(t, workingCopy, "rev-parse", "HEAD")
 	gitFails(t, workingCopy, "push", "origin", "trunk")
 	if remoteHead := gitOutput(t, repository.GitDir(), "rev-parse", "refs/heads/trunk"); remoteHead != secondCommit {
-		t.Fatalf("rejected push changed head to %s, want %s", remoteHead, secondCommit)
+		t.Fatalf("ordinary non-fast-forward push changed head to %s, want %s", remoteHead, secondCommit)
 	}
-	objectsAfter, err := repository.ListObjects()
+	gitOutput(t, workingCopy, "push", "--force", "origin", "trunk")
+	if remoteHead := gitOutput(t, repository.GitDir(), "rev-parse", "refs/heads/trunk"); remoteHead != replacementCommit {
+		t.Fatalf("force-pushed head = %s, want %s", remoteHead, replacementCommit)
+	}
+	if advertised := gitLsRemote(t, remote, remote, "refs/heads/trunk"); advertised != replacementCommit+"\trefs/heads/trunk" {
+		t.Fatalf("force-updated advertisement = %q", advertised)
+	}
+	replacementClone := gitClone(t, remote)
+	if head := gitOutput(t, replacementClone, "rev-parse", "HEAD"); head != replacementCommit {
+		t.Fatalf("clone after force push has head %s, want %s", head, replacementCommit)
+	}
+
+	if err := os.WriteFile(filepath.Join(workingCopy, "CONTRIBUTING.md"), []byte("Send changes.\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	gitOutput(t, workingCopy, "add", "CONTRIBUTING.md")
+	gitOutput(t, workingCopy, "commit", "-m", "Document contributions")
+	advancedCommit := gitOutput(t, workingCopy, "rev-parse", "HEAD")
+	gitOutput(t, workingCopy, "push", "origin", "trunk")
+	gitOutput(t, replacementClone, "pull", "--ff-only")
+	if head := gitOutput(t, replacementClone, "rev-parse", "HEAD"); head != advancedCommit {
+		t.Fatalf("pull after force push has head %s, want %s", head, advancedCommit)
+	}
+
+	objectsBeforeRejection, err := repository.ListObjects()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(objectsAfter) != len(objectsBefore) {
-		t.Fatalf("rejected push changed object count from %d to %d", len(objectsBefore), len(objectsAfter))
+	gitOutput(t, workingCopy, "switch", "-c", "topic")
+	if err := os.WriteFile(filepath.Join(workingCopy, "PRIVATE.md"), []byte("not published\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	gitOutput(t, workingCopy, "add", "PRIVATE.md")
+	gitOutput(t, workingCopy, "commit", "-m", "Rejected topic")
+	rejectedCommit := gitOutput(t, workingCopy, "rev-parse", "HEAD")
+	gitFails(t, workingCopy, "push", "origin", "topic")
+	objectsAfterRejection, err := repository.ListObjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(objectsAfterRejection) != len(objectsBeforeRejection) {
+		t.Fatalf("rejected push changed object count from %d to %d", len(objectsBeforeRejection), len(objectsAfterRejection))
 	}
 	gitFails(t, repository.GitDir(), "cat-file", "-e", rejectedCommit+"^{commit}")
-	gitFails(t, workingCopy, "push", "origin", ":trunk")
-	if remoteHead := gitOutput(t, repository.GitDir(), "rev-parse", "refs/heads/trunk"); remoteHead != secondCommit {
-		t.Fatalf("rejected deletion changed head to %s, want %s", remoteHead, secondCommit)
+
+	gitOutput(t, workingCopy, "switch", "trunk")
+	gitOutput(t, workingCopy, "push", "origin", ":trunk")
+	if advertised := gitLsRemote(t, remote, "--symref", remote); advertised != "" {
+		t.Fatalf("deleted repository advertisement = %q, want empty", advertised)
+	}
+	gitFails(t, repository.GitDir(), "rev-parse", "--verify", "refs/heads/trunk")
+	emptyClone := gitClone(t, remote)
+	if branch := gitOutput(t, emptyClone, "symbolic-ref", "--short", "HEAD"); branch != "trunk" {
+		t.Fatalf("clone after deletion selected branch %q, want trunk", branch)
+	}
+
+	gitOutput(t, workingCopy, "push", "origin", "trunk")
+	gitOutput(t, emptyClone, "pull", "origin", "trunk")
+	if head := gitOutput(t, emptyClone, "rev-parse", "HEAD"); head != advancedCommit {
+		t.Fatalf("pull after branch recovery has head %s, want %s", head, advancedCommit)
 	}
 }
 

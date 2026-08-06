@@ -115,7 +115,14 @@ func runGitService(r *http.Request, repository *storage.Repository, service stri
 			return nil, err
 		}
 		defer os.RemoveAll(hooksDirectory)
-		commandArguments = append(commandArguments, "-c", "core.hooksPath="+hooksDirectory)
+		// A receive command has no force flag: stock clients send a non-fast-forward
+		// update only after the user explicitly bypasses their local safety check.
+		// Keep HEAD symbolic when its branch is deleted so clones can select the
+		// same unborn primary branch and a later push can recreate it.
+		commandArguments = append(commandArguments,
+			"-c", "core.hooksPath="+hooksDirectory,
+			"-c", "receive.denyDeleteCurrent=ignore",
+		)
 	}
 	arguments = append([]string{commandName, "--stateless-rpc"}, arguments...)
 	arguments = append(arguments, repository.GitDir())
@@ -142,19 +149,10 @@ func receiveHooks() (string, error) {
 	}
 	const hook = `#!/bin/sh
 primary=$(git symbolic-ref HEAD) || exit 1
-zero=0000000000000000000000000000000000000000
 while read old new ref
 do
 	if [ "$ref" != "$primary" ]; then
 		echo "only the primary branch may be updated" >&2
-		exit 1
-	fi
-	if [ "$new" = "$zero" ]; then
-		echo "the primary branch may not be deleted" >&2
-		exit 1
-	fi
-	if [ "$old" != "$zero" ] && ! git merge-base --is-ancestor "$old" "$new"; then
-		echo "non-fast-forward primary branch update" >&2
 		exit 1
 	fi
 done
