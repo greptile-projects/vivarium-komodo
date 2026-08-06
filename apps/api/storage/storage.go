@@ -41,6 +41,13 @@ type ObjectStore interface {
 	ListObjects() ([]Object, error)
 }
 
+// GraphStore exposes the repository snapshots and ancestry encoded by Git
+// tree and commit objects.
+type GraphStore interface {
+	ReadTree(ObjectID) (Tree, error)
+	ReadCommit(ObjectID) (Commit, error)
+}
+
 // Store creates and reopens repositories beneath one storage root.
 type Store struct {
 	root string

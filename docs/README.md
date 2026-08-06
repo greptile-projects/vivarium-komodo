@@ -42,3 +42,12 @@ the branch selected by `HEAD`, including an unborn branch. Reference files use
 Git's ordinary formats, so changes are immediately visible to stock Git;
 direct references packed by Git remain readable, listable, updatable, and
 deletable through the same interface.
+
+The same handles implement `GraphStore` for typed traversal of the object
+graph. `ReadTree` exposes each directory entry's name, octal Git mode, implied
+object type, and object ID in stored order; callers recurse into entries that
+name trees. `ReadCommit` exposes the root tree and ordered immediate parents,
+while retaining the exact commit content for attribution, messages, and
+additional headers. Following those IDs reconstructs both snapshots and merge
+ancestry, and the underlying canonical objects and references remain directly
+usable by stock `git cat-file` and `git log`.

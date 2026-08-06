@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -194,6 +195,132 @@ func mustDecodeObjectID(t *testing.T, id storage.ObjectID) []byte {
 		t.Fatal(err)
 	}
 	return decoded
+}
+
+func TestTraverseTreesAndCommitAncestry(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	store, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := store.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var graph storage.GraphStore = repository
+
+	readmeID, err := repository.WriteObject(storage.BlobObject, []byte("root\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scriptID, err := repository.WriteObject(storage.BlobObject, []byte("#!/bin/sh\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	docsContent := append([]byte("100755 run.sh\x00"), mustDecodeObjectID(t, scriptID)...)
+	docsID, err := repository.WriteObject(storage.TreeObject, docsContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootContent := append([]byte("40000 docs\x00"), mustDecodeObjectID(t, docsID)...)
+	rootContent = append(rootContent, []byte("100644 README.md\x00")...)
+	rootContent = append(rootContent, mustDecodeObjectID(t, readmeID)...)
+	rootID, err := repository.WriteObject(storage.TreeObject, rootContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstID := writeCommit(t, repository, rootID, nil, 1, "Create snapshot")
+	secondID := writeCommit(t, repository, rootID, []storage.ObjectID{firstID}, 2, "Continue history")
+	sideID := writeCommit(t, repository, rootID, []storage.ObjectID{firstID}, 3, "Side history")
+	mergeID := writeCommit(t, repository, rootID, []storage.ObjectID{secondID, sideID}, 4, "Merge histories")
+	if err := repository.CreateReference(storage.Reference{Name: "refs/heads/main", ObjectID: mergeID}); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := graph.ReadTree(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(root.Entries) != 2 || root.Entries[0].Name != "docs" || root.Entries[0].Mode != 0o40000 || root.Entries[0].Type != storage.TreeObject || root.Entries[1].ObjectID != readmeID {
+		t.Fatalf("unexpected root tree: %+v", root)
+	}
+	docs, err := graph.ReadTree(root.Entries[0].ObjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs.Entries) != 1 || docs.Entries[0].Name != "run.sh" || docs.Entries[0].Mode != 0o100755 || docs.Entries[0].Type != storage.BlobObject {
+		t.Fatalf("unexpected nested tree: %+v", docs)
+	}
+	merge, err := graph.ReadCommit(mergeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merge.Tree != rootID || len(merge.Parents) != 2 || merge.Parents[0] != secondID || merge.Parents[1] != sideID {
+		t.Fatalf("unexpected merge commit: %+v", merge)
+	}
+	firstParent, err := graph.ReadCommit(merge.Parents[0])
+	if err != nil || len(firstParent.Parents) != 1 || firstParent.Parents[0] != firstID {
+		t.Fatalf("could not follow first-parent ancestry: %+v, %v", firstParent, err)
+	}
+
+	assertGitOutput(t, repository.GitDir(), "tree", "cat-file", "-t", string(rootID))
+	assertGitOutput(t, repository.GitDir(), "3", "rev-list", "--count", "--first-parent", "main")
+	assertGitOutput(t, repository.GitDir(), "Merge histories\nSide history\nContinue history\nCreate snapshot", "log", "--format=%s", "--date-order", "main")
+	assertGitOutput(t, repository.GitDir(), "100755 blob "+string(scriptID)+"\trun.sh", "cat-file", "-p", string(docsID))
+}
+
+func TestGraphObjectValidation(t *testing.T) {
+	store, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := store.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	blobID, err := repository.WriteObject(storage.BlobObject, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ReadTree(blobID); !errors.Is(err, storage.ErrNotTree) {
+		t.Fatalf("ReadTree(blob) returned %v", err)
+	}
+	if _, err := repository.ReadCommit(blobID); !errors.Is(err, storage.ErrNotCommit) {
+		t.Fatalf("ReadCommit(blob) returned %v", err)
+	}
+	badTreeID, err := repository.WriteObject(storage.TreeObject, []byte("100644 missing-object-id"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ReadTree(badTreeID); !errors.Is(err, storage.ErrInvalidTree) {
+		t.Fatalf("ReadTree(invalid) returned %v", err)
+	}
+	badCommitID, err := repository.WriteObject(storage.CommitObject, []byte("parent 0000000000000000000000000000000000000000\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ReadCommit(badCommitID); !errors.Is(err, storage.ErrInvalidCommit) {
+		t.Fatalf("ReadCommit(invalid) returned %v", err)
+	}
+}
+
+func writeCommit(t *testing.T, repository *storage.Repository, tree storage.ObjectID, parents []storage.ObjectID, timestamp int, subject string) storage.ObjectID {
+	t.Helper()
+	var content strings.Builder
+	fmt.Fprintf(&content, "tree %s\n", tree)
+	for _, parent := range parents {
+		fmt.Fprintf(&content, "parent %s\n", parent)
+	}
+	fmt.Fprintf(&content, "author Ada Lovelace <ada@example.com> %d +0000\n", timestamp)
+	fmt.Fprintf(&content, "committer Ada Lovelace <ada@example.com> %d +0000\n\n%s\n", timestamp, subject)
+	id, err := repository.WriteObject(storage.CommitObject, []byte(content.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func TestRepositoryLifecycle(t *testing.T) {
