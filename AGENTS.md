@@ -58,7 +58,9 @@ whenever dependencies change or the web job fails before it starts.
 - **API** — `main.go` registers handlers on a `net/http` mux with Go 1.22+
   method-and-path patterns (`"GET /health"`). The `storage` package owns bare
   Git repository lifecycles; use its `RepositoryStore` boundary rather than
-  constructing repository directories elsewhere. It has no third-party
+  constructing repository directories elsewhere. Repository handles implement
+  `ObjectStore` for immutable blob, tree, commit, and tag storage; do not write
+  loose object files outside that boundary. The package has no third-party
   dependencies and no `go.sum`; adding a dependency means the api workflow's
   `cache: false` line should flip to `cache-dependency-path: apps/api/go.sum`.
   The port comes from `$PORT`, defaulting to `8080`.

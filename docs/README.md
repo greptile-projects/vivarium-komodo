@@ -21,3 +21,10 @@ Each repository uses `main` as its unborn default branch and has a standard
 bare Git layout at `<store root>/<repository ID>`. `Repository.GitDir` exists
 for later object, reference, and remote operations that must interoperate with
 stock Git; directory creation itself remains the storage package's concern.
+
+Repository handles also implement `ObjectStore`. `WriteObject` accepts a blob,
+tree, commit, or annotated tag's exact content, derives its SHA-1 object ID from
+Git's canonical header and content, and atomically stores the zlib-compressed
+loose object. `ReadObject` returns the exact type and content after verifying
+the canonical size and requested identity. These files are ordinary Git loose
+objects, so stock commands such as `git cat-file` can consume them directly.
