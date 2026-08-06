@@ -78,7 +78,7 @@ repository passes `git fsck --full`, proving both reachable graph integrity and
 the validity of enumerated unreachable objects without writing storage files
 outside the package boundary.
 
-## Git remote discovery
+## Git remote read access
 
 A repository's read-only smart-HTTP remote URL is
 `http://<host>:<port>/repositories/<repository ID>`. The API handles the
@@ -88,9 +88,11 @@ and invoking stock Git against the handle's `GitDir`. `git` must therefore be
 available on the API process's `PATH`.
 
 The server forwards Git's negotiated protocol version and emits the standard
-smart-HTTP media types and service preamble. This lets an unmodified
-`git ls-remote` enumerate loose or packed references and, for a populated
-repository, report symbolic `HEAD` as the repository's configured default
-branch. An empty repository is advertised successfully with no object IDs;
-protocol v2 carries its unborn `HEAD` state even though `git ls-remote` prints
-no ref line until the first branch reference exists.
+smart-HTTP media types and service preamble. This lets unmodified `git ls-remote`
+and `git clone` clients negotiate directly with the server. Discovery
+enumerates loose or packed references and, for a populated repository, reports
+symbolic `HEAD` as the configured default branch. Clone transfers the complete
+reachable object graph, checks out that branch, and preserves snapshot content
+and executable modes. Cloning an empty repository also succeeds and selects its
+unborn default branch, ready for an initial commit. Write operations are not yet
+served.
