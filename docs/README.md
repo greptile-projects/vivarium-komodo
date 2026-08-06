@@ -101,8 +101,12 @@ negotiation limits that transfer to objects the client is missing.
 
 Write discovery and requests use the corresponding `git-receive-pack` smart
 HTTP endpoints. A stock client may create the configured primary branch in an
-empty repository and subsequently fast-forward it. Receive policy rejects
-updates to other refs, primary-branch deletion, and non-fast-forward history
-replacement. Validation runs while incoming objects remain in Git's quarantine,
-so rejected pushes publish neither their references nor their objects. Explicit
-destructive operations remain reserved for a later remote-lifecycle capability.
+empty repository, fast-forward it, explicitly force-update it, delete it, and
+recreate it. Git's receive protocol does not carry a force bit: an ordinary
+stock client refuses to send a non-fast-forward update, while `--force`
+explicitly bypasses that client-side check. The server accepts the resulting
+primary-branch command and permits deletion of the branch named by symbolic
+`HEAD`; keeping `HEAD` intact lets later clones select the same unborn branch.
+Receive policy rejects updates to every other ref. Validation runs while
+incoming objects remain in Git's quarantine, so a rejected push publishes
+neither its references nor its objects.
