@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -39,6 +40,7 @@ const (
 type Object struct {
 	ID      ObjectID
 	Type    ObjectType
+	Size    uint64
 	Content []byte
 }
 
@@ -151,7 +153,48 @@ func (r *Repository) ReadObject(id ObjectID) (Object, error) {
 		return Object{}, ErrInvalidObject
 	}
 
-	return Object{ID: id, Type: objectType, Content: content}, nil
+	return Object{ID: id, Type: objectType, Size: size, Content: content}, nil
+}
+
+// ListObjects returns every loose object in the repository, ordered by object
+// ID. Each object is fully read and verified before it is returned.
+func (r *Repository) ListObjects() ([]Object, error) {
+	if err := r.validate(); err != nil {
+		return nil, err
+	}
+
+	objectsDirectory := filepath.Join(r.gitDir, "objects")
+	directories, err := os.ReadDir(objectsDirectory)
+	if err != nil {
+		return nil, fmt.Errorf("list object directories: %w", err)
+	}
+
+	var ids []ObjectID
+	for _, directory := range directories {
+		if !directory.IsDir() || !validHexComponent(directory.Name(), 2) {
+			continue
+		}
+		entries, err := os.ReadDir(filepath.Join(objectsDirectory, directory.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("list object directory %s: %w", directory.Name(), err)
+		}
+		for _, entry := range entries {
+			if entry.Type().IsRegular() && validHexComponent(entry.Name(), 38) {
+				ids = append(ids, ObjectID(directory.Name()+entry.Name()))
+			}
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	objects := make([]Object, 0, len(ids))
+	for _, id := range ids {
+		object, err := r.ReadObject(id)
+		if err != nil {
+			return nil, fmt.Errorf("read listed object %s: %w", id, err)
+		}
+		objects = append(objects, object)
+	}
+	return objects, nil
 }
 
 func (r *Repository) objectPath(id ObjectID) string {
@@ -171,6 +214,14 @@ func validObjectType(objectType ObjectType) bool {
 func validObjectID(id ObjectID) bool {
 	value := string(id)
 	if len(value) != sha1.Size*2 || value != strings.ToLower(value) {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func validHexComponent(value string, length int) bool {
+	if len(value) != length || value != strings.ToLower(value) {
 		return false
 	}
 	_, err := hex.DecodeString(value)

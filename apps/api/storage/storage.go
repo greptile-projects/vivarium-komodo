@@ -38,6 +38,7 @@ type RepositoryStore interface {
 type ObjectStore interface {
 	WriteObject(ObjectType, []byte) (ObjectID, error)
 	ReadObject(ObjectID) (Object, error)
+	ListObjects() ([]Object, error)
 }
 
 // Store creates and reopens repositories beneath one storage root.
