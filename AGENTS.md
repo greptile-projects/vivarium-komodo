@@ -70,8 +70,9 @@ whenever dependencies change or the web job fails before it starts.
   refs, `HEAD`, and the default branch; do not write reference files outside
   that boundary. Read-only smart HTTP is served at `/repositories/{ID}` by
   invoking stock `git upload-pack` against `Repository.GitDir`; stock clients
-  can discover and clone empty or populated repositories, including checkout of
-  the configured default branch. The API runtime therefore requires `git` on
+  can discover, clone, fetch, and pull empty or populated repositories,
+  including checkout and fast-forward updates of the configured default branch.
+  The API runtime therefore requires `git` on
   `PATH`. Repository data is rooted at
   `$REPOSITORY_ROOT`, defaulting to `apps/api/repositories` when started via the
   documented root command.

@@ -93,6 +93,71 @@ func TestGitCloneChecksOutPrimaryBranchWithReachableHistoryAndFiles(t *testing.T
 	}
 }
 
+func TestGitFetchAndPullAdvanceExistingWorkingCopy(t *testing.T) {
+	requireGit(t)
+	store, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := store.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	readmeID := writeObject(t, repository, storage.BlobObject, []byte("# Project\n"))
+	firstTreeID := writeObject(t, repository, storage.TreeObject, treeEntry("100644", "README.md", readmeID))
+	firstCommitID := writeCommit(t, repository, firstTreeID, nil, "Start project")
+	if err := repository.CreateReference(storage.Reference{Name: "refs/heads/main", ObjectID: firstCommitID}); err != nil {
+		t.Fatal(err)
+	}
+	server := gitServer(t, store)
+	clone := gitClone(t, server.URL+"/repositories/"+string(repository.ID()))
+
+	guideID := writeObject(t, repository, storage.BlobObject, []byte("Collaborate here.\n"))
+	secondTreeID := writeObject(t, repository, storage.TreeObject, append(
+		treeEntry("100644", "README.md", readmeID),
+		treeEntry("100644", "CONTRIBUTING.md", guideID)...,
+	))
+	secondCommitID := writeCommit(t, repository, secondTreeID, []storage.ObjectID{firstCommitID}, "Add contributor guide")
+	if err := repository.UpdateReference(storage.Reference{Name: "refs/heads/main", ObjectID: secondCommitID}); err != nil {
+		t.Fatal(err)
+	}
+
+	gitFails(t, clone, "cat-file", "-e", string(secondCommitID)+"^{commit}")
+	gitOutput(t, clone, "fetch", "origin")
+	if head := gitOutput(t, clone, "rev-parse", "HEAD"); head != string(firstCommitID) {
+		t.Fatalf("fetch changed checked-out HEAD to %s, want %s", head, firstCommitID)
+	}
+	if remoteHead := gitOutput(t, clone, "rev-parse", "origin/main"); remoteHead != string(secondCommitID) {
+		t.Fatalf("fetched origin/main = %s, want %s", remoteHead, secondCommitID)
+	}
+	gitOutput(t, clone, "cat-file", "-e", string(secondCommitID)+"^{commit}")
+	assertFile(t, filepath.Join(clone, "README.md"), "# Project\n", 0)
+	if _, err := os.Stat(filepath.Join(clone, "CONTRIBUTING.md")); !os.IsNotExist(err) {
+		t.Fatalf("fetch unexpectedly updated working tree: %v", err)
+	}
+
+	readmeID = writeObject(t, repository, storage.BlobObject, []byte("# Project\n\nReady for contributors.\n"))
+	thirdTreeID := writeObject(t, repository, storage.TreeObject, append(
+		treeEntry("100644", "README.md", readmeID),
+		treeEntry("100644", "CONTRIBUTING.md", guideID)...,
+	))
+	thirdCommitID := writeCommit(t, repository, thirdTreeID, []storage.ObjectID{secondCommitID}, "Welcome contributors")
+	if err := repository.UpdateReference(storage.Reference{Name: "refs/heads/main", ObjectID: thirdCommitID}); err != nil {
+		t.Fatal(err)
+	}
+
+	gitOutput(t, clone, "pull", "--ff-only")
+	if head := gitOutput(t, clone, "rev-parse", "HEAD"); head != string(thirdCommitID) {
+		t.Fatalf("pulled HEAD = %s, want %s", head, thirdCommitID)
+	}
+	if history := gitOutput(t, clone, "log", "--format=%s"); history != "Welcome contributors\nAdd contributor guide\nStart project" {
+		t.Fatalf("unexpected pulled history:\n%s", history)
+	}
+	assertFile(t, filepath.Join(clone, "README.md"), "# Project\n\nReady for contributors.\n", 0)
+	assertFile(t, filepath.Join(clone, "CONTRIBUTING.md"), "Collaborate here.\n", 0)
+}
+
 func TestGitLsRemoteSupportsEmptyRepository(t *testing.T) {
 	requireGit(t)
 	store, err := storage.New(t.TempDir())
@@ -183,6 +248,14 @@ func gitOutput(t *testing.T, directory string, arguments ...string) string {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(arguments, " "), err, output)
 	}
 	return strings.TrimSpace(string(output))
+}
+
+func gitFails(t *testing.T, directory string, arguments ...string) {
+	t.Helper()
+	command := exec.Command("git", append([]string{"-C", directory}, arguments...)...)
+	if output, err := command.CombinedOutput(); err == nil {
+		t.Fatalf("git %s unexpectedly succeeded:\n%s", strings.Join(arguments, " "), output)
+	}
 }
 
 func writeObject(t *testing.T, repository *storage.Repository, objectType storage.ObjectType, content []byte) storage.ObjectID {

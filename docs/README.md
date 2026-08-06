@@ -94,5 +94,8 @@ enumerates loose or packed references and, for a populated repository, reports
 symbolic `HEAD` as the configured default branch. Clone transfers the complete
 reachable object graph, checks out that branch, and preserves snapshot content
 and executable modes. Cloning an empty repository also succeeds and selects its
-unborn default branch, ready for an initial commit. Write operations are not yet
-served.
+unborn default branch, ready for an initial commit. Existing clones can fetch
+newly reachable objects and updated remote-tracking state, then fast-forward the
+checked-out primary branch with `git pull` without recloning. Upload-pack's
+negotiation limits that transfer to objects the client is missing. Write
+operations are not yet served.
