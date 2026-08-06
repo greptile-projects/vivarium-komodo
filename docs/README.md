@@ -28,3 +28,8 @@ Git's canonical header and content, and atomically stores the zlib-compressed
 loose object. `ReadObject` returns the exact type and content after verifying
 the canonical size and requested identity. These files are ordinary Git loose
 objects, so stock commands such as `git cat-file` can consume them directly.
+`ListObjects` discovers all loose objects, including unreachable objects and
+objects written by stock Git, and returns them in object-ID order with their
+verified identity, type, byte size, and exact content. Its results match
+`git cat-file --batch-all-objects` for repositories managed through this
+boundary.

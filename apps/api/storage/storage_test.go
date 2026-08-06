@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -89,6 +91,80 @@ func TestObjectErrorsAndIdempotentWrites(t *testing.T) {
 	}
 	if _, err := repository.ReadObject("0000000000000000000000000000000000000000"); !errors.Is(err, storage.ErrObjectNotFound) {
 		t.Fatalf("ReadObject returned %v, want ErrObjectNotFound", err)
+	}
+}
+
+func TestListObjectsMatchesGitBatchAllObjects(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+
+	store, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := store.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var objects storage.ObjectStore = repository
+
+	written := map[storage.ObjectID][]byte{}
+	for _, fixture := range []struct {
+		typeName storage.ObjectType
+		content  []byte
+	}{
+		{storage.BlobObject, nil},
+		{storage.BlobObject, []byte("unreachable platform object\n")},
+		{storage.CommitObject, []byte("tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\n")},
+	} {
+		id, err := objects.WriteObject(fixture.typeName, fixture.content)
+		if err != nil {
+			t.Fatal(err)
+		}
+		written[id] = fixture.content
+	}
+
+	gitContent := []byte("object written by stock Git\n")
+	command := exec.Command("git", "--git-dir="+repository.GitDir(), "hash-object", "-w", "--stdin")
+	command.Stdin = bytes.NewReader(gitContent)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git hash-object failed: %v\n%s", err, output)
+	}
+	gitID := storage.ObjectID(strings.TrimSpace(string(output)))
+	written[gitID] = gitContent
+
+	listed, err := objects.ListObjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != len(written) {
+		t.Fatalf("ListObjects returned %d objects, want %d", len(listed), len(written))
+	}
+	platformMetadata := make([]string, 0, len(listed))
+	for index, object := range listed {
+		if index > 0 && object.ID <= listed[index-1].ID {
+			t.Fatalf("objects are not ordered by ID: %s then %s", listed[index-1].ID, object.ID)
+		}
+		if object.Size != uint64(len(object.Content)) {
+			t.Fatalf("object %s reports size %d for %d bytes", object.ID, object.Size, len(object.Content))
+		}
+		if !bytes.Equal(object.Content, written[object.ID]) {
+			t.Fatalf("object %s content changed during enumeration", object.ID)
+		}
+		platformMetadata = append(platformMetadata, string(object.ID)+" "+string(object.Type)+" "+strconv.FormatUint(object.Size, 10))
+	}
+
+	command = exec.Command("git", "--git-dir="+repository.GitDir(), "cat-file", "--batch-all-objects", "--batch-check=%(objectname) %(objecttype) %(objectsize)")
+	output, err = command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git cat-file --batch-all-objects failed: %v\n%s", err, output)
+	}
+	gitMetadata := strings.FieldsFunc(strings.TrimSpace(string(output)), func(r rune) bool { return r == '\n' || r == '\r' })
+	sort.Strings(gitMetadata)
+	if strings.Join(platformMetadata, "\n") != strings.Join(gitMetadata, "\n") {
+		t.Fatalf("platform objects:\n%s\nGit objects:\n%s", strings.Join(platformMetadata, "\n"), strings.Join(gitMetadata, "\n"))
 	}
 }
 
