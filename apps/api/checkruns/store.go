@@ -3,6 +3,7 @@ package checkruns
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -28,6 +29,31 @@ type Definition struct {
 	WorkingDirectory string            `json:"working_directory,omitempty"`
 	TimeoutSeconds   int               `json:"timeout_seconds"`
 	Environment      map[string]string `json:"environment,omitempty"`
+	Artifacts        []string          `json:"artifacts,omitempty"`
+}
+
+type Event struct {
+	Sequence  int64           `json:"sequence"`
+	Type      string          `json:"type"`
+	Timestamp time.Time       `json:"timestamp"`
+	Status    State           `json:"status,omitempty"`
+	Stream    string          `json:"stream,omitempty"`
+	Message   string          `json:"message,omitempty"`
+	Outcome   *CommandOutcome `json:"outcome,omitempty"`
+	Artifact  *Artifact       `json:"artifact,omitempty"`
+}
+
+type CommandOutcome struct {
+	ExitCode int  `json:"exit_code"`
+	TimedOut bool `json:"timed_out"`
+}
+
+type Artifact struct {
+	ID        string `json:"id"`
+	Path      string `json:"path"`
+	Size      int64  `json:"size"`
+	SHA256    string `json:"sha256"`
+	MediaType string `json:"media_type"`
 }
 
 type Run struct {
@@ -42,6 +68,7 @@ type Run struct {
 	CreatedAt     time.Time  `json:"created_at"`
 	StartedAt     *time.Time `json:"started_at,omitempty"`
 	CompletedAt   *time.Time `json:"completed_at,omitempty"`
+	Events        []Event    `json:"events"`
 }
 
 type Store struct {
@@ -71,7 +98,9 @@ func (s *Store) Create(repositoryID, pullRequestID, commitID string, definition 
 	if _, err := rand.Read(idBytes); err != nil {
 		return Run{}, err
 	}
-	run := Run{ID: hex.EncodeToString(idBytes), RepositoryID: repositoryID, PullRequestID: pullRequestID, CommitID: commitID, Definition: definition, State: Queued, CreatedAt: s.now().UTC()}
+	now := s.now().UTC()
+	run := Run{ID: hex.EncodeToString(idBytes), RepositoryID: repositoryID, PullRequestID: pullRequestID, CommitID: commitID, Definition: definition, State: Queued, CreatedAt: now}
+	run.Events = []Event{{Sequence: 1, Type: "status", Timestamp: now, Status: Queued}}
 	return run, s.write(run)
 }
 
@@ -84,10 +113,38 @@ func (s *Store) Start(id string) (Run, error) {
 	}
 	now := s.now().UTC()
 	run.State, run.StartedAt = Running, &now
+	run.append(Event{Type: "status", Timestamp: now, Status: Running})
 	return run, s.write(run)
 }
 
-func (s *Store) Complete(id string, exitCode int, message string) (Run, error) {
+func (s *Store) AppendLog(id, stream, message string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run, err := s.read(id)
+	if err != nil {
+		return err
+	}
+	if stream != "stdout" && stream != "stderr" {
+		return errors.New("invalid log stream")
+	}
+	const maximumLogBytes = 10 << 20
+	used := 0
+	for _, event := range run.Events {
+		if event.Type == "log" {
+			used += len(event.Message)
+		}
+	}
+	if used >= maximumLogBytes {
+		return nil
+	}
+	if len(message) > maximumLogBytes-used {
+		message = message[:maximumLogBytes-used]
+	}
+	run.append(Event{Type: "log", Timestamp: s.now().UTC(), Stream: stream, Message: message})
+	return s.write(run)
+}
+
+func (s *Store) Complete(id string, exitCode int, timedOut bool, message string) (Run, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	run, err := s.read(id)
@@ -96,12 +153,69 @@ func (s *Store) Complete(id string, exitCode int, message string) (Run, error) {
 	}
 	now := s.now().UTC()
 	run.ExitCode, run.CompletedAt, run.Error = &exitCode, &now, message
+	run.append(Event{Type: "command", Timestamp: now, Outcome: &CommandOutcome{ExitCode: exitCode, TimedOut: timedOut}})
 	if exitCode == 0 {
 		run.State = Succeeded
 	} else {
 		run.State = Failed
 	}
+	run.append(Event{Type: "status", Timestamp: now, Status: run.State, Message: message})
 	return run, s.write(run)
+}
+
+func (s *Store) AddArtifact(id, path, mediaType string, content []byte) (Artifact, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run, err := s.read(id)
+	if err != nil {
+		return Artifact{}, err
+	}
+	contentDigest := sha256.Sum256(content)
+	identity := sha256.New()
+	_, _ = identity.Write([]byte(path))
+	_, _ = identity.Write([]byte{0})
+	_, _ = identity.Write(content)
+	artifact := Artifact{ID: hex.EncodeToString(identity.Sum(nil)), Path: path, Size: int64(len(content)), SHA256: hex.EncodeToString(contentDigest[:]), MediaType: mediaType}
+	dir := filepath.Join(s.root, "artifacts", id)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return Artifact{}, err
+	}
+	if err := os.WriteFile(filepath.Join(dir, artifact.ID), content, 0o640); err != nil {
+		return Artifact{}, err
+	}
+	run.append(Event{Type: "artifact", Timestamp: s.now().UTC(), Artifact: &artifact})
+	return artifact, s.write(run)
+}
+
+func (s *Store) Get(repositoryID, pullRequestID, id string) (Run, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run, err := s.read(id)
+	if err == nil && (run.RepositoryID != repositoryID || run.PullRequestID != pullRequestID) {
+		err = os.ErrNotExist
+	}
+	return run, err
+}
+
+func (s *Store) OpenArtifact(repositoryID, pullRequestID, runID, artifactID string) (Artifact, *os.File, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run, err := s.read(runID)
+	if err != nil || run.RepositoryID != repositoryID || run.PullRequestID != pullRequestID {
+		return Artifact{}, nil, os.ErrNotExist
+	}
+	for _, event := range run.Events {
+		if event.Artifact != nil && event.Artifact.ID == artifactID {
+			file, err := os.Open(filepath.Join(s.root, "artifacts", runID, artifactID))
+			return *event.Artifact, file, err
+		}
+	}
+	return Artifact{}, nil, os.ErrNotExist
+}
+
+func (r *Run) append(event Event) {
+	event.Sequence = int64(len(r.Events) + 1)
+	r.Events = append(r.Events, event)
 }
 
 func (s *Store) List(repositoryID, pullRequestID string) ([]Run, error) {
