@@ -28,6 +28,10 @@ type gitRepositoryStore interface {
 	Open(storage.ID) (*storage.Repository, error)
 }
 
+type repositoryCollaboratorStore interface {
+	IsCollaborator(storage.ID, string) (bool, error)
+}
+
 func registerGitHTTP(mux *http.ServeMux, repositoryStore gitRepositoryStore, credentials credentialAuthenticator) {
 	mux.HandleFunc("GET /repositories/{repository}/info/refs", advertiseRepository(repositoryStore, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/git-upload-pack", uploadPack(repositoryStore, credentials))
@@ -45,7 +49,7 @@ func advertiseRepository(repositoryStore gitRepositoryStore, credentials credent
 		if service == receivePackService {
 			scope = auth.GitWrite
 		}
-		repository, ok := authorizeGitRepository(w, r, repositoryStore, credentials, scope)
+		repository, _, ok := authorizeGitRepository(w, r, repositoryStore, credentials, scope)
 		if !ok {
 			return
 		}
@@ -66,7 +70,7 @@ func advertiseRepository(repositoryStore gitRepositoryStore, credentials credent
 
 func uploadPack(repositoryStore gitRepositoryStore, credentials credentialAuthenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		repository, ok := authorizeGitRepository(w, r, repositoryStore, credentials, auth.GitRead)
+		repository, _, ok := authorizeGitRepository(w, r, repositoryStore, credentials, auth.GitRead)
 		if !ok {
 			return
 		}
@@ -88,7 +92,7 @@ func uploadPack(repositoryStore gitRepositoryStore, credentials credentialAuthen
 
 func receivePack(repositoryStore gitRepositoryStore, credentials credentialAuthenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		repository, ok := authorizeGitRepository(w, r, repositoryStore, credentials, auth.GitWrite)
+		repository, owner, ok := authorizeGitRepository(w, r, repositoryStore, credentials, auth.GitWrite)
 		if !ok {
 			return
 		}
@@ -96,7 +100,12 @@ func receivePack(repositoryStore gitRepositoryStore, credentials credentialAuthe
 			http.Error(w, "unsupported media type", http.StatusUnsupportedMediaType)
 			return
 		}
-		result, err := runGitService(r, repository, receivePackService)
+		defaultBranch, err := repository.DefaultBranch()
+		if err != nil {
+			http.Error(w, "could not read repository state", http.StatusInternalServerError)
+			return
+		}
+		result, err := runGitServiceWithPolicy(r, repository, receivePackService, owner, string(defaultBranch))
 		if err != nil {
 			http.Error(w, "could not update repository state", http.StatusBadRequest)
 			return
@@ -107,42 +116,58 @@ func receivePack(repositoryStore gitRepositoryStore, credentials credentialAuthe
 	}
 }
 
-func authorizeGitRepository(w http.ResponseWriter, r *http.Request, store gitRepositoryStore, credentials credentialAuthenticator, scope auth.Scope) (*storage.Repository, bool) {
+func authorizeGitRepository(w http.ResponseWriter, r *http.Request, store gitRepositoryStore, credentials credentialAuthenticator, scope auth.Scope) (*storage.Repository, bool, bool) {
 	item, err := store.Inspect(storage.ID(r.PathValue("repository")))
 	if errors.Is(err, repositories.ErrNotFound) || errors.Is(err, storage.ErrInvalidID) || errors.Is(err, storage.ErrNotFound) {
 		http.NotFound(w, nil)
-		return nil, false
+		return nil, false, false
 	}
 	if err != nil {
 		http.Error(w, "could not open repository", http.StatusInternalServerError)
-		return nil, false
+		return nil, false, false
 	}
 	actor, authenticated, valid := authenticateGitOptional(w, r, credentials, scope)
 	if !valid {
-		return nil, false
+		return nil, false, false
 	}
 	read := scope == auth.GitRead
 	if !authenticated && (!read || item.Visibility != repositories.Public) {
 		writeGitUnauthenticated(w)
-		return nil, false
+		return nil, false, false
 	}
-	if authenticated && actor.UserID != item.OwnerID && (!read || item.Visibility != repositories.Public) {
+	owner := authenticated && actor.UserID == item.OwnerID
+	collaborator := false
+	if authenticated && !owner {
+		collaborators, supported := store.(repositoryCollaboratorStore)
+		if supported {
+			collaborator, err = collaborators.IsCollaborator(item.ID, actor.UserID)
+		}
+		if err != nil {
+			http.Error(w, "could not authorize repository", http.StatusInternalServerError)
+			return nil, false, false
+		}
+	}
+	if authenticated && !owner && !collaborator && (!read || item.Visibility != repositories.Public) {
 		http.NotFound(w, nil)
-		return nil, false
+		return nil, false, false
 	}
 	repository, err := store.Open(item.ID)
 	if err != nil {
 		http.Error(w, "could not open repository", http.StatusInternalServerError)
-		return nil, false
+		return nil, false, false
 	}
-	return repository, true
+	return repository, owner, true
 }
 
 func runGitService(r *http.Request, repository *storage.Repository, service string, arguments ...string) ([]byte, error) {
+	return runGitServiceWithPolicy(r, repository, service, true, "", arguments...)
+}
+
+func runGitServiceWithPolicy(r *http.Request, repository *storage.Repository, service string, owner bool, defaultBranch string, arguments ...string) ([]byte, error) {
 	commandName := strings.TrimPrefix(service, "git-")
 	commandArguments := []string{}
 	if service == receivePackService && len(arguments) == 0 {
-		hooksDirectory, err := receiveHooks()
+		hooksDirectory, err := receiveHooks(owner, defaultBranch)
 		if err != nil {
 			return nil, err
 		}
@@ -174,12 +199,12 @@ func runGitService(r *http.Request, repository *storage.Repository, service stri
 	return output.Bytes(), nil
 }
 
-func receiveHooks() (string, error) {
+func receiveHooks(owner bool, defaultBranch string) (string, error) {
 	directory, err := os.MkdirTemp("", "git-receive-hooks-")
 	if err != nil {
 		return "", fmt.Errorf("create receive hooks: %w", err)
 	}
-	const hook = `#!/bin/sh
+	hook := `#!/bin/sh
 while read old new ref
 do
 	case "$ref" in
@@ -189,6 +214,16 @@ do
 			exit 1
 			;;
 	esac
+`
+	if !owner {
+		hook += `
+	if [ "$ref" = "` + defaultBranch + `" ]; then
+		echo "contributors cannot update the default branch" >&2
+		exit 1
+	fi
+`
+	}
+	hook += `
 done
 `
 	if err := os.WriteFile(filepath.Join(directory, "pre-receive"), []byte(hook), 0o700); err != nil {

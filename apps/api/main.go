@@ -52,6 +52,7 @@ func main() {
 	})
 	registerGitHTTP(mux, repositoryCatalog, credentials)
 	registerRepositoriesHTTP(mux, repositoryCatalog, credentials)
+	registerCollaboratorsHTTP(mux, repositoryCatalog, userStore, credentials)
 	registerUsersHTTP(mux, userStore, credentials)
 	registerAuthHTTP(mux, credentials, userStore)
 
