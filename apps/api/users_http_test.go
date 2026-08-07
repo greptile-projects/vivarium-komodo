@@ -50,6 +50,11 @@ func TestUserHTTPAccountLifecycle(t *testing.T) {
 	if got != created {
 		t.Fatalf("got %#v, want %#v", got, created)
 	}
+	byHandleResponse := httptest.NewRecorder()
+	mux.ServeHTTP(byHandleResponse, httptest.NewRequest(http.MethodGet, "/users/by-handle/OCTOCAT", nil))
+	if byHandleResponse.Code != http.StatusOK || byHandleResponse.Header().Get("Content-Location") != "/users/"+string(created.ID) {
+		t.Fatalf("handle lookup = %d, %q", byHandleResponse.Code, byHandleResponse.Header().Get("Content-Location"))
+	}
 
 	loginResponse := httptest.NewRecorder()
 	mux.ServeHTTP(loginResponse, httptest.NewRequest(http.MethodPost, "/sessions", strings.NewReader(`{"handle":"octocat","password":"correct horse battery staple"}`)))

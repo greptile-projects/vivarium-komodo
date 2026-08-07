@@ -139,11 +139,17 @@ func listAccessGrants(credentials authStore) http.HandlerFunc {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
+		page, perPage, ok := readPagination(w, r)
+		if !ok {
+			return
+		}
+		total := len(grants)
+		grants = paginate(grants, page, perPage)
 		output := make([]map[string]any, len(grants))
 		for i, grant := range grants {
 			output[i] = grantResponse(grant, "")
 		}
-		writeJSON(w, 200, output)
+		writeJSON(w, 200, map[string]any{"items": output, "page": page, "per_page": perPage, "total_count": total})
 	}
 }
 func revokeAccessGrant(credentials authStore) http.HandlerFunc {

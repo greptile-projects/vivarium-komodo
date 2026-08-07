@@ -13,13 +13,27 @@ import (
 type userStore interface {
 	Create(users.Profile) (users.User, error)
 	Get(users.ID) (users.User, error)
+	FindByHandle(string) (users.User, error)
 	Update(users.ID, users.Profile) (users.User, error)
 }
 
 func registerUsersHTTP(mux *http.ServeMux, store userStore, credentials authStore) {
 	mux.HandleFunc("POST /users", createUser(store, credentials))
 	mux.HandleFunc("GET /users/{user}", getUser(store))
+	mux.HandleFunc("GET /users/by-handle/{handle}", getUserByHandle(store))
 	mux.HandleFunc("PUT /users/{user}", updateUser(store, credentials))
+}
+
+func getUserByHandle(store userStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, err := store.FindByHandle(r.PathValue("handle"))
+		if err != nil {
+			writeUserError(w, err)
+			return
+		}
+		w.Header().Set("Content-Location", "/users/"+string(user.ID))
+		writeJSON(w, http.StatusOK, user)
+	}
 }
 
 func createUser(store userStore, credentials authStore) http.HandlerFunc {

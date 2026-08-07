@@ -108,6 +108,12 @@ whenever dependencies change or the web job fails before it starts.
   to the owner. Authenticated non-owners receive `404` for denied repository
   access. Route Git through the catalog as well as storage so transport access
   cannot bypass ownership and visibility policy.
+  Public repository resources also carry an owner-scoped normalized name,
+  description, and create/update timestamps; their immutable ID remains the
+  API and Git transport identity. Repository and access-grant collections use
+  the shared `items`/`page`/`per_page`/`total_count` pagination envelope (30 by
+  default, 100 maximum). Public handles resolve through
+  `/users/by-handle/{handle}` while canonical user resources remain ID-based.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 

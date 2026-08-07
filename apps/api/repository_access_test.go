@@ -21,11 +21,11 @@ func TestRepositoryAccessIsConsistentAcrossAPIAndGit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	privateRepository, err := catalog.Create("owner", repositories.Private)
+	privateRepository, err := catalog.Create("owner", repositories.Metadata{Name: "private", Visibility: repositories.Private})
 	if err != nil {
 		t.Fatal(err)
 	}
-	publicRepository, err := catalog.Create("owner", repositories.Public)
+	publicRepository, err := catalog.Create("owner", repositories.Metadata{Name: "public", Visibility: repositories.Public})
 	if err != nil {
 		t.Fatal(err)
 	}

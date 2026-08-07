@@ -28,6 +28,8 @@ The account contract is:
   of 12 to 72 bytes, returning
   `201 Created` and its canonical `Location`;
 - `GET /users/{id}` inspects the stable identity and current profile;
+- `GET /users/by-handle/{handle}` resolves a case-insensitive public handle and
+  identifies its canonical `/users/{id}` resource through `Content-Location`;
 - `PUT /users/{id}` replaces the mutable profile while retaining `id` and
   `created_at`; it requires that user's `profile:write` access.
 
@@ -71,8 +73,10 @@ credential helper rather than embedding it in a remote URL.
 Application repository metadata lives beneath `$REPOSITORY_CATALOG_ROOT`, or
 `apps/api/data/repositories` by default, and is managed through the
 `apps/api/repositories` boundary. Each resource records its immutable opaque
-repository ID, immutable owner user ID, `private` or `public` visibility,
-creation time, and current empty state. Repositories are private by default;
+repository ID, immutable owner user ID, owner-scoped normalized name, optional
+description of at most 280 characters, `private` or `public` visibility,
+creation and update times, and current empty state. Names may contain lowercase
+letters, numbers, `.`, `_`, and `-`. Repositories are private by default;
 catalog records written before visibility existed are also interpreted as
 private.
 The catalog delegates bare repository creation, inspection, and deletion to
@@ -81,14 +85,15 @@ directories themselves.
 
 The authenticated JSON contract is:
 
-- `POST /repositories` creates an empty private repository for the current
-  actor, or accepts `{"visibility":"public"}`, and requires
+- `POST /repositories` creates a named empty repository from `name`, optional
+  `description`, and optional `visibility` (private by default), and requires
   `repository:write`;
 - `GET /repositories` lists only the current actor's repositories and requires
   `repository:read`;
 - `GET /repositories/{id}` inspects a repository; public resources are
   anonymous while private resources require their owner's `repository:read`;
-- `PATCH /repositories/{id}` changes `visibility` and requires the owner's
+- `PATCH /repositories/{id}` partially changes `name`, `description`, or
+  `visibility` and requires the owner's
   `repository:write`;
 - `DELETE /repositories/{id}` removes an owned repository and all of its Git
   data and requires `repository:write`.
@@ -100,6 +105,13 @@ disclosed; anonymous private reads receive `401`. The `id`, canonical API path, 
 `git_url` all use the same storage identity. The returned relative Git URL can
 be resolved against the API origin and used immediately with a Git access
 token.
+
+Collection endpoints (`GET /repositories` and `GET /access-grants`) return an
+envelope containing `items`, `page`, `per_page`, and `total_count`. They accept
+positive `page` and `per_page` query parameters, default to 1 and 30, and cap
+`per_page` at 100. Invalid pagination returns `invalid_pagination` with status
+`422`. Validation and conflict responses consistently expose stable
+machine-readable `error` codes.
 
 ## Git repository storage
 
