@@ -11,23 +11,35 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
 
 const uploadPackService = "git-upload-pack"
 const receivePackService = "git-receive-pack"
 
-func registerGitHTTP(mux *http.ServeMux, repositories storage.RepositoryStore) {
-	mux.HandleFunc("GET /repositories/{repository}/info/refs", advertiseRepository(repositories))
-	mux.HandleFunc("POST /repositories/{repository}/git-upload-pack", uploadPack(repositories))
-	mux.HandleFunc("POST /repositories/{repository}/git-receive-pack", receivePack(repositories))
+type credentialAuthenticator interface {
+	Authenticate(string, auth.Scope) (auth.Grant, error)
 }
 
-func advertiseRepository(repositories storage.RepositoryStore) http.HandlerFunc {
+func registerGitHTTP(mux *http.ServeMux, repositories storage.RepositoryStore, credentials credentialAuthenticator) {
+	mux.HandleFunc("GET /repositories/{repository}/info/refs", advertiseRepository(repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/git-upload-pack", uploadPack(repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/git-receive-pack", receivePack(repositories, credentials))
+}
+
+func advertiseRepository(repositories storage.RepositoryStore, credentials credentialAuthenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		service := r.URL.Query().Get("service")
 		if service != uploadPackService && service != receivePackService {
 			http.Error(w, "unsupported Git service", http.StatusBadRequest)
+			return
+		}
+		scope := auth.GitRead
+		if service == receivePackService {
+			scope = auth.GitWrite
+		}
+		if !authenticateGit(w, r, credentials, scope) {
 			return
 		}
 		repository, ok := openRepository(w, repositories, r.PathValue("repository"))
@@ -49,8 +61,11 @@ func advertiseRepository(repositories storage.RepositoryStore) http.HandlerFunc 
 	}
 }
 
-func uploadPack(repositories storage.RepositoryStore) http.HandlerFunc {
+func uploadPack(repositories storage.RepositoryStore, credentials credentialAuthenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !authenticateGit(w, r, credentials, auth.GitRead) {
+			return
+		}
 		if contentType := r.Header.Get("Content-Type"); contentType != "application/x-git-upload-pack-request" {
 			http.Error(w, "unsupported media type", http.StatusUnsupportedMediaType)
 			return
@@ -71,8 +86,11 @@ func uploadPack(repositories storage.RepositoryStore) http.HandlerFunc {
 	}
 }
 
-func receivePack(repositories storage.RepositoryStore) http.HandlerFunc {
+func receivePack(repositories storage.RepositoryStore, credentials credentialAuthenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !authenticateGit(w, r, credentials, auth.GitWrite) {
+			return
+		}
 		if contentType := r.Header.Get("Content-Type"); contentType != "application/x-git-receive-pack-request" {
 			http.Error(w, "unsupported media type", http.StatusUnsupportedMediaType)
 			return

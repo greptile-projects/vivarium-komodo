@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
 
@@ -295,6 +298,52 @@ func TestGitLsRemoteSupportsEmptyRepository(t *testing.T) {
 	}
 }
 
+func TestGitHTTPRequiresTheServiceSpecificScopeAndHonorsRevocation(t *testing.T) {
+	repositories, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := repositories.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials, err := auth.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	issued, err := credentials.Issue("actor", "read-only clone", auth.Git, []auth.Scope{auth.GitRead}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	registerGitHTTP(mux, repositories, credentials)
+	path := "/repositories/" + string(repository.ID()) + "/info/refs"
+	request := func(service string, authenticated bool) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, path+"?service="+service, nil)
+		if authenticated {
+			r.SetBasicAuth("git", issued.Token)
+		}
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		return w
+	}
+	if response := request(uploadPackService, false); response.Code != http.StatusUnauthorized || response.Header().Get("WWW-Authenticate") == "" {
+		t.Fatalf("anonymous response = %d, %q", response.Code, response.Header().Get("WWW-Authenticate"))
+	}
+	if response := request(uploadPackService, true); response.Code != http.StatusOK {
+		t.Fatalf("read response = %d: %s", response.Code, response.Body.String())
+	}
+	if response := request(receivePackService, true); response.Code != http.StatusUnauthorized {
+		t.Fatalf("write response with read token = %d", response.Code)
+	}
+	if _, err := credentials.Revoke("actor", issued.ID); err != nil {
+		t.Fatal(err)
+	}
+	if response := request(uploadPackService, true); response.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked response = %d", response.Code)
+	}
+}
+
 func TestGitLsRemoteAdvertisesPopulatedRepositoryAndDefaultBranch(t *testing.T) {
 	requireGit(t)
 	store, err := storage.New(t.TempDir())
@@ -328,9 +377,23 @@ func TestGitLsRemoteAdvertisesPopulatedRepositoryAndDefaultBranch(t *testing.T) 
 
 func gitServer(t *testing.T, store storage.RepositoryStore) *httptest.Server {
 	t.Helper()
+	credentials, err := auth.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	issued, err := credentials.Issue("test-user", "Git test", auth.Git, []auth.Scope{auth.GitRead, auth.GitWrite}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
 	mux := http.NewServeMux()
-	registerGitHTTP(mux, store)
+	registerGitHTTP(mux, store, credentials)
 	server := httptest.NewServer(mux)
+	parsed, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed.User = url.UserPassword("git", issued.Token)
+	server.URL = parsed.String()
 	t.Cleanup(server.Close)
 	return server
 }

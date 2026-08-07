@@ -95,6 +95,33 @@ func (s *Store) Get(id ID) (User, error) {
 	return s.read(id)
 }
 
+// FindByHandle resolves the case-normalized sign-in name to its stable actor.
+func (s *Store) FindByHandle(handle string) (User, error) {
+	handle = strings.ToLower(strings.TrimSpace(handle))
+	if !handlePattern.MatchString(handle) {
+		return User{}, ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := os.ReadDir(s.root)
+	if err != nil {
+		return User{}, fmt.Errorf("list users: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		user, err := s.read(ID(strings.TrimSuffix(entry.Name(), ".json")))
+		if err != nil {
+			return User{}, err
+		}
+		if user.Handle == handle {
+			return user, nil
+		}
+	}
+	return User{}, ErrNotFound
+}
+
 func (s *Store) Update(id ID, profile Profile) (User, error) {
 	if !validID(id) {
 		return User{}, ErrInvalidID
