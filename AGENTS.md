@@ -106,9 +106,13 @@ whenever dependencies change or the web job fails before it starts.
   creating or deleting storage repositories directly. Repositories are private
   by default and may be made public. Public reads are anonymous across JSON and
   Git; private reads, every write, visibility changes, and deletion are limited
-  to the owner. Authenticated non-owners receive `404` for denied repository
-  access. Route Git through the catalog as well as storage so transport access
-  cannot bypass ownership and visibility policy.
+  to the owner unless the owner grants a user the repository's contributor
+  role. Contributors can read private repository metadata and Git data and may
+  publish non-default candidate branches, but cannot update the default branch
+  or exercise metadata, visibility, deletion, or access-management powers.
+  Authenticated non-participants receive `404` for denied repository access.
+  Route Git through the catalog as well as storage so transport access cannot
+  bypass ownership, collaborator, and visibility policy.
   Public repository resources also carry an owner-scoped normalized name,
   description, and create/update timestamps; their immutable ID remains the
   API and Git transport identity. Repository and access-grant collections use

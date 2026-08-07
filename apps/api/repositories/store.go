@@ -34,14 +34,71 @@ const (
 )
 
 type Repository struct {
-	ID          storage.ID `json:"id"`
-	OwnerID     string     `json:"owner_id"`
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	Visibility  Visibility `json:"visibility"`
-	Empty       bool       `json:"empty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID              storage.ID `json:"id"`
+	OwnerID         string     `json:"owner_id"`
+	Name            string     `json:"name"`
+	Description     string     `json:"description"`
+	Visibility      Visibility `json:"visibility"`
+	Empty           bool       `json:"empty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	CollaboratorIDs []string   `json:"collaborator_ids,omitempty"`
+}
+
+func (s *Store) AddCollaborator(ownerID string, id storage.ID, userID string) (Repository, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(id)
+	if err != nil || item.OwnerID != ownerID {
+		return Repository{}, ErrNotFound
+	}
+	if userID == "" || userID == ownerID {
+		return Repository{}, ErrInvalidRepository
+	}
+	for _, existing := range item.CollaboratorIDs {
+		if existing == userID {
+			return item, nil
+		}
+	}
+	item.CollaboratorIDs = append(item.CollaboratorIDs, userID)
+	sort.Strings(item.CollaboratorIDs)
+	item.UpdatedAt = s.now().UTC()
+	if err := s.write(item); err != nil {
+		return Repository{}, err
+	}
+	return item, nil
+}
+
+func (s *Store) RemoveCollaborator(ownerID string, id storage.ID, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(id)
+	if err != nil || item.OwnerID != ownerID {
+		return ErrNotFound
+	}
+	for i, existing := range item.CollaboratorIDs {
+		if existing == userID {
+			item.CollaboratorIDs = append(item.CollaboratorIDs[:i], item.CollaboratorIDs[i+1:]...)
+			item.UpdatedAt = s.now().UTC()
+			return s.write(item)
+		}
+	}
+	return ErrNotFound
+}
+
+func (s *Store) IsCollaborator(id storage.ID, userID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(id)
+	if err != nil {
+		return false, err
+	}
+	for _, existing := range item.CollaboratorIDs {
+		if existing == userID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 type Metadata struct {

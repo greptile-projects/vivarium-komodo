@@ -16,6 +16,7 @@ type ownedRepositoryStore interface {
 	List(string) ([]repositories.Repository, error)
 	Update(string, storage.ID, repositories.Metadata) (repositories.Repository, error)
 	Delete(string, storage.ID) error
+	IsCollaborator(storage.ID, string) (bool, error)
 }
 
 func registerRepositoriesHTTP(mux *http.ServeMux, store ownedRepositoryStore, credentials authStore) {
@@ -101,7 +102,15 @@ func getRepository(store ownedRepositoryStore, credentials authStore) http.Handl
 			writeUnauthenticated(w, "Bearer", "komodo")
 			return
 		}
-		if item.Visibility != repositories.Public && authenticated && actor.UserID != item.OwnerID {
+		collaborator := false
+		if authenticated && actor.UserID != item.OwnerID {
+			collaborator, err = store.IsCollaborator(item.ID, actor.UserID)
+			if err != nil {
+				writeRepositoryError(w, err)
+				return
+			}
+		}
+		if item.Visibility != repositories.Public && authenticated && actor.UserID != item.OwnerID && !collaborator {
 			writeJSON(w, 404, map[string]string{"error": "not_found"})
 			return
 		}

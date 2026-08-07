@@ -113,6 +113,26 @@ positive `page` and `per_page` query parameters, default to 1 and 30, and cap
 `422`. Validation and conflict responses consistently expose stable
 machine-readable `error` codes.
 
+## Repository collaborators
+
+A repository owner can grant an existing user the single `contributor` role.
+Membership is durable repository metadata and is managed only by the owner:
+
+- `PUT /repositories/{id}/collaborators/{user_id}` grants contributor access
+  idempotently and returns the user's current public profile plus role;
+- `GET /repositories/{id}/collaborators` lists contributors with the shared
+  bounded pagination envelope;
+- `DELETE /repositories/{id}/collaborators/{user_id}` revokes access
+  immediately.
+
+These endpoints require repository API scopes in addition to ownership (`read`
+for listing and `write` for changes). A contributor with `repository:read` may
+inspect a private repository by ID, but repository collections remain
+owner-specific. Contributors cannot change repository metadata or visibility,
+delete the repository, inspect or manage its collaborator list, or grant access
+to anyone else. Denied authenticated users receive the same `404` response as
+an unknown repository.
+
 ## Git repository storage
 
 `apps/api/storage` is the repository lifecycle boundary. A store owns one root
@@ -191,13 +211,17 @@ and invoking stock Git against the handle's `GitDir`. `git` must therefore be
 available on the API process's `PATH`.
 
 Upload-pack discovery and exchange are anonymous for public repositories.
-Private repository reads require the owner's Git access token with `git:read`.
-Receive-pack discovery and exchange always require the owner's token with
-`git:write`, regardless of visibility. A valid but non-owner credential receives
-the same non-disclosing `404` as the JSON interface; missing credentials receive
-`401` when authentication is required. This allows a public clone to need no
-credential and a private clone or pull credential to omit write authority,
-while a publishing credential may be short-lived and independently revoked.
+Private repository reads require an owner or contributor Git access token with
+`git:read`. Receive-pack discovery and exchange require an owner or contributor
+token with `git:write`, regardless of visibility. Contributors may create,
+advance, force-update, and delete candidate branches, but a pre-receive policy
+rejects every contributor update to the repository's default branch. Only the
+owner controls that maintained branch. A valid credential belonging to neither
+an owner nor contributor receives the same non-disclosing `404` as the JSON
+interface; missing credentials receive `401` when authentication is required.
+This allows a public clone to need no credential and a private clone or pull
+credential to omit write authority, while publishing access may be short-lived,
+independently revoked, and limited by repository membership.
 
 The server forwards Git's negotiated protocol version and emits the standard
 smart-HTTP media types and service preamble. This lets unmodified `git ls-remote`
