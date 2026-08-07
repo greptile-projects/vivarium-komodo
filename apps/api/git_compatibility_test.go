@@ -80,6 +80,74 @@ func TestStockGitCompletesSingleBranchWorkflow(t *testing.T) {
 	assertFile(t, filepath.Join(emptyClone, "README.md"), "# Reimagined project\n", 0)
 }
 
+// TestStockGitCompletesNamedBranchWorkflow is deliberately black-box after
+// repository provisioning. It proves candidate work can move independently of
+// the maintained default branch using only stock Git over smart HTTP.
+func TestStockGitCompletesNamedBranchWorkflow(t *testing.T) {
+	requireGit(t)
+	store, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := store.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := gitServer(t, store)
+	remote := server.URL + "/repositories/" + string(repository.ID())
+
+	publisher := gitClone(t, remote)
+	gitOutput(t, publisher, "config", "user.name", "Ada Lovelace")
+	gitOutput(t, publisher, "config", "user.email", "ada@example.com")
+	if err := os.WriteFile(filepath.Join(publisher, "README.md"), []byte("# Maintained\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	gitOutput(t, publisher, "add", "README.md")
+	gitOutput(t, publisher, "commit", "-m", "Establish maintained version")
+	mainCommit := gitOutput(t, publisher, "rev-parse", "HEAD")
+	gitOutput(t, publisher, "push", "--set-upstream", "origin", "main")
+
+	contributor := gitClone(t, remote)
+	gitOutput(t, publisher, "switch", "-c", "candidate/parser")
+	if err := os.WriteFile(filepath.Join(publisher, "candidate.txt"), []byte("first draft\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	gitOutput(t, publisher, "add", "candidate.txt")
+	gitOutput(t, publisher, "commit", "-m", "Publish candidate parser")
+	firstCandidate := gitOutput(t, publisher, "rev-parse", "HEAD")
+	gitOutput(t, publisher, "push", "--set-upstream", "origin", "candidate/parser")
+
+	if advertised := gitLsRemote(t, remote, remote, "refs/heads/*"); advertised != firstCandidate+"\trefs/heads/candidate/parser\n"+mainCommit+"\trefs/heads/main" {
+		t.Fatalf("branch advertisement = %q, want main and candidate/parser", advertised)
+	}
+	gitOutput(t, contributor, "fetch", "origin")
+	if fetched := gitOutput(t, contributor, "rev-parse", "refs/remotes/origin/candidate/parser"); fetched != firstCandidate {
+		t.Fatalf("fetched candidate = %s, want %s", fetched, firstCandidate)
+	}
+	gitOutput(t, contributor, "switch", "--track", "origin/candidate/parser")
+
+	if err := os.WriteFile(filepath.Join(publisher, "candidate.txt"), []byte("second draft\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	gitOutput(t, publisher, "commit", "-am", "Advance candidate parser")
+	secondCandidate := gitOutput(t, publisher, "rev-parse", "HEAD")
+	gitOutput(t, publisher, "push")
+	gitOutput(t, contributor, "pull", "--ff-only")
+	if head := gitOutput(t, contributor, "rev-parse", "HEAD"); head != secondCandidate {
+		t.Fatalf("updated candidate = %s, want %s", head, secondCandidate)
+	}
+	assertFile(t, filepath.Join(contributor, "candidate.txt"), "second draft\n", 0)
+	assertRemoteBranch(t, remote, mainCommit)
+
+	gitOutput(t, publisher, "push", "origin", ":candidate/parser")
+	if advertised := gitLsRemote(t, remote, remote, "refs/heads/candidate/parser"); advertised != "" {
+		t.Fatalf("deleted candidate advertisement = %q, want empty", advertised)
+	}
+	gitOutput(t, contributor, "fetch", "--prune", "origin")
+	gitFails(t, contributor, "rev-parse", "--verify", "refs/remotes/origin/candidate/parser")
+	assertRemoteBranch(t, remote, mainCommit)
+}
+
 func assertRemoteBranch(t *testing.T, remote, want string) {
 	t.Helper()
 	if advertised := gitLsRemote(t, remote, remote, "refs/heads/main"); advertised != want+"\trefs/heads/main" {

@@ -149,8 +149,8 @@ func runGitService(r *http.Request, repository *storage.Repository, service stri
 		defer os.RemoveAll(hooksDirectory)
 		// A receive command has no force flag: stock clients send a non-fast-forward
 		// update only after the user explicitly bypasses their local safety check.
-		// Keep HEAD symbolic when its branch is deleted so clones can select the
-		// same unborn primary branch and a later push can recreate it.
+		// Keep HEAD symbolic when the default branch is deleted so clones can select
+		// the same unborn branch and a later push can recreate it.
 		commandArguments = append(commandArguments,
 			"-c", "core.hooksPath="+hooksDirectory,
 			"-c", "receive.denyDeleteCurrent=ignore",
@@ -180,13 +180,15 @@ func receiveHooks() (string, error) {
 		return "", fmt.Errorf("create receive hooks: %w", err)
 	}
 	const hook = `#!/bin/sh
-primary=$(git symbolic-ref HEAD) || exit 1
 while read old new ref
 do
-	if [ "$ref" != "$primary" ]; then
-		echo "only the primary branch may be updated" >&2
-		exit 1
-	fi
+	case "$ref" in
+		refs/heads/*) ;;
+		*)
+			echo "only branches may be updated" >&2
+			exit 1
+			;;
+	esac
 done
 `
 	if err := os.WriteFile(filepath.Join(directory, "pre-receive"), []byte(hook), 0o700); err != nil {

@@ -208,25 +208,24 @@ reachable object graph, checks out that branch, and preserves snapshot content
 and executable modes. Cloning an empty repository also succeeds and selects its
 unborn default branch, ready for an initial commit. Existing clones can fetch
 newly reachable objects and updated remote-tracking state, then fast-forward the
-checked-out primary branch with `git pull` without recloning. Upload-pack's
-negotiation limits that transfer to objects the client is missing.
+checked-out branch with `git pull` without recloning. Upload-pack's negotiation
+limits that transfer to objects the client is missing. All named branches are
+advertised, so clients can discover them and create corresponding remote-tracking
+references during fetch.
 
 Write discovery and requests use the corresponding `git-receive-pack` smart
-HTTP endpoints. A stock client may create the configured primary branch in an
-empty repository, fast-forward it, explicitly force-update it, delete it, and
-recreate it. Git's receive protocol does not carry a force bit: an ordinary
-stock client refuses to send a non-fast-forward update, while `--force`
-explicitly bypasses that client-side check. The server accepts the resulting
-primary-branch command and permits deletion of the branch named by symbolic
-`HEAD`; keeping `HEAD` intact lets later clones select the same unborn branch.
-Receive policy rejects updates to every other ref. Validation runs while
-incoming objects remain in Git's quarantine, so a rejected push publishes
-neither its references nor its objects.
+HTTP endpoints. A stock client may create, fast-forward, explicitly force-update,
+and delete any named branch. Git's receive protocol does not carry a force bit:
+an ordinary stock client refuses to send a non-fast-forward update, while
+`--force` explicitly bypasses that client-side check. Deleting the branch named
+by symbolic `HEAD` keeps `HEAD` intact, letting later clones select the same
+unborn default branch and a later push recreate it. Receive policy rejects
+updates outside `refs/heads/*` while incoming objects remain quarantined.
 
 The API compatibility suite proves the complete workflow as one black-box
-session. After provisioning an empty repository, it uses only an unmodified
-Git client and the smart-HTTP URL to clone, create and push the initial branch,
-push and pull an ordinary update, force-update history, delete the branch, and
-recover it into an empty clone. Remote observations use `git ls-remote` or a
-fresh working copy rather than direct access to server-side references or
-objects.
+session. After provisioning an empty repository, it uses only an unmodified Git
+client and the smart-HTTP URL to exercise both the complete default-branch
+lifecycle and an independent candidate branch. Coverage includes branch
+discovery, fetch, creation, advancement, pull, force-update, deletion, and
+default-branch recovery. Remote observations use `git ls-remote` or a fresh
+working copy rather than direct access to server-side references or objects.

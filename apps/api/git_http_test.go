@@ -162,7 +162,7 @@ func TestGitFetchAndPullAdvanceExistingWorkingCopy(t *testing.T) {
 	assertFile(t, filepath.Join(clone, "CONTRIBUTING.md"), "Collaborate here.\n", 0)
 }
 
-func TestGitPushCompletesPrimaryBranchLifecycleWithoutPublishingRejectedObjects(t *testing.T) {
+func TestGitPushCompletesBranchLifecycle(t *testing.T) {
 	requireGit(t)
 	store, err := storage.New(t.TempDir())
 	if err != nil {
@@ -238,26 +238,23 @@ func TestGitPushCompletesPrimaryBranchLifecycleWithoutPublishingRejectedObjects(
 		t.Fatalf("pull after force push has head %s, want %s", head, advancedCommit)
 	}
 
-	objectsBeforeRejection, err := repository.ListObjects()
-	if err != nil {
-		t.Fatal(err)
-	}
 	gitOutput(t, workingCopy, "switch", "-c", "topic")
-	if err := os.WriteFile(filepath.Join(workingCopy, "PRIVATE.md"), []byte("not published\n"), 0o640); err != nil {
+	if err := os.WriteFile(filepath.Join(workingCopy, "TOPIC.md"), []byte("candidate work\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	gitOutput(t, workingCopy, "add", "PRIVATE.md")
-	gitOutput(t, workingCopy, "commit", "-m", "Rejected topic")
-	rejectedCommit := gitOutput(t, workingCopy, "rev-parse", "HEAD")
-	gitFails(t, workingCopy, "push", "origin", "topic")
-	objectsAfterRejection, err := repository.ListObjects()
-	if err != nil {
-		t.Fatal(err)
+	gitOutput(t, workingCopy, "add", "TOPIC.md")
+	gitOutput(t, workingCopy, "commit", "-m", "Publish topic")
+	topicCommit := gitOutput(t, workingCopy, "rev-parse", "HEAD")
+	gitOutput(t, workingCopy, "push", "origin", "topic")
+	if remoteTopic := gitOutput(t, repository.GitDir(), "rev-parse", "refs/heads/topic"); remoteTopic != topicCommit {
+		t.Fatalf("pushed topic head = %s, want %s", remoteTopic, topicCommit)
 	}
-	if len(objectsAfterRejection) != len(objectsBeforeRejection) {
-		t.Fatalf("rejected push changed object count from %d to %d", len(objectsBeforeRejection), len(objectsAfterRejection))
-	}
-	gitFails(t, repository.GitDir(), "cat-file", "-e", rejectedCommit+"^{commit}")
+	gitOutput(t, workingCopy, "push", "origin", ":topic")
+	gitFails(t, repository.GitDir(), "rev-parse", "--verify", "refs/heads/topic")
+	gitOutput(t, workingCopy, "tag", "-a", "candidate-release", "-m", "Candidate release")
+	tagObject := gitOutput(t, workingCopy, "rev-parse", "candidate-release^{tag}")
+	gitFails(t, workingCopy, "push", "origin", "refs/tags/candidate-release")
+	gitFails(t, repository.GitDir(), "cat-file", "-e", tagObject)
 
 	gitOutput(t, workingCopy, "switch", "trunk")
 	gitOutput(t, workingCopy, "push", "origin", ":trunk")
