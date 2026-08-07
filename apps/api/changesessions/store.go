@@ -29,8 +29,10 @@ type RunState string
 
 const Queued RunState = "queued"
 const Running RunState = "running"
+const Paused RunState = "paused"
 const Succeeded RunState = "succeeded"
 const Failed RunState = "failed"
+const Canceled RunState = "canceled"
 
 type Run struct {
 	ID                  string     `json:"id"`
@@ -64,6 +66,65 @@ var runEventTypes = map[string]RunState{
 	"artifact.produced": "", "branch.updated": "", "run.failed": Failed, "run.completed": Succeeded,
 }
 
+var interventionTypes = map[string]bool{
+	"guidance": true, "answer": true, "pause": true, "resume": true, "cancel": true,
+}
+
+// Intervene records a collaborator command and applies its control transition
+// before returning, so workers and reconnecting clients observe one ordering.
+func (s *Store) Intervene(repositoryID, pullRequestID, sessionID, runID, actorID, kind, message string) (Event, Run, error) {
+	kind, message = strings.TrimSpace(kind), strings.TrimSpace(message)
+	if actorID == "" || !interventionTypes[kind] || ((kind == "guidance" || kind == "answer") && message == "") || len(message) > 10000 {
+		return Event{}, Run{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(repositoryID, pullRequestID, sessionID)
+	if err != nil {
+		return Event{}, Run{}, err
+	}
+	for i := range item.Runs {
+		run := &item.Runs[i]
+		if run.ID != runID {
+			continue
+		}
+		if run.State == Succeeded || run.State == Failed || run.State == Canceled {
+			return Event{}, Run{}, ErrInvalid
+		}
+		switch kind {
+		case "pause":
+			if run.State != Queued && run.State != Running {
+				return Event{}, Run{}, ErrInvalid
+			}
+			run.State = Paused
+		case "resume":
+			if run.State != Paused {
+				return Event{}, Run{}, ErrInvalid
+			}
+			run.State = Running
+		case "cancel":
+			run.State = Canceled
+		}
+		id, err := newID()
+		if err != nil {
+			return Event{}, Run{}, err
+		}
+		now := s.now().UTC()
+		metadata := map[string]string{"action": kind}
+		if message != "" {
+			metadata["message"] = message
+		}
+		event := Event{ID: id, Type: "run.intervention", ActorID: actorID, RunID: run.ID, InitiatorID: run.InitiatorID, Agent: run.Agent, RevisionID: run.RevisionID, Metadata: metadata, CreatedAt: now}
+		item.Events = append(item.Events, event)
+		item.UpdatedAt = now
+		if err := s.write(item); err != nil {
+			return Event{}, Run{}, err
+		}
+		return event, *run, nil
+	}
+	return Event{}, Run{}, ErrNotFound
+}
+
 // AppendRunEvent adds a worker-reported public record and applies terminal run state.
 // Attribution is copied from the durable run rather than trusted from worker input.
 func (s *Store) AppendRunEvent(repositoryID, pullRequestID, sessionID, runID, eventType string, metadata map[string]string) (Event, error) {
@@ -87,7 +148,7 @@ func (s *Store) AppendRunEvent(repositoryID, pullRequestID, sessionID, runID, ev
 		if run.ID != runID {
 			continue
 		}
-		if run.State == Succeeded || run.State == Failed || (eventType == "run.started" && run.State != Queued) {
+		if run.State == Paused || run.State == Succeeded || run.State == Failed || run.State == Canceled || (eventType == "run.started" && run.State != Queued) {
 			return Event{}, ErrInvalid
 		}
 		id, err := newID()

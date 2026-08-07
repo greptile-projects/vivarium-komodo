@@ -151,3 +151,51 @@ func TestWorkerPublishesAttributedRunTimeline(t *testing.T) {
 		t.Fatalf("restored timeline %#v", restored)
 	}
 }
+
+func TestPeerCollaboratorGuidesPausesResumesAndCancelsRun(t *testing.T) {
+	gitStorage, _ := storage.New(t.TempDir())
+	catalog, _ := repositories.New(t.TempDir(), gitStorage)
+	pulls, _ := pullrequests.New(t.TempDir())
+	sessions, _ := changesessions.New(t.TempDir())
+	credentials, _ := auth.New(t.TempDir())
+	repository, _ := catalog.Create("owner", repositories.Metadata{Name: "project", Visibility: repositories.Private})
+	_, _ = catalog.AddCollaborator("owner", repository.ID, "peer")
+	pull, _ := pulls.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), AuthorID: "owner", Title: "Change", SourceBranch: "candidate", TargetBranch: "main", SourceCommitID: "revision", TargetCommitID: "base"})
+	session, _ := sessions.Create(string(repository.ID), pull.ID, "owner", "revision")
+	issued, _ := credentials.IssueRepositoryGit("owner", "worker", string(repository.ID), "refs/heads/agent/work", 24*time.Hour)
+	run, _ := sessions.Delegate(string(repository.ID), pull.ID, session.ID, changesessions.DelegateParams{InitiatorID: "owner", Agent: "codex", Instructions: "Work", RevisionID: "revision", WorkingBranch: "agent/work", CredentialGrantID: issued.ID, CredentialExpiresAt: issued.ExpiresAt})
+	peerToken := issueAccess(t, credentials, "peer", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
+	mux := http.NewServeMux()
+	registerChangeSessionsHTTP(mux, sessions, pulls, catalog, credentials, nil)
+	path := "/repositories/" + string(repository.ID) + "/pull-requests/" + pull.ID + "/change-sessions/" + session.ID + "/runs/" + run.ID + "/interventions"
+	for _, body := range []string{`{"type":"guidance","message":"Do not change the public response."}`, `{"type":"answer","message":"Yes, preserve legacy records."}`, `{"type":"pause"}`, `{"type":"resume"}`, `{"type":"cancel","message":"Stop; requirements changed."}`} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+peerToken)
+		res := httptest.NewRecorder()
+		mux.ServeHTTP(res, req)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("%s: %d %s", body, res.Code, res.Body.String())
+		}
+		if strings.Contains(body, `"guidance"`) {
+			control := httptest.NewRequest(http.MethodGet, strings.TrimSuffix(path, "/interventions")+"/control", nil)
+			control.Header.Set("Authorization", "Bearer "+issued.Token)
+			controlResponse := httptest.NewRecorder()
+			mux.ServeHTTP(controlResponse, control)
+			var snapshot struct {
+				State         changesessions.RunState `json:"state"`
+				Interventions []changesessions.Event  `json:"interventions"`
+			}
+			_ = json.NewDecoder(controlResponse.Body).Decode(&snapshot)
+			if controlResponse.Code != http.StatusOK || snapshot.State != changesessions.Queued || len(snapshot.Interventions) != 1 || snapshot.Interventions[0].Metadata["message"] != "Do not change the public response." {
+				t.Fatalf("control snapshot: %d %#v", controlResponse.Code, snapshot)
+			}
+		}
+	}
+	got, _ := sessions.Get(string(repository.ID), pull.ID, session.ID)
+	if got.Runs[0].State != changesessions.Canceled || got.Runs[0].CredentialRevokedAt == nil || len(got.Events) != 7 {
+		t.Fatalf("controlled run: %#v", got)
+	}
+	if _, err := credentials.Authenticate(issued.Token, auth.GitWrite); !errors.Is(err, auth.ErrUnauthenticated) {
+		t.Fatalf("canceled credential usable: %v", err)
+	}
+}
