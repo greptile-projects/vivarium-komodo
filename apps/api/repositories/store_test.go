@@ -17,16 +17,26 @@ func TestOwnedRepositoryLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := store.Create("owner-one", Private)
+	first, err := store.Create("owner-one", Metadata{Name: "first", Visibility: Private})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := store.Create("owner-two", Public)
+	second, err := store.Create("owner-two", Metadata{Name: "second", Visibility: Public})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.ID == second.ID || !first.Empty || first.OwnerID != "owner-one" || first.Visibility != Private || second.Visibility != Public {
 		t.Fatalf("unexpected repository: %#v", first)
+	}
+	if _, err := store.Create("owner-one", Metadata{Name: "first", Visibility: Private}); !errors.Is(err, ErrNameTaken) {
+		t.Fatalf("duplicate name error = %v", err)
+	}
+	if _, err := store.Create("owner-one", Metadata{Name: "bad name", Visibility: Private}); !errors.Is(err, ErrInvalidRepository) {
+		t.Fatalf("invalid metadata error = %v", err)
+	}
+	updated, err := store.Update("owner-one", first.ID, Metadata{Name: "renamed", Description: "A repository", Visibility: Public})
+	if err != nil || updated.Name != "renamed" || updated.Description != "A repository" || updated.Visibility != Public || updated.UpdatedAt.Before(updated.CreatedAt) {
+		t.Fatalf("updated repository = %#v, %v", updated, err)
 	}
 
 	items, err := store.List("owner-one")

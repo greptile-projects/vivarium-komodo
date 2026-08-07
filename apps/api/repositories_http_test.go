@@ -74,7 +74,7 @@ func TestAuthenticatedOwnerCreatesDiscoversUsesAndRemovesRepository(t *testing.T
 	}
 	response.Body.Close()
 
-	request, _ = http.NewRequest(http.MethodPost, server.URL+"/repositories", nil)
+	request, _ = http.NewRequest(http.MethodPost, server.URL+"/repositories", strings.NewReader(`{"name":"project","description":"Consumer-ready repository"}`))
 	request.AddCookie(session)
 	response, err = http.DefaultClient.Do(request)
 	if err != nil {
@@ -91,6 +91,54 @@ func TestAuthenticatedOwnerCreatesDiscoversUsesAndRemovesRepository(t *testing.T
 	id := created["id"].(string)
 	if created["git_url"] != "/repositories/"+id || response.Header.Get("Location") != "/repositories/"+id {
 		t.Fatalf("inconsistent identity: %#v", created)
+	}
+	if created["name"] != "project" || created["api_url"] != "/repositories/"+id {
+		t.Fatalf("incomplete resource: %#v", created)
+	}
+
+	request, _ = http.NewRequest(http.MethodPatch, server.URL+"/repositories/"+id, strings.NewReader(`{"name":"renamed","visibility":"public"}`))
+	request.AddCookie(session)
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var updated map[string]any
+	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&updated) != nil {
+		t.Fatalf("update status = %d", response.StatusCode)
+	}
+	response.Body.Close()
+	if updated["name"] != "renamed" || updated["visibility"] != "public" || updated["description"] != "Consumer-ready repository" {
+		t.Fatalf("partial update = %#v", updated)
+	}
+
+	request, _ = http.NewRequest(http.MethodGet, server.URL+"/repositories?page=1&per_page=1", nil)
+	request.AddCookie(session)
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var collection struct {
+		Items   []map[string]any `json:"items"`
+		Page    int              `json:"page"`
+		PerPage int              `json:"per_page"`
+		Total   int              `json:"total_count"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&collection); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if len(collection.Items) != 1 || collection.Page != 1 || collection.PerPage != 1 || collection.Total != 1 {
+		t.Fatalf("collection = %#v", collection)
+	}
+	request, _ = http.NewRequest(http.MethodGet, server.URL+"/repositories?per_page=101", nil)
+	request.AddCookie(session)
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid pagination status = %d", response.StatusCode)
 	}
 
 	remote, _ := url.Parse(server.URL + "/repositories/" + id)

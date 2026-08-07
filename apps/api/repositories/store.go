@@ -9,7 +9,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +19,12 @@ import (
 )
 
 var ErrNotFound = errors.New("owned repository not found")
+var (
+	ErrInvalidRepository = errors.New("invalid repository metadata")
+	ErrNameTaken         = errors.New("repository name is already taken")
+)
+
+var namePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$`)
 
 type Visibility string
 
@@ -26,11 +34,20 @@ const (
 )
 
 type Repository struct {
-	ID         storage.ID `json:"id"`
-	OwnerID    string     `json:"owner_id"`
-	Visibility Visibility `json:"visibility"`
-	Empty      bool       `json:"empty"`
-	CreatedAt  time.Time  `json:"created_at"`
+	ID          storage.ID `json:"id"`
+	OwnerID     string     `json:"owner_id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Visibility  Visibility `json:"visibility"`
+	Empty       bool       `json:"empty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+type Metadata struct {
+	Name        string
+	Description string
+	Visibility  Visibility
 }
 
 type repositoryStorage interface {
@@ -60,22 +77,56 @@ func New(root string, repositoryStorage repositoryStorage) (*Store, error) {
 	return &Store{root: abs, storage: repositoryStorage, now: time.Now}, nil
 }
 
-func (s *Store) Create(ownerID string, visibility Visibility) (Repository, error) {
-	if visibility != Private && visibility != Public {
-		return Repository{}, errors.New("invalid repository visibility")
+func (s *Store) Create(ownerID string, metadata Metadata) (Repository, error) {
+	metadata, err := validateMetadata(metadata)
+	if err != nil {
+		return Repository{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.ensureNameAvailable(ownerID, metadata.Name, ""); err != nil {
+		return Repository{}, err
+	}
 	repository, err := s.storage.Create()
 	if err != nil {
 		return Repository{}, err
 	}
-	item := Repository{ID: repository.ID(), OwnerID: ownerID, Visibility: visibility, Empty: true, CreatedAt: s.now().UTC()}
+	now := s.now().UTC()
+	item := Repository{ID: repository.ID(), OwnerID: ownerID, Name: metadata.Name, Description: metadata.Description, Visibility: metadata.Visibility, Empty: true, CreatedAt: now, UpdatedAt: now}
 	if err := s.write(item); err != nil {
 		_ = s.storage.Delete(repository.ID())
 		return Repository{}, err
 	}
 	return item, nil
+}
+
+func validateMetadata(metadata Metadata) (Metadata, error) {
+	metadata.Name = strings.ToLower(strings.TrimSpace(metadata.Name))
+	metadata.Description = strings.TrimSpace(metadata.Description)
+	if !namePattern.MatchString(metadata.Name) || len(metadata.Description) > 280 || (metadata.Visibility != Private && metadata.Visibility != Public) {
+		return Metadata{}, ErrInvalidRepository
+	}
+	return metadata, nil
+}
+
+func (s *Store) ensureNameAvailable(ownerID, name string, except storage.ID) error {
+	entries, err := os.ReadDir(s.root)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		item, err := s.read(storage.ID(strings.TrimSuffix(entry.Name(), ".json")))
+		if err != nil {
+			return err
+		}
+		if item.OwnerID == ownerID && item.ID != except && item.Name == name {
+			return ErrNameTaken
+		}
+	}
+	return nil
 }
 
 // Inspect returns repository metadata without applying an actor policy. It is
@@ -120,6 +171,28 @@ func (s *Store) SetVisibility(ownerID string, id storage.ID, visibility Visibili
 		return Repository{}, ErrNotFound
 	}
 	item.Visibility = visibility
+	item.UpdatedAt = s.now().UTC()
+	if err := s.write(item); err != nil {
+		return Repository{}, err
+	}
+	return item, nil
+}
+
+func (s *Store) Update(ownerID string, id storage.ID, metadata Metadata) (Repository, error) {
+	metadata, err := validateMetadata(metadata)
+	if err != nil {
+		return Repository{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(id)
+	if err != nil || item.OwnerID != ownerID {
+		return Repository{}, ErrNotFound
+	}
+	if err := s.ensureNameAvailable(ownerID, metadata.Name, id); err != nil {
+		return Repository{}, err
+	}
+	item.Name, item.Description, item.Visibility, item.UpdatedAt = metadata.Name, metadata.Description, metadata.Visibility, s.now().UTC()
 	if err := s.write(item); err != nil {
 		return Repository{}, err
 	}
@@ -221,6 +294,12 @@ func (s *Store) read(id storage.ID) (Repository, error) {
 	// default, preserving their previous owner-only behavior.
 	if item.Visibility == "" {
 		item.Visibility = Private
+	}
+	if item.Name == "" {
+		item.Name = string(item.ID)
+	}
+	if item.UpdatedAt.IsZero() {
+		item.UpdatedAt = item.CreatedAt
 	}
 	if item.ID != id || item.OwnerID == "" || (item.Visibility != Private && item.Visibility != Public) || item.CreatedAt.IsZero() {
 		return Repository{}, errors.New("invalid repository catalog entry")
