@@ -20,6 +20,7 @@ type changeSessionStore interface {
 	Events(string, string, string) ([]changesessions.Event, error)
 	Delegate(string, string, string, changesessions.DelegateParams) (changesessions.Run, error)
 	RevokeRunCredential(string, string, string, string, time.Time) (changesessions.Run, error)
+	AppendRunEvent(string, string, string, string, string, map[string]string) (changesessions.Event, error)
 }
 
 type changeSessionCredentialStore interface {
@@ -35,6 +36,50 @@ func registerChangeSessionsHTTP(mux *http.ServeMux, sessions changeSessionStore,
 	mux.HandleFunc("GET "+base+"/{session}/events", listChangeSessionEvents(sessions, pulls, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{session}/runs", delegateChangeSession(sessions, pulls, repositories, credentials))
 	mux.HandleFunc("DELETE "+base+"/{session}/runs/{run}/credential", revokeRunCredential(sessions, pulls, repositories, credentials))
+	mux.HandleFunc("POST "+base+"/{session}/runs/{run}/events", appendRunEvent(sessions, credentials))
+}
+
+func appendRunEvent(store changeSessionStore, credentials changeSessionCredentialStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		grant, ok := authenticateRequest(w, r, credentials, auth.GitWrite)
+		if !ok {
+			return
+		}
+		repositoryID, pullID, sessionID, runID := r.PathValue("repository"), r.PathValue("pull_request"), r.PathValue("session"), r.PathValue("run")
+		session, err := store.Get(repositoryID, pullID, sessionID)
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var run *changesessions.Run
+		for i := range session.Runs {
+			if session.Runs[i].ID == runID {
+				run = &session.Runs[i]
+				break
+			}
+		}
+		if run == nil || grant.ID != run.CredentialGrantID || grant.RepositoryID != repositoryID || grant.Branch != "refs/heads/"+run.WorkingBranch {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var input struct {
+			Type     string            `json:"type"`
+			Metadata map[string]string `json:"metadata"`
+		}
+		if !readJSON(w, r, &input, 16384) {
+			return
+		}
+		event, err := store.AppendRunEvent(repositoryID, pullID, sessionID, runID, input.Type, input.Metadata)
+		if errors.Is(err, changesessions.ErrInvalid) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_run_event"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, http.StatusCreated, event)
+	}
 }
 
 var workingBranchPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,99}$`)

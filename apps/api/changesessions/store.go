@@ -28,6 +28,9 @@ const Delegated State = "delegated"
 type RunState string
 
 const Queued RunState = "queued"
+const Running RunState = "running"
+const Succeeded RunState = "succeeded"
+const Failed RunState = "failed"
 
 type Run struct {
 	ID                  string     `json:"id"`
@@ -45,11 +48,65 @@ type Run struct {
 }
 
 type Event struct {
-	ID        string            `json:"id"`
-	Type      string            `json:"type"`
-	ActorID   string            `json:"actor_id"`
-	Metadata  map[string]string `json:"metadata,omitempty"`
-	CreatedAt time.Time         `json:"created_at"`
+	ID          string            `json:"id"`
+	Type        string            `json:"type"`
+	ActorID     string            `json:"actor_id"`
+	RunID       string            `json:"run_id,omitempty"`
+	InitiatorID string            `json:"initiator_id,omitempty"`
+	Agent       string            `json:"agent,omitempty"`
+	RevisionID  string            `json:"revision_id,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+	CreatedAt   time.Time         `json:"created_at"`
+}
+
+var runEventTypes = map[string]RunState{
+	"run.started": Running, "agent.message": "", "tool.started": "", "tool.completed": "",
+	"artifact.produced": "", "branch.updated": "", "run.failed": Failed, "run.completed": Succeeded,
+}
+
+// AppendRunEvent adds a worker-reported public record and applies terminal run state.
+// Attribution is copied from the durable run rather than trusted from worker input.
+func (s *Store) AppendRunEvent(repositoryID, pullRequestID, sessionID, runID, eventType string, metadata map[string]string) (Event, error) {
+	nextState, ok := runEventTypes[eventType]
+	if !ok || len(metadata) > 20 {
+		return Event{}, ErrInvalid
+	}
+	for key, value := range metadata {
+		if strings.TrimSpace(key) == "" || len(key) > 50 || len(value) > 10000 {
+			return Event{}, ErrInvalid
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(repositoryID, pullRequestID, sessionID)
+	if err != nil {
+		return Event{}, err
+	}
+	for i := range item.Runs {
+		run := &item.Runs[i]
+		if run.ID != runID {
+			continue
+		}
+		if run.State == Succeeded || run.State == Failed || (eventType == "run.started" && run.State != Queued) {
+			return Event{}, ErrInvalid
+		}
+		id, err := newID()
+		if err != nil {
+			return Event{}, err
+		}
+		now := s.now().UTC()
+		event := Event{ID: id, Type: eventType, ActorID: run.InitiatorID, RunID: run.ID, InitiatorID: run.InitiatorID, Agent: run.Agent, RevisionID: run.RevisionID, Metadata: metadata, CreatedAt: now}
+		item.Events = append(item.Events, event)
+		if nextState != "" {
+			run.State = nextState
+		}
+		item.UpdatedAt = now
+		if err := s.write(item); err != nil {
+			return Event{}, err
+		}
+		return event, nil
+	}
+	return Event{}, ErrNotFound
 }
 
 type Session struct {
