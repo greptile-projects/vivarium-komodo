@@ -205,3 +205,72 @@ func TestPullRequestRejectsMissingOrNonCommitBranches(t *testing.T) {
 		t.Fatalf("response = %d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestCollaboratorReviewTracksEvaluatedCommitAndStaleness(t *testing.T) {
+	gitStorage, _ := storage.New(t.TempDir())
+	catalog, _ := repositories.New(t.TempDir(), gitStorage)
+	proposalStore, _ := proposals.New(t.TempDir())
+	pullRequestStore, _ := pullrequests.New(t.TempDir())
+	userStore, _ := users.New(t.TempDir())
+	credentials, _ := auth.New(t.TempDir())
+	owner, _ := userStore.Create(users.Profile{Handle: "owner", DisplayName: "Owner"})
+	contributor, _ := userStore.Create(users.Profile{Handle: "contributor", DisplayName: "Contributor"})
+	outsider, _ := userStore.Create(users.Profile{Handle: "outsider", DisplayName: "Outsider"})
+	repository, _ := catalog.Create(string(owner.ID), repositories.Metadata{Name: "project", Visibility: repositories.Private})
+	catalog.AddCollaborator(string(owner.ID), repository.ID, string(contributor.ID))
+	opened, _ := catalog.Open(repository.ID)
+	tree, _ := opened.WriteObject(storage.TreeObject, nil)
+	base, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(tree)+"\nauthor A <a@x> 1 +0000\ncommitter A <a@x> 1 +0000\n\nbase\n"))
+	change, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(tree)+"\nparent "+string(base)+"\nauthor A <a@x> 2 +0000\ncommitter A <a@x> 2 +0000\n\nchange\n"))
+	opened.CreateReference(storage.Reference{Name: "refs/heads/main", ObjectID: base})
+	opened.CreateReference(storage.Reference{Name: "refs/heads/candidate", ObjectID: change})
+	pr, _ := pullRequestStore.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), AuthorID: string(contributor.ID), Title: "Change", SourceBranch: "candidate", TargetBranch: "main", SourceCommitID: string(change), TargetCommitID: string(base)})
+	ownerToken := issueAccess(t, credentials, string(owner.ID), auth.API, auth.RepositoryRead, auth.RepositoryWrite)
+	outsiderToken := issueAccess(t, credentials, string(outsider.ID), auth.API, auth.RepositoryRead, auth.RepositoryWrite)
+	mux := http.NewServeMux()
+	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, catalog, credentials)
+	baseURL := "/repositories/" + string(repository.ID) + "/pull-requests/" + pr.ID + "/reviews"
+	do := func(method, path, token, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		return w
+	}
+	w := do(http.MethodPut, baseURL+"/me", ownerToken, `{"decision":"approve"}`)
+	var approved reviewResponse
+	json.NewDecoder(w.Body).Decode(&approved)
+	if w.Code != 200 || approved.ReviewerID != string(owner.ID) || approved.CommitID != string(change) || approved.Stale {
+		t.Fatalf("approval = %d %#v", w.Code, approved)
+	}
+	newChange, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(tree)+"\nparent "+string(change)+"\nauthor A <a@x> 3 +0000\ncommitter A <a@x> 3 +0000\n\nmore\n"))
+	opened.UpdateReference(storage.Reference{Name: "refs/heads/candidate", ObjectID: newChange})
+	w = do(http.MethodGet, baseURL, ownerToken, "")
+	var listed struct {
+		Items []reviewResponse `json:"items"`
+		Total int              `json:"total_count"`
+	}
+	json.NewDecoder(w.Body).Decode(&listed)
+	if w.Code != 200 || listed.Total != 1 || !listed.Items[0].Stale || listed.Items[0].CommitID != string(change) {
+		t.Fatalf("stale reviews = %d %#v", w.Code, listed)
+	}
+	w = do(http.MethodPut, baseURL+"/me", ownerToken, `{"decision":"request_changes"}`)
+	var replaced reviewResponse
+	json.NewDecoder(w.Body).Decode(&replaced)
+	if w.Code != 200 || replaced.Decision != pullrequests.RequestChanges || replaced.CommitID != string(newChange) || replaced.Stale {
+		t.Fatalf("replacement = %d %#v", w.Code, replaced)
+	}
+	if w := do(http.MethodPut, baseURL+"/me", outsiderToken, `{"decision":"approve"}`); w.Code != http.StatusNotFound {
+		t.Fatalf("outsider review status = %d", w.Code)
+	}
+	if w := do(http.MethodDelete, baseURL+"/me", ownerToken, ""); w.Code != http.StatusNoContent {
+		t.Fatalf("withdraw status = %d", w.Code)
+	}
+	w = do(http.MethodGet, baseURL, ownerToken, "")
+	json.NewDecoder(w.Body).Decode(&listed)
+	if listed.Total != 0 {
+		t.Fatalf("reviews after withdrawal = %#v", listed)
+	}
+}

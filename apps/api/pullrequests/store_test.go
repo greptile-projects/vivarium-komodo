@@ -52,3 +52,32 @@ func TestPullRequestDiscussionSurvivesReopen(t *testing.T) {
 		t.Fatalf("empty comment error = %v", err)
 	}
 }
+
+func TestReviewCanBeReplacedWithdrawnAndReopened(t *testing.T) {
+	root := t.TempDir()
+	store, _ := New(root)
+	pullRequest, _ := store.Create(CreateParams{RepositoryID: "repository", AuthorID: "author", Title: "Change", SourceBranch: "candidate", TargetBranch: "main", SourceCommitID: "source", TargetCommitID: "target"})
+	approved, err := store.PutReview("repository", pullRequest.ID, "reviewer", Approve, "commit-one")
+	if err != nil || approved.Decision != Approve || approved.CommitID != "commit-one" {
+		t.Fatalf("approved review = %#v, %v", approved, err)
+	}
+	replaced, err := store.PutReview("repository", pullRequest.ID, "reviewer", RequestChanges, "commit-two")
+	if err != nil || replaced.Decision != RequestChanges || replaced.CommitID != "commit-two" || replaced.SubmittedAt != approved.SubmittedAt {
+		t.Fatalf("replaced review = %#v, %v", replaced, err)
+	}
+	reopened, _ := New(root)
+	reviews, err := reopened.ListReviews("repository", pullRequest.ID)
+	if err != nil || len(reviews) != 1 || reviews[0] != replaced {
+		t.Fatalf("reopened reviews = %#v, %v", reviews, err)
+	}
+	if err := reopened.DeleteReview("repository", pullRequest.ID, "reviewer"); err != nil {
+		t.Fatal(err)
+	}
+	reviews, _ = reopened.ListReviews("repository", pullRequest.ID)
+	if len(reviews) != 0 {
+		t.Fatalf("reviews after withdrawal = %#v", reviews)
+	}
+	if _, err := reopened.PutReview("repository", pullRequest.ID, "reviewer", "comment", "commit"); err != ErrInvalidReview {
+		t.Fatalf("invalid decision error = %v", err)
+	}
+}
