@@ -104,6 +104,12 @@ whenever dependencies change or the web job fails before it starts.
   control resource for the current run state and full intervention sequence;
   paused runs reject progress publication, canceled runs are terminal, and
   cancellation revokes the worker Git credential.
+  Delegated publication is limited to the pull request source branch. After a
+  worker pushes a descendant revision, its credential-bound publication action
+  derives exact commits and changed paths from Git, records its summary, checks,
+  and unresolved concerns, synchronizes the pull request snapshot, and revokes
+  the run credential. Prior commit-bound reviews then become stale and readiness
+  is recalculated from the synchronized revision.
 - **API** — `main.go` registers handlers on a `net/http` mux with Go 1.22+
   method-and-path patterns (`"GET /health"`). The `storage` package owns bare
   Git repository lifecycles; use its `RepositoryStore` boundary rather than

@@ -182,6 +182,17 @@ cancellation, workers use their exact-run credential at
 intervention sequence. The session page exposes follow-up, answer, pause,
 resume, and cancel controls and preserves each action in the shared timeline.
 
+Delegated runs write directly to the pull request source branch; the run Git
+grant cannot publish another branch. After committing and pushing a descendant
+of the session's captured revision, a running worker completes the review
+handoff with `POST .../runs/{run}/publication`. The request supplies an outcome,
+checks performed, and unresolved concerns. The API verifies the branch tip,
+derives exact new commits and changed paths from repository storage, persists a
+structured publication, synchronizes the pull request snapshot, and revokes the
+worker grant. The session links those commits and files into ordinary pull
+request inspection; commit-bound reviews become stale and readiness evaluates
+the new revision without a separate author synchronization step.
+
 ## Human identity
 
 The API exposes durable human accounts as JSON resources. Accounts live beneath

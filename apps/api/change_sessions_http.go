@@ -11,6 +11,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
 
 type changeSessionStore interface {
@@ -22,6 +23,7 @@ type changeSessionStore interface {
 	RevokeRunCredential(string, string, string, string, time.Time) (changesessions.Run, error)
 	AppendRunEvent(string, string, string, string, string, map[string]string) (changesessions.Event, error)
 	Intervene(string, string, string, string, string, string, string) (changesessions.Event, changesessions.Run, error)
+	Publish(string, string, string, string, changesessions.Publication) (changesessions.Event, changesessions.Run, error)
 }
 
 type changeSessionCredentialStore interface {
@@ -39,7 +41,100 @@ func registerChangeSessionsHTTP(mux *http.ServeMux, sessions changeSessionStore,
 	mux.HandleFunc("DELETE "+base+"/{session}/runs/{run}/credential", revokeRunCredential(sessions, pulls, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{session}/runs/{run}/events", appendRunEvent(sessions, credentials))
 	mux.HandleFunc("GET "+base+"/{session}/runs/{run}/control", getRunControl(sessions, credentials))
+	mux.HandleFunc("POST "+base+"/{session}/runs/{run}/publication", publishRun(sessions, pulls, repositories, credentials, activity))
 	mux.HandleFunc("POST "+base+"/{session}/runs/{run}/interventions", interveneRun(sessions, pulls, repositories, credentials))
+}
+
+func publishRun(store changeSessionStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials changeSessionCredentialStore, activity activityStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		grant, ok := authenticateRequest(w, r, credentials, auth.GitWrite)
+		if !ok {
+			return
+		}
+		repositoryID, pullID, sessionID, runID := r.PathValue("repository"), r.PathValue("pull_request"), r.PathValue("session"), r.PathValue("run")
+		session, err := store.Get(repositoryID, pullID, sessionID)
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var run *changesessions.Run
+		for i := range session.Runs {
+			if session.Runs[i].ID == runID {
+				run = &session.Runs[i]
+				break
+			}
+		}
+		pull, err := pulls.Get(repositoryID, pullID)
+		if run == nil || err != nil || grant.ID != run.CredentialGrantID || grant.RepositoryID != repositoryID || grant.Branch != "refs/heads/"+run.WorkingBranch || run.WorkingBranch != pull.SourceBranch {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if pull.Status != pullrequests.Open {
+			writeJSON(w, 409, map[string]string{"error": "pull_request_not_open"})
+			return
+		}
+		var input struct {
+			Summary  string   `json:"summary"`
+			Checks   []string `json:"checks"`
+			Concerns []string `json:"concerns"`
+		}
+		if !readJSON(w, r, &input, 128<<10) {
+			return
+		}
+		opened, err := repositories.Open(storage.ID(repositoryID))
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		tip, _, found := branchTip(opened, pull.SourceBranch)
+		if !found || string(tip) == run.RevisionID {
+			writeJSON(w, 409, map[string]string{"error": "source_branch_not_updated"})
+			return
+		}
+		commits, err := commitsBetween(opened, tip, storage.ObjectID(run.RevisionID))
+		if err != nil {
+			writeJSON(w, 409, map[string]string{"error": "source_history_diverged"})
+			return
+		}
+		reachable := map[storage.ObjectID]bool{}
+		if err := walkCommits(opened, tip, reachable, nil); err != nil || !reachable[storage.ObjectID(run.RevisionID)] {
+			writeJSON(w, 409, map[string]string{"error": "source_history_diverged"})
+			return
+		}
+		files, err := filesBetween(opened, tip, storage.ObjectID(run.RevisionID))
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		commitIDs := make([]string, len(commits))
+		for i := range commits {
+			commitIDs[i] = commits[i].ID
+		}
+		paths := make([]string, len(files))
+		for i := range files {
+			paths[i] = files[i].Path
+		}
+		publication := changesessions.Publication{Summary: input.Summary, CommitIDs: commitIDs, ChangedFiles: paths, Checks: input.Checks, Concerns: input.Concerns, SourceCommitID: string(tip)}
+		event, publishedRun, err := store.Publish(repositoryID, pullID, sessionID, runID, publication)
+		if errors.Is(err, changesessions.ErrInvalid) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_publication"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		updated, err := pulls.SynchronizeSource(repositoryID, pullID, string(tip))
+		if err != nil {
+			writeJSON(w, 409, map[string]string{"error": "pull_request_not_open"})
+			return
+		}
+		if _, err := credentials.Revoke(run.InitiatorID, run.CredentialGrantID); err == nil {
+			_, _ = store.RevokeRunCredential(repositoryID, pullID, sessionID, runID, time.Now())
+		}
+		_ = recordActivity(activity, activities.Input{RepositoryID: repositoryID, ActorID: run.InitiatorID, Type: "pull_request.synchronized", Resource: activities.Resource{Type: "pull_request", ID: pullID}, Metadata: map[string]string{"previous_commit_id": pull.SourceCommitID, "commit_id": string(tip), "session_id": sessionID, "run_id": runID, "agent": run.Agent}})
+		writeJSON(w, http.StatusCreated, map[string]any{"event": event, "run": publishedRun, "pull_request": updated})
+	}
 }
 
 func getRunControl(store changeSessionStore, credentials changeSessionCredentialStore) http.HandlerFunc {
@@ -182,7 +277,7 @@ func delegateChangeSession(store changeSessionStore, pulls pullRequestStore, rep
 		if input.Agent == "" {
 			input.Agent = "codex"
 		}
-		if !workingBranchPattern.MatchString(input.WorkingBranch) || strings.Contains(input.WorkingBranch, "..") || input.WorkingBranch == pull.TargetBranch || len(input.ContextPaths) > 50 {
+		if !workingBranchPattern.MatchString(input.WorkingBranch) || strings.Contains(input.WorkingBranch, "..") || input.WorkingBranch != pull.SourceBranch || len(input.ContextPaths) > 50 {
 			writeJSON(w, 422, map[string]string{"error": "invalid_delegation"})
 			return
 		}
