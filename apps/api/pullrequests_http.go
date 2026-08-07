@@ -17,6 +17,9 @@ type pullRequestStore interface {
 	List(string) ([]pullrequests.PullRequest, error)
 	AddComment(string, string, string, string) (pullrequests.Comment, error)
 	ListComments(string, string) ([]pullrequests.Comment, error)
+	PutReview(string, string, string, pullrequests.ReviewDecision, string) (pullrequests.Review, error)
+	DeleteReview(string, string, string) error
+	ListReviews(string, string) ([]pullrequests.Review, error)
 }
 
 type pullRequestRepositoryStore interface {
@@ -32,6 +35,106 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/files", listPullRequestFiles(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/comments", createPullRequestComment(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/comments", listPullRequestComments(store, repositories, credentials))
+	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/reviews/me", putPullRequestReview(store, repositories, credentials))
+	mux.HandleFunc("DELETE /repositories/{repository}/pull-requests/{pull_request}/reviews/me", deletePullRequestReview(store, repositories, credentials))
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
+}
+
+type reviewResponse struct {
+	pullrequests.Review
+	Stale bool `json:"stale"`
+}
+
+func putPullRequestReview(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		item, ok := readPullRequest(w, store, string(repository.ID), r.PathValue("pull_request"))
+		if !ok {
+			return
+		}
+		var input struct {
+			Decision pullrequests.ReviewDecision `json:"decision"`
+		}
+		if !readJSON(w, r, &input, 4<<10) {
+			return
+		}
+		opened, err := repositories.Open(repository.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		commitID, _, found := branchTip(opened, item.SourceBranch)
+		if !found {
+			writeJSON(w, 409, map[string]string{"error": "source_branch_unavailable"})
+			return
+		}
+		review, err := store.PutReview(string(repository.ID), item.ID, actor.UserID, input.Decision, string(commitID))
+		if errors.Is(err, pullrequests.ErrInvalidReview) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_review"})
+			return
+		}
+		if err != nil {
+			writePullRequestError(w, err)
+			return
+		}
+		writeJSON(w, 200, reviewResponse{Review: review, Stale: false})
+	}
+}
+
+func deletePullRequestReview(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		err := store.DeleteReview(string(repository.ID), r.PathValue("pull_request"), actor.UserID)
+		if err != nil {
+			writePullRequestError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func listPullRequestReviews(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, _, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		item, ok := readPullRequest(w, store, string(repository.ID), r.PathValue("pull_request"))
+		if !ok {
+			return
+		}
+		reviews, err := store.ListReviews(string(repository.ID), item.ID)
+		if err != nil {
+			writePullRequestError(w, err)
+			return
+		}
+		current := ""
+		if opened, err := repositories.Open(repository.ID); err == nil {
+			if id, _, found := branchTip(opened, item.SourceBranch); found {
+				current = string(id)
+			}
+		} else {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		items := make([]reviewResponse, len(reviews))
+		for i, review := range reviews {
+			items[i] = reviewResponse{Review: review, Stale: current == "" || review.CommitID != current}
+		}
+		page, perPage, ok := readPagination(w, r)
+		if !ok {
+			return
+		}
+		total := len(items)
+		items = paginate(items, page, perPage)
+		writeJSON(w, 200, map[string]any{"items": items, "page": page, "per_page": perPage, "total_count": total})
+	}
 }
 
 func createPullRequest(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {

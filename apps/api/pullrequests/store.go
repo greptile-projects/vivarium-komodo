@@ -20,6 +20,7 @@ var (
 	ErrNotFound       = errors.New("pull request not found")
 	ErrInvalid        = errors.New("invalid pull request")
 	ErrInvalidComment = errors.New("invalid pull request comment")
+	ErrInvalidReview  = errors.New("invalid pull request review")
 )
 
 type Status string
@@ -60,6 +61,23 @@ type Comment struct {
 	AuthorID      string    `json:"author_id"`
 	Body          string    `json:"body"`
 	CreatedAt     time.Time `json:"created_at"`
+}
+
+type ReviewDecision string
+
+const (
+	Approve        ReviewDecision = "approve"
+	RequestChanges ReviewDecision = "request_changes"
+)
+
+// Review is the reviewer's current decision and the exact source commit it evaluates.
+type Review struct {
+	PullRequestID string         `json:"pull_request_id"`
+	ReviewerID    string         `json:"reviewer_id"`
+	Decision      ReviewDecision `json:"decision"`
+	CommitID      string         `json:"commit_id"`
+	SubmittedAt   time.Time      `json:"submitted_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
 }
 
 type Store struct {
@@ -198,6 +216,87 @@ func (s *Store) ListComments(repositoryID, pullRequestID string) ([]Comment, err
 	return items, nil
 }
 
+func (s *Store) PutReview(repositoryID, pullRequestID, reviewerID string, decision ReviewDecision, commitID string) (Review, error) {
+	if !validPathKey(reviewerID) || commitID == "" || (decision != Approve && decision != RequestChanges) {
+		return Review{}, ErrInvalidReview
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.read(repositoryID, pullRequestID); err != nil {
+		return Review{}, err
+	}
+	now := s.now().UTC()
+	review := Review{PullRequestID: pullRequestID, ReviewerID: reviewerID, Decision: decision, CommitID: commitID, SubmittedAt: now, UpdatedAt: now}
+	path := s.reviewPath(repositoryID, pullRequestID, reviewerID)
+	if previous, err := s.readReview(path, pullRequestID, reviewerID); err == nil {
+		review.SubmittedAt = previous.SubmittedAt
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return Review{}, err
+	}
+	if err := s.writeJSON(path, review); err != nil {
+		return Review{}, err
+	}
+	return review, nil
+}
+
+func (s *Store) DeleteReview(repositoryID, pullRequestID, reviewerID string) error {
+	if !validPathKey(reviewerID) {
+		return ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.read(repositoryID, pullRequestID); err != nil {
+		return err
+	}
+	if err := os.Remove(s.reviewPath(repositoryID, pullRequestID, reviewerID)); errors.Is(err, fs.ErrNotExist) {
+		return ErrNotFound
+	} else {
+		return err
+	}
+}
+
+func (s *Store) ListReviews(repositoryID, pullRequestID string) ([]Review, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.read(repositoryID, pullRequestID); err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(s.root, repositoryID, pullRequestID, "reviews")
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return []Review{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	items := make([]Review, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		reviewerID := strings.TrimSuffix(entry.Name(), ".json")
+		review, err := s.readReview(filepath.Join(dir, entry.Name()), pullRequestID, reviewerID)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, review)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ReviewerID < items[j].ReviewerID })
+	return items, nil
+}
+
+func (s *Store) readReview(path, pullRequestID, reviewerID string) (Review, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Review{}, err
+	}
+	var review Review
+	if json.Unmarshal(data, &review) != nil || review.PullRequestID != pullRequestID || review.ReviewerID != reviewerID || review.CommitID == "" || (review.Decision != Approve && review.Decision != RequestChanges) || review.SubmittedAt.IsZero() || review.UpdatedAt.IsZero() {
+		return Review{}, errors.New("invalid stored pull request review")
+	}
+	return review, nil
+}
+
 func (s *Store) read(repositoryID, id string) (PullRequest, error) {
 	if !validID(id) {
 		return PullRequest{}, ErrNotFound
@@ -222,6 +321,10 @@ func (s *Store) write(item PullRequest) error {
 
 func (s *Store) commentPath(repositoryID, pullRequestID, id string) string {
 	return filepath.Join(s.root, repositoryID, pullRequestID, id+".json")
+}
+
+func (s *Store) reviewPath(repositoryID, pullRequestID, reviewerID string) string {
+	return filepath.Join(s.root, repositoryID, pullRequestID, "reviews", reviewerID+".json")
 }
 
 func (s *Store) writeJSON(path string, value any) error {
@@ -268,4 +371,8 @@ func validID(id string) bool {
 	}
 	_, err := hex.DecodeString(id)
 	return err == nil
+}
+
+func validPathKey(value string) bool {
+	return value != "" && value != "." && value != ".." && !strings.ContainsAny(value, `/\\`)
 }

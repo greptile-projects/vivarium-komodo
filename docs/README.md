@@ -193,7 +193,14 @@ The repository-scoped JSON contract is:
 - `POST /repositories/{id}/pull-requests/{pull_request_id}/comments` appends an
   attributable discussion comment;
 - `GET /repositories/{id}/pull-requests/{pull_request_id}/comments` returns the
-  append-only discussion.
+  append-only discussion;
+- `PUT /repositories/{id}/pull-requests/{pull_request_id}/reviews/me` creates
+  or replaces the authenticated actor's decision with `approve` or
+  `request_changes`;
+- `DELETE /repositories/{id}/pull-requests/{pull_request_id}/reviews/me`
+  withdraws the authenticated actor's current decision;
+- `GET /repositories/{id}/pull-requests/{pull_request_id}/reviews` lists each
+  participant's current decision with the shared bounded pagination envelope.
 
 Both named branches must exist and point directly to commits at creation. A
 linked proposal must belong to the same repository. Commit inspection walks
@@ -202,13 +209,20 @@ File inspection recursively compares the two snapshotted trees and reports
 added, modified, and deleted paths with old/new object IDs and modes. UTF-8
 text files include additions, deletions, and a full-file unified patch; binary
 files are identified without embedding their bytes. Comments are immutable
-records with stable author IDs, bodies, and creation times.
+records with stable author IDs, bodies, and creation times. A review records
+the reviewer's stable user ID and the exact source commit evaluated. Each
+reviewer has at most one current decision: another `PUT` replaces it and a
+`DELETE` withdraws it. Review responses derive `stale` by comparing the
+evaluated commit with the live source-branch tip, so later source commits do not
+silently inherit an earlier decision; a missing source branch also makes every
+remaining review stale.
 
-Creation and discussion require authenticated `repository:write` access;
+Creation, discussion, and review mutation require authenticated
+`repository:write` access;
 public reads are anonymous, private reads require owner or contributor
 membership and `repository:read`, and denied authenticated users receive
-`404`. Commit, file, and comment lists use the shared pagination envelope.
-Lifecycle transitions, review, readiness, and merge behavior remain separate
+`404`. Commit, file, comment, and review lists use the shared pagination
+envelope. Lifecycle transitions, readiness, and merge behavior remain separate
 later contracts.
 
 ## Git repository storage
