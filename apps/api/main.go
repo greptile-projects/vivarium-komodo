@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/users"
 )
@@ -15,7 +16,15 @@ func main() {
 	if repositoryRoot == "" {
 		repositoryRoot = "repositories"
 	}
-	repositories, err := storage.New(repositoryRoot)
+	repositoryStorage, err := storage.New(repositoryRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	repositoryCatalogRoot := os.Getenv("REPOSITORY_CATALOG_ROOT")
+	if repositoryCatalogRoot == "" {
+		repositoryCatalogRoot = "data/repositories"
+	}
+	repositoryCatalog, err := repositories.New(repositoryCatalogRoot, repositoryStorage)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -41,7 +50,8 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok"}`))
 	})
-	registerGitHTTP(mux, repositories, credentials)
+	registerGitHTTP(mux, repositoryStorage, credentials)
+	registerRepositoriesHTTP(mux, repositoryCatalog, credentials)
 	registerUsersHTTP(mux, userStore, credentials)
 	registerAuthHTTP(mux, credentials, userStore)
 

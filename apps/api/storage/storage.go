@@ -32,6 +32,22 @@ type Info struct {
 type RepositoryStore interface {
 	Create() (*Repository, error)
 	Open(ID) (*Repository, error)
+	Delete(ID) error
+}
+
+// Delete removes an existing repository and all of its Git data.
+func (s *Store) Delete(id ID) error {
+	if !validID(id) {
+		return ErrInvalidID
+	}
+	repository := &Repository{id: id, gitDir: filepath.Join(s.root, string(id))}
+	if err := repository.validate(); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(repository.gitDir); err != nil {
+		return fmt.Errorf("delete repository: %w", err)
+	}
+	return nil
 }
 
 // ObjectStore persists and retrieves immutable Git objects.

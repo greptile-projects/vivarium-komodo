@@ -36,11 +36,13 @@ const (
 	API Kind = "api"
 	Git Kind = "git"
 
-	ProfileRead  Scope = "profile:read"
-	ProfileWrite Scope = "profile:write"
-	AccessManage Scope = "access:manage"
-	GitRead      Scope = "git:read"
-	GitWrite     Scope = "git:write"
+	ProfileRead     Scope = "profile:read"
+	ProfileWrite    Scope = "profile:write"
+	AccessManage    Scope = "access:manage"
+	RepositoryRead  Scope = "repository:read"
+	RepositoryWrite Scope = "repository:write"
+	GitRead         Scope = "git:read"
+	GitWrite        Scope = "git:write"
 )
 
 const TokenPrefix = "vkm_"
@@ -49,8 +51,8 @@ var kindPolicy = map[Kind]struct {
 	maximum time.Duration
 	scopes  []Scope
 }{
-	Web: {12 * time.Hour, []Scope{ProfileRead, ProfileWrite, AccessManage}},
-	API: {90 * 24 * time.Hour, []Scope{ProfileRead, ProfileWrite, AccessManage}},
+	Web: {12 * time.Hour, []Scope{ProfileRead, ProfileWrite, AccessManage, RepositoryRead, RepositoryWrite}},
+	API: {90 * 24 * time.Hour, []Scope{ProfileRead, ProfileWrite, AccessManage, RepositoryRead, RepositoryWrite}},
 	Git: {30 * 24 * time.Hour, []Scope{GitRead, GitWrite}},
 }
 

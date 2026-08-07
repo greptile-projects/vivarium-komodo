@@ -54,7 +54,8 @@ tokens may also use `GET /session` to inspect their actor and effective access.
 An authenticated grant with `access:manage` may create, list, and revoke
 programmatic credentials through `POST /access-grants`, `GET /access-grants`,
 and `DELETE /access-grants/{id}`. API grants last at most 90 days and may request
-only `profile:read`, `profile:write`, and `access:manage`. Git grants last at
+only `profile:read`, `profile:write`, `access:manage`, `repository:read`, and
+`repository:write`. Git grants last at
 most 30 days and may request only `git:read` and/or `git:write`. Web grants are
 created only by password sign-in, last at most 12 hours, and cannot be minted
 through the programmatic endpoint. Expired and revoked credentials fail
@@ -65,12 +66,41 @@ API clients send `Authorization: Bearer <token>`. Stock Git clients use any
 Basic-auth username and a Git token as the password, commonly by configuring a
 credential helper rather than embedding it in a remote URL.
 
+## Owned repository lifecycle
+
+Application repository metadata lives beneath `$REPOSITORY_CATALOG_ROOT`, or
+`apps/api/data/repositories` by default, and is managed through the
+`apps/api/repositories` boundary. Each resource records its immutable opaque
+repository ID, immutable owner user ID, creation time, and current empty state.
+The catalog delegates bare repository creation, inspection, and deletion to
+`apps/api/storage`, so application callers do not construct or remove Git
+directories themselves.
+
+The authenticated JSON contract is:
+
+- `POST /repositories` creates an empty repository for the current actor and
+  requires `repository:write`;
+- `GET /repositories` lists only the current actor's repositories and requires
+  `repository:read`;
+- `GET /repositories/{id}` inspects an owned repository and requires
+  `repository:read`;
+- `DELETE /repositories/{id}` removes an owned repository and all of its Git
+  data and requires `repository:write`.
+
+Creation returns `201 Created` with a canonical `Location`; deletion returns
+`204 No Content`. Resources owned by another actor and unknown IDs both return
+`404`, so ownership is not disclosed. The `id`, canonical API path, and
+`git_url` all use the same storage identity. The returned relative Git URL can
+be resolved against the API origin and used immediately with a Git access
+token.
+
 ## Git repository storage
 
 `apps/api/storage` is the repository lifecycle boundary. A store owns one root
 directory and creates bare Git repositories beneath it using opaque UUID-shaped
 IDs. `Create` atomically publishes a repository, `Open` validates and reopens it
-by ID, and `Inspect` reports its identity and whether it is bare and empty.
+by ID, `Delete` removes it, and `Inspect` reports its identity and whether it is
+bare and empty.
 
 Each repository uses `main` as its unborn default branch and has a standard
 bare Git layout at `<store root>/<repository ID>`. `Repository.GitDir` exposes
@@ -86,7 +116,8 @@ changes: Git objects are immutable and therefore have no update or delete
 operation. `RepositoryStore` owns creation and reopening of repository handles.
 The contract covers every platform storage operation:
 
-- lifecycle — `RepositoryStore.Create` and `Open`, then `ID` and `Inspect`;
+- lifecycle — `RepositoryStore.Create`, `Open`, and `Delete`, then `ID` and
+  `Inspect`;
 - objects — `WriteObject`, `ReadObject`, and `ListObjects`;
 - graph views — `ReadTree` and `ReadCommit`;
 - references — `CreateReference`, `ReadReference`, `UpdateReference`,
