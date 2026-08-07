@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/users"
 )
 
 func main() {
@@ -17,6 +18,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	userRoot := os.Getenv("USER_ROOT")
+	if userRoot == "" {
+		userRoot = "data/users"
+	}
+	userStore, err := users.New(userRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -24,6 +33,7 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 	registerGitHTTP(mux, repositories)
+	registerUsersHTTP(mux, userStore)
 
 	port := os.Getenv("PORT")
 	if port == "" {
