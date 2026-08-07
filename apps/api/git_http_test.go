@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	owned "github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
 
@@ -299,11 +300,11 @@ func TestGitLsRemoteSupportsEmptyRepository(t *testing.T) {
 }
 
 func TestGitHTTPRequiresTheServiceSpecificScopeAndHonorsRevocation(t *testing.T) {
-	repositories, err := storage.New(t.TempDir())
+	repositoryStorage, err := storage.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	repository, err := repositories.Create()
+	repository, err := repositoryStorage.Create()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +317,7 @@ func TestGitHTTPRequiresTheServiceSpecificScopeAndHonorsRevocation(t *testing.T)
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	registerGitHTTP(mux, repositories, credentials)
+	registerGitHTTP(mux, testGitStore{RepositoryStore: repositoryStorage, owner: "actor", visibility: owned.Private}, credentials)
 	path := "/repositories/" + string(repository.ID()) + "/info/refs"
 	request := func(service string, authenticated bool) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodGet, path+"?service="+service, nil)
@@ -386,7 +387,7 @@ func gitServer(t *testing.T, store storage.RepositoryStore) *httptest.Server {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	registerGitHTTP(mux, store, credentials)
+	registerGitHTTP(mux, testGitStore{RepositoryStore: store, owner: "test-user", visibility: owned.Private}, credentials)
 	server := httptest.NewServer(mux)
 	parsed, err := url.Parse(server.URL)
 	if err != nil {
@@ -396,6 +397,24 @@ func gitServer(t *testing.T, store storage.RepositoryStore) *httptest.Server {
 	server.URL = parsed.String()
 	t.Cleanup(server.Close)
 	return server
+}
+
+type testGitStore struct {
+	storage.RepositoryStore
+	owner      string
+	visibility owned.Visibility
+}
+
+func (s testGitStore) Inspect(id storage.ID) (owned.Repository, error) {
+	repository, err := s.RepositoryStore.Open(id)
+	if err != nil {
+		return owned.Repository{}, err
+	}
+	info, err := repository.Inspect()
+	if err != nil {
+		return owned.Repository{}, err
+	}
+	return owned.Repository{ID: id, OwnerID: s.owner, Visibility: s.visibility, Empty: info.Empty}, nil
 }
 
 func gitLsRemote(t *testing.T, remote string, arguments ...string) string {

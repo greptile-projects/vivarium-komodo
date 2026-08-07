@@ -17,15 +17,15 @@ func TestOwnedRepositoryLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := store.Create("owner-one")
+	first, err := store.Create("owner-one", Private)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := store.Create("owner-two")
+	second, err := store.Create("owner-two", Public)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.ID == second.ID || !first.Empty || first.OwnerID != "owner-one" {
+	if first.ID == second.ID || !first.Empty || first.OwnerID != "owner-one" || first.Visibility != Private || second.Visibility != Public {
 		t.Fatalf("unexpected repository: %#v", first)
 	}
 

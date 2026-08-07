@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
 
@@ -22,13 +23,18 @@ type credentialAuthenticator interface {
 	Authenticate(string, auth.Scope) (auth.Grant, error)
 }
 
-func registerGitHTTP(mux *http.ServeMux, repositories storage.RepositoryStore, credentials credentialAuthenticator) {
-	mux.HandleFunc("GET /repositories/{repository}/info/refs", advertiseRepository(repositories, credentials))
-	mux.HandleFunc("POST /repositories/{repository}/git-upload-pack", uploadPack(repositories, credentials))
-	mux.HandleFunc("POST /repositories/{repository}/git-receive-pack", receivePack(repositories, credentials))
+type gitRepositoryStore interface {
+	Inspect(storage.ID) (repositories.Repository, error)
+	Open(storage.ID) (*storage.Repository, error)
 }
 
-func advertiseRepository(repositories storage.RepositoryStore, credentials credentialAuthenticator) http.HandlerFunc {
+func registerGitHTTP(mux *http.ServeMux, repositoryStore gitRepositoryStore, credentials credentialAuthenticator) {
+	mux.HandleFunc("GET /repositories/{repository}/info/refs", advertiseRepository(repositoryStore, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/git-upload-pack", uploadPack(repositoryStore, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/git-receive-pack", receivePack(repositoryStore, credentials))
+}
+
+func advertiseRepository(repositoryStore gitRepositoryStore, credentials credentialAuthenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		service := r.URL.Query().Get("service")
 		if service != uploadPackService && service != receivePackService {
@@ -39,10 +45,7 @@ func advertiseRepository(repositories storage.RepositoryStore, credentials crede
 		if service == receivePackService {
 			scope = auth.GitWrite
 		}
-		if !authenticateGit(w, r, credentials, scope) {
-			return
-		}
-		repository, ok := openRepository(w, repositories, r.PathValue("repository"))
+		repository, ok := authorizeGitRepository(w, r, repositoryStore, credentials, scope)
 		if !ok {
 			return
 		}
@@ -61,17 +64,14 @@ func advertiseRepository(repositories storage.RepositoryStore, credentials crede
 	}
 }
 
-func uploadPack(repositories storage.RepositoryStore, credentials credentialAuthenticator) http.HandlerFunc {
+func uploadPack(repositoryStore gitRepositoryStore, credentials credentialAuthenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !authenticateGit(w, r, credentials, auth.GitRead) {
+		repository, ok := authorizeGitRepository(w, r, repositoryStore, credentials, auth.GitRead)
+		if !ok {
 			return
 		}
 		if contentType := r.Header.Get("Content-Type"); contentType != "application/x-git-upload-pack-request" {
 			http.Error(w, "unsupported media type", http.StatusUnsupportedMediaType)
-			return
-		}
-		repository, ok := openRepository(w, repositories, r.PathValue("repository"))
-		if !ok {
 			return
 		}
 
@@ -86,20 +86,16 @@ func uploadPack(repositories storage.RepositoryStore, credentials credentialAuth
 	}
 }
 
-func receivePack(repositories storage.RepositoryStore, credentials credentialAuthenticator) http.HandlerFunc {
+func receivePack(repositoryStore gitRepositoryStore, credentials credentialAuthenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !authenticateGit(w, r, credentials, auth.GitWrite) {
+		repository, ok := authorizeGitRepository(w, r, repositoryStore, credentials, auth.GitWrite)
+		if !ok {
 			return
 		}
 		if contentType := r.Header.Get("Content-Type"); contentType != "application/x-git-receive-pack-request" {
 			http.Error(w, "unsupported media type", http.StatusUnsupportedMediaType)
 			return
 		}
-		repository, ok := openRepository(w, repositories, r.PathValue("repository"))
-		if !ok {
-			return
-		}
-
 		result, err := runGitService(r, repository, receivePackService)
 		if err != nil {
 			http.Error(w, "could not update repository state", http.StatusBadRequest)
@@ -111,17 +107,35 @@ func receivePack(repositories storage.RepositoryStore, credentials credentialAut
 	}
 }
 
-func openRepository(w http.ResponseWriter, repositories storage.RepositoryStore, id string) (*storage.Repository, bool) {
-	repository, err := repositories.Open(storage.ID(id))
-	if err == nil {
-		return repository, true
-	}
-	if errors.Is(err, storage.ErrInvalidID) || errors.Is(err, storage.ErrNotFound) {
+func authorizeGitRepository(w http.ResponseWriter, r *http.Request, store gitRepositoryStore, credentials credentialAuthenticator, scope auth.Scope) (*storage.Repository, bool) {
+	item, err := store.Inspect(storage.ID(r.PathValue("repository")))
+	if errors.Is(err, repositories.ErrNotFound) || errors.Is(err, storage.ErrInvalidID) || errors.Is(err, storage.ErrNotFound) {
 		http.NotFound(w, nil)
 		return nil, false
 	}
-	http.Error(w, "could not open repository", http.StatusInternalServerError)
-	return nil, false
+	if err != nil {
+		http.Error(w, "could not open repository", http.StatusInternalServerError)
+		return nil, false
+	}
+	actor, authenticated, valid := authenticateGitOptional(w, r, credentials, scope)
+	if !valid {
+		return nil, false
+	}
+	read := scope == auth.GitRead
+	if !authenticated && (!read || item.Visibility != repositories.Public) {
+		writeGitUnauthenticated(w)
+		return nil, false
+	}
+	if authenticated && actor.UserID != item.OwnerID && (!read || item.Visibility != repositories.Public) {
+		http.NotFound(w, nil)
+		return nil, false
+	}
+	repository, err := store.Open(item.ID)
+	if err != nil {
+		http.Error(w, "could not open repository", http.StatusInternalServerError)
+		return nil, false
+	}
+	return repository, true
 }
 
 func runGitService(r *http.Request, repository *storage.Repository, service string, arguments ...string) ([]byte, error) {

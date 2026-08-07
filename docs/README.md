@@ -71,25 +71,32 @@ credential helper rather than embedding it in a remote URL.
 Application repository metadata lives beneath `$REPOSITORY_CATALOG_ROOT`, or
 `apps/api/data/repositories` by default, and is managed through the
 `apps/api/repositories` boundary. Each resource records its immutable opaque
-repository ID, immutable owner user ID, creation time, and current empty state.
+repository ID, immutable owner user ID, `private` or `public` visibility,
+creation time, and current empty state. Repositories are private by default;
+catalog records written before visibility existed are also interpreted as
+private.
 The catalog delegates bare repository creation, inspection, and deletion to
 `apps/api/storage`, so application callers do not construct or remove Git
 directories themselves.
 
 The authenticated JSON contract is:
 
-- `POST /repositories` creates an empty repository for the current actor and
-  requires `repository:write`;
+- `POST /repositories` creates an empty private repository for the current
+  actor, or accepts `{"visibility":"public"}`, and requires
+  `repository:write`;
 - `GET /repositories` lists only the current actor's repositories and requires
   `repository:read`;
-- `GET /repositories/{id}` inspects an owned repository and requires
-  `repository:read`;
+- `GET /repositories/{id}` inspects a repository; public resources are
+  anonymous while private resources require their owner's `repository:read`;
+- `PATCH /repositories/{id}` changes `visibility` and requires the owner's
+  `repository:write`;
 - `DELETE /repositories/{id}` removes an owned repository and all of its Git
   data and requires `repository:write`.
 
 Creation returns `201 Created` with a canonical `Location`; deletion returns
-`204 No Content`. Resources owned by another actor and unknown IDs both return
-`404`, so ownership is not disclosed. The `id`, canonical API path, and
+`204 No Content`. Repository lists remain owner-specific. Authenticated actors
+denied by ownership and unknown IDs both receive `404`, so ownership is not
+disclosed; anonymous private reads receive `401`. The `id`, canonical API path, and
 `git_url` all use the same storage identity. The returned relative Git URL can
 be resolved against the API origin and used immediately with a Git access
 token.
@@ -171,13 +178,14 @@ A repository's authenticated smart-HTTP remote URL is
 and invoking stock Git against the handle's `GitDir`. `git` must therefore be
 available on the API process's `PATH`.
 
-All discovery and transport requests require a Git access token via HTTP Basic
-authentication. Upload-pack discovery and exchange require `git:read`;
-receive-pack discovery and exchange require `git:write`. This allows a clone or
-pull credential to omit write authority, while a publishing credential may be
-short-lived and independently revoked. Repository ownership checks are added by
-the following access-control rung; at this stage a valid Git-scoped actor can
-reach any existing repository without receiving API or browser authority.
+Upload-pack discovery and exchange are anonymous for public repositories.
+Private repository reads require the owner's Git access token with `git:read`.
+Receive-pack discovery and exchange always require the owner's token with
+`git:write`, regardless of visibility. A valid but non-owner credential receives
+the same non-disclosing `404` as the JSON interface; missing credentials receive
+`401` when authentication is required. This allows a public clone to need no
+credential and a private clone or pull credential to omit write authority,
+while a publishing credential may be short-lived and independently revoked.
 
 The server forwards Git's negotiated protocol version and emits the standard
 smart-HTTP media types and service preamble. This lets unmodified `git ls-remote`
