@@ -280,6 +280,26 @@ withdrawal; contributor access grants and revocations; and mentions. This
 ledger is the durable source for later attention and inbox views rather than a
 replacement for the affected proposal, pull request, review, or repository.
 
+## Actionable inbox
+
+The signed-in workspace derives one global inbox from repository activity and
+the actor's current repository affiliations. It includes only work with a
+useful next step: owner review of an open pull request, responses to active
+review or discussion, direct mentions, and awareness of access or a completed
+outcome. Items are classified as `review`, `response`, or `awareness`, include
+current actor and repository display context, and link directly to the affected
+proposal, pull request, or repository. Activity from inaccessible repositories
+and the actor's own actions is excluded; completed resources do not continue to
+present stale response or review work.
+
+`GET /inbox` requires authenticated `repository:read` access, uses the shared
+pagination envelope, and accepts an optional `classification` filter.
+`DELETE /inbox/{eventID}` clears one item for the current actor. Clearance is
+durable beneath `$INBOX_ROOT`, or `apps/api/data/inbox` in the documented root
+development setup, while the underlying append-only activity remains intact.
+The web workspace exposes the count in primary navigation, matching filters,
+empty states, direct collaboration links, and per-item Clear actions.
+
 ## Repository proposals
 
 Proposals give collaborators a durable, repository-scoped place to establish

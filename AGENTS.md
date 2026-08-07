@@ -198,6 +198,12 @@ whenever dependencies change or the web job fails before it starts.
   resolved `@handle` mentions become separate stable-ID events. Read activity
   through the repository-scoped endpoint so visibility and membership policy
   remains aligned with the affected repository.
+  The authenticated global inbox is derived from that ledger at `GET /inbox`:
+  only events implying review, response, or awareness for the current actor are
+  included, resolved collaboration is not retained as stale action, and every
+  item links to its repository resource. Per-user clearance state lives beneath
+  `$INBOX_ROOT` (default `apps/api/data/inbox`) and is changed through
+  `DELETE /inbox/{eventID}` without mutating the append-only activity ledger.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 

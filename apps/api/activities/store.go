@@ -168,3 +168,45 @@ func (s *Store) List(repositoryID string) ([]Event, error) {
 	})
 	return events, nil
 }
+
+// ListAll returns the complete ledger across repositories. Application views
+// must still apply their own actor and repository access policy.
+func (s *Store) ListAll() ([]Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	directories, err := os.ReadDir(s.root)
+	if err != nil {
+		return nil, err
+	}
+	var events []Event
+	for _, directory := range directories {
+		if !directory.IsDir() || strings.HasPrefix(directory.Name(), ".") {
+			continue
+		}
+		entries, err := os.ReadDir(filepath.Join(s.root, directory.Name()))
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(s.root, directory.Name(), entry.Name()))
+			if err != nil {
+				return nil, err
+			}
+			var event Event
+			if json.Unmarshal(data, &event) != nil || event.RepositoryID != directory.Name() || event.ID == "" || event.ActorID == "" || event.Type == "" || event.Resource.ID == "" || event.CreatedAt.IsZero() {
+				return nil, errors.New("invalid stored activity")
+			}
+			events = append(events, event)
+		}
+	}
+	sort.Slice(events, func(i, j int) bool {
+		if events[i].CreatedAt.Equal(events[j].CreatedAt) {
+			return events[i].ID > events[j].ID
+		}
+		return events[i].CreatedAt.After(events[j].CreatedAt)
+	})
+	return events, nil
+}

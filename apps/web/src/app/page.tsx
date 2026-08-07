@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Book, Branch, Check, Copy, Key, Plus, Search, Shield, Sparkles, Trash, User } from "@/components/icons";
+import { ArrowRight, Bell, Book, Branch, Check, Copy, Key, Plus, Search, Shield, Sparkles, Trash, User } from "@/components/icons";
 import { Badge, Button } from "@/components/ui";
 import { WorkspaceShell } from "@/components/app-shell";
 
@@ -11,6 +11,7 @@ type Grant = { id: string; name: string; kind: "web" | "api" | "git"; scopes: st
 type Repository = { id: string; owner_id: string; name: string; description: string; visibility: "private" | "public"; empty: boolean; git_url: string; updated_at: string };
 type Session = { user: UserRecord; access: Grant };
 type Envelope<T> = { items: T[]; total_count: number };
+type InboxItem = { id: string; classification: "review"|"response"|"awareness"; repository_name: string; actor_handle: string; title: string; summary: string; href: string; created_at: string };
 
 const errorCopy: Record<string, string> = {
   handle_taken: "That handle is already in use.", invalid_credentials: "That handle and password do not match.",
@@ -33,15 +34,16 @@ export default function Home() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [grants, setGrants] = useState<Grant[]>([]);
-  const [view, setView] = useState<"workspace" | "repositories" | "access">("workspace");
+  const [inbox, setInbox] = useState<InboxItem[]>([]);
+  const [view, setView] = useState<"workspace" | "repositories" | "inbox" | "access">("workspace");
 
   const loadWorkspace = useCallback(async () => {
     try {
       const current = await api<Session>("/session");
       setSession(current);
-      const [repoData, grantData] = await Promise.all([api<Envelope<Repository>>("/repositories?affiliation=all&per_page=100"), api<Envelope<Grant>>("/access-grants?per_page=100")]);
-      setRepositories(repoData.items); setGrants(grantData.items);
-    } catch { setSession(null); setRepositories([]); setGrants([]); }
+      const [repoData, grantData, inboxData] = await Promise.all([api<Envelope<Repository>>("/repositories?affiliation=all&per_page=100"), api<Envelope<Grant>>("/access-grants?per_page=100"), api<Envelope<InboxItem>>("/inbox?per_page=100")]);
+      setRepositories(repoData.items); setGrants(grantData.items); setInbox(inboxData.items);
+    } catch { setSession(null); setRepositories([]); setGrants([]); setInbox([]); }
   }, []);
 
   useEffect(() => {
@@ -53,8 +55,8 @@ export default function Home() {
   if (session === undefined) return <div className="splash"><span className="brand-mark">K</span><p>Opening your workspace…</p></div>;
   if (!session) return <Onboarding onAuthenticated={loadWorkspace} />;
 
-  return <Dashboard session={session} repositories={repositories} grants={grants} view={view} setView={setView}
-    refresh={loadWorkspace} onSignedOut={() => { setSession(null); setRepositories([]); setGrants([]); }} />;
+  return <Dashboard session={session} repositories={repositories} grants={grants} inbox={inbox} view={view} setView={setView}
+    refresh={loadWorkspace} onSignedOut={() => { setSession(null); setRepositories([]); setGrants([]); setInbox([]); }} />;
 }
 
 function Onboarding({ onAuthenticated }: { onAuthenticated: () => Promise<void> }) {
@@ -95,15 +97,25 @@ function Onboarding({ onAuthenticated }: { onAuthenticated: () => Promise<void> 
   </main>;
 }
 
-function Dashboard({ session, repositories, grants, view, setView, refresh, onSignedOut }: { session: Session; repositories: Repository[]; grants: Grant[]; view: "workspace"|"repositories"|"access"; setView: (view: "workspace"|"repositories"|"access") => void; refresh: () => Promise<void>; onSignedOut: () => void }) {
+function Dashboard({ session, repositories, grants, inbox, view, setView, refresh, onSignedOut }: { session: Session; repositories: Repository[]; grants: Grant[]; inbox: InboxItem[]; view: "workspace"|"repositories"|"inbox"|"access"; setView: (view: "workspace"|"repositories"|"inbox"|"access") => void; refresh: () => Promise<void>; onSignedOut: () => void }) {
   const [showCreate, setShowCreate] = useState(false); const [query, setQuery] = useState("");
   const initials = session.user.display_name.split(/\s+/).map(part => part[0]).join("").slice(0, 2).toUpperCase();
   const filtered = useMemo(() => repositories.filter(repo => `${repo.name} ${repo.description}`.toLowerCase().includes(query.toLowerCase())), [repositories, query]);
   async function signOut() { await api("/session", { method: "DELETE" }).catch(() => undefined); onSignedOut(); }
 
-  return <WorkspaceShell displayName={session.user.display_name} handle={session.user.handle} initials={initials} repositoryCount={repositories.length} view={view} query={query} onQuery={setQuery} onView={setView} onCreate={() => setShowCreate(true)} onSignOut={signOut}>
-    {view === "access" ? <Access grants={grants} refresh={refresh}/> : <Repositories user={session.user} repositories={filtered} total={repositories.length} searching={Boolean(query)} showCreate={showCreate} setShowCreate={setShowCreate} refresh={refresh} full={view === "repositories"}/>}
+  return <WorkspaceShell displayName={session.user.display_name} handle={session.user.handle} initials={initials} repositoryCount={repositories.length} inboxCount={inbox.length} view={view} query={query} onQuery={setQuery} onView={setView} onCreate={() => setShowCreate(true)} onSignOut={signOut}>
+    {view === "access" ? <Access grants={grants} refresh={refresh}/> : view === "inbox" ? <Inbox items={inbox} refresh={refresh}/> : <Repositories user={session.user} repositories={filtered} total={repositories.length} searching={Boolean(query)} showCreate={showCreate} setShowCreate={setShowCreate} refresh={refresh} full={view === "repositories"}/>}
   </WorkspaceShell>;
+}
+
+function Inbox({ items, refresh }: { items: InboxItem[]; refresh: () => Promise<void> }) {
+  const [classification, setClassification] = useState<"all"|InboxItem["classification"]>("all");
+  const visible = classification === "all" ? items : items.filter(item => item.classification === classification);
+  async function clear(id: string) { await api(`/inbox/${id}`, { method: "DELETE" }); await refresh(); }
+  return <><div className="eyebrow"><Bell size={14}/> Attention</div><div className="page-heading"><div><h1>Inbox</h1><p>Decisions, responses, and changes worth knowing about—together in one place.</p></div></div>
+    <div className="inbox-filters" aria-label="Filter inbox">{(["all","review","response","awareness"] as const).map(value => <button key={value} className={classification === value ? "active" : ""} aria-pressed={classification === value} onClick={() => setClassification(value)}>{value[0].toUpperCase()+value.slice(1)}<span>{value === "all" ? items.length : items.filter(item => item.classification === value).length}</span></button>)}</div>
+    {visible.length ? <section className="panel inbox-list" aria-label="Inbox items">{visible.map(item => <article className="inbox-item" key={item.id}><span className={`inbox-kind ${item.classification}`}>{item.classification}</span><div><Link href={item.href}><h2>{item.title}</h2></Link><p>{item.summary}</p><small>@{item.actor_handle} · {item.repository_name} · {new Date(item.created_at).toLocaleDateString()}</small></div><div className="inbox-actions"><Link className="button secondary sm" href={item.href}>Open</Link><button onClick={() => clear(item.id)}>Clear</button></div></article>)}</section> : <section className="first-step panel"><span className="empty-icon"><Check size={22}/></span><h2>Nothing needs your attention</h2><p>{classification === "all" ? "You’re caught up." : `No ${classification} items are waiting.`}</p></section>}
+  </>;
 }
 
 function Repositories({ user, repositories, total, searching, showCreate, setShowCreate, refresh, full }: { user: UserRecord; repositories: Repository[]; total: number; searching: boolean; showCreate: boolean; setShowCreate: (show: boolean) => void; refresh: () => Promise<void>; full: boolean }) {

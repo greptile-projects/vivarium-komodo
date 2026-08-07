@@ -13,6 +13,7 @@ import (
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/inbox"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
@@ -32,6 +33,7 @@ func TestNewcomerAndMaintainerCompleteCollaborationWorkflow(t *testing.T) {
 	proposalStore, _ := proposals.New(t.TempDir())
 	pullRequestStore, _ := pullrequests.New(t.TempDir())
 	activityStore, _ := activities.New(t.TempDir(), userStore)
+	inboxStore, _ := inbox.New(t.TempDir())
 	mux := http.NewServeMux()
 	registerUsersHTTP(mux, userStore, credentials)
 	registerAuthHTTP(mux, credentials, userStore)
@@ -40,6 +42,7 @@ func TestNewcomerAndMaintainerCompleteCollaborationWorkflow(t *testing.T) {
 	registerProposalsHTTP(mux, proposalStore, catalog, credentials, activityStore)
 	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, catalog, credentials, activityStore)
 	registerActivitiesHTTP(mux, activityStore, catalog, credentials)
+	registerInboxHTTP(mux, activityStore, inboxStore, catalog, proposalStore, pullRequestStore, userStore, credentials)
 	registerGitHTTP(mux, catalog, credentials)
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -112,6 +115,14 @@ func TestNewcomerAndMaintainerCompleteCollaborationWorkflow(t *testing.T) {
 	reviewPath := "/repositories/" + repository.ID + "/pull-requests/" + pullRequest.ID
 	workflowJSON(t, server.URL, http.MethodPut, reviewPath+"/reviews/me", maintainer.API, `{"decision":"request_changes"}`, http.StatusOK, nil)
 	workflowJSON(t, server.URL, http.MethodPost, reviewPath+"/comments", maintainer.API, `{"body":"@newcomer please add the exact API test command."}`, http.StatusCreated, nil)
+	var responseInbox struct {
+		Items []inboxItem `json:"items"`
+		Total int         `json:"total_count"`
+	}
+	workflowJSON(t, server.URL, http.MethodGet, "/inbox?classification=response&per_page=100", newcomer.API, "", http.StatusOK, &responseInbox)
+	if responseInbox.Total == 0 || !strings.Contains(responseInbox.Items[0].Href, "pull="+pullRequest.ID) {
+		t.Fatalf("response inbox = %#v", responseInbox)
+	}
 
 	if err := os.WriteFile(filepath.Join(newcomerClone, "CONTRIBUTING.md"), []byte("# Contributing\n\nOpen a proposal first, then run `go test ./...`.\n"), 0o640); err != nil {
 		t.Fatal(err)
@@ -165,6 +176,32 @@ func TestNewcomerAndMaintainerCompleteCollaborationWorkflow(t *testing.T) {
 	for eventType, found := range wantTypes {
 		if !found {
 			t.Errorf("missing %s in %d activity events", eventType, activity.Total)
+		}
+	}
+	var newcomerInbox struct {
+		Items []inboxItem `json:"items"`
+		Total int         `json:"total_count"`
+	}
+	workflowJSON(t, server.URL, http.MethodGet, "/inbox?per_page=100", newcomer.API, "", http.StatusOK, &newcomerInbox)
+	classifications := map[string]bool{}
+	for _, item := range newcomerInbox.Items {
+		classifications[item.Classification] = true
+		if item.Href == "" || item.RepositoryID != repository.ID {
+			t.Fatalf("non-actionable inbox item = %#v", item)
+		}
+	}
+	if !classifications["awareness"] {
+		t.Fatalf("newcomer inbox classifications = %#v", classifications)
+	}
+	if len(newcomerInbox.Items) == 0 {
+		t.Fatal("newcomer inbox is empty")
+	}
+	cleared := newcomerInbox.Items[0].ID
+	workflowJSON(t, server.URL, http.MethodDelete, "/inbox/"+cleared, newcomer.API, "", http.StatusNoContent, nil)
+	workflowJSON(t, server.URL, http.MethodGet, "/inbox?per_page=100", newcomer.API, "", http.StatusOK, &newcomerInbox)
+	for _, item := range newcomerInbox.Items {
+		if item.ID == cleared {
+			t.Fatalf("cleared inbox item %s returned", cleared)
 		}
 	}
 }
