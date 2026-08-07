@@ -246,6 +246,16 @@ func appendRunEvent(store changeSessionStore, credentials changeSessionCredentia
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
+		// A failed run is terminal. Revoke its branch credential immediately so a
+		// crashed or abandoned worker cannot continue publishing after clients
+		// have observed the failure.
+		if input.Type == "run.failed" {
+			if _, err := credentials.Revoke(run.InitiatorID, run.CredentialGrantID); err != nil && !errors.Is(err, auth.ErrNotFound) {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			_, _ = store.RevokeRunCredential(repositoryID, pullID, sessionID, runID, time.Now())
+		}
 		writeJSON(w, http.StatusCreated, event)
 	}
 }

@@ -102,8 +102,8 @@ whenever dependencies change or the web job fails before it starts.
   pause it, resume a paused run, or cancel it through the session. These
   interventions are ordered timeline records. Workers poll the credential-bound
   control resource for the current run state and full intervention sequence;
-  paused runs reject progress publication, canceled runs are terminal, and
-  cancellation revokes the worker Git credential.
+  paused runs reject progress publication; failed and canceled runs are
+  terminal and immediately revoke the worker Git credential.
   Delegated publication is limited to the pull request source branch. After a
   worker pushes a descendant revision, its credential-bound publication action
   derives exact commits and changed paths from Git, records its summary, checks,
