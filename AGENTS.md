@@ -131,7 +131,10 @@ whenever dependencies change or the web job fails before it starts.
   `apps/api/data/pull-requests`) owned by the `pullrequests.Store` boundary.
   Creation resolves existing source and target branches through storage and
   snapshots both commit IDs; later branch movement must not rewrite that
-  represented state. The API derives source-only commits and recursive file
+  represented state implicitly. After publishing review follow-up commits, the
+  pull request author may explicitly synchronize the represented source commit;
+  prior reviews remain tied to their evaluated commits and become stale. The API
+  derives source-only commits and recursive file
   changes from those snapshots through `GraphStore`; text changes include a
   readable patch while binary changes retain object and mode metadata. Pull
   request discussion is append-only and attributable by stable user ID. Pull

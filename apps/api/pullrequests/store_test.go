@@ -38,6 +38,21 @@ func TestPullRequestValidation(t *testing.T) {
 	}
 }
 
+func TestOpenPullRequestSynchronizesPublishedSource(t *testing.T) {
+	store, _ := New(t.TempDir())
+	created, _ := store.Create(CreateParams{RepositoryID: "repository", AuthorID: "author", Title: "Change", SourceBranch: "candidate", TargetBranch: "main", SourceCommitID: "first", TargetCommitID: "target"})
+	updated, err := store.SynchronizeSource("repository", created.ID, "follow-up")
+	if err != nil || updated.SourceCommitID != "follow-up" || !updated.UpdatedAt.After(created.UpdatedAt) {
+		t.Fatalf("synchronized pull request = %#v, %v", updated, err)
+	}
+	if _, err := store.MarkMerged("repository", created.ID, "maintainer", "merge"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SynchronizeSource("repository", created.ID, "later"); err != ErrInvalid {
+		t.Fatalf("merged synchronization error = %v", err)
+	}
+}
+
 func TestPullRequestDiscussionSurvivesReopen(t *testing.T) {
 	root := t.TempDir()
 	store, _ := New(root)
