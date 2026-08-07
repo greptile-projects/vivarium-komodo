@@ -13,3 +13,9 @@ export const ArrowRight = (p: IconProps) => <Icon {...p}><path d="M5 12h14m-5-5 
 export const Branch = (p: IconProps) => <Icon {...p}><circle cx="6" cy="5" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M8 10h5a5 5 0 0 0 5-5"/></Icon>;
 export const Sparkles = (p: IconProps) => <Icon {...p}><path d="m12 3-1.4 3.6L7 8l3.6 1.4L12 13l1.4-3.6L17 8l-3.6-1.4zM5 15l-.8 2.2L2 18l2.2.8L5 21l.8-2.2L8 18l-2.2-.8zM19 14l-.7 1.3L17 16l1.3.7L19 18l.7-1.3L21 16l-1.3-.7z"/></Icon>;
 export const Menu = (p: IconProps) => <Icon {...p}><path d="M4 7h16M4 12h16M4 17h16"/></Icon>;
+export const User = (p: IconProps) => <Icon {...p}><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></Icon>;
+export const Key = (p: IconProps) => <Icon {...p}><circle cx="8" cy="15" r="4"/><path d="m11 12 8-8m-2 2 2 2m-5 1 2 2"/></Icon>;
+export const Shield = (p: IconProps) => <Icon {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></Icon>;
+export const Copy = (p: IconProps) => <Icon {...p}><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></Icon>;
+export const Check = (p: IconProps) => <Icon {...p}><path d="m5 12 4 4L19 6"/></Icon>;
+export const Trash = (p: IconProps) => <Icon {...p}><path d="M3 6h18M8 6V4h8v2m3 0-1 15H6L5 6m5 4v7m4-7v7"/></Icon>;

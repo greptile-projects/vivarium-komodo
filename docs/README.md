@@ -27,6 +27,29 @@ controls, and reduced-motion support. Interactive components expose hover,
 focus, and pressed states, and navigation collapses to a native disclosure on
 small screens.
 
+## Web onboarding
+
+The root web route is an authentication-aware entry point rather than a static
+dashboard. A visitor can create an account or sign in; successful account
+creation immediately establishes a web session and continues into the
+workspace. A new user's primary empty state leads directly to repository
+creation, while returning users can search their owned repository list and
+copy a clone URL. Repository creation supports the API's private-by-default or
+public visibility choices.
+
+The access workspace lists the user's active browser and programmatic grants.
+Users can issue short-lived Git or API credentials, copy the plaintext secret
+from its one-time reveal, and revoke credentials they no longer use. Signing
+out revokes the current browser session.
+
+Client code calls the same-origin `/api/*` boundary implemented by the Next.js
+catch-all route handler. It forwards requests and the API's `komodo_session`
+cookie to the Go service, avoiding cross-origin exposure of the HttpOnly
+credential. The server-only `$API_ORIGIN` selects that service and defaults to
+`http://localhost:8080` for the documented two-process development setup.
+`$NEXT_PUBLIC_GIT_ORIGIN` selects the externally reachable origin used in clone
+URLs and has the same local default.
+
 ## Human identity
 
 The API exposes durable human accounts as JSON resources. Accounts live beneath

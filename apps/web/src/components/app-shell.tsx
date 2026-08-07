@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Bell, Book, GitPullRequest, Home, Menu, Plus, Search, Users } from "./icons";
 import { Avatar } from "./ui";
+import { Button } from "./ui";
+import { Key, Sparkles } from "./icons";
 
 const navigation = [
   { label: "Home", href: "/", icon: Home, active: true },
@@ -34,6 +36,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <a className="nav-item pinned" href="#repositories"><span className="repo-dot blue" />field-notes</a>
       </nav>
       <main id="main-content" className="main-content">{children}</main>
+    </div>
+  </div>;
+}
+
+export function WorkspaceShell({ children, displayName, handle, initials, repositoryCount, view, query, onQuery, onView, onCreate, onSignOut }: {
+  children: React.ReactNode; displayName: string; handle: string; initials: string; repositoryCount: number;
+  view: "workspace" | "repositories" | "access"; query: string; onQuery: (value: string) => void;
+  onView: (view: "workspace" | "repositories" | "access") => void; onCreate: () => void; onSignOut: () => void;
+}) {
+  return <div className="dashboard">
+    <a className="skip-link" href="#main-content">Skip to main content</a>
+    <header className="workspace-topbar"><Link className="brand" href="/"><span className="brand-mark">K</span><span>Kanso</span></Link><label className="search"><Search size={16}/><span className="sr-only">Find a repository</span><input value={query} onChange={event => onQuery(event.target.value)} onFocus={() => onView("repositories")} placeholder="Find a repository…"/></label><div className="account-summary"><span className="avatar sm">{initials}</span><span><strong>{displayName}</strong><small>@{handle}</small></span><Button variant="secondary" size="sm" onClick={onSignOut}>Sign out</Button></div></header>
+    <div className="workspace-body"><nav className="side-nav" aria-label="Workspace"><p className="nav-label">Workspace</p><button className={view === "workspace" ? "nav-item active" : "nav-item"} onClick={() => onView("workspace")}><Sparkles size={17}/>Home</button><button className={view === "repositories" ? "nav-item active" : "nav-item"} onClick={() => onView("repositories")}><Book size={17}/>Repositories<span className="nav-count">{repositoryCount}</span></button><button className={view === "access" ? "nav-item active" : "nav-item"} onClick={() => onView("access")}><Key size={17}/>Access</button><div className="nav-divider"/><Button size="sm" onClick={onCreate}><Plus size={15}/>New repository</Button></nav>
+      <main id="main-content" className="workspace-main">{children}</main>
     </div>
   </div>;
 }
