@@ -22,19 +22,48 @@ for attribution. The public `handle` is case-normalized and unique, while
 may change without changing the actor ID. Creation and updates are written
 atomically so a successfully returned identity survives process restarts.
 
-The initial unauthenticated account contract is:
+The account contract is:
 
-- `POST /users` creates an account from `handle` and `display_name`, returning
+- `POST /users` creates an account from `handle`, `display_name`, and a password
+  of 12 to 72 bytes, returning
   `201 Created` and its canonical `Location`;
 - `GET /users/{id}` inspects the stable identity and current profile;
 - `PUT /users/{id}` replaces the mutable profile while retaining `id` and
-  `created_at`.
+  `created_at`; it requires that user's `profile:write` access.
 
 Responses include `created_at` and `updated_at` UTC timestamps. Invalid
 profiles return `422`, duplicate handles return `409`, and unknown or malformed
-IDs return `404`. Authentication and binding requests to the acting user belong
-to the next application-foundation rung; until then these endpoints establish
-the durable resource that credentials will identify.
+IDs return `404`.
+
+## Authentication and access grants
+
+Authentication state lives beneath `$AUTH_ROOT`, or `apps/api/data/auth` by
+default. Passwords are bcrypt hashes and never appear in user resources. Access
+tokens contain 256 random bits with a recognizable `vkm_` prefix; only their
+SHA-256 digests are stored. The plaintext token is returned exactly once when a
+programmatic grant is created. Grant metadata includes its client kind, scopes,
+creation and expiration times, last use, and optional revocation time, so access
+can be inspected without recovering a credential.
+
+`POST /sessions` accepts a handle and password and creates a 12-hour `web`
+grant. Its credential is carried in an HttpOnly, SameSite=Strict cookie and is
+not exposed in the JSON response. `GET /session` returns the current actor and
+grant metadata; `DELETE /session` revokes it and clears the cookie. Bearer API
+tokens may also use `GET /session` to inspect their actor and effective access.
+
+An authenticated grant with `access:manage` may create, list, and revoke
+programmatic credentials through `POST /access-grants`, `GET /access-grants`,
+and `DELETE /access-grants/{id}`. API grants last at most 90 days and may request
+only `profile:read`, `profile:write`, and `access:manage`. Git grants last at
+most 30 days and may request only `git:read` and/or `git:write`. Web grants are
+created only by password sign-in, last at most 12 hours, and cannot be minted
+through the programmatic endpoint. Expired and revoked credentials fail
+immediately. A failed scope check returns the same `401` outcome as an invalid
+credential, avoiding disclosure of broader grant details.
+
+API clients send `Authorization: Bearer <token>`. Stock Git clients use any
+Basic-auth username and a Git token as the password, commonly by configuring a
+credential helper rather than embedding it in a remote URL.
 
 ## Git repository storage
 
@@ -104,12 +133,20 @@ outside the package boundary.
 
 ## Git remote access
 
-A repository's smart-HTTP remote URL is
+A repository's authenticated smart-HTTP remote URL is
 `http://<host>:<port>/repositories/<repository ID>`. The API handles the
 `info/refs?service=git-upload-pack` discovery request and protocol-v2
 `git-upload-pack` exchange by opening the repository through `RepositoryStore`
 and invoking stock Git against the handle's `GitDir`. `git` must therefore be
 available on the API process's `PATH`.
+
+All discovery and transport requests require a Git access token via HTTP Basic
+authentication. Upload-pack discovery and exchange require `git:read`;
+receive-pack discovery and exchange require `git:write`. This allows a clone or
+pull credential to omit write authority, while a publishing credential may be
+short-lived and independently revoked. Repository ownership checks are added by
+the following access-control rung; at this stage a valid Git-scoped actor can
+reach any existing repository without receiving API or browser authority.
 
 The server forwards Git's negotiated protocol version and emits the standard
 smart-HTTP media types and service preamble. This lets unmodified `git ls-remote`

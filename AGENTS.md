@@ -84,14 +84,18 @@ whenever dependencies change or the web job fails before it starts.
   `git_compatibility_test.go` is the black-box compatibility suite for the
   complete stock-client single-branch workflow; after provisioning its empty
   repository, it observes and changes remote state only through Git over HTTP.
-  The package has no third-party
-  dependencies and no `go.sum`; adding a dependency means the api workflow's
-  `cache: false` line should flip to `cache-dependency-path: apps/api/go.sum`.
+  Passwords and access grants are owned by the `auth.Store` boundary beneath
+  `$AUTH_ROOT` (default `apps/api/data/auth`). Passwords are bcrypt hashes and
+  issued bearer secrets are persisted only as SHA-256 digests. Browser sessions,
+  API tokens, and Git credentials have separate scope and lifetime policies;
+  authenticate HTTP requests through that boundary rather than reading its files.
   The port comes from `$PORT`, defaulting to `8080`.
   Human identities are durable JSON resources beneath `$USER_ROOT`, defaulting
   to `apps/api/data/users` when started via the documented root command. Use the
   `users.Store` boundary for account creation, inspection, and profile updates;
   user IDs are immutable while unique handles and display names are mutable.
+  Account creation establishes the user's password; profile mutation requires
+  authenticated `profile:write` access belonging to that same user.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 

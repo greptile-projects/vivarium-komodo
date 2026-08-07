@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/users"
 )
@@ -26,14 +27,23 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	authRoot := os.Getenv("AUTH_ROOT")
+	if authRoot == "" {
+		authRoot = "data/auth"
+	}
+	credentials, err := auth.New(authRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok"}`))
 	})
-	registerGitHTTP(mux, repositories)
-	registerUsersHTTP(mux, userStore)
+	registerGitHTTP(mux, repositories, credentials)
+	registerUsersHTTP(mux, userStore, credentials)
+	registerAuthHTTP(mux, credentials, userStore)
 
 	port := os.Getenv("PORT")
 	if port == "" {

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/users"
 )
 
@@ -15,21 +16,33 @@ type userStore interface {
 	Update(users.ID, users.Profile) (users.User, error)
 }
 
-func registerUsersHTTP(mux *http.ServeMux, store userStore) {
-	mux.HandleFunc("POST /users", createUser(store))
+func registerUsersHTTP(mux *http.ServeMux, store userStore, credentials authStore) {
+	mux.HandleFunc("POST /users", createUser(store, credentials))
 	mux.HandleFunc("GET /users/{user}", getUser(store))
-	mux.HandleFunc("PUT /users/{user}", updateUser(store))
+	mux.HandleFunc("PUT /users/{user}", updateUser(store, credentials))
 }
 
-func createUser(store userStore) http.HandlerFunc {
+func createUser(store userStore, credentials authStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		profile, ok := readProfile(w, r)
-		if !ok {
+		var input struct {
+			Handle      string `json:"handle"`
+			DisplayName string `json:"display_name"`
+			Password    string `json:"password"`
+		}
+		if !readJSON(w, r, &input, 4096) {
 			return
 		}
-		user, err := store.Create(profile)
+		if len(input.Password) < 12 || len(input.Password) > 72 {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_password"})
+			return
+		}
+		user, err := store.Create(users.Profile{Handle: input.Handle, DisplayName: input.DisplayName})
 		if err != nil {
 			writeUserError(w, err)
+			return
+		}
+		if err := credentials.SetPassword(string(user.ID), input.Password); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
 		w.Header().Set("Location", "/users/"+string(user.ID))
@@ -48,8 +61,16 @@ func getUser(store userStore) http.HandlerFunc {
 	}
 }
 
-func updateUser(store userStore) http.HandlerFunc {
+func updateUser(store userStore, credentials authStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.ProfileWrite)
+		if !ok {
+			return
+		}
+		if actor.UserID != r.PathValue("user") {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+			return
+		}
 		profile, ok := readProfile(w, r)
 		if !ok {
 			return
