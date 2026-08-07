@@ -151,10 +151,14 @@ repository-scoped public API is:
 
 Reads use the same public/private visibility and participant rules as the pull
 request. Starting a session requires authenticated `repository:write` access
-and an open pull request. Task instructions, agent identity, scoped worker
-credentials, and execution controls intentionally remain outside this initial
-session lifecycle and can extend the public resource without exposing worker
-internals.
+and an open pull request. `POST .../change-sessions/{session}/runs` accepts a
+mandate, the explicitly selected captured source revision, optional relevant
+repository paths, an agent identity (default `codex`), and a working branch. It
+creates a durable queued run and returns its worker Git secret exactly once.
+The grant expires after 24 hours and Git transport enforces both its repository
+ID and exact `refs/heads/...` branch, even when the initiating user owns the
+repository. `DELETE .../runs/{run}/credential` lets that initiator revoke it
+immediately. Execution and progress streaming remain later worker concerns.
 
 ## Human identity
 

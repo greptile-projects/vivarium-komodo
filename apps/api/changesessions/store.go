@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -22,6 +23,26 @@ var (
 type State string
 
 const AwaitingInstructions State = "awaiting_instructions"
+const Delegated State = "delegated"
+
+type RunState string
+
+const Queued RunState = "queued"
+
+type Run struct {
+	ID                  string     `json:"id"`
+	InitiatorID         string     `json:"initiator_id"`
+	Agent               string     `json:"agent"`
+	Instructions        string     `json:"instructions"`
+	RevisionID          string     `json:"revision_id"`
+	ContextPaths        []string   `json:"context_paths"`
+	WorkingBranch       string     `json:"working_branch"`
+	CredentialGrantID   string     `json:"credential_grant_id"`
+	CredentialExpiresAt time.Time  `json:"credential_expires_at"`
+	CredentialRevokedAt *time.Time `json:"credential_revoked_at,omitempty"`
+	State               RunState   `json:"state"`
+	CreatedAt           time.Time  `json:"created_at"`
+}
 
 type Event struct {
 	ID        string            `json:"id"`
@@ -41,6 +62,69 @@ type Session struct {
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 	Events         []Event   `json:"events,omitempty"`
+	Runs           []Run     `json:"runs,omitempty"`
+}
+
+type DelegateParams struct {
+	InitiatorID, Agent, Instructions, RevisionID, WorkingBranch, CredentialGrantID string
+	ContextPaths                                                                   []string
+	CredentialExpiresAt                                                            time.Time
+}
+
+func (s *Store) Delegate(repositoryID, pullRequestID, id string, params DelegateParams) (Run, error) {
+	if strings.TrimSpace(params.Instructions) == "" || len(params.Instructions) > 10000 || params.InitiatorID == "" || params.Agent == "" || params.RevisionID == "" || params.WorkingBranch == "" || params.CredentialGrantID == "" {
+		return Run{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(repositoryID, pullRequestID, id)
+	if err != nil {
+		return Run{}, err
+	}
+	if item.State != AwaitingInstructions || params.RevisionID != item.SourceCommitID {
+		return Run{}, ErrInvalid
+	}
+	runID, err := newID()
+	if err != nil {
+		return Run{}, err
+	}
+	eventID, err := newID()
+	if err != nil {
+		return Run{}, err
+	}
+	now := s.now().UTC()
+	run := Run{ID: runID, InitiatorID: params.InitiatorID, Agent: params.Agent, Instructions: strings.TrimSpace(params.Instructions), RevisionID: params.RevisionID, ContextPaths: append([]string(nil), params.ContextPaths...), WorkingBranch: params.WorkingBranch, CredentialGrantID: params.CredentialGrantID, CredentialExpiresAt: params.CredentialExpiresAt, State: Queued, CreatedAt: now}
+	item.Runs = append(item.Runs, run)
+	item.State = Delegated
+	item.UpdatedAt = now
+	item.Events = append(item.Events, Event{ID: eventID, Type: "run.delegated", ActorID: params.InitiatorID, Metadata: map[string]string{"run_id": run.ID, "agent": run.Agent, "revision_id": run.RevisionID, "working_branch": run.WorkingBranch}, CreatedAt: now})
+	if err := s.write(item); err != nil {
+		return Run{}, err
+	}
+	return run, nil
+}
+
+func (s *Store) RevokeRunCredential(repositoryID, pullRequestID, sessionID, runID string, at time.Time) (Run, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(repositoryID, pullRequestID, sessionID)
+	if err != nil {
+		return Run{}, err
+	}
+	for i := range item.Runs {
+		if item.Runs[i].ID == runID {
+			if item.Runs[i].CredentialRevokedAt == nil {
+				v := at.UTC()
+				item.Runs[i].CredentialRevokedAt = &v
+				item.UpdatedAt = v
+				if err := s.write(item); err != nil {
+					return Run{}, err
+				}
+			}
+			return item.Runs[i], nil
+		}
+	}
+	return Run{}, ErrNotFound
 }
 
 type Store struct {

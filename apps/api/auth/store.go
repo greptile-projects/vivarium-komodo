@@ -57,16 +57,28 @@ var kindPolicy = map[Kind]struct {
 }
 
 type Grant struct {
-	ID         string     `json:"id"`
-	UserID     string     `json:"user_id"`
-	Name       string     `json:"name"`
-	Kind       Kind       `json:"kind"`
-	Scopes     []Scope    `json:"scopes"`
-	CreatedAt  time.Time  `json:"created_at"`
-	ExpiresAt  time.Time  `json:"expires_at"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
-	Digest     string     `json:"-"`
+	ID           string     `json:"id"`
+	UserID       string     `json:"user_id"`
+	Name         string     `json:"name"`
+	Kind         Kind       `json:"kind"`
+	Scopes       []Scope    `json:"scopes"`
+	CreatedAt    time.Time  `json:"created_at"`
+	ExpiresAt    time.Time  `json:"expires_at"`
+	LastUsedAt   *time.Time `json:"last_used_at,omitempty"`
+	RevokedAt    *time.Time `json:"revoked_at,omitempty"`
+	Digest       string     `json:"-"`
+	RepositoryID string     `json:"repository_id,omitempty"`
+	Branch       string     `json:"branch,omitempty"`
+}
+
+// IssueRepositoryGit creates a worker credential whose authority is limited to
+// one repository and one branch. It is intentionally unavailable through the
+// general access-grant API.
+func (s *Store) IssueRepositoryGit(userID, name, repositoryID, branch string, lifetime time.Duration) (IssuedGrant, error) {
+	if repositoryID == "" || branch == "" || !strings.HasPrefix(branch, "refs/heads/") {
+		return IssuedGrant{}, ErrInvalidGrant
+	}
+	return s.issue(userID, name, Git, []Scope{GitRead, GitWrite}, lifetime, repositoryID, branch)
 }
 
 type IssuedGrant struct {
@@ -124,6 +136,10 @@ func (s *Store) VerifyPassword(userID, password string) error {
 }
 
 func (s *Store) Issue(userID, name string, kind Kind, scopes []Scope, lifetime time.Duration) (IssuedGrant, error) {
+	return s.issue(userID, name, kind, scopes, lifetime, "", "")
+}
+
+func (s *Store) issue(userID, name string, kind Kind, scopes []Scope, lifetime time.Duration, repositoryID, branch string) (IssuedGrant, error) {
 	policy, ok := kindPolicy[kind]
 	name = strings.TrimSpace(name)
 	if !ok || name == "" || len(name) > 100 || lifetime <= 0 || lifetime > policy.maximum || !validScopes(scopes, policy.scopes) {
@@ -138,7 +154,7 @@ func (s *Store) Issue(userID, name string, kind Kind, scopes []Scope, lifetime t
 		return IssuedGrant{}, err
 	}
 	now := s.now().UTC()
-	grant := Grant{ID: id, UserID: userID, Name: name, Kind: kind, Scopes: append([]Scope(nil), scopes...), CreatedAt: now, ExpiresAt: now.Add(lifetime), Digest: digest(secret)}
+	grant := Grant{ID: id, UserID: userID, Name: name, Kind: kind, Scopes: append([]Scope(nil), scopes...), CreatedAt: now, ExpiresAt: now.Add(lifetime), Digest: digest(secret), RepositoryID: repositoryID, Branch: branch}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.write(grant); err != nil {
