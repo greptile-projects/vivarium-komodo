@@ -81,6 +81,9 @@ whenever dependencies change or the web job fails before it starts.
   `PATH`. Repository data is rooted at
   `$REPOSITORY_ROOT`, defaulting to `apps/api/repositories` when started via the
   documented root command.
+  `git_compatibility_test.go` is the black-box compatibility suite for the
+  complete stock-client single-branch workflow; after provisioning its empty
+  repository, it observes and changes remote state only through Git over HTTP.
   The package has no third-party
   dependencies and no `go.sum`; adding a dependency means the api workflow's
   `cache: false` line should flip to `cache-dependency-path: apps/api/go.sum`.

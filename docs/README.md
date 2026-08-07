@@ -110,3 +110,11 @@ primary-branch command and permits deletion of the branch named by symbolic
 Receive policy rejects updates to every other ref. Validation runs while
 incoming objects remain in Git's quarantine, so a rejected push publishes
 neither its references nor its objects.
+
+The API compatibility suite proves the complete workflow as one black-box
+session. After provisioning an empty repository, it uses only an unmodified
+Git client and the smart-HTTP URL to clone, create and push the initial branch,
+push and pull an ordinary update, force-update history, delete the branch, and
+recover it into an empty clone. Remote observations use `git ls-remote` or a
+fresh working copy rather than direct access to server-side references or
+objects.
