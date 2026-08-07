@@ -61,6 +61,13 @@ whenever dependencies change or the web job fails before it starts.
   `src/components/icons.tsx`, and design tokens plus global interaction states
   in `globals.css`. Preserve visible focus treatment, the skip link, reduced-
   motion behavior, and responsive mobile navigation when adding workflows.
+  Browser workflows reach the Go service through the same-origin
+  `src/app/api/[...path]/route.ts` proxy so HttpOnly web sessions remain
+  first-party. The proxy targets `$API_ORIGIN`, defaulting to
+  `http://localhost:8080`; keep that server-only setting aligned with the API
+  deployment rather than calling the Go origin directly from client code.
+  `$NEXT_PUBLIC_GIT_ORIGIN` supplies the browser-visible Git clone origin and
+  has the same local default.
 - **API** — `main.go` registers handlers on a `net/http` mux with Go 1.22+
   method-and-path patterns (`"GET /health"`). The `storage` package owns bare
   Git repository lifecycles; use its `RepositoryStore` boundary rather than
