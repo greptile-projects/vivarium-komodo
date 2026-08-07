@@ -50,6 +50,35 @@ credential. The server-only `$API_ORIGIN` selects that service and defaults to
 `$NEXT_PUBLIC_GIT_ORIGIN` selects the externally reachable origin used in clone
 URLs and has the same local default.
 
+## Repository browser
+
+Repository cards lead to a browser route at `/repositories/{id}`. The page
+presents repository name, description, visibility, and clone URL alongside a
+branch-aware file tree and reachable commit history. Directories and text files
+can be traversed in place; binary files retain their object identity and size
+without attempting a text preview. Empty repositories instead show the first
+push workflow. Branch, directory/file path, history view, and exact commit
+selection are encoded with the `ref`, `path`, and `view` query parameters, so a
+link continues to identify the revision it was opened against even as someone
+navigates deeper into the project.
+
+The same-origin web proxy exposes these read-only Go API resources:
+
+- `GET /repositories/{id}/branches` lists named branches and identifies the
+  default branch;
+- `GET /repositories/{id}/commits?ref={branch-or-commit}` lists reachable
+  history with the shared bounded pagination envelope and parsed authorship;
+- `GET /repositories/{id}/commits/{object-id}` inspects one commit;
+- `GET /repositories/{id}/tree?ref={branch-or-commit}&path={directory}` lists
+  one directory snapshot;
+- `GET /repositories/{id}/blob?ref={branch-or-commit}&path={file}` previews a
+  verified UTF-8 blob, with a 1 MiB display limit.
+
+All revision resolution, graph traversal, and object reads remain behind the
+repository catalog and storage boundaries. Public repository browsing is
+anonymous. Private browsing requires owner or contributor membership and a
+`repository:read` grant, matching metadata and Git transport policy.
+
 ## Human identity
 
 The API exposes durable human accounts as JSON resources. Accounts live beneath

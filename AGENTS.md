@@ -68,6 +68,11 @@ whenever dependencies change or the web job fails before it starts.
   deployment rather than calling the Go origin directly from client code.
   `$NEXT_PUBLIC_GIT_ORIGIN` supplies the browser-visible Git clone origin and
   has the same local default.
+  Repository browser routes live at `src/app/repositories/[id]`; branch, path,
+  and exact-commit context belongs in the URL (`ref`, `path`, and `view`) so
+  file and history navigation remains shareable. Read repository graph data
+  through the JSON browser endpoints rather than interpreting Git objects in
+  the frontend.
 - **API** — `main.go` registers handlers on a `net/http` mux with Go 1.22+
   method-and-path patterns (`"GET /health"`). The `storage` package owns bare
   Git repository lifecycles; use its `RepositoryStore` boundary rather than
@@ -126,6 +131,10 @@ whenever dependencies change or the web job fails before it starts.
   Authenticated non-participants receive `404` for denied repository access.
   Route Git through the catalog as well as storage so transport access cannot
   bypass ownership, collaborator, and visibility policy.
+  Read-only browser endpoints for branches, commits, trees, and blobs are
+  registered in `repository_browser_http.go`. They resolve data only through
+  the catalog and `RepositoryStorage`, and apply the same anonymous-public or
+  authenticated-participant policy as repository metadata and Git reads.
   Public repository resources also carry an owner-scoped normalized name,
   description, and create/update timestamps; their immutable ID remains the
   API and Git transport identity. Repository and access-grant collections use
