@@ -98,6 +98,12 @@ whenever dependencies change or the web job fails before it starts.
   Derive initiator, agent, run, and revision attribution from session storage
   rather than trusting worker-supplied identity fields, and keep raw execution
   logs and secrets out of event metadata.
+  Any authenticated repository participant may guide or answer an active run,
+  pause it, resume a paused run, or cancel it through the session. These
+  interventions are ordered timeline records. Workers poll the credential-bound
+  control resource for the current run state and full intervention sequence;
+  paused runs reject progress publication, canceled runs are terminal, and
+  cancellation revokes the worker Git credential.
 - **API** — `main.go` registers handlers on a `net/http` mux with Go 1.22+
   method-and-path patterns (`"GET /health"`). The `storage` package owns bare
   Git repository lifecycles; use its `RepositoryStore` boundary rather than

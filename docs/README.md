@@ -165,8 +165,22 @@ branch updates; bounded metadata carries public summaries, paths, tool names,
 errors, and commit IDs without exposing private execution logs. The API derives
 and persists the run ID, initiating user, agent identity, and captured revision
 on every event, verifies the exact grant, repository, and working branch, and
-advances runs through queued, running, succeeded, or failed states. Terminal
-runs reject later records. The web timeline refreshes while work is active.
+advances runs through queued, running, paused, succeeded, failed, or canceled
+states. Terminal runs reject later records. The web timeline refreshes while
+work is active.
+
+Repository participants can post `guidance`, `answer`, `pause`, `resume`, and
+`cancel` interventions at `POST .../runs/{run}/interventions`. Every accepted
+action is appended as an attributable `run.intervention` timeline event in the
+same storage transaction as its state transition. Guidance and answers require
+a message; pause is valid only for queued or running work, resume only for
+paused work, and terminal states reject every later intervention. A paused
+worker cannot publish progress. Cancellation is terminal and revokes the worker
+Git grant, including when a peer collaborator stops the run. Before
+cancellation, workers use their exact-run credential at
+`GET .../runs/{run}/control` to poll the authoritative state and ordered
+intervention sequence. The session page exposes follow-up, answer, pause,
+resume, and cancel controls and preserves each action in the shared timeline.
 
 ## Human identity
 

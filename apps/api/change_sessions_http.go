@@ -21,6 +21,7 @@ type changeSessionStore interface {
 	Delegate(string, string, string, changesessions.DelegateParams) (changesessions.Run, error)
 	RevokeRunCredential(string, string, string, string, time.Time) (changesessions.Run, error)
 	AppendRunEvent(string, string, string, string, string, map[string]string) (changesessions.Event, error)
+	Intervene(string, string, string, string, string, string, string) (changesessions.Event, changesessions.Run, error)
 }
 
 type changeSessionCredentialStore interface {
@@ -37,6 +38,78 @@ func registerChangeSessionsHTTP(mux *http.ServeMux, sessions changeSessionStore,
 	mux.HandleFunc("POST "+base+"/{session}/runs", delegateChangeSession(sessions, pulls, repositories, credentials))
 	mux.HandleFunc("DELETE "+base+"/{session}/runs/{run}/credential", revokeRunCredential(sessions, pulls, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{session}/runs/{run}/events", appendRunEvent(sessions, credentials))
+	mux.HandleFunc("GET "+base+"/{session}/runs/{run}/control", getRunControl(sessions, credentials))
+	mux.HandleFunc("POST "+base+"/{session}/runs/{run}/interventions", interveneRun(sessions, pulls, repositories, credentials))
+}
+
+func getRunControl(store changeSessionStore, credentials changeSessionCredentialStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		grant, ok := authenticateRequest(w, r, credentials, auth.GitWrite)
+		if !ok {
+			return
+		}
+		repositoryID, pullID, sessionID, runID := r.PathValue("repository"), r.PathValue("pull_request"), r.PathValue("session"), r.PathValue("run")
+		session, err := store.Get(repositoryID, pullID, sessionID)
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var run *changesessions.Run
+		for i := range session.Runs {
+			if session.Runs[i].ID == runID {
+				run = &session.Runs[i]
+				break
+			}
+		}
+		if run == nil || grant.ID != run.CredentialGrantID || grant.RepositoryID != repositoryID || grant.Branch != "refs/heads/"+run.WorkingBranch {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		items := []changesessions.Event{}
+		for _, event := range session.Events {
+			if event.RunID == runID && event.Type == "run.intervention" {
+				items = append(items, event)
+			}
+		}
+		writeJSON(w, 200, map[string]any{"run_id": run.ID, "state": run.State, "interventions": items})
+	}
+}
+
+func interveneRun(store changeSessionStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials changeSessionCredentialStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pull, actorID, ok := changeSessionContext(w, r, pulls, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var input struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		}
+		if !readJSON(w, r, &input, 12288) {
+			return
+		}
+		event, run, err := store.Intervene(pull.RepositoryID, pull.ID, r.PathValue("session"), r.PathValue("run"), actorID, input.Type, input.Message)
+		if errors.Is(err, changesessions.ErrNotFound) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if errors.Is(err, changesessions.ErrInvalid) {
+			writeJSON(w, 409, map[string]string{"error": "invalid_run_transition"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		if input.Type == "cancel" {
+			if _, err := credentials.Revoke(run.InitiatorID, run.CredentialGrantID); err != nil && !errors.Is(err, auth.ErrNotFound) {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			_, _ = store.RevokeRunCredential(pull.RepositoryID, pull.ID, r.PathValue("session"), run.ID, time.Now())
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"event": event, "run": run})
+	}
 }
 
 func appendRunEvent(store changeSessionStore, credentials changeSessionCredentialStore) http.HandlerFunc {
