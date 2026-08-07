@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/users"
@@ -44,6 +45,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	proposalRoot := os.Getenv("PROPOSAL_ROOT")
+	if proposalRoot == "" {
+		proposalRoot = "data/proposals"
+	}
+	proposalStore, err := proposals.New(proposalRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -53,6 +62,7 @@ func main() {
 	registerGitHTTP(mux, repositoryCatalog, credentials)
 	registerRepositoriesHTTP(mux, repositoryCatalog, credentials)
 	registerCollaboratorsHTTP(mux, repositoryCatalog, userStore, credentials)
+	registerProposalsHTTP(mux, proposalStore, repositoryCatalog, credentials)
 	registerUsersHTTP(mux, userStore, credentials)
 	registerAuthHTTP(mux, credentials, userStore)
 
