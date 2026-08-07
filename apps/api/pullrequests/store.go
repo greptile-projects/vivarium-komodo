@@ -25,22 +25,28 @@ var (
 
 type Status string
 
-const Open Status = "open"
+const (
+	Open   Status = "open"
+	Merged Status = "merged"
+)
 
 type PullRequest struct {
-	ID             string    `json:"id"`
-	RepositoryID   string    `json:"repository_id"`
-	ProposalID     string    `json:"proposal_id,omitempty"`
-	AuthorID       string    `json:"author_id"`
-	Title          string    `json:"title"`
-	Body           string    `json:"body"`
-	SourceBranch   string    `json:"source_branch"`
-	TargetBranch   string    `json:"target_branch"`
-	SourceCommitID string    `json:"source_commit_id"`
-	TargetCommitID string    `json:"target_commit_id"`
-	Status         Status    `json:"status"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID             string     `json:"id"`
+	RepositoryID   string     `json:"repository_id"`
+	ProposalID     string     `json:"proposal_id,omitempty"`
+	AuthorID       string     `json:"author_id"`
+	Title          string     `json:"title"`
+	Body           string     `json:"body"`
+	SourceBranch   string     `json:"source_branch"`
+	TargetBranch   string     `json:"target_branch"`
+	SourceCommitID string     `json:"source_commit_id"`
+	TargetCommitID string     `json:"target_commit_id"`
+	Status         Status     `json:"status"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	MergedAt       *time.Time `json:"merged_at,omitempty"`
+	MergedByID     string     `json:"merged_by_id,omitempty"`
+	MergeCommitID  string     `json:"merge_commit_id,omitempty"`
 }
 
 type CreateParams struct {
@@ -285,6 +291,32 @@ func (s *Store) ListReviews(repositoryID, pullRequestID string) ([]Review, error
 	return items, nil
 }
 
+// MarkMerged records the terminal outcome after the target reference has been
+// advanced. Repeating the operation with the same result is idempotent.
+func (s *Store) MarkMerged(repositoryID, id, actorID, commitID string) (PullRequest, error) {
+	if actorID == "" || commitID == "" {
+		return PullRequest{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(repositoryID, id)
+	if err != nil {
+		return PullRequest{}, err
+	}
+	if item.Status == Merged {
+		if item.MergedByID == actorID && item.MergeCommitID == commitID {
+			return item, nil
+		}
+		return PullRequest{}, ErrInvalid
+	}
+	now := s.now().UTC()
+	item.Status, item.MergedAt, item.MergedByID, item.MergeCommitID, item.UpdatedAt = Merged, &now, actorID, commitID, now
+	if err := s.write(item); err != nil {
+		return PullRequest{}, err
+	}
+	return item, nil
+}
+
 func (s *Store) readReview(path, pullRequestID, reviewerID string) (Review, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -309,7 +341,7 @@ func (s *Store) read(repositoryID, id string) (PullRequest, error) {
 		return PullRequest{}, err
 	}
 	var item PullRequest
-	if json.Unmarshal(data, &item) != nil || item.ID != id || item.RepositoryID != repositoryID || item.AuthorID == "" || item.Title == "" || item.SourceBranch == "" || item.TargetBranch == "" || item.SourceCommitID == "" || item.TargetCommitID == "" || item.Status != Open || item.CreatedAt.IsZero() || item.UpdatedAt.IsZero() {
+	if json.Unmarshal(data, &item) != nil || item.ID != id || item.RepositoryID != repositoryID || item.AuthorID == "" || item.Title == "" || item.SourceBranch == "" || item.TargetBranch == "" || item.SourceCommitID == "" || item.TargetCommitID == "" || (item.Status != Open && item.Status != Merged) || item.CreatedAt.IsZero() || item.UpdatedAt.IsZero() || (item.Status == Merged && (item.MergedAt == nil || item.MergedByID == "" || item.MergeCommitID == "")) {
 		return PullRequest{}, errors.New("invalid stored pull request")
 	}
 	return item, nil
