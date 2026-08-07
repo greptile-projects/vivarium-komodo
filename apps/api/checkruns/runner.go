@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -82,6 +84,17 @@ func readManifest(repository *storage.Repository, commitID storage.ObjectID) ([]
 		if d.Name == "" || len(d.Name) > 100 || names[d.Name] || d.Command == "" || len(d.Command) > 4000 || d.TimeoutSeconds < 1 || d.TimeoutSeconds > 1800 || !safeRelative(d.WorkingDirectory) || len(d.Environment) > 50 {
 			return nil, errors.New("invalid check manifest")
 		}
+		if len(d.Artifacts) > 20 {
+			return nil, errors.New("invalid check manifest")
+		}
+		seenArtifacts := map[string]bool{}
+		for j, path := range d.Artifacts {
+			path = strings.TrimSpace(path)
+			if path == "" || len(path) > 500 || !safeRelative(path) || seenArtifacts[path] {
+				return nil, errors.New("invalid check manifest")
+			}
+			d.Artifacts[j], seenArtifacts[path] = path, true
+		}
 		names[d.Name] = true
 		for key, value := range d.Environment {
 			if key == "" || strings.ContainsAny(key, "=\x00") || len(key) > 100 || len(value) > 4000 {
@@ -119,12 +132,12 @@ func (r *Runner) execute(id string) {
 	}
 	repository, err := r.repositories.Open(storage.ID(run.RepositoryID))
 	if err != nil {
-		_, _ = r.store.Complete(id, -1, "repository unavailable")
+		_, _ = r.store.Complete(id, -1, false, "repository unavailable")
 		return
 	}
 	dir, err := os.MkdirTemp("", "komodo-check-")
 	if err != nil {
-		_, _ = r.store.Complete(id, -1, "create isolated workspace")
+		_, _ = r.store.Complete(id, -1, false, "create isolated workspace")
 		return
 	}
 	defer os.RemoveAll(dir)
@@ -133,12 +146,12 @@ func (r *Runner) execute(id string) {
 		err = materialize(repository, commit.Tree, dir)
 	}
 	if err != nil {
-		_, _ = r.store.Complete(id, -1, "materialize exact revision")
+		_, _ = r.store.Complete(id, -1, false, "materialize exact revision")
 		return
 	}
 	working := filepath.Join(dir, filepath.FromSlash(run.Definition.WorkingDirectory))
 	if info, statErr := os.Stat(working); statErr != nil || !info.IsDir() {
-		_, _ = r.store.Complete(id, -1, "working directory unavailable")
+		_, _ = r.store.Complete(id, -1, false, "working directory unavailable")
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(run.Definition.TimeoutSeconds)*time.Second)
@@ -153,7 +166,21 @@ func (r *Runner) execute(id string) {
 	}
 	args = append(args, "/bin/sh", "-c", run.Definition.Command)
 	command := exec.CommandContext(ctx, "bwrap", args...)
-	output, commandErr := command.CombinedOutput()
+	stdout, stdoutErr := command.StdoutPipe()
+	stderr, stderrErr := command.StderrPipe()
+	if stdoutErr != nil || stderrErr != nil {
+		_, _ = r.store.Complete(id, -1, false, "capture command output")
+		return
+	}
+	commandErr := command.Start()
+	if commandErr == nil {
+		done := make(chan struct{}, 2)
+		go r.capture(id, "stdout", stdout, done)
+		go r.capture(id, "stderr", stderr, done)
+		commandErr = command.Wait()
+		<-done
+		<-done
+	}
 	exitCode, message := 0, ""
 	if commandErr != nil {
 		exitCode = -1
@@ -164,13 +191,39 @@ func (r *Runner) execute(id string) {
 		if ctx.Err() != nil {
 			message = "check timed out"
 		} else {
-			message = strings.TrimSpace(string(output))
-			if len(message) > 2000 {
-				message = message[len(message)-2000:]
-			}
+			message = "command failed"
 		}
 	}
-	_, _ = r.store.Complete(id, exitCode, message)
+	for _, artifactPath := range run.Definition.Artifacts {
+		path := filepath.Join(dir, filepath.FromSlash(artifactPath))
+		info, statErr := os.Lstat(path)
+		if statErr != nil || !info.Mode().IsRegular() || info.Size() > 25<<20 {
+			continue
+		}
+		content, readErr := os.ReadFile(path)
+		if readErr == nil {
+			mediaType := mime.TypeByExtension(filepath.Ext(path))
+			if mediaType == "" {
+				mediaType = "application/octet-stream"
+			}
+			_, _ = r.store.AddArtifact(id, artifactPath, mediaType, content)
+		}
+	}
+	_, _ = r.store.Complete(id, exitCode, ctx.Err() != nil, message)
+}
+
+func (r *Runner) capture(id, stream string, reader io.Reader, done chan<- struct{}) {
+	defer func() { done <- struct{}{} }()
+	buffer := make([]byte, 16<<10)
+	for {
+		n, err := reader.Read(buffer)
+		if n > 0 {
+			_ = r.store.AppendLog(id, stream, string(buffer[:n]))
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 func materialize(repository *storage.Repository, treeID storage.ObjectID, root string) error {

@@ -3,6 +3,7 @@ package checkruns
 import (
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"slices"
 	"testing"
 	"time"
@@ -18,7 +19,7 @@ func TestRunnerExecutesVersionedManifestAgainstExactSnapshot(t *testing.T) {
 	gitStore, _ := storage.New(t.TempDir())
 	repository, _ := gitStore.Create()
 	revision, _ := repository.WriteObject(storage.BlobObject, []byte("candidate\n"))
-	manifest, _ := json.Marshal(map[string]any{"version": 1, "checks": []map[string]any{{"name": "unit", "command": `test "$(cat revision.txt)" = candidate && test ! -e .git && test "$CHECK_MODE" = exact`, "timeout_seconds": 5, "environment": map[string]string{"CHECK_MODE": "exact"}}}})
+	manifest, _ := json.Marshal(map[string]any{"version": 1, "checks": []map[string]any{{"name": "unit", "command": `test "$(cat revision.txt)" = candidate && test ! -e .git && test "$CHECK_MODE" = exact && echo live-output && echo warning >&2 && printf evidence > report.txt`, "timeout_seconds": 5, "environment": map[string]string{"CHECK_MODE": "exact"}, "artifacts": []string{"report.txt"}}}})
 	manifestBlob, _ := repository.WriteObject(storage.BlobObject, manifest)
 	configTree, _ := repository.WriteObject(storage.TreeObject, tree(t, map[string]treeItem{"checks.json": {manifestBlob, 0o100644}}))
 	rootTree, _ := repository.WriteObject(storage.TreeObject, tree(t, map[string]treeItem{".komodo": {configTree, 0o40000}, "revision.txt": {revision, 0o100644}}))
@@ -48,9 +49,37 @@ func TestRunnerExecutesVersionedManifestAgainstExactSnapshot(t *testing.T) {
 	if run.State != Succeeded || run.CommitID != string(commit) || run.Definition.Name != "unit" || run.StartedAt == nil || run.CompletedAt == nil || run.ExitCode == nil || *run.ExitCode != 0 {
 		t.Fatalf("run = %#v", run)
 	}
+	var stdout, stderr string
+	var artifact *Artifact
+	for index, event := range run.Events {
+		if event.Sequence != int64(index+1) {
+			t.Fatalf("event sequence = %#v", run.Events)
+		}
+		if event.Stream == "stdout" {
+			stdout += event.Message
+		}
+		if event.Stream == "stderr" {
+			stderr += event.Message
+		}
+		if event.Artifact != nil {
+			artifact = event.Artifact
+		}
+	}
+	if stdout != "live-output\n" || stderr != "warning\n" || artifact == nil || artifact.Path != "report.txt" {
+		t.Fatalf("evidence = stdout %q, stderr %q, artifact %#v", stdout, stderr, artifact)
+	}
+	_, file, err := store.OpenArtifact(string(repository.ID()), "pull-1", run.ID, artifact.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, _ := io.ReadAll(file)
+	_ = file.Close()
+	if string(content) != "evidence" {
+		t.Fatalf("artifact content = %q", content)
+	}
 	reopened, _ := New(root)
 	durable, err := reopened.List(string(repository.ID()), "pull-1")
-	if err != nil || len(durable) != 1 || durable[0].State != Succeeded {
+	if err != nil || len(durable) != 1 || durable[0].State != Succeeded || len(durable[0].Events) != len(run.Events) {
 		t.Fatalf("reopened runs = %#v, %v", durable, err)
 	}
 }

@@ -208,8 +208,9 @@ A candidate revision opts into automatic verification with
 `.komodo/checks.json` in that revision. Schema version `1` contains a `checks`
 array; every check has a unique `name`, a shell `command`, and may select a
 repository-relative `working_directory`, a `timeout_seconds` value from 1 to
-1800 (600 by default), and bounded string `environment` entries. At most 20
-checks are accepted. Because the manifest is read through `GraphStore` from the
+1800 (600 by default), bounded string `environment` entries, and up to 20
+repository-relative regular-file `artifacts` to retain (25 MiB each). At most
+20 checks are accepted. Because the manifest is read through `GraphStore` from the
 pull request's exact source commit, both the commands and their execution
 context change through ordinary code review.
 
@@ -222,6 +223,21 @@ documented root development setup). `GET
 /repositories/{repository}/pull-requests/{pull}/check-runs` returns the durable
 newest-first collection through the ordinary repository read policy and shared
 pagination envelope.
+
+Every run is also an inspectable durable resource at `GET
+/repositories/{repository}/pull-requests/{pull}/check-runs/{run}`. Its ordered,
+one-based evidence sequence includes queued/running/terminal status records,
+timestamped stdout and stderr chunks (bounded to 10 MiB per attempt), the exact
+exit code and timeout outcome, and artifact metadata with size, media type, and
+SHA-256 digest. `GET .../{run}/events?after={sequence}` returns only later
+records plus the current state and latest sequence, allowing polling clients to
+disconnect and resume active output without guessing which records they saw.
+Declared artifacts are copied into check-run storage before the isolated
+workspace is removed and downloaded at `GET
+.../{run}/artifacts/{artifact}`. Collection, detail, evidence, and artifact
+reads all follow the pull request repository's existing visibility policy;
+separate attempts remain tied to their verified commit after success or
+failure.
 
 Each command receives a newly materialized copy of its exact Git snapshot with
 no `.git` directory or credentials. Bubblewrap gives it a private process,

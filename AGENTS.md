@@ -226,9 +226,13 @@ whenever dependencies change or the web job fails before it starts.
   Bubblewrap namespace containing only a writable materialization of that Git
   snapshot, read-only system runtime files, and disposable `/tmp`; it has no
   repository metadata, credentials, host filesystem, or network namespace.
-  Preserve this exact-commit and bounded-access contract when adding logs,
-  artifacts, reruns, or merge requirements. Run state is repository-policy
-  readable at the pull request's `/check-runs` collection.
+  Preserve this exact-commit and bounded-access contract when adding reruns or
+  merge requirements. Run state is repository-policy readable at the pull
+  request's `/check-runs` collection. Each run retains an ordered evidence
+  stream of status transitions, stdout/stderr chunks, command outcome, and
+  declared artifacts. Consumers reconnect through the run's
+  `/events?after={sequence}` resource and download artifacts through their
+  run-scoped artifact resource; both use ordinary repository read policy.
   Pull-request change sessions live beneath `$CHANGE_SESSION_ROOT` (default
   `apps/api/data/change-sessions`) behind the `changesessions.Store` boundary.
   Any authenticated repository participant may start one on an open pull
