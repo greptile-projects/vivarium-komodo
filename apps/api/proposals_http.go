@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
@@ -25,12 +26,16 @@ type proposalRepositoryStore interface {
 	IsCollaborator(storage.ID, string) (bool, error)
 }
 
-func registerProposalsHTTP(mux *http.ServeMux, store proposalStore, repositories proposalRepositoryStore, credentials authStore) {
-	mux.HandleFunc("POST /repositories/{repository}/proposals", createProposal(store, repositories, credentials))
+func registerProposalsHTTP(mux *http.ServeMux, store proposalStore, repositories proposalRepositoryStore, credentials authStore, activityStores ...activityStore) {
+	var activity activityStore
+	if len(activityStores) > 0 {
+		activity = activityStores[0]
+	}
+	mux.HandleFunc("POST /repositories/{repository}/proposals", createProposal(store, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/proposals", listProposals(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/proposals/{proposal}", getProposal(store, repositories, credentials))
-	mux.HandleFunc("PATCH /repositories/{repository}/proposals/{proposal}", updateProposal(store, repositories, credentials))
-	mux.HandleFunc("POST /repositories/{repository}/proposals/{proposal}/comments", createProposalComment(store, repositories, credentials))
+	mux.HandleFunc("PATCH /repositories/{repository}/proposals/{proposal}", updateProposal(store, repositories, credentials, activity))
+	mux.HandleFunc("POST /repositories/{repository}/proposals/{proposal}/comments", createProposalComment(store, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/proposals/{proposal}/comments", listProposalComments(store, repositories, credentials))
 }
 
@@ -70,7 +75,7 @@ func proposalRepositoryAccess(w http.ResponseWriter, r *http.Request, store prop
 	return repository, actor, true
 }
 
-func createProposal(store proposalStore, repositories proposalRepositoryStore, credentials authStore) http.HandlerFunc {
+func createProposal(store proposalStore, repositories proposalRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -89,6 +94,10 @@ func createProposal(store proposalStore, repositories proposalRepositoryStore, c
 			return
 		}
 		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "proposal.created", Resource: activities.Resource{Type: "proposal", ID: item.ID}, Metadata: map[string]string{"title": item.Title}, MentionText: item.Title + "\n" + item.Body}); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
@@ -148,7 +157,7 @@ func getProposal(store proposalStore, repositories proposalRepositoryStore, cred
 	}
 }
 
-func updateProposal(store proposalStore, repositories proposalRepositoryStore, credentials authStore) http.HandlerFunc {
+func updateProposal(store proposalStore, repositories proposalRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -201,11 +210,24 @@ func updateProposal(store proposalStore, repositories proposalRepositoryStore, c
 			writeProposalError(w, err)
 			return
 		}
+		resource := activities.Resource{Type: "proposal", ID: item.ID}
+		if input.Title != nil || input.Body != nil {
+			if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "proposal.updated", Resource: resource, Metadata: map[string]string{"title": item.Title}, MentionText: item.Title + "\n" + item.Body}); err != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+		}
+		if input.State != nil {
+			if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "proposal.closed", Resource: resource, Metadata: map[string]string{"title": item.Title}}); err != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+		}
 		writeJSON(w, 200, item)
 	}
 }
 
-func createProposalComment(store proposalStore, repositories proposalRepositoryStore, credentials authStore) http.HandlerFunc {
+func createProposalComment(store proposalStore, repositories proposalRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -224,6 +246,10 @@ func createProposalComment(store proposalStore, repositories proposalRepositoryS
 		}
 		if err != nil {
 			writeProposalError(w, err)
+			return
+		}
+		if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "proposal.commented", Resource: activities.Resource{Type: "proposal", ID: item.ProposalID}, Metadata: map[string]string{"comment_id": item.ID}, MentionText: item.Body}); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
 		writeJSON(w, http.StatusCreated, item)

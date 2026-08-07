@@ -259,6 +259,27 @@ delete the repository, inspect or manage its collaborator list, or grant access
 to anyone else. Denied authenticated users receive the same `404` response as
 an unknown repository.
 
+## Repository activity
+
+Meaningful collaboration changes are recorded in an append-only ledger beneath
+`$ACTIVITY_ROOT`, or `apps/api/data/activities` by default. Events retain a
+stable actor ID, repository ID, typed affected resource, timestamp, and compact
+event-specific metadata. Access changes also retain the affected user's stable
+ID. Resolvable `@handle` references in proposal and pull-request titles,
+descriptions, and comments produce distinct `mention.created` events associated
+with the same resource and linked to the source event; the mentioned user's ID
+remains valid if their handle later changes.
+
+`GET /repositories/{id}/activity` returns newest-first activity with the shared
+bounded pagination envelope. Public repository activity is anonymously readable;
+private activity requires owner or contributor membership and
+`repository:read`, matching the underlying resources. Recorded types cover
+proposal creation, edits, closure, and discussion; pull-request creation,
+synchronization, discussion, and merge; review submission, replacement, and
+withdrawal; contributor access grants and revocations; and mentions. This
+ledger is the durable source for later attention and inbox views rather than a
+replacement for the affected proposal, pull request, review, or repository.
+
 ## Repository proposals
 
 Proposals give collaborators a durable, repository-scoped place to establish

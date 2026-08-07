@@ -191,6 +191,13 @@ whenever dependencies change or the web job fails before it starts.
   time, appends an attributable outcome comment, and closes any linked proposal.
   Merge messages retain pull request and proposal IDs plus stable author and
   maintainer IDs so repository history preserves collaboration context.
+  Meaningful collaboration transitions are appended through the
+  `activities.Store` boundary beneath `$ACTIVITY_ROOT` (default
+  `apps/api/data/activities`). Repository activity retains stable actor and
+  target-user IDs, typed affected resources, and event-specific metadata;
+  resolved `@handle` mentions become separate stable-ID events. Read activity
+  through the repository-scoped endpoint so visibility and membership policy
+  remains aligned with the affected repository.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 
