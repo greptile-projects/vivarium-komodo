@@ -17,6 +17,14 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/users"
 )
 
+type recordedCheckStart struct{ repositoryID, pullRequestID, commitID string }
+type recordingCheckStarter struct{ starts []recordedCheckStart }
+
+func (s *recordingCheckStarter) Start(repositoryID, pullRequestID, commitID string) error {
+	s.starts = append(s.starts, recordedCheckStart{repositoryID, pullRequestID, commitID})
+	return nil
+}
+
 func TestPullRequestExposesSnapshottedCommitsFilesAndDiscussion(t *testing.T) {
 	gitStorage, _ := storage.New(t.TempDir())
 	catalog, _ := repositories.New(t.TempDir(), gitStorage)
@@ -146,7 +154,8 @@ func TestContributorOpensPullRequestAtExactBranchState(t *testing.T) {
 	proposal, _ := proposalStore.Create(string(repository.ID), string(contributor.ID), "Improve setup", "Make setup reproducible.")
 	token := issueAccess(t, credentials, string(contributor.ID), auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	mux := http.NewServeMux()
-	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, catalog, credentials)
+	checks := &recordingCheckStarter{}
+	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, catalog, credentials, checks)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	base := server.URL + "/repositories/" + string(repository.ID) + "/pull-requests"
@@ -167,6 +176,9 @@ func TestContributorOpensPullRequestAtExactBranchState(t *testing.T) {
 	}
 	if response.Header.Get("Location") != "/repositories/"+string(repository.ID)+"/pull-requests/"+created.ID {
 		t.Fatalf("location = %q", response.Header.Get("Location"))
+	}
+	if len(checks.starts) != 1 || checks.starts[0].repositoryID != string(repository.ID) || checks.starts[0].pullRequestID != created.ID || checks.starts[0].commitID != string(sourceID) {
+		t.Fatalf("check starts = %#v", checks.starts)
 	}
 
 	// Later branch movement does not rewrite the repository state represented by the request.

@@ -31,7 +31,11 @@ type changeSessionCredentialStore interface {
 	IssueRepositoryGit(string, string, string, string, time.Duration) (auth.IssuedGrant, error)
 }
 
-func registerChangeSessionsHTTP(mux *http.ServeMux, sessions changeSessionStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials changeSessionCredentialStore, activity activityStore) {
+func registerChangeSessionsHTTP(mux *http.ServeMux, sessions changeSessionStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials changeSessionCredentialStore, activity activityStore, checkStarters ...checkRunStarter) {
+	var checks checkRunStarter
+	if len(checkStarters) > 0 {
+		checks = checkStarters[0]
+	}
 	base := "/repositories/{repository}/pull-requests/{pull_request}/change-sessions"
 	mux.HandleFunc("POST "+base, createChangeSession(sessions, pulls, repositories, credentials, activity))
 	mux.HandleFunc("GET "+base, listChangeSessions(sessions, pulls, repositories, credentials))
@@ -41,11 +45,11 @@ func registerChangeSessionsHTTP(mux *http.ServeMux, sessions changeSessionStore,
 	mux.HandleFunc("DELETE "+base+"/{session}/runs/{run}/credential", revokeRunCredential(sessions, pulls, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{session}/runs/{run}/events", appendRunEvent(sessions, credentials))
 	mux.HandleFunc("GET "+base+"/{session}/runs/{run}/control", getRunControl(sessions, credentials))
-	mux.HandleFunc("POST "+base+"/{session}/runs/{run}/publication", publishRun(sessions, pulls, repositories, credentials, activity))
+	mux.HandleFunc("POST "+base+"/{session}/runs/{run}/publication", publishRun(sessions, pulls, repositories, credentials, activity, checks))
 	mux.HandleFunc("POST "+base+"/{session}/runs/{run}/interventions", interveneRun(sessions, pulls, repositories, credentials))
 }
 
-func publishRun(store changeSessionStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials changeSessionCredentialStore, activity activityStore) http.HandlerFunc {
+func publishRun(store changeSessionStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials changeSessionCredentialStore, activity activityStore, checks checkRunStarter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		grant, ok := authenticateRequest(w, r, credentials, auth.GitWrite)
 		if !ok {
@@ -133,6 +137,9 @@ func publishRun(store changeSessionStore, pulls pullRequestStore, repositories p
 			_, _ = store.RevokeRunCredential(repositoryID, pullID, sessionID, runID, time.Now())
 		}
 		_ = recordActivity(activity, activities.Input{RepositoryID: repositoryID, ActorID: run.InitiatorID, Type: "pull_request.synchronized", Resource: activities.Resource{Type: "pull_request", ID: pullID}, Metadata: map[string]string{"previous_commit_id": pull.SourceCommitID, "commit_id": string(tip), "session_id": sessionID, "run_id": runID, "agent": run.Agent}})
+		if checks != nil {
+			_ = checks.Start(repositoryID, pullID, string(tip))
+		}
 		writeJSON(w, http.StatusCreated, map[string]any{"event": event, "run": publishedRun, "pull_request": updated})
 	}
 }

@@ -40,15 +40,25 @@ type pullRequestRepositoryStore interface {
 	Open(storage.ID) (*storage.Repository, error)
 }
 
-func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activityStores ...activityStore) {
+type checkRunStarter interface {
+	Start(string, string, string) error
+}
+
+func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, extras ...any) {
 	var activity activityStore
-	if len(activityStores) > 0 {
-		activity = activityStores[0]
+	var checks checkRunStarter
+	for _, extra := range extras {
+		switch value := extra.(type) {
+		case activityStore:
+			activity = value
+		case checkRunStarter:
+			checks = value
+		}
 	}
-	mux.HandleFunc("POST /repositories/{repository}/pull-requests", createPullRequest(store, proposalStore, repositories, credentials, activity))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests", createPullRequest(store, proposalStore, repositories, credentials, activity, checks))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests", listPullRequests(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}", getPullRequest(store, repositories, credentials))
-	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/synchronize", synchronizePullRequest(store, repositories, credentials, activity))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/synchronize", synchronizePullRequest(store, repositories, credentials, activity, checks))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/commits", listPullRequestCommits(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/files", listPullRequestFiles(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/comments", createPullRequestComment(store, repositories, credentials, activity))
@@ -60,7 +70,7 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequest(store, proposalStore, repositories, credentials, activity))
 }
 
-func synchronizePullRequest(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
+func synchronizePullRequest(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, checks checkRunStarter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -97,6 +107,9 @@ func synchronizePullRequest(store pullRequestStore, repositories pullRequestRepo
 			if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "pull_request.synchronized", Resource: activities.Resource{Type: "pull_request", ID: item.ID}, Metadata: map[string]string{"previous_commit_id": item.SourceCommitID, "commit_id": updated.SourceCommitID}}); err != nil {
 				writeJSON(w, 500, map[string]string{"error": "internal_error"})
 				return
+			}
+			if checks != nil {
+				_ = checks.Start(string(repository.ID), item.ID, updated.SourceCommitID)
 			}
 		}
 		writeJSON(w, http.StatusOK, updated)
@@ -558,7 +571,7 @@ func listPullRequestReviews(store pullRequestStore, repositories pullRequestRepo
 	}
 }
 
-func createPullRequest(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
+func createPullRequest(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, checks checkRunStarter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -610,6 +623,9 @@ func createPullRequest(store pullRequestStore, proposalStore proposalStore, repo
 		if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "pull_request.created", Resource: activities.Resource{Type: "pull_request", ID: item.ID}, Metadata: metadata, MentionText: item.Title + "\n" + item.Body}); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
+		}
+		if checks != nil {
+			_ = checks.Start(string(repository.ID), item.ID, item.SourceCommitID)
 		}
 		location := "/repositories/" + string(repository.ID) + "/pull-requests/" + item.ID
 		w.Header().Set("Location", location)

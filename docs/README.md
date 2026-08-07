@@ -202,6 +202,35 @@ ordinary pull request contract. This keeps reconnection, failure containment,
 attribution, publication, review, and merge behavior from drifting into
 independent endpoint assumptions.
 
+## Repository-defined checks
+
+A candidate revision opts into automatic verification with
+`.komodo/checks.json` in that revision. Schema version `1` contains a `checks`
+array; every check has a unique `name`, a shell `command`, and may select a
+repository-relative `working_directory`, a `timeout_seconds` value from 1 to
+1800 (600 by default), and bounded string `environment` entries. At most 20
+checks are accepted. Because the manifest is read through `GraphStore` from the
+pull request's exact source commit, both the commands and their execution
+context change through ordinary code review.
+
+Opening a pull request automatically queues every check declared by its source
+commit. The same trigger runs after an author synchronizes a later source tip
+or an agent publishes a new revision. A run permanently records its repository,
+pull request, commit, copied definition, queued/running/terminal state, timing,
+and exit status beneath `$CHECK_RUN_ROOT` (`apps/api/data/check-runs` in the
+documented root development setup). `GET
+/repositories/{repository}/pull-requests/{pull}/check-runs` returns the durable
+newest-first collection through the ordinary repository read policy and shared
+pagination envelope.
+
+Each command receives a newly materialized copy of its exact Git snapshot with
+no `.git` directory or credentials. Bubblewrap gives it a private process,
+mount, IPC, user, and network namespace; only the writable snapshot, disposable
+`/tmp`, and read-only runtime paths are visible. Symlinks and submodules are not
+materialized, the environment is cleared before declared values are installed,
+and every process is killed at its configured timeout. The API runtime therefore
+requires `bwrap` on `PATH` in addition to Git.
+
 ## Human identity
 
 The API exposes durable human accounts as JSON resources. Accounts live beneath
