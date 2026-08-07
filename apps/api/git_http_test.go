@@ -538,3 +538,22 @@ func requireGit(t *testing.T) {
 		t.Skip("git is not installed")
 	}
 }
+
+func TestReceiveHookLimitsWorkerCredentialToWorkingBranch(t *testing.T) {
+	directory, err := receiveHooks(true, "refs/heads/main", "refs/heads/agent/task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(directory)
+	hook := filepath.Join(directory, "pre-receive")
+	allowed := exec.Command(hook)
+	allowed.Stdin = strings.NewReader(strings.Repeat("0", 40) + " " + strings.Repeat("1", 40) + " refs/heads/agent/task\n")
+	if output, err := allowed.CombinedOutput(); err != nil {
+		t.Fatalf("allowed branch rejected: %v: %s", err, output)
+	}
+	denied := exec.Command(hook)
+	denied.Stdin = strings.NewReader(strings.Repeat("0", 40) + " " + strings.Repeat("1", 40) + " refs/heads/main\n")
+	if output, err := denied.CombinedOutput(); err == nil || !strings.Contains(string(output), "credential is limited") {
+		t.Fatalf("other branch accepted: %v: %s", err, output)
+	}
+}

@@ -3,6 +3,9 @@ package main
 import (
 	"errors"
 	"net/http"
+	"regexp"
+	"strings"
+	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
@@ -15,14 +18,110 @@ type changeSessionStore interface {
 	Get(string, string, string) (changesessions.Session, error)
 	List(string, string) ([]changesessions.Session, error)
 	Events(string, string, string) ([]changesessions.Event, error)
+	Delegate(string, string, string, changesessions.DelegateParams) (changesessions.Run, error)
+	RevokeRunCredential(string, string, string, string, time.Time) (changesessions.Run, error)
 }
 
-func registerChangeSessionsHTTP(mux *http.ServeMux, sessions changeSessionStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) {
+type changeSessionCredentialStore interface {
+	authStore
+	IssueRepositoryGit(string, string, string, string, time.Duration) (auth.IssuedGrant, error)
+}
+
+func registerChangeSessionsHTTP(mux *http.ServeMux, sessions changeSessionStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials changeSessionCredentialStore, activity activityStore) {
 	base := "/repositories/{repository}/pull-requests/{pull_request}/change-sessions"
 	mux.HandleFunc("POST "+base, createChangeSession(sessions, pulls, repositories, credentials, activity))
 	mux.HandleFunc("GET "+base, listChangeSessions(sessions, pulls, repositories, credentials))
 	mux.HandleFunc("GET "+base+"/{session}", getChangeSession(sessions, pulls, repositories, credentials))
 	mux.HandleFunc("GET "+base+"/{session}/events", listChangeSessionEvents(sessions, pulls, repositories, credentials))
+	mux.HandleFunc("POST "+base+"/{session}/runs", delegateChangeSession(sessions, pulls, repositories, credentials))
+	mux.HandleFunc("DELETE "+base+"/{session}/runs/{run}/credential", revokeRunCredential(sessions, pulls, repositories, credentials))
+}
+
+var workingBranchPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,99}$`)
+
+func delegateChangeSession(store changeSessionStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials changeSessionCredentialStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pull, actorID, ok := changeSessionContext(w, r, pulls, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		session, err := store.Get(pull.RepositoryID, pull.ID, r.PathValue("session"))
+		if errors.Is(err, changesessions.ErrNotFound) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var input struct {
+			Instructions  string   `json:"instructions"`
+			RevisionID    string   `json:"revision_id"`
+			ContextPaths  []string `json:"context_paths"`
+			WorkingBranch string   `json:"working_branch"`
+			Agent         string   `json:"agent"`
+		}
+		if !readJSON(w, r, &input, 16384) {
+			return
+		}
+		input.WorkingBranch = strings.TrimPrefix(strings.TrimSpace(input.WorkingBranch), "refs/heads/")
+		if input.Agent == "" {
+			input.Agent = "codex"
+		}
+		if !workingBranchPattern.MatchString(input.WorkingBranch) || strings.Contains(input.WorkingBranch, "..") || input.WorkingBranch == pull.TargetBranch || len(input.ContextPaths) > 50 {
+			writeJSON(w, 422, map[string]string{"error": "invalid_delegation"})
+			return
+		}
+		for _, path := range input.ContextPaths {
+			if path == "" || strings.HasPrefix(path, "/") || strings.Contains(path, "..") || len(path) > 500 {
+				writeJSON(w, 422, map[string]string{"error": "invalid_delegation"})
+				return
+			}
+		}
+		issued, err := credentials.IssueRepositoryGit(actorID, "Agent run "+session.ID, pull.RepositoryID, "refs/heads/"+input.WorkingBranch, 24*time.Hour)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		run, err := store.Delegate(pull.RepositoryID, pull.ID, session.ID, changesessions.DelegateParams{InitiatorID: actorID, Agent: input.Agent, Instructions: input.Instructions, RevisionID: input.RevisionID, ContextPaths: input.ContextPaths, WorkingBranch: input.WorkingBranch, CredentialGrantID: issued.ID, CredentialExpiresAt: issued.ExpiresAt})
+		if err != nil {
+			_, _ = credentials.Revoke(actorID, issued.ID)
+			writeJSON(w, 422, map[string]string{"error": "invalid_delegation"})
+			return
+		}
+		writeJSON(w, 201, map[string]any{"run": run, "credential": map[string]any{"token": issued.Token, "username": "agent", "expires_at": issued.ExpiresAt, "repository_id": pull.RepositoryID, "branch": "refs/heads/" + input.WorkingBranch}})
+	}
+}
+
+func revokeRunCredential(store changeSessionStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials changeSessionCredentialStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pull, actorID, ok := changeSessionContext(w, r, pulls, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		session, err := store.Get(pull.RepositoryID, pull.ID, r.PathValue("session"))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var found *changesessions.Run
+		for i := range session.Runs {
+			if session.Runs[i].ID == r.PathValue("run") {
+				found = &session.Runs[i]
+				break
+			}
+		}
+		if found == nil || found.InitiatorID != actorID {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if _, err := credentials.Revoke(actorID, found.CredentialGrantID); err != nil && !errors.Is(err, auth.ErrNotFound) {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		_, err = store.RevokeRunCredential(pull.RepositoryID, pull.ID, session.ID, found.ID, time.Now())
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		w.WriteHeader(204)
+	}
 }
 
 func changeSessionContext(w http.ResponseWriter, r *http.Request, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, scope auth.Scope, requireActor bool) (pullrequests.PullRequest, string, bool) {

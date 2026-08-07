@@ -223,7 +223,7 @@ func writeGitUnauthenticated(w http.ResponseWriter) {
 }
 
 func grantResponse(grant auth.Grant, token string) map[string]any {
-	value := map[string]any{"id": grant.ID, "user_id": grant.UserID, "name": grant.Name, "kind": grant.Kind, "scopes": grant.Scopes, "created_at": grant.CreatedAt, "expires_at": grant.ExpiresAt, "last_used_at": grant.LastUsedAt, "revoked_at": grant.RevokedAt}
+	value := map[string]any{"id": grant.ID, "user_id": grant.UserID, "name": grant.Name, "kind": grant.Kind, "scopes": grant.Scopes, "created_at": grant.CreatedAt, "expires_at": grant.ExpiresAt, "last_used_at": grant.LastUsedAt, "revoked_at": grant.RevokedAt, "repository_id": grant.RepositoryID, "branch": grant.Branch}
 	if token != "" {
 		value["token"] = token
 	}

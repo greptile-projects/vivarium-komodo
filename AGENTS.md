@@ -88,6 +88,11 @@ whenever dependencies change or the web job fails before it starts.
   Change sessions retain their initiating user, captured pull request source
   commit, current state, and ordered public timeline; keep later worker
   execution details behind this application-facing contract.
+  Delegated runs retain their mandate, exact session revision, selected context
+  paths, agent identity, and explicit working branch. Their one-time worker Git
+  credential is limited to that repository and branch, expires after 24 hours,
+  and may be revoked by the initiating collaborator; never substitute a general
+  user credential or expose its secret after creation.
 - **API** — `main.go` registers handlers on a `net/http` mux with Go 1.22+
   method-and-path patterns (`"GET /health"`). The `storage` package owns bare
   Git repository lifecycles; use its `RepositoryStore` boundary rather than

@@ -49,7 +49,7 @@ func advertiseRepository(repositoryStore gitRepositoryStore, credentials credent
 		if service == receivePackService {
 			scope = auth.GitWrite
 		}
-		repository, _, ok := authorizeGitRepository(w, r, repositoryStore, credentials, scope)
+		repository, _, _, ok := authorizeGitRepository(w, r, repositoryStore, credentials, scope)
 		if !ok {
 			return
 		}
@@ -70,7 +70,7 @@ func advertiseRepository(repositoryStore gitRepositoryStore, credentials credent
 
 func uploadPack(repositoryStore gitRepositoryStore, credentials credentialAuthenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		repository, _, ok := authorizeGitRepository(w, r, repositoryStore, credentials, auth.GitRead)
+		repository, _, _, ok := authorizeGitRepository(w, r, repositoryStore, credentials, auth.GitRead)
 		if !ok {
 			return
 		}
@@ -92,7 +92,7 @@ func uploadPack(repositoryStore gitRepositoryStore, credentials credentialAuthen
 
 func receivePack(repositoryStore gitRepositoryStore, credentials credentialAuthenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		repository, owner, ok := authorizeGitRepository(w, r, repositoryStore, credentials, auth.GitWrite)
+		repository, owner, grant, ok := authorizeGitRepository(w, r, repositoryStore, credentials, auth.GitWrite)
 		if !ok {
 			return
 		}
@@ -105,7 +105,7 @@ func receivePack(repositoryStore gitRepositoryStore, credentials credentialAuthe
 			http.Error(w, "could not read repository state", http.StatusInternalServerError)
 			return
 		}
-		result, err := runGitServiceWithPolicy(r, repository, receivePackService, owner, string(defaultBranch))
+		result, err := runGitServiceWithPolicy(r, repository, receivePackService, owner, string(defaultBranch), grant.Branch)
 		if err != nil {
 			http.Error(w, "could not update repository state", http.StatusBadRequest)
 			return
@@ -116,24 +116,28 @@ func receivePack(repositoryStore gitRepositoryStore, credentials credentialAuthe
 	}
 }
 
-func authorizeGitRepository(w http.ResponseWriter, r *http.Request, store gitRepositoryStore, credentials credentialAuthenticator, scope auth.Scope) (*storage.Repository, bool, bool) {
+func authorizeGitRepository(w http.ResponseWriter, r *http.Request, store gitRepositoryStore, credentials credentialAuthenticator, scope auth.Scope) (*storage.Repository, bool, auth.Grant, bool) {
 	item, err := store.Inspect(storage.ID(r.PathValue("repository")))
 	if errors.Is(err, repositories.ErrNotFound) || errors.Is(err, storage.ErrInvalidID) || errors.Is(err, storage.ErrNotFound) {
 		http.NotFound(w, nil)
-		return nil, false, false
+		return nil, false, auth.Grant{}, false
 	}
 	if err != nil {
 		http.Error(w, "could not open repository", http.StatusInternalServerError)
-		return nil, false, false
+		return nil, false, auth.Grant{}, false
 	}
 	actor, authenticated, valid := authenticateGitOptional(w, r, credentials, scope)
 	if !valid {
-		return nil, false, false
+		return nil, false, auth.Grant{}, false
+	}
+	if authenticated && actor.RepositoryID != "" && actor.RepositoryID != string(item.ID) {
+		http.NotFound(w, nil)
+		return nil, false, auth.Grant{}, false
 	}
 	read := scope == auth.GitRead
 	if !authenticated && (!read || item.Visibility != repositories.Public) {
 		writeGitUnauthenticated(w)
-		return nil, false, false
+		return nil, false, auth.Grant{}, false
 	}
 	owner := authenticated && actor.UserID == item.OwnerID
 	collaborator := false
@@ -144,30 +148,30 @@ func authorizeGitRepository(w http.ResponseWriter, r *http.Request, store gitRep
 		}
 		if err != nil {
 			http.Error(w, "could not authorize repository", http.StatusInternalServerError)
-			return nil, false, false
+			return nil, false, auth.Grant{}, false
 		}
 	}
 	if authenticated && !owner && !collaborator && (!read || item.Visibility != repositories.Public) {
 		http.NotFound(w, nil)
-		return nil, false, false
+		return nil, false, auth.Grant{}, false
 	}
 	repository, err := store.Open(item.ID)
 	if err != nil {
 		http.Error(w, "could not open repository", http.StatusInternalServerError)
-		return nil, false, false
+		return nil, false, auth.Grant{}, false
 	}
-	return repository, owner, true
+	return repository, owner, actor, true
 }
 
 func runGitService(r *http.Request, repository *storage.Repository, service string, arguments ...string) ([]byte, error) {
-	return runGitServiceWithPolicy(r, repository, service, true, "", arguments...)
+	return runGitServiceWithPolicy(r, repository, service, true, "", "", arguments...)
 }
 
-func runGitServiceWithPolicy(r *http.Request, repository *storage.Repository, service string, owner bool, defaultBranch string, arguments ...string) ([]byte, error) {
+func runGitServiceWithPolicy(r *http.Request, repository *storage.Repository, service string, owner bool, defaultBranch string, allowedBranch string, arguments ...string) ([]byte, error) {
 	commandName := strings.TrimPrefix(service, "git-")
 	commandArguments := []string{}
 	if service == receivePackService && len(arguments) == 0 {
-		hooksDirectory, err := receiveHooks(owner, defaultBranch)
+		hooksDirectory, err := receiveHooks(owner, defaultBranch, allowedBranch)
 		if err != nil {
 			return nil, err
 		}
@@ -199,7 +203,7 @@ func runGitServiceWithPolicy(r *http.Request, repository *storage.Repository, se
 	return output.Bytes(), nil
 }
 
-func receiveHooks(owner bool, defaultBranch string) (string, error) {
+func receiveHooks(owner bool, defaultBranch, allowedBranch string) (string, error) {
 	directory, err := os.MkdirTemp("", "git-receive-hooks-")
 	if err != nil {
 		return "", fmt.Errorf("create receive hooks: %w", err)
@@ -215,6 +219,14 @@ do
 			;;
 	esac
 `
+	if allowedBranch != "" {
+		hook += `
+	if [ "$ref" != "` + allowedBranch + `" ]; then
+		echo "credential is limited to ` + allowedBranch + `" >&2
+		exit 1
+	fi
+`
+	}
 	if !owner {
 		hook += `
 	if [ "$ref" = "` + defaultBranch + `" ]; then
