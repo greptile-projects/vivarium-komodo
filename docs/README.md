@@ -166,8 +166,9 @@ errors, and commit IDs without exposing private execution logs. The API derives
 and persists the run ID, initiating user, agent identity, and captured revision
 on every event, verifies the exact grant, repository, and working branch, and
 advances runs through queued, running, paused, succeeded, failed, or canceled
-states. Terminal runs reject later records. The web timeline refreshes while
-work is active.
+states. Terminal runs reject later records, and reporting a failed run revokes
+its branch credential immediately. The web timeline refreshes while work is
+active.
 
 Repository participants can post `guidance`, `answer`, `pause`, `resume`, and
 `cancel` interventions at `POST .../runs/{run}/interventions`. Every accepted
@@ -192,6 +193,14 @@ structured publication, synchronizes the pull request snapshot, and revokes the
 worker grant. The session links those commits and files into ordinary pull
 request inspection; commit-bound reviews become stale and readiness evaluates
 the new revision without a separate author synchronization step.
+
+The connected workflow is covered by a black-box developer-agent collaboration
+test. It delegates both failed and successful attempts, redirects active work,
+reopens all durable stores during the successful run, publishes through stock
+Git and the credential-bound worker API, then reviews and merges through the
+ordinary pull request contract. This keeps reconnection, failure containment,
+attribution, publication, review, and merge behavior from drifting into
+independent endpoint assumptions.
 
 ## Human identity
 
