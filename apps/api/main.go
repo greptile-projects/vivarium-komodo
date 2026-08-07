@@ -70,6 +70,7 @@ func main() {
 	})
 	registerGitHTTP(mux, repositoryCatalog, credentials)
 	registerRepositoriesHTTP(mux, repositoryCatalog, credentials)
+	registerRepositoryBrowserHTTP(mux, repositoryCatalog, credentials)
 	registerCollaboratorsHTTP(mux, repositoryCatalog, userStore, credentials)
 	registerProposalsHTTP(mux, proposalStore, repositoryCatalog, credentials)
 	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials)

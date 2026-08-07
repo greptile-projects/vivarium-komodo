@@ -19,3 +19,8 @@ export const Shield = (p: IconProps) => <Icon {...p}><path d="M12 22s8-4 8-10V5l
 export const Copy = (p: IconProps) => <Icon {...p}><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></Icon>;
 export const Check = (p: IconProps) => <Icon {...p}><path d="m5 12 4 4L19 6"/></Icon>;
 export const Trash = (p: IconProps) => <Icon {...p}><path d="M3 6h18M8 6V4h8v2m3 0-1 15H6L5 6m5 4v7m4-7v7"/></Icon>;
+export const File = (p: IconProps) => <Icon {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></Icon>;
+export const Folder = (p: IconProps) => <Icon {...p}><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></Icon>;
+export const Clock = (p: IconProps) => <Icon {...p}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></Icon>;
+export const ChevronRight = (p: IconProps) => <Icon {...p}><path d="m9 18 6-6-6-6"/></Icon>;
+export const Code = (p: IconProps) => <Icon {...p}><path d="m8 9-3 3 3 3m8-6 3 3-3 3m-3-8-2 10"/></Icon>;
