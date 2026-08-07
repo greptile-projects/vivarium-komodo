@@ -42,6 +42,11 @@ Users can issue short-lived Git or API credentials, copy the plaintext secret
 from its one-time reveal, and revoke credentials they no longer use. Signing
 out revokes the current browser session.
 
+The workspace repository collection includes projects a user owns and projects
+they have been invited to contribute to. Shared projects are marked as
+contributing work, so membership remains discoverable after signing out or
+switching devices instead of depending on an out-of-band repository URL.
+
 Client code calls the same-origin `/api/*` boundary implemented by the Next.js
 catch-all route handler. It forwards requests and the API's `komodo_session`
 cookie to the Go service, avoiding cross-origin exposure of the HttpOnly
@@ -233,10 +238,23 @@ Membership is durable repository metadata and is managed only by the owner:
 - `DELETE /repositories/{id}/collaborators/{user_id}` revokes access
   immediately.
 
+Owners manage membership from the repository People tab by entering a user's
+public handle. The invited contributor then sees the repository in their normal
+workspace and can copy the same Git remote used by the browser. Proposal,
+discussion, pull-request, and review surfaces resolve stable actor IDs to
+current display names and handles; durable records and merge trailers continue
+to retain immutable IDs.
+
+`GET /repositories?affiliation=all` supplies the signed-in web workspace with
+owned and contributed repositories. Omitting `affiliation` preserves the
+owner-only collection contract, and public repositories are not implicitly
+included in either user's workspace.
+
 These endpoints require repository API scopes in addition to ownership (`read`
 for listing and `write` for changes). A contributor with `repository:read` may
-inspect a private repository by ID, but repository collections remain
-owner-specific. Contributors cannot change repository metadata or visibility,
+inspect a private repository by ID. The default repository collection remains
+owner-specific, while `affiliation=all` includes contributed work. Contributors
+cannot change repository metadata or visibility,
 delete the repository, inspect or manage its collaborator list, or grant access
 to anyone else. Denied authenticated users receive the same `404` response as
 an unknown repository.
