@@ -93,6 +93,11 @@ whenever dependencies change or the web job fails before it starts.
   credential is limited to that repository and branch, expires after 24 hours,
   and may be revoked by the initiating collaborator; never substitute a general
   user credential or expose its secret after creation.
+  Workers use that exact-run credential to append typed public progress records
+  for status, messages, tool actions, artifacts, failures, and branch updates.
+  Derive initiator, agent, run, and revision attribution from session storage
+  rather than trusting worker-supplied identity fields, and keep raw execution
+  logs and secrets out of event metadata.
 - **API** — `main.go` registers handlers on a `net/http` mux with Go 1.22+
   method-and-path patterns (`"GET /health"`). The `storage` package owns bare
   Git repository lifecycles; use its `RepositoryStore` boundary rather than

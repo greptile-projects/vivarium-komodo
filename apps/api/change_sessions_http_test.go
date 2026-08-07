@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
@@ -108,5 +109,45 @@ func TestCollaboratorDelegatesBoundedRunAndRevokesCredential(t *testing.T) {
 	}
 	if _, err = credentials.Authenticate(delegated.Credential.Token, auth.GitRead); !errors.Is(err, auth.ErrUnauthenticated) {
 		t.Fatalf("credential remained usable: %v", err)
+	}
+}
+
+func TestWorkerPublishesAttributedRunTimeline(t *testing.T) {
+	gitStorage, _ := storage.New(t.TempDir())
+	catalog, _ := repositories.New(t.TempDir(), gitStorage)
+	pulls, _ := pullrequests.New(t.TempDir())
+	sessions, _ := changesessions.New(t.TempDir())
+	credentials, _ := auth.New(t.TempDir())
+	repository, _ := catalog.Create("owner", repositories.Metadata{Name: "project", Visibility: repositories.Private})
+	pull, _ := pulls.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), AuthorID: "owner", Title: "Change", SourceBranch: "candidate", TargetBranch: "main", SourceCommitID: "exact-revision", TargetCommitID: "base"})
+	session, _ := sessions.Create(string(repository.ID), pull.ID, "owner", "exact-revision")
+	issued, _ := credentials.IssueRepositoryGit("owner", "worker", string(repository.ID), "refs/heads/agent/work", 24*time.Hour)
+	run, _ := sessions.Delegate(string(repository.ID), pull.ID, session.ID, changesessions.DelegateParams{InitiatorID: "owner", Agent: "codex", Instructions: "Work", RevisionID: "exact-revision", WorkingBranch: "agent/work", CredentialGrantID: issued.ID, CredentialExpiresAt: issued.ExpiresAt})
+	mux := http.NewServeMux()
+	registerChangeSessionsHTTP(mux, sessions, pulls, catalog, credentials, nil)
+	base := "/repositories/" + string(repository.ID) + "/pull-requests/" + pull.ID + "/change-sessions/" + session.ID + "/runs/" + run.ID + "/events"
+	for _, body := range []string{
+		`{"type":"run.started","metadata":{"status":"Inspecting repository"}}`,
+		`{"type":"tool.completed","metadata":{"tool":"go test","summary":"All API tests passed"}}`,
+		`{"type":"artifact.produced","metadata":{"kind":"patch","path":"apps/api/change_sessions_http.go"}}`,
+		`{"type":"branch.updated","metadata":{"branch":"agent/work","commit_id":"abc123"}}`,
+		`{"type":"run.completed","metadata":{"summary":"Published the requested change"}}`,
+	} {
+		req := httptest.NewRequest(http.MethodPost, base, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+issued.Token)
+		res := httptest.NewRecorder()
+		mux.ServeHTTP(res, req)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("publish %s: %d %s", body, res.Code, res.Body.String())
+		}
+		var event changesessions.Event
+		_ = json.NewDecoder(res.Body).Decode(&event)
+		if event.RunID != run.ID || event.InitiatorID != "owner" || event.ActorID != "owner" || event.Agent != "codex" || event.RevisionID != "exact-revision" {
+			t.Fatalf("lost durable attribution: %#v", event)
+		}
+	}
+	restored, _ := sessions.Get(string(repository.ID), pull.ID, session.ID)
+	if restored.Runs[0].State != changesessions.Succeeded || len(restored.Events) != 7 {
+		t.Fatalf("restored timeline %#v", restored)
 	}
 }

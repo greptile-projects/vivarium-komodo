@@ -158,7 +158,15 @@ creates a durable queued run and returns its worker Git secret exactly once.
 The grant expires after 24 hours and Git transport enforces both its repository
 ID and exact `refs/heads/...` branch, even when the initiating user owns the
 repository. `DELETE .../runs/{run}/credential` lets that initiator revoke it
-immediately. Execution and progress streaming remain later worker concerns.
+immediately. Workers publish progress with their one-time run credential at
+`POST .../change-sessions/{session}/runs/{run}/events`. Accepted ordered record
+types cover run status, agent messages, tool actions, artifacts, failures, and
+branch updates; bounded metadata carries public summaries, paths, tool names,
+errors, and commit IDs without exposing private execution logs. The API derives
+and persists the run ID, initiating user, agent identity, and captured revision
+on every event, verifies the exact grant, repository, and working branch, and
+advances runs through queued, running, succeeded, or failed states. Terminal
+runs reject later records. The web timeline refreshes while work is active.
 
 ## Human identity
 
