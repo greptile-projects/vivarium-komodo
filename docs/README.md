@@ -12,6 +12,21 @@ written down here as they're decided, not before.
   repositories live beneath `$REPOSITORY_ROOT`, or `apps/api/repositories` by
   default.
 
+## Web interface foundation
+
+The web app uses a persistent responsive shell for global search, primary
+navigation, pinned repositories, notifications, account access, and page
+content. Pages extend that shell through the root layout rather than rendering
+their own global navigation. Shared interface primitives and line icons live in
+`apps/web/src/components`; global color, typography, spacing, focus, motion,
+and responsive rules live in `apps/web/src/app/globals.css`.
+
+The baseline accessibility contract includes semantic landmarks and headings,
+a keyboard skip link, visible `:focus-visible` treatment, labelled icon-only
+controls, and reduced-motion support. Interactive components expose hover,
+focus, and pressed states, and navigation collapses to a native disclosure on
+small screens.
+
 ## Human identity
 
 The API exposes durable human accounts as JSON resources. Accounts live beneath

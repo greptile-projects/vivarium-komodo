@@ -55,6 +55,12 @@ whenever dependencies change or the web job fails before it starts.
   point is `src/app/page.tsx`, shared shell is `layout.tsx`, global styles are
   `globals.css`. Tailwind v4 is wired through PostCSS
   (`postcss.config.mjs`); there is no `tailwind.config` file.
+  Persistent application chrome lives in `src/components/app-shell.tsx`;
+  extend it instead of recreating navigation within pages. Reusable interface
+  primitives live in `src/components/ui.tsx`, shared line icons in
+  `src/components/icons.tsx`, and design tokens plus global interaction states
+  in `globals.css`. Preserve visible focus treatment, the skip link, reduced-
+  motion behavior, and responsive mobile navigation when adding workflows.
 - **API** — `main.go` registers handlers on a `net/http` mux with Go 1.22+
   method-and-path patterns (`"GET /health"`). The `storage` package owns bare
   Git repository lifecycles; use its `RepositoryStore` boundary rather than
