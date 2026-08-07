@@ -133,6 +133,39 @@ delete the repository, inspect or manage its collaborator list, or grant access
 to anyone else. Denied authenticated users receive the same `404` response as
 an unknown repository.
 
+## Repository proposals
+
+Proposals give collaborators a durable, repository-scoped place to establish
+context before or alongside code. They live beneath `$PROPOSAL_ROOT`, or
+`apps/api/data/proposals` by default, behind the `apps/api/proposals` boundary.
+Each proposal has an immutable ID, repository and author IDs, mutable title and
+body, open or closed state, creation and update times, and closing actor and
+time. Discussion comments are append-only records with immutable IDs, author
+IDs, bodies, and creation times. Stable actor IDs keep the full conversation
+attributable even when a user's public profile changes.
+
+The repository-scoped JSON contract is:
+
+- `POST /repositories/{id}/proposals` creates a proposal from `title` and
+  optional `body`;
+- `GET /repositories/{id}/proposals` lists proposals with shared pagination
+  and an optional `state=open|closed` filter;
+- `GET /repositories/{id}/proposals/{proposal_id}` inspects one proposal;
+- `PATCH /repositories/{id}/proposals/{proposal_id}` changes `title` or `body`,
+  and closes it by setting `state` to `closed`;
+- `POST /repositories/{id}/proposals/{proposal_id}/comments` adds an
+  attributable comment;
+- `GET /repositories/{id}/proposals/{proposal_id}/comments` returns the
+  append-only conversation with shared pagination.
+
+Public repository proposals and discussions are anonymously readable. Private
+reads require owner or contributor membership. Creation and discussion require
+authenticated `repository:write` access; editing and closing
+are limited to the proposal author or repository owner. A closed proposal and
+its conversation remain readable and cannot be reopened, preserving the
+recorded outcome. Denied authenticated users receive `404` just as they do for
+the containing repository.
+
 ## Git repository storage
 
 `apps/api/storage` is the repository lifecycle boundary. A store owns one root

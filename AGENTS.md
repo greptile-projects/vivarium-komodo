@@ -119,6 +119,14 @@ whenever dependencies change or the web job fails before it starts.
   the shared `items`/`page`/`per_page`/`total_count` pagination envelope (30 by
   default, 100 maximum). Public handles resolve through
   `/users/by-handle/{handle}` while canonical user resources remain ID-based.
+  Repository proposals and their append-only comments are owned by the
+  `proposals.Store` boundary beneath `$PROPOSAL_ROOT` (default
+  `apps/api/data/proposals`). Public proposal reads are anonymous; private
+  reads and all participation follow repository visibility and membership.
+  Any authenticated repository participant with `repository:write` may create
+  or discuss a proposal, while
+  only its author or the repository owner may edit or close it. Stable user IDs
+  preserve authorship and closing attribution as profiles change.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 
