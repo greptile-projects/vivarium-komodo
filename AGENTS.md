@@ -80,8 +80,10 @@ whenever dependencies change or the web job fails before it starts.
   inspected request and section context remain shareable through the `pull`
   and `section` query parameters. Pull request pages present their immutable
   branch snapshot alongside live branch tips, proposal context, source-only
-  commits, file patches, and discussion; keep review, synchronize, readiness,
-  and merge actions separate until their permission-aware workflow is exposed.
+  commits, file patches, discussion, current and stale review decisions, and a
+  live readiness report. Keep review, author synchronization, and owner merge
+  actions separate and permission-aware; synchronization deliberately makes
+  prior commit-bound reviews stale.
 - **API** — `main.go` registers handlers on a `net/http` mux with Go 1.22+
   method-and-path patterns (`"GET /health"`). The `storage` package owns bare
   Git repository lifecycles; use its `RepositoryStore` boundary rather than
