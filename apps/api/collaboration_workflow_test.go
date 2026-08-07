@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
@@ -30,13 +31,15 @@ func TestNewcomerAndMaintainerCompleteCollaborationWorkflow(t *testing.T) {
 	credentials, _ := auth.New(t.TempDir())
 	proposalStore, _ := proposals.New(t.TempDir())
 	pullRequestStore, _ := pullrequests.New(t.TempDir())
+	activityStore, _ := activities.New(t.TempDir(), userStore)
 	mux := http.NewServeMux()
 	registerUsersHTTP(mux, userStore, credentials)
 	registerAuthHTTP(mux, credentials, userStore)
 	registerRepositoriesHTTP(mux, catalog, credentials)
-	registerCollaboratorsHTTP(mux, catalog, userStore, credentials)
-	registerProposalsHTTP(mux, proposalStore, catalog, credentials)
-	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, catalog, credentials)
+	registerCollaboratorsHTTP(mux, catalog, userStore, credentials, activityStore)
+	registerProposalsHTTP(mux, proposalStore, catalog, credentials, activityStore)
+	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, catalog, credentials, activityStore)
+	registerActivitiesHTTP(mux, activityStore, catalog, credentials)
 	registerGitHTTP(mux, catalog, credentials)
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -108,7 +111,7 @@ func TestNewcomerAndMaintainerCompleteCollaborationWorkflow(t *testing.T) {
 	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+repository.ID+"/pull-requests", newcomer.API, `{"proposal_id":"`+proposal.ID+`","title":"Add contributor guide","body":"Documents the newcomer workflow.","source_branch":"candidate/contributor-guide","target_branch":"main"}`, http.StatusCreated, &pullRequest)
 	reviewPath := "/repositories/" + repository.ID + "/pull-requests/" + pullRequest.ID
 	workflowJSON(t, server.URL, http.MethodPut, reviewPath+"/reviews/me", maintainer.API, `{"decision":"request_changes"}`, http.StatusOK, nil)
-	workflowJSON(t, server.URL, http.MethodPost, reviewPath+"/comments", maintainer.API, `{"body":"Please add the exact API test command."}`, http.StatusCreated, nil)
+	workflowJSON(t, server.URL, http.MethodPost, reviewPath+"/comments", maintainer.API, `{"body":"@newcomer please add the exact API test command."}`, http.StatusCreated, nil)
 
 	if err := os.WriteFile(filepath.Join(newcomerClone, "CONTRIBUTING.md"), []byte("# Contributing\n\nOpen a proposal first, then run `go test ./...`.\n"), 0o640); err != nil {
 		t.Fatal(err)
@@ -141,6 +144,28 @@ func TestNewcomerAndMaintainerCompleteCollaborationWorkflow(t *testing.T) {
 	workflowJSON(t, server.URL, http.MethodGet, "/repositories/"+repository.ID+"/proposals/"+proposal.ID, "", "", http.StatusOK, &closed)
 	if closed.State != proposals.Closed || closed.ClosedByID != maintainer.ID {
 		t.Fatalf("closed proposal = %#v", closed)
+	}
+	var activity struct {
+		Items []activities.Event `json:"items"`
+		Total int                `json:"total_count"`
+	}
+	workflowJSON(t, server.URL, http.MethodGet, "/repositories/"+repository.ID+"/activity?per_page=100", "", "", http.StatusOK, &activity)
+	wantTypes := map[string]bool{"access.granted": false, "proposal.created": false, "pull_request.created": false, "pull_request.synchronized": false, "review.submitted": false, "review.replaced": false, "pull_request.merged": false, "mention.created": false}
+	for _, event := range activity.Items {
+		if _, wanted := wantTypes[event.Type]; wanted {
+			wantTypes[event.Type] = true
+		}
+		if event.ActorID == "" || event.Resource.ID == "" || event.RepositoryID != repository.ID {
+			t.Fatalf("unattributed activity = %#v", event)
+		}
+		if event.Type == "mention.created" && event.TargetUserID != newcomer.ID {
+			t.Fatalf("mention = %#v", event)
+		}
+	}
+	for eventType, found := range wantTypes {
+		if !found {
+			t.Errorf("missing %s in %d activity events", eventType, activity.Total)
+		}
 	}
 }
 

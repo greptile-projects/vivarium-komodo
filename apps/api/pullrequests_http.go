@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
@@ -39,23 +40,27 @@ type pullRequestRepositoryStore interface {
 	Open(storage.ID) (*storage.Repository, error)
 }
 
-func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore) {
-	mux.HandleFunc("POST /repositories/{repository}/pull-requests", createPullRequest(store, proposalStore, repositories, credentials))
+func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activityStores ...activityStore) {
+	var activity activityStore
+	if len(activityStores) > 0 {
+		activity = activityStores[0]
+	}
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests", createPullRequest(store, proposalStore, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests", listPullRequests(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}", getPullRequest(store, repositories, credentials))
-	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/synchronize", synchronizePullRequest(store, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/synchronize", synchronizePullRequest(store, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/commits", listPullRequestCommits(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/files", listPullRequestFiles(store, repositories, credentials))
-	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/comments", createPullRequestComment(store, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/comments", createPullRequestComment(store, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/comments", listPullRequestComments(store, repositories, credentials))
-	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/reviews/me", putPullRequestReview(store, repositories, credentials))
-	mux.HandleFunc("DELETE /repositories/{repository}/pull-requests/{pull_request}/reviews/me", deletePullRequestReview(store, repositories, credentials))
+	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/reviews/me", putPullRequestReview(store, repositories, credentials, activity))
+	mux.HandleFunc("DELETE /repositories/{repository}/pull-requests/{pull_request}/reviews/me", deletePullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials))
-	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequest(store, proposalStore, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequest(store, proposalStore, repositories, credentials, activity))
 }
 
-func synchronizePullRequest(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+func synchronizePullRequest(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -87,6 +92,12 @@ func synchronizePullRequest(store pullRequestStore, repositories pullRequestRepo
 		if err != nil {
 			writePullRequestError(w, err)
 			return
+		}
+		if updated.SourceCommitID != item.SourceCommitID {
+			if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "pull_request.synchronized", Resource: activities.Resource{Type: "pull_request", ID: item.ID}, Metadata: map[string]string{"previous_commit_id": item.SourceCommitID, "commit_id": updated.SourceCommitID}}); err != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
 		}
 		writeJSON(w, http.StatusOK, updated)
 	}
@@ -214,7 +225,7 @@ func inspectReadinessBranch(repository *storage.Repository, name, snapshotCommit
 	return branch
 }
 
-func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -319,6 +330,20 @@ func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repos
 				return
 			}
 		}
+		metadata := map[string]string{"merge_commit_id": merged.MergeCommitID, "source_branch": item.SourceBranch, "target_branch": item.TargetBranch}
+		if item.ProposalID != "" {
+			metadata["proposal_id"] = item.ProposalID
+		}
+		if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "pull_request.merged", Resource: activities.Resource{Type: "pull_request", ID: item.ID}, Metadata: metadata}); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		if item.ProposalID != "" {
+			if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "proposal.closed", Resource: activities.Resource{Type: "proposal", ID: item.ProposalID}, Metadata: map[string]string{"pull_request_id": item.ID, "merge_commit_id": merged.MergeCommitID}}); err != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+		}
 		writeJSON(w, http.StatusOK, merged)
 	}
 }
@@ -417,7 +442,7 @@ type reviewResponse struct {
 	Stale bool `json:"stale"`
 }
 
-func putPullRequestReview(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+func putPullRequestReview(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -425,6 +450,18 @@ func putPullRequestReview(store pullRequestStore, repositories pullRequestReposi
 		}
 		item, ok := readPullRequest(w, store, string(repository.ID), r.PathValue("pull_request"))
 		if !ok {
+			return
+		}
+		wasReplacement := false
+		if reviews, err := store.ListReviews(string(repository.ID), item.ID); err == nil {
+			for _, existing := range reviews {
+				if existing.ReviewerID == actor.UserID {
+					wasReplacement = true
+					break
+				}
+			}
+		} else {
+			writePullRequestError(w, err)
 			return
 		}
 		var input struct {
@@ -452,11 +489,19 @@ func putPullRequestReview(store pullRequestStore, repositories pullRequestReposi
 			writePullRequestError(w, err)
 			return
 		}
+		eventType := "review.submitted"
+		if wasReplacement {
+			eventType = "review.replaced"
+		}
+		if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: eventType, Resource: activities.Resource{Type: "pull_request", ID: item.ID}, Metadata: map[string]string{"decision": string(review.Decision), "commit_id": review.CommitID}}); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
 		writeJSON(w, 200, reviewResponse{Review: review, Stale: false})
 	}
 }
 
-func deletePullRequestReview(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+func deletePullRequestReview(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -465,6 +510,10 @@ func deletePullRequestReview(store pullRequestStore, repositories pullRequestRep
 		err := store.DeleteReview(string(repository.ID), r.PathValue("pull_request"), actor.UserID)
 		if err != nil {
 			writePullRequestError(w, err)
+			return
+		}
+		if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "review.withdrawn", Resource: activities.Resource{Type: "pull_request", ID: r.PathValue("pull_request")}}); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -509,7 +558,7 @@ func listPullRequestReviews(store pullRequestStore, repositories pullRequestRepo
 	}
 }
 
-func createPullRequest(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+func createPullRequest(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -551,6 +600,14 @@ func createPullRequest(store pullRequestStore, proposalStore proposalStore, repo
 			return
 		}
 		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		metadata := map[string]string{"title": item.Title, "source_branch": item.SourceBranch, "target_branch": item.TargetBranch}
+		if item.ProposalID != "" {
+			metadata["proposal_id"] = item.ProposalID
+		}
+		if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "pull_request.created", Resource: activities.Resource{Type: "pull_request", ID: item.ID}, Metadata: metadata, MentionText: item.Title + "\n" + item.Body}); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
@@ -676,7 +733,7 @@ func listPullRequestFiles(store pullRequestStore, repositories pullRequestReposi
 	}
 }
 
-func createPullRequestComment(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+func createPullRequestComment(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -695,6 +752,10 @@ func createPullRequestComment(store pullRequestStore, repositories pullRequestRe
 		}
 		if err != nil {
 			writePullRequestError(w, err)
+			return
+		}
+		if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "pull_request.commented", Resource: activities.Resource{Type: "pull_request", ID: item.PullRequestID}, Metadata: map[string]string{"comment_id": item.ID}, MentionText: item.Body}); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
 		writeJSON(w, http.StatusCreated, item)

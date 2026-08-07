@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -20,10 +21,14 @@ type collaboratorUserStore interface {
 	Get(users.ID) (users.User, error)
 }
 
-func registerCollaboratorsHTTP(mux *http.ServeMux, repositories collaboratorRepositoryStore, userStore collaboratorUserStore, credentials authStore) {
+func registerCollaboratorsHTTP(mux *http.ServeMux, repositories collaboratorRepositoryStore, userStore collaboratorUserStore, credentials authStore, activityStores ...activityStore) {
+	var activity activityStore
+	if len(activityStores) > 0 {
+		activity = activityStores[0]
+	}
 	mux.HandleFunc("GET /repositories/{repository}/collaborators", listCollaborators(repositories, userStore, credentials))
-	mux.HandleFunc("PUT /repositories/{repository}/collaborators/{user}", addCollaborator(repositories, userStore, credentials))
-	mux.HandleFunc("DELETE /repositories/{repository}/collaborators/{user}", removeCollaborator(repositories, credentials))
+	mux.HandleFunc("PUT /repositories/{repository}/collaborators/{user}", addCollaborator(repositories, userStore, credentials, activity))
+	mux.HandleFunc("DELETE /repositories/{repository}/collaborators/{user}", removeCollaborator(repositories, credentials, activity))
 }
 
 func listCollaborators(store collaboratorRepositoryStore, userStore collaboratorUserStore, credentials authStore) http.HandlerFunc {
@@ -57,7 +62,7 @@ func listCollaborators(store collaboratorRepositoryStore, userStore collaborator
 	}
 }
 
-func addCollaborator(store collaboratorRepositoryStore, userStore collaboratorUserStore, credentials authStore) http.HandlerFunc {
+func addCollaborator(store collaboratorRepositoryStore, userStore collaboratorUserStore, credentials authStore, activity activityStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
 		if !ok {
@@ -81,12 +86,16 @@ func addCollaborator(store collaboratorRepositoryStore, userStore collaboratorUs
 			writeRepositoryError(w, err)
 			return
 		}
+		if err := recordActivity(activity, activities.Input{RepositoryID: r.PathValue("repository"), ActorID: actor.UserID, Type: "access.granted", Resource: activities.Resource{Type: "repository", ID: r.PathValue("repository")}, TargetUserID: string(user.ID), Metadata: map[string]string{"role": "contributor"}}); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
 		w.Header().Set("Location", "/repositories/"+r.PathValue("repository")+"/collaborators/"+string(user.ID))
 		writeJSON(w, 200, collaboratorResponse(user))
 	}
 }
 
-func removeCollaborator(store collaboratorRepositoryStore, credentials authStore) http.HandlerFunc {
+func removeCollaborator(store collaboratorRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
 		if !ok {
@@ -94,6 +103,10 @@ func removeCollaborator(store collaboratorRepositoryStore, credentials authStore
 		}
 		if err := store.RemoveCollaborator(actor.UserID, storage.ID(r.PathValue("repository")), r.PathValue("user")); err != nil {
 			writeRepositoryError(w, err)
+			return
+		}
+		if err := recordActivity(activity, activities.Input{RepositoryID: r.PathValue("repository"), ActorID: actor.UserID, Type: "access.revoked", Resource: activities.Resource{Type: "repository", ID: r.PathValue("repository")}, TargetUserID: r.PathValue("user"), Metadata: map[string]string{"role": "contributor"}}); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
