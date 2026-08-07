@@ -102,7 +102,12 @@ whenever dependencies change or the web job fails before it starts.
   identifies the Git remote at `/repositories/{ID}`. Repository API reads and
   writes require `repository:read` and `repository:write`, respectively; use
   the catalog boundary for ownership-aware lifecycle operations rather than
-  creating or deleting storage repositories directly.
+  creating or deleting storage repositories directly. Repositories are private
+  by default and may be made public. Public reads are anonymous across JSON and
+  Git; private reads, every write, visibility changes, and deletion are limited
+  to the owner. Authenticated non-owners receive `404` for denied repository
+  access. Route Git through the catalog as well as storage so transport access
+  cannot bypass ownership and visibility policy.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 

@@ -164,6 +164,15 @@ func revokeAccessGrant(credentials authStore) http.HandlerFunc {
 }
 
 func authenticateRequest(w http.ResponseWriter, r *http.Request, credentials authStore, scope auth.Scope) (auth.Grant, bool) {
+	grant, authenticated, ok := authenticateOptionalRequest(w, r, credentials, scope)
+	if ok && !authenticated {
+		writeUnauthenticated(w, "Bearer", "komodo")
+		return auth.Grant{}, false
+	}
+	return grant, ok
+}
+
+func authenticateOptionalRequest(w http.ResponseWriter, r *http.Request, credentials authStore, scope auth.Scope) (auth.Grant, bool, bool) {
 	token := ""
 	if authorization := r.Header.Get("Authorization"); strings.HasPrefix(authorization, "Bearer ") {
 		token = strings.TrimPrefix(authorization, "Bearer ")
@@ -173,28 +182,38 @@ func authenticateRequest(w http.ResponseWriter, r *http.Request, credentials aut
 			token = cookie.Value
 		}
 	}
+	if token == "" {
+		return auth.Grant{}, false, true
+	}
 	grant, err := credentials.Authenticate(token, scope)
 	if err != nil {
-		w.Header().Set("WWW-Authenticate", `Bearer realm="komodo"`)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated"})
-		return auth.Grant{}, false
+		writeUnauthenticated(w, "Bearer", "komodo")
+		return auth.Grant{}, false, false
 	}
-	return grant, true
+	return grant, true, true
 }
 
-func authenticateGit(w http.ResponseWriter, r *http.Request, credentials credentialAuthenticator, scope auth.Scope) bool {
+func writeUnauthenticated(w http.ResponseWriter, scheme, realm string) {
+	w.Header().Set("WWW-Authenticate", scheme+` realm="`+realm+`"`)
+	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthenticated"})
+}
+
+func authenticateGitOptional(w http.ResponseWriter, r *http.Request, credentials credentialAuthenticator, scope auth.Scope) (auth.Grant, bool, bool) {
 	_, token, ok := r.BasicAuth()
 	if !ok {
-		w.Header().Set("WWW-Authenticate", `Basic realm="komodo git"`)
-		http.Error(w, "authentication required", http.StatusUnauthorized)
-		return false
+		return auth.Grant{}, false, true
 	}
-	if _, err := credentials.Authenticate(token, scope); err != nil {
-		w.Header().Set("WWW-Authenticate", `Basic realm="komodo git"`)
-		http.Error(w, "authentication required", http.StatusUnauthorized)
-		return false
+	grant, err := credentials.Authenticate(token, scope)
+	if err != nil {
+		writeGitUnauthenticated(w)
+		return auth.Grant{}, false, false
 	}
-	return true
+	return grant, true, true
+}
+
+func writeGitUnauthenticated(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", `Basic realm="komodo git"`)
+	http.Error(w, "authentication required", http.StatusUnauthorized)
 }
 
 func grantResponse(grant auth.Grant, token string) map[string]any {

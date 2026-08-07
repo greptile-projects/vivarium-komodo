@@ -10,9 +10,11 @@ import (
 )
 
 type ownedRepositoryStore interface {
-	Create(string) (repositories.Repository, error)
+	Create(string, repositories.Visibility) (repositories.Repository, error)
 	Get(string, storage.ID) (repositories.Repository, error)
+	Inspect(storage.ID) (repositories.Repository, error)
 	List(string) ([]repositories.Repository, error)
+	SetVisibility(string, storage.ID, repositories.Visibility) (repositories.Repository, error)
 	Delete(string, storage.ID) error
 }
 
@@ -20,6 +22,7 @@ func registerRepositoriesHTTP(mux *http.ServeMux, store ownedRepositoryStore, cr
 	mux.HandleFunc("POST /repositories", createRepository(store, credentials))
 	mux.HandleFunc("GET /repositories", listRepositories(store, credentials))
 	mux.HandleFunc("GET /repositories/{repository}", getRepository(store, credentials))
+	mux.HandleFunc("PATCH /repositories/{repository}", updateRepository(store, credentials))
 	mux.HandleFunc("DELETE /repositories/{repository}", deleteRepository(store, credentials))
 }
 
@@ -29,7 +32,21 @@ func createRepository(store ownedRepositoryStore, credentials authStore) http.Ha
 		if !ok {
 			return
 		}
-		item, err := store.Create(actor.UserID)
+		visibility := repositories.Private
+		if r.Body != nil && r.ContentLength != 0 {
+			var input struct {
+				Visibility repositories.Visibility `json:"visibility"`
+			}
+			if !readJSON(w, r, &input, 4096) {
+				return
+			}
+			visibility = input.Visibility
+		}
+		if visibility != repositories.Private && visibility != repositories.Public {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_visibility"})
+			return
+		}
+		item, err := store.Create(actor.UserID, visibility)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
@@ -60,16 +77,49 @@ func listRepositories(store ownedRepositoryStore, credentials authStore) http.Ha
 
 func getRepository(store ownedRepositoryStore, credentials authStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryRead)
-		if !ok {
-			return
-		}
-		item, err := store.Get(actor.UserID, storage.ID(r.PathValue("repository")))
+		item, err := store.Inspect(storage.ID(r.PathValue("repository")))
 		if err != nil {
 			writeRepositoryError(w, err)
 			return
 		}
+		actor, authenticated, ok := authenticateOptionalRequest(w, r, credentials, auth.RepositoryRead)
+		if !ok {
+			return
+		}
+		if item.Visibility != repositories.Public && !authenticated {
+			writeUnauthenticated(w, "Bearer", "komodo")
+			return
+		}
+		if item.Visibility != repositories.Public && authenticated && actor.UserID != item.OwnerID {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
 		writeJSON(w, 200, repositoryResponse(item))
+	}
+}
+
+func updateRepository(store ownedRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var input struct {
+			Visibility repositories.Visibility `json:"visibility"`
+		}
+		if !readJSON(w, r, &input, 4096) {
+			return
+		}
+		if input.Visibility != repositories.Private && input.Visibility != repositories.Public {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_visibility"})
+			return
+		}
+		item, err := store.SetVisibility(actor.UserID, storage.ID(r.PathValue("repository")), input.Visibility)
+		if err != nil {
+			writeRepositoryError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, repositoryResponse(item))
 	}
 }
 
@@ -88,7 +138,7 @@ func deleteRepository(store ownedRepositoryStore, credentials authStore) http.Ha
 }
 
 func repositoryResponse(item repositories.Repository) map[string]any {
-	return map[string]any{"id": item.ID, "owner_id": item.OwnerID, "empty": item.Empty, "created_at": item.CreatedAt, "git_url": "/repositories/" + string(item.ID)}
+	return map[string]any{"id": item.ID, "owner_id": item.OwnerID, "visibility": item.Visibility, "empty": item.Empty, "created_at": item.CreatedAt, "git_url": "/repositories/" + string(item.ID)}
 }
 
 func writeRepositoryError(w http.ResponseWriter, err error) {

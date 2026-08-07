@@ -18,11 +18,19 @@ import (
 
 var ErrNotFound = errors.New("owned repository not found")
 
+type Visibility string
+
+const (
+	Private Visibility = "private"
+	Public  Visibility = "public"
+)
+
 type Repository struct {
-	ID        storage.ID `json:"id"`
-	OwnerID   string     `json:"owner_id"`
-	Empty     bool       `json:"empty"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID         storage.ID `json:"id"`
+	OwnerID    string     `json:"owner_id"`
+	Visibility Visibility `json:"visibility"`
+	Empty      bool       `json:"empty"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
 type repositoryStorage interface {
@@ -52,16 +60,67 @@ func New(root string, repositoryStorage repositoryStorage) (*Store, error) {
 	return &Store{root: abs, storage: repositoryStorage, now: time.Now}, nil
 }
 
-func (s *Store) Create(ownerID string) (Repository, error) {
+func (s *Store) Create(ownerID string, visibility Visibility) (Repository, error) {
+	if visibility != Private && visibility != Public {
+		return Repository{}, errors.New("invalid repository visibility")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	repository, err := s.storage.Create()
 	if err != nil {
 		return Repository{}, err
 	}
-	item := Repository{ID: repository.ID(), OwnerID: ownerID, Empty: true, CreatedAt: s.now().UTC()}
+	item := Repository{ID: repository.ID(), OwnerID: ownerID, Visibility: visibility, Empty: true, CreatedAt: s.now().UTC()}
 	if err := s.write(item); err != nil {
 		_ = s.storage.Delete(repository.ID())
+		return Repository{}, err
+	}
+	return item, nil
+}
+
+// Inspect returns repository metadata without applying an actor policy. It is
+// the catalog boundary used by transports to make one authorization decision.
+func (s *Store) Inspect(id storage.ID) (Repository, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	opened, err := s.storage.Open(id)
+	if errors.Is(err, storage.ErrInvalidID) || errors.Is(err, storage.ErrNotFound) {
+		return Repository{}, ErrNotFound
+	}
+	if err != nil {
+		return Repository{}, err
+	}
+	item, err := s.read(id)
+	if err != nil {
+		return Repository{}, err
+	}
+	info, err := opened.Inspect()
+	if err != nil {
+		return Repository{}, err
+	}
+	item.Empty = info.Empty
+	return item, nil
+}
+
+func (s *Store) Open(id storage.ID) (*storage.Repository, error) {
+	if _, err := s.Inspect(id); err != nil {
+		return nil, err
+	}
+	return s.storage.Open(id)
+}
+
+func (s *Store) SetVisibility(ownerID string, id storage.ID, visibility Visibility) (Repository, error) {
+	if visibility != Private && visibility != Public {
+		return Repository{}, errors.New("invalid repository visibility")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(id)
+	if err != nil || item.OwnerID != ownerID {
+		return Repository{}, ErrNotFound
+	}
+	item.Visibility = visibility
+	if err := s.write(item); err != nil {
 		return Repository{}, err
 	}
 	return item, nil
@@ -155,7 +214,15 @@ func (s *Store) read(id storage.ID) (Repository, error) {
 		return Repository{}, err
 	}
 	var item Repository
-	if json.Unmarshal(data, &item) != nil || item.ID != id || item.OwnerID == "" || item.CreatedAt.IsZero() {
+	if json.Unmarshal(data, &item) != nil {
+		return Repository{}, errors.New("invalid repository catalog entry")
+	}
+	// Catalog entries created before visibility was introduced are private by
+	// default, preserving their previous owner-only behavior.
+	if item.Visibility == "" {
+		item.Visibility = Private
+	}
+	if item.ID != id || item.OwnerID == "" || (item.Visibility != Private && item.Visibility != Public) || item.CreatedAt.IsZero() {
 		return Repository{}, errors.New("invalid repository catalog entry")
 	}
 	return item, nil

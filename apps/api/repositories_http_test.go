@@ -37,7 +37,7 @@ func TestAuthenticatedOwnerCreatesDiscoversUsesAndRemovesRepository(t *testing.T
 	registerUsersHTTP(mux, userStore, credentials)
 	registerAuthHTTP(mux, credentials, userStore)
 	registerRepositoriesHTTP(mux, catalog, credentials)
-	registerGitHTTP(mux, gitStorage, credentials)
+	registerGitHTTP(mux, catalog, credentials)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
