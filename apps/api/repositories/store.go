@@ -279,6 +279,27 @@ func (s *Store) Get(ownerID string, id storage.ID) (Repository, error) {
 }
 
 func (s *Store) List(ownerID string) ([]Repository, error) {
+	return s.list(func(item Repository) bool { return item.OwnerID == ownerID })
+}
+
+// ListAccessible returns repositories the actor owns or has been invited to.
+// Public repositories are deliberately excluded: this is the actor's durable
+// workspace, not a global discovery index.
+func (s *Store) ListAccessible(userID string) ([]Repository, error) {
+	return s.list(func(item Repository) bool {
+		if item.OwnerID == userID {
+			return true
+		}
+		for _, collaboratorID := range item.CollaboratorIDs {
+			if collaboratorID == userID {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func (s *Store) list(include func(Repository) bool) ([]Repository, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entries, err := os.ReadDir(s.root)
@@ -294,7 +315,7 @@ func (s *Store) List(ownerID string) ([]Repository, error) {
 		if err != nil {
 			return nil, err
 		}
-		if item.OwnerID != ownerID {
+		if !include(item) {
 			continue
 		}
 		opened, err := s.storage.Open(item.ID)

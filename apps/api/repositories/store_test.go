@@ -46,6 +46,16 @@ func TestOwnedRepositoryLifecycle(t *testing.T) {
 	if len(items) != 1 || items[0].ID != first.ID {
 		t.Fatalf("owner list = %#v", items)
 	}
+	if _, err := store.AddCollaborator("owner-two", second.ID, "owner-one"); err != nil {
+		t.Fatal(err)
+	}
+	accessible, err := store.ListAccessible("owner-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(accessible) != 2 || accessible[0].ID != first.ID || accessible[1].ID != second.ID {
+		t.Fatalf("accessible list = %#v", accessible)
+	}
 	if _, err := store.Get("owner-two", first.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("cross-owner get error = %v", err)
 	}

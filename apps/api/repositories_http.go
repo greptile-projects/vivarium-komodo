@@ -14,6 +14,7 @@ type ownedRepositoryStore interface {
 	Get(string, storage.ID) (repositories.Repository, error)
 	Inspect(storage.ID) (repositories.Repository, error)
 	List(string) ([]repositories.Repository, error)
+	ListAccessible(string) ([]repositories.Repository, error)
 	Update(string, storage.ID, repositories.Metadata) (repositories.Repository, error)
 	Delete(string, storage.ID) error
 	IsCollaborator(storage.ID, string) (bool, error)
@@ -68,7 +69,13 @@ func listRepositories(store ownedRepositoryStore, credentials authStore) http.Ha
 		if !ok {
 			return
 		}
-		items, err := store.List(actor.UserID)
+		var items []repositories.Repository
+		var err error
+		if r.URL.Query().Get("affiliation") == "all" {
+			items, err = store.ListAccessible(actor.UserID)
+		} else {
+			items, err = store.List(actor.UserID)
+		}
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return

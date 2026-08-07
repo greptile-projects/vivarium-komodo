@@ -140,6 +140,9 @@ whenever dependencies change or the web job fails before it starts.
   publish non-default candidate branches, but cannot update the default branch
   or exercise metadata, visibility, deletion, or access-management powers.
   Authenticated non-participants receive `404` for denied repository access.
+  The default repository collection remains owner-only; the
+  `affiliation=all` collection returns the actor's owned and contributed
+  repositories for durable workspace discovery, not public search.
   Route Git through the catalog as well as storage so transport access cannot
   bypass ownership, collaborator, and visibility policy.
   Read-only browser endpoints for branches, commits, trees, and blobs are

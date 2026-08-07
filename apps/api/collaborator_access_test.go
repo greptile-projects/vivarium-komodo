@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -48,6 +49,23 @@ func TestOwnerAdmitsContributorWhoPublishesCandidateBranch(t *testing.T) {
 		t.Fatalf("admit contributor: status %v, error %v", response.StatusCode, err)
 	}
 	response.Body.Close()
+
+	request, _ = http.NewRequest(http.MethodGet, server.URL+"/repositories?affiliation=all", nil)
+	request.Header.Set("Authorization", "Bearer "+contributorAPI)
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workspace struct {
+		Items []map[string]any `json:"items"`
+	}
+	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&workspace) != nil {
+		t.Fatalf("contributor workspace status = %d", response.StatusCode)
+	}
+	response.Body.Close()
+	if len(workspace.Items) != 1 || workspace.Items[0]["id"] != string(repository.ID) {
+		t.Fatalf("contributor workspace = %#v", workspace.Items)
+	}
 
 	get := func(token string) int {
 		r, _ := http.NewRequest(http.MethodGet, server.URL+"/repositories/"+string(repository.ID), nil)
