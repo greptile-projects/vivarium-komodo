@@ -217,6 +217,18 @@ whenever dependencies change or the web job fails before it starts.
   time, appends an attributable outcome comment, and closes any linked proposal.
   Merge messages retain pull request and proposal IDs plus stable author and
   maintainer IDs so repository history preserves collaboration context.
+  Candidate verification is defined by the exact revision's
+  `.komodo/checks.json` manifest (schema version `1`). Each named check declares
+  a shell command plus optional working directory, timeout, and environment.
+  Opening a pull request, explicitly synchronizing its source, or publishing an
+  agent revision automatically creates commit-bound runs beneath
+  `$CHECK_RUN_ROOT` (default `apps/api/data/check-runs`). Checks execute in a
+  Bubblewrap namespace containing only a writable materialization of that Git
+  snapshot, read-only system runtime files, and disposable `/tmp`; it has no
+  repository metadata, credentials, host filesystem, or network namespace.
+  Preserve this exact-commit and bounded-access contract when adding logs,
+  artifacts, reruns, or merge requirements. Run state is repository-policy
+  readable at the pull request's `/check-runs` collection.
   Pull-request change sessions live beneath `$CHANGE_SESSION_ROOT` (default
   `apps/api/data/change-sessions`) behind the `changesessions.Store` boundary.
   Any authenticated repository participant may start one on an open pull

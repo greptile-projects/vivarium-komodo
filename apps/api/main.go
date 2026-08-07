@@ -8,6 +8,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/inbox"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
@@ -73,6 +74,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	checkRunRoot := os.Getenv("CHECK_RUN_ROOT")
+	if checkRunRoot == "" {
+		checkRunRoot = "data/check-runs"
+	}
+	checkRunStore, err := checkruns.New(checkRunRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	checkRunner := checkruns.NewRunner(checkRunStore, repositoryCatalog)
 	activityRoot := os.Getenv("ACTIVITY_ROOT")
 	if activityRoot == "" {
 		activityRoot = "data/activities"
@@ -100,8 +110,9 @@ func main() {
 	registerRepositoryBrowserHTTP(mux, repositoryCatalog, credentials)
 	registerCollaboratorsHTTP(mux, repositoryCatalog, userStore, credentials, activityStore)
 	registerProposalsHTTP(mux, proposalStore, repositoryCatalog, credentials, activityStore)
-	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore)
-	registerChangeSessionsHTTP(mux, changeSessionStore, pullRequestStore, repositoryCatalog, credentials, activityStore)
+	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner)
+	registerChangeSessionsHTTP(mux, changeSessionStore, pullRequestStore, repositoryCatalog, credentials, activityStore, checkRunner)
+	registerCheckRunsHTTP(mux, checkRunStore, pullRequestStore, repositoryCatalog, credentials)
 	registerActivitiesHTTP(mux, activityStore, repositoryCatalog, credentials)
 	registerInboxHTTP(mux, activityStore, inboxStore, repositoryCatalog, proposalStore, pullRequestStore, userStore, credentials)
 	registerUsersHTTP(mux, userStore, credentials)
