@@ -84,6 +84,10 @@ whenever dependencies change or the web job fails before it starts.
   live readiness report. Keep review, author synchronization, and owner merge
   actions separate and permission-aware; synchronization deliberately makes
   prior commit-bound reviews stale.
+  Agent collaboration begins in the pull request's `section=sessions` view.
+  Change sessions retain their initiating user, captured pull request source
+  commit, current state, and ordered public timeline; keep later worker
+  execution details behind this application-facing contract.
 - **API** — `main.go` registers handlers on a `net/http` mux with Go 1.22+
   method-and-path patterns (`"GET /health"`). The `storage` package owns bare
   Git repository lifecycles; use its `RepositoryStore` boundary rather than
@@ -191,6 +195,12 @@ whenever dependencies change or the web job fails before it starts.
   time, appends an attributable outcome comment, and closes any linked proposal.
   Merge messages retain pull request and proposal IDs plus stable author and
   maintainer IDs so repository history preserves collaboration context.
+  Pull-request change sessions live beneath `$CHANGE_SESSION_ROOT` (default
+  `apps/api/data/change-sessions`) behind the `changesessions.Store` boundary.
+  Any authenticated repository participant may start one on an open pull
+  request; reads follow ordinary repository visibility. Sessions snapshot the
+  represented source commit, initiator, state, and ordered events so public API
+  clients can reconnect without reading worker storage or execution logs.
   Meaningful collaboration transitions are appended through the
   `activities.Store` boundary beneath `$ACTIVITY_ROOT` (default
   `apps/api/data/activities`). Repository activity retains stable actor and
