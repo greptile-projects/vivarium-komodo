@@ -51,7 +51,7 @@ func createSession(credentials authStore, userStore userAuthStore) http.HandlerF
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
 			return
 		}
-		issued, err := credentials.Issue(string(user.ID), "Web session", auth.Web, []auth.Scope{auth.ProfileRead, auth.ProfileWrite, auth.AccessManage}, 12*time.Hour)
+		issued, err := credentials.Issue(string(user.ID), "Web session", auth.Web, []auth.Scope{auth.ProfileRead, auth.ProfileWrite, auth.AccessManage, auth.RepositoryRead, auth.RepositoryWrite}, 12*time.Hour)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return

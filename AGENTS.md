@@ -96,6 +96,13 @@ whenever dependencies change or the web job fails before it starts.
   user IDs are immutable while unique handles and display names are mutable.
   Account creation establishes the user's password; profile mutation requires
   authenticated `profile:write` access belonging to that same user.
+  Owned repository resources are managed through the `repositories.Store`
+  catalog beneath `$REPOSITORY_CATALOG_ROOT` (default
+  `apps/api/data/repositories`). Their ID is the storage ID and therefore also
+  identifies the Git remote at `/repositories/{ID}`. Repository API reads and
+  writes require `repository:read` and `repository:write`, respectively; use
+  the catalog boundary for ownership-aware lifecycle operations rather than
+  creating or deleting storage repositories directly.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 
