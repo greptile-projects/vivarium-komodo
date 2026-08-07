@@ -88,6 +88,10 @@ whenever dependencies change or the web job fails before it starts.
   dependencies and no `go.sum`; adding a dependency means the api workflow's
   `cache: false` line should flip to `cache-dependency-path: apps/api/go.sum`.
   The port comes from `$PORT`, defaulting to `8080`.
+  Human identities are durable JSON resources beneath `$USER_ROOT`, defaulting
+  to `apps/api/data/users` when started via the documented root command. Use the
+  `users.Store` boundary for account creation, inspection, and profile updates;
+  user IDs are immutable while unique handles and display names are mutable.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 

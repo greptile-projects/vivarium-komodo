@@ -12,6 +12,30 @@ written down here as they're decided, not before.
   repositories live beneath `$REPOSITORY_ROOT`, or `apps/api/repositories` by
   default.
 
+## Human identity
+
+The API exposes durable human accounts as JSON resources. Accounts live beneath
+`$USER_ROOT`, or `apps/api/data/users` by default, and are managed through the
+`apps/api/users` storage boundary. A UUID-shaped `id` is the stable actor key
+for attribution. The public `handle` is case-normalized and unique, while
+`display_name` provides the minimal human-readable profile; both profile fields
+may change without changing the actor ID. Creation and updates are written
+atomically so a successfully returned identity survives process restarts.
+
+The initial unauthenticated account contract is:
+
+- `POST /users` creates an account from `handle` and `display_name`, returning
+  `201 Created` and its canonical `Location`;
+- `GET /users/{id}` inspects the stable identity and current profile;
+- `PUT /users/{id}` replaces the mutable profile while retaining `id` and
+  `created_at`.
+
+Responses include `created_at` and `updated_at` UTC timestamps. Invalid
+profiles return `422`, duplicate handles return `409`, and unknown or malformed
+IDs return `404`. Authentication and binding requests to the acting user belong
+to the next application-foundation rung; until then these endpoints establish
+the durable resource that credentials will identify.
+
 ## Git repository storage
 
 `apps/api/storage` is the repository lifecycle boundary. A store owns one root

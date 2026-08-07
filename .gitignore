@@ -2,6 +2,7 @@ node_modules/
 dist/
 bin/
 apps/api/api
+apps/api/data/
 *.test
 *.out
 *.log
