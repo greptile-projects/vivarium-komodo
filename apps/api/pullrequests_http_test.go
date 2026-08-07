@@ -386,3 +386,58 @@ func TestPullRequestReadinessIsReadyForOwnerAfterCurrentApproval(t *testing.T) {
 		t.Fatalf("readiness = %d %#v", w.Code, result)
 	}
 }
+
+func TestOwnerMergesReadyPullRequestAndClosesLinkedCollaboration(t *testing.T) {
+	gitStorage, _ := storage.New(t.TempDir())
+	catalog, _ := repositories.New(t.TempDir(), gitStorage)
+	proposalStore, _ := proposals.New(t.TempDir())
+	pullRequestStore, _ := pullrequests.New(t.TempDir())
+	userStore, _ := users.New(t.TempDir())
+	credentials, _ := auth.New(t.TempDir())
+	owner, _ := userStore.Create(users.Profile{Handle: "owner", DisplayName: "Owner"})
+	contributor, _ := userStore.Create(users.Profile{Handle: "contributor", DisplayName: "Contributor"})
+	repository, _ := catalog.Create(string(owner.ID), repositories.Metadata{Name: "project", Visibility: repositories.Private})
+	catalog.AddCollaborator(string(owner.ID), repository.ID, string(contributor.ID))
+	opened, _ := catalog.Open(repository.ID)
+	baseTree, _ := opened.WriteObject(storage.TreeObject, nil)
+	base, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(baseTree)+"\nauthor A <a@x> 1 +0000\ncommitter A <a@x> 1 +0000\n\nbase\n"))
+	changeBlob, _ := opened.WriteObject(storage.BlobObject, []byte("accepted\n"))
+	changeTree, _ := opened.WriteObject(storage.TreeObject, testTree(t, map[string]storage.ObjectID{"change.txt": changeBlob}))
+	change, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(changeTree)+"\nparent "+string(base)+"\nauthor Contributor <c@x> 2 +0000\ncommitter Contributor <c@x> 2 +0000\n\nchange\n"))
+	opened.CreateReference(storage.Reference{Name: "refs/heads/main", ObjectID: base})
+	opened.CreateReference(storage.Reference{Name: "refs/heads/candidate", ObjectID: change})
+	proposal, _ := proposalStore.Create(string(repository.ID), string(contributor.ID), "Improve project", "Shared rationale.")
+	pr, _ := pullRequestStore.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), ProposalID: proposal.ID, AuthorID: string(contributor.ID), Title: "Apply accepted change", Body: "Preserve the collaboration context.", SourceBranch: "candidate", TargetBranch: "main", SourceCommitID: string(change), TargetCommitID: string(base)})
+	pullRequestStore.PutReview(string(repository.ID), pr.ID, string(owner.ID), pullrequests.Approve, string(change))
+	ownerToken := issueAccess(t, credentials, string(owner.ID), auth.API, auth.RepositoryWrite)
+	contributorToken := issueAccess(t, credentials, string(contributor.ID), auth.API, auth.RepositoryWrite)
+	mux := http.NewServeMux()
+	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, catalog, credentials)
+	path := "/repositories/" + string(repository.ID) + "/pull-requests/" + pr.ID + "/merge"
+	do := func(token string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		return w
+	}
+	if w := do(contributorToken); w.Code != http.StatusNotFound {
+		t.Fatalf("contributor merge = %d %s", w.Code, w.Body.String())
+	}
+	w := do(ownerToken)
+	var merged pullrequests.PullRequest
+	json.NewDecoder(w.Body).Decode(&merged)
+	if w.Code != http.StatusOK || merged.Status != pullrequests.Merged || merged.MergedByID != string(owner.ID) || merged.MergeCommitID == "" || merged.MergedAt == nil {
+		t.Fatalf("merge = %d %#v body=%s", w.Code, merged, w.Body.String())
+	}
+	tip, _, found := branchTip(opened, "main")
+	commit, err := opened.ReadCommit(tip)
+	if err != nil || !found || string(tip) != merged.MergeCommitID || commit.Tree != changeTree || !slices.Equal(commit.Parents, []storage.ObjectID{base, change}) || !strings.Contains(string(commit.Content), "Pull-Request: "+pr.ID) || !strings.Contains(string(commit.Content), "Proposal: "+proposal.ID) || !strings.Contains(string(commit.Content), "Author-ID: "+string(contributor.ID)) || !strings.Contains(string(commit.Content), "Merged-By: "+string(owner.ID)) {
+		t.Fatalf("merge commit = %#v, %v", commit, err)
+	}
+	closed, _ := proposalStore.Get(string(repository.ID), proposal.ID)
+	comments, _ := pullRequestStore.ListComments(string(repository.ID), pr.ID)
+	if closed.State != proposals.Closed || closed.ClosedByID != string(owner.ID) || len(comments) != 1 || comments[0].AuthorID != string(owner.ID) || !strings.Contains(comments[0].Body, merged.MergeCommitID) {
+		t.Fatalf("closed collaboration = proposal %#v comments %#v", closed, comments)
+	}
+}

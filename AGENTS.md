@@ -146,7 +146,12 @@ whenever dependencies change or the web job fails before it starts.
   rejects current change requests, verifies that both branches exist and that
   the source still names the snapshotted commit, checks the live target for Git
   merge conflicts without writing repository objects, and identifies that only
-  the owner has merge permission.
+  the owner has merge permission. Only the repository owner may merge a ready
+  pull request. A merge creates a two-parent commit through the storage object
+  boundary, advances the target branch, records the merge commit, actor, and
+  time, appends an attributable outcome comment, and closes any linked proposal.
+  Merge messages retain pull request and proposal IDs plus stable author and
+  maintainer IDs so repository history preserves collaboration context.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 

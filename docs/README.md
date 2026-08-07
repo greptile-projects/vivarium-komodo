@@ -203,6 +203,9 @@ The repository-scoped JSON contract is:
   participant's current decision with the shared bounded pagination envelope;
 - `GET /repositories/{id}/pull-requests/{pull_request_id}/readiness` reports
   every currently known merge blocker without changing repository state.
+- `POST /repositories/{id}/pull-requests/{pull_request_id}/merge` applies a
+  ready request to its target branch as a two-parent merge commit; only the
+  repository owner may perform it.
 
 Both named branches must exist and point directly to commits at creation. A
 linked proposal must belong to the same repository. Commit inspection walks
@@ -239,8 +242,14 @@ Creation, discussion, and review mutation require authenticated
 public reads are anonymous, private reads require owner or contributor
 membership and `repository:read`, and denied authenticated users receive
 `404`. Commit, file, comment, and review lists use the shared pagination
-envelope. Lifecycle transitions and merge behavior remain separate later
-contracts.
+envelope. A successful merge records `status=merged`, `merge_commit_id`,
+`merged_by_id`, and `merged_at`, appends an attributable outcome comment, and
+closes a linked proposal with the maintainer as its closing actor. The target
+branch is rechecked immediately before publication. The merge commit has the
+live target and snapshotted source as its parents, uses the merged tree, and
+retains the pull request title/body plus pull request, proposal, author, and
+maintainer stable IDs in its message. Thus stock Git history and application
+resources both preserve what changed and the collaboration that accepted it.
 
 ## Git repository storage
 

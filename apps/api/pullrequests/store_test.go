@@ -1,6 +1,9 @@
 package pullrequests
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestPullRequestSurvivesReopen(t *testing.T) {
 	root := t.TempDir()
@@ -79,5 +82,20 @@ func TestReviewCanBeReplacedWithdrawnAndReopened(t *testing.T) {
 	}
 	if _, err := reopened.PutReview("repository", pullRequest.ID, "reviewer", "comment", "commit"); err != ErrInvalidReview {
 		t.Fatalf("invalid decision error = %v", err)
+	}
+}
+
+func TestMergedPullRequestSurvivesReopen(t *testing.T) {
+	root := t.TempDir()
+	store, _ := New(root)
+	pullRequest, _ := store.Create(CreateParams{RepositoryID: "repository", AuthorID: "author", Title: "Change", SourceBranch: "candidate", TargetBranch: "main", SourceCommitID: "source", TargetCommitID: "target"})
+	merged, err := store.MarkMerged("repository", pullRequest.ID, "maintainer", "merge-commit")
+	if err != nil || merged.Status != Merged || merged.MergedByID != "maintainer" || merged.MergeCommitID != "merge-commit" || merged.MergedAt == nil {
+		t.Fatalf("merged pull request = %#v, %v", merged, err)
+	}
+	reopened, _ := New(root)
+	got, err := reopened.Get("repository", pullRequest.ID)
+	if err != nil || got.Status != Merged || got.MergedAt == nil || time.Since(*got.MergedAt) > time.Minute {
+		t.Fatalf("reopened merged pull request = %#v, %v", got, err)
 	}
 }

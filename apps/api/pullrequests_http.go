@@ -1,14 +1,19 @@
 package main
 
 import (
+	"bytes"
+	"compress/zlib"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
@@ -25,6 +30,7 @@ type pullRequestStore interface {
 	PutReview(string, string, string, pullrequests.ReviewDecision, string) (pullrequests.Review, error)
 	DeleteReview(string, string, string) error
 	ListReviews(string, string) ([]pullrequests.Review, error)
+	MarkMerged(string, string, string, string) (pullrequests.PullRequest, error)
 }
 
 type pullRequestRepositoryStore interface {
@@ -44,6 +50,7 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("DELETE /repositories/{repository}/pull-requests/{pull_request}/reviews/me", deletePullRequestReview(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequest(store, proposalStore, repositories, credentials))
 }
 
 type readinessBranch struct {
@@ -166,6 +173,179 @@ func inspectReadinessBranch(repository *storage.Repository, name, snapshotCommit
 		branch.MatchesPullRequest = branch.CommitID == snapshotCommitID
 	}
 	return branch
+}
+
+func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if actor.UserID != repository.OwnerID {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+			return
+		}
+		item, ok := readPullRequest(w, store, string(repository.ID), r.PathValue("pull_request"))
+		if !ok {
+			return
+		}
+		if item.Status != pullrequests.Open {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "pull_request_not_ready"})
+			return
+		}
+		opened, err := repositories.Open(repository.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		source, _, sourceOK := branchTip(opened, item.SourceBranch)
+		target, _, targetOK := branchTip(opened, item.TargetBranch)
+		if !sourceOK || !targetOK || string(source) != item.SourceCommitID {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "pull_request_not_ready"})
+			return
+		}
+		reviews, err := store.ListReviews(string(repository.ID), item.ID)
+		if err != nil {
+			writePullRequestError(w, err)
+			return
+		}
+		ownerApproved := false
+		for _, review := range reviews {
+			if review.CommitID != string(source) {
+				continue
+			}
+			if review.Decision == pullrequests.RequestChanges {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "pull_request_not_ready"})
+				return
+			}
+			ownerApproved = ownerApproved || (review.ReviewerID == repository.OwnerID && review.Decision == pullrequests.Approve)
+		}
+		if !ownerApproved {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "pull_request_not_ready"})
+			return
+		}
+		hasConflicts, err := mergeHasConflicts(r.Context(), opened, target, source)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		if hasConflicts {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "pull_request_not_ready"})
+			return
+		}
+		mergeTree, err := materializeMergeTree(r.Context(), opened, target, source)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		now := time.Now().UTC()
+		message := item.Title
+		if item.Body != "" {
+			message += "\n\n" + item.Body
+		}
+		message += "\n\nPull-Request: " + item.ID + "\nAuthor-ID: " + item.AuthorID + "\nMerged-By: " + actor.UserID
+		if item.ProposalID != "" {
+			message += "\nProposal: " + item.ProposalID
+		}
+		identityTime := fmt.Sprintf("%d +0000", now.Unix())
+		commitContent := fmt.Sprintf("tree %s\nparent %s\nparent %s\nauthor %s <%s@users.local> %s\ncommitter %s <%s@users.local> %s\n\n%s\n", mergeTree, target, source, item.AuthorID, item.AuthorID, identityTime, actor.UserID, actor.UserID, identityTime, message)
+		mergeCommit, err := opened.WriteObject(storage.CommitObject, []byte(commitContent))
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		// Recheck immediately before publishing so a concurrent target update is
+		// never silently overwritten by the merge operation.
+		currentTarget, _, found := branchTip(opened, item.TargetBranch)
+		if !found || currentTarget != target {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "target_branch_changed"})
+			return
+		}
+		if err := opened.UpdateReference(storage.Reference{Name: storage.ReferenceName("refs/heads/" + item.TargetBranch), ObjectID: mergeCommit}); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		merged, err := store.MarkMerged(string(repository.ID), item.ID, actor.UserID, string(mergeCommit))
+		if err != nil {
+			writePullRequestError(w, err)
+			return
+		}
+		if _, err := store.AddComment(string(repository.ID), item.ID, actor.UserID, "Merged into "+item.TargetBranch+" as "+string(mergeCommit)+"."); err != nil {
+			writePullRequestError(w, err)
+			return
+		}
+		if item.ProposalID != "" {
+			if _, err := proposalStore.Close(string(repository.ID), item.ProposalID, actor.UserID); err != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, merged)
+	}
+}
+
+// materializeMergeTree lets stock Git calculate a recursive merge in a
+// disposable object directory, then imports every generated object through the
+// repository's ObjectStore boundary.
+func materializeMergeTree(ctx context.Context, repository *storage.Repository, target, source storage.ObjectID) (storage.ObjectID, error) {
+	dir, err := os.MkdirTemp("", "pull-request-merge-objects-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(dir)
+	if err := os.MkdirAll(filepath.Join(dir, "pack"), 0o750); err != nil {
+		return "", err
+	}
+	command := exec.CommandContext(ctx, "git", "--git-dir="+repository.GitDir(), "merge-tree", "--write-tree", "--allow-unrelated-histories", string(target), string(source))
+	command.Env = append(os.Environ(), "GIT_OBJECT_DIRECTORY="+dir, "GIT_ALTERNATE_OBJECT_DIRECTORIES="+filepath.Join(repository.GitDir(), "objects"))
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("create merge tree: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	fields := strings.Fields(string(output))
+	if len(fields) == 0 {
+		return "", errors.New("git did not return a merge tree")
+	}
+	treeID := storage.ObjectID(fields[0])
+	err = filepath.WalkDir(dir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() || filepath.Base(filepath.Dir(path)) == "pack" {
+			return walkErr
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		reader, err := zlib.NewReader(file)
+		if err != nil {
+			file.Close()
+			return err
+		}
+		canonical, err := io.ReadAll(reader)
+		reader.Close()
+		file.Close()
+		if err != nil {
+			return err
+		}
+		nul := bytes.IndexByte(canonical, 0)
+		if nul < 0 {
+			return errors.New("invalid generated git object")
+		}
+		header := string(canonical[:nul])
+		typeName, sizeText, found := strings.Cut(header, " ")
+		size, sizeErr := strconv.Atoi(sizeText)
+		if !found || sizeErr != nil || size != len(canonical[nul+1:]) {
+			return errors.New("invalid generated git object")
+		}
+		_, err = repository.WriteObject(storage.ObjectType(typeName), canonical[nul+1:])
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	if _, err := repository.ReadTree(treeID); err != nil {
+		return "", err
+	}
+	return treeID, nil
 }
 
 // mergeHasConflicts asks stock Git to perform its normal recursive merge while
