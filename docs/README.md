@@ -95,6 +95,26 @@ filter and exact inspected record in a shareable URL. Browser mutations call
 the existing repository-scoped proposal endpoints through the same-origin web
 proxy, so the API remains the authority for visibility and mutation policy.
 
+## Web pull request workflow
+
+The repository Pull requests tab turns published candidate branches into
+reviewable application records. Authenticated repository participants can
+select distinct source and target branches, describe the change and requested
+feedback, and optionally connect the work to an open proposal. The resulting
+page brings the purpose, related proposal, captured branch commits, current
+branch tips, source-only commits, recursive file changes, text patches or
+binary metadata, and attributable discussion into one inspection surface.
+
+Pull request navigation uses the repository route with `view=pulls`. The
+`pull` query parameter identifies the durable request and `section` preserves
+the overview, commits, files, or discussion view in a shareable URL. Browser
+reads and mutations use the existing repository-scoped pull request endpoints
+through the same-origin proxy. Public repository changes remain anonymously
+readable; creation and discussion controls appear only for an authenticated
+participant. Review decisions, source synchronization, readiness, and merging
+are deliberately outside this inspection workflow and remain governed by the
+API until their browser workflow is introduced.
+
 ## Human identity
 
 The API exposes durable human accounts as JSON resources. Accounts live beneath

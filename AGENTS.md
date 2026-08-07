@@ -76,6 +76,12 @@ whenever dependencies change or the web job fails before it starts.
   state, search, and inspected proposal context remain shareable through the
   `state`, `q`, and `proposal` query parameters. Keep proposal mutations behind
   the same-origin proxy and reflect API author/owner permissions in controls.
+  Pull request discovery and creation is the `view=pulls` repository tab;
+  inspected request and section context remain shareable through the `pull`
+  and `section` query parameters. Pull request pages present their immutable
+  branch snapshot alongside live branch tips, proposal context, source-only
+  commits, file patches, and discussion; keep review, synchronize, readiness,
+  and merge actions separate until their permission-aware workflow is exposed.
 - **API** — `main.go` registers handlers on a `net/http` mux with Go 1.22+
   method-and-path patterns (`"GET /health"`). The `storage` package owns bare
   Git repository lifecycles; use its `RepositoryStore` boundary rather than
