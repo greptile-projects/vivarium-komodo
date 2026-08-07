@@ -131,8 +131,12 @@ whenever dependencies change or the web job fails before it starts.
   `apps/api/data/pull-requests`) owned by the `pullrequests.Store` boundary.
   Creation resolves existing source and target branches through storage and
   snapshots both commit IDs; later branch movement must not rewrite that
-  represented state. Pull requests may link a repository proposal, use stable
-  author IDs, and begin in the `open` lifecycle status. Apply the same
+  represented state. The API derives source-only commits and recursive file
+  changes from those snapshots through `GraphStore`; text changes include a
+  readable patch while binary changes retain object and mode metadata. Pull
+  request discussion is append-only and attributable by stable user ID. Pull
+  requests may link a repository proposal, use stable author IDs, and begin in
+  the `open` lifecycle status. Apply the same
   repository visibility and participant policy to pull request reads and
   creation rather than reading their files directly.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.

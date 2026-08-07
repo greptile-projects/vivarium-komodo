@@ -186,14 +186,30 @@ The repository-scoped JSON contract is:
   pagination envelope;
 - `GET /repositories/{id}/pull-requests/{pull_request_id}` inspects the durable
   request and its commit snapshot.
+- `GET /repositories/{id}/pull-requests/{pull_request_id}/commits` lists the
+  source-only commits represented by the snapshot in oldest-first order;
+- `GET /repositories/{id}/pull-requests/{pull_request_id}/files` lists the
+  recursive source-versus-target file changes in path order;
+- `POST /repositories/{id}/pull-requests/{pull_request_id}/comments` appends an
+  attributable discussion comment;
+- `GET /repositories/{id}/pull-requests/{pull_request_id}/comments` returns the
+  append-only discussion.
 
 Both named branches must exist and point directly to commits at creation. A
-linked proposal must belong to the same repository. Creation requires an owner
-or contributor with `repository:write`; public reads are anonymous, private
-reads require owner or contributor membership and `repository:read`, and denied
-authenticated users receive `404`. Diff inspection, discussion, lifecycle
-transitions, review, readiness, and merge behavior remain separate later
-contracts.
+linked proposal must belong to the same repository. Commit inspection walks
+the source ancestry while excluding every commit reachable from the target.
+File inspection recursively compares the two snapshotted trees and reports
+added, modified, and deleted paths with old/new object IDs and modes. UTF-8
+text files include additions, deletions, and a full-file unified patch; binary
+files are identified without embedding their bytes. Comments are immutable
+records with stable author IDs, bodies, and creation times.
+
+Creation and discussion require authenticated `repository:write` access;
+public reads are anonymous, private reads require owner or contributor
+membership and `repository:read`, and denied authenticated users receive
+`404`. Commit, file, and comment lists use the shared pagination envelope.
+Lifecycle transitions, review, readiness, and merge behavior remain separate
+later contracts.
 
 ## Git repository storage
 
