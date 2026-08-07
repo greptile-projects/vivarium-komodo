@@ -125,6 +125,37 @@ through the same-origin proxy. Public repository changes and readiness remain
 anonymously readable; creation, discussion, review, synchronization, and merge
 controls appear according to the authenticated actor's API-backed permissions.
 
+### Agent change sessions
+
+The pull request's Agent sessions section is the durable entry point for agent
+collaboration. An authenticated repository participant can start a session on
+an open pull request. Creation captures the initiating user's stable ID and the
+exact source commit represented by the pull request, enters the
+`awaiting_instructions` state, and appends a `session.started` event. The web
+lists prior sessions newest first and renders their public ordered timeline, so
+a collaborator can leave and reconnect without access to worker processes or
+their internal logs.
+
+Session data lives beneath `$CHANGE_SESSION_ROOT`, or
+`apps/api/data/change-sessions` by default, behind `changesessions.Store`. The
+repository-scoped public API is:
+
+- `POST /repositories/{id}/pull-requests/{pull}/change-sessions` starts a
+  session and returns its canonical `Location`;
+- `GET /repositories/{id}/pull-requests/{pull}/change-sessions` lists durable
+  sessions with the shared pagination envelope;
+- `GET /repositories/{id}/pull-requests/{pull}/change-sessions/{session}`
+  returns its state and captured context;
+- `GET /repositories/{id}/pull-requests/{pull}/change-sessions/{session}/events`
+  returns its ordered, paginated timeline.
+
+Reads use the same public/private visibility and participant rules as the pull
+request. Starting a session requires authenticated `repository:write` access
+and an open pull request. Task instructions, agent identity, scoped worker
+credentials, and execution controls intentionally remain outside this initial
+session lifecycle and can extend the public resource without exposing worker
+internals.
+
 ## Human identity
 
 The API exposes durable human accounts as JSON resources. Accounts live beneath
