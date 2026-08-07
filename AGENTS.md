@@ -71,19 +71,20 @@ whenever dependencies change or the web job fails before it starts.
   that boundary. Smart HTTP is served at `/repositories/{ID}` by invoking stock
   `git upload-pack` and `git receive-pack` against `Repository.GitDir`; stock clients
   can discover, clone, fetch, and pull empty or populated repositories,
-  including checkout and updates of the configured default branch. Pushes may
-  create, fast-forward, explicitly force-update, or delete only that primary
-  branch. Updates to other refs are rejected in Git's receive quarantine so
-  their objects and references are not published. Git's receive protocol has
-  no force flag: the stock client enforces the ordinary non-fast-forward guard
-  and sends the update only when the caller explicitly requests force.
+  including checkout and updates of the configured default branch. Repositories
+  may contain multiple named branches; pushes may create, fast-forward,
+  explicitly force-update, or delete any branch. Updates outside `refs/heads/*`
+  are rejected in Git's receive quarantine. Git's receive protocol has no force
+  flag: the stock client enforces the ordinary non-fast-forward guard and sends
+  the update only when the caller explicitly requests force.
   The API runtime therefore requires `git` on
   `PATH`. Repository data is rooted at
   `$REPOSITORY_ROOT`, defaulting to `apps/api/repositories` when started via the
   documented root command.
-  `git_compatibility_test.go` is the black-box compatibility suite for the
-  complete stock-client single-branch workflow; after provisioning its empty
-  repository, it observes and changes remote state only through Git over HTTP.
+  `git_compatibility_test.go` is the black-box compatibility suite for complete
+  stock-client default-branch and named-branch workflows; after provisioning
+  an empty repository, it observes and changes remote state only through Git
+  over HTTP.
   Passwords and access grants are owned by the `auth.Store` boundary beneath
   `$AUTH_ROOT` (default `apps/api/data/auth`). Passwords are bcrypt hashes and
   issued bearer secrets are persisted only as SHA-256 digests. Browser sessions,
