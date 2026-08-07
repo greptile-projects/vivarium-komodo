@@ -274,3 +274,115 @@ func TestCollaboratorReviewTracksEvaluatedCommitAndStaleness(t *testing.T) {
 		t.Fatalf("reviews after withdrawal = %#v", listed)
 	}
 }
+
+func TestPullRequestReadinessReportsEveryExistingBlockerWithoutMutation(t *testing.T) {
+	gitStorage, _ := storage.New(t.TempDir())
+	catalog, _ := repositories.New(t.TempDir(), gitStorage)
+	proposalStore, _ := proposals.New(t.TempDir())
+	pullRequestStore, _ := pullrequests.New(t.TempDir())
+	userStore, _ := users.New(t.TempDir())
+	credentials, _ := auth.New(t.TempDir())
+	owner, _ := userStore.Create(users.Profile{Handle: "owner", DisplayName: "Owner"})
+	contributor, _ := userStore.Create(users.Profile{Handle: "contributor", DisplayName: "Contributor"})
+	repository, _ := catalog.Create(string(owner.ID), repositories.Metadata{Name: "project", Visibility: repositories.Public})
+	catalog.AddCollaborator(string(owner.ID), repository.ID, string(contributor.ID))
+	opened, _ := catalog.Open(repository.ID)
+	baseBlob, _ := opened.WriteObject(storage.BlobObject, []byte("base\n"))
+	baseTree, _ := opened.WriteObject(storage.TreeObject, testTree(t, map[string]storage.ObjectID{"file.txt": baseBlob}))
+	base, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(baseTree)+"\nauthor A <a@x> 1 +0000\ncommitter A <a@x> 1 +0000\n\nbase\n"))
+	sourceBlob, _ := opened.WriteObject(storage.BlobObject, []byte("source\n"))
+	sourceTree, _ := opened.WriteObject(storage.TreeObject, testTree(t, map[string]storage.ObjectID{"file.txt": sourceBlob}))
+	source, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(sourceTree)+"\nparent "+string(base)+"\nauthor A <a@x> 2 +0000\ncommitter A <a@x> 2 +0000\n\nsource\n"))
+	targetBlob, _ := opened.WriteObject(storage.BlobObject, []byte("target\n"))
+	targetTree, _ := opened.WriteObject(storage.TreeObject, testTree(t, map[string]storage.ObjectID{"file.txt": targetBlob}))
+	target, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(targetTree)+"\nparent "+string(base)+"\nauthor A <a@x> 3 +0000\ncommitter A <a@x> 3 +0000\n\ntarget\n"))
+	opened.CreateReference(storage.Reference{Name: "refs/heads/main", ObjectID: target})
+	opened.CreateReference(storage.Reference{Name: "refs/heads/candidate", ObjectID: source})
+	pr, _ := pullRequestStore.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), AuthorID: string(contributor.ID), Title: "Change", SourceBranch: "candidate", TargetBranch: "main", SourceCommitID: string(source), TargetCommitID: string(base)})
+	pullRequestStore.PutReview(string(repository.ID), pr.ID, string(owner.ID), pullrequests.Approve, string(source))
+	pullRequestStore.PutReview(string(repository.ID), pr.ID, string(contributor.ID), pullrequests.RequestChanges, string(source))
+	ownerToken := issueAccess(t, credentials, string(owner.ID), auth.API, auth.RepositoryRead)
+	contributorToken := issueAccess(t, credentials, string(contributor.ID), auth.API, auth.RepositoryRead)
+	mux := http.NewServeMux()
+	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, catalog, credentials)
+	path := "/repositories/" + string(repository.ID) + "/pull-requests/" + pr.ID + "/readiness"
+	objectsBefore, _ := opened.ListObjects()
+	refsBefore, _ := opened.ListReferences()
+
+	read := func(token string) readinessResponse {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		var result readinessResponse
+		if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != http.StatusOK {
+			t.Fatalf("readiness status = %d, body = %s", w.Code, w.Body.String())
+		}
+		return result
+	}
+	result := read(ownerToken)
+	if result.Ready || !result.CanMerge || result.HasConflicts == nil || !*result.HasConflicts || result.TargetBranch.CommitID != string(target) || result.TargetBranch.MatchesPullRequest || result.Reviews.CurrentOwnerApprovals != 1 || result.Reviews.CurrentChangeRequests != 1 {
+		t.Fatalf("owner readiness = %#v", result)
+	}
+	codes := make([]string, len(result.Blockers))
+	for i, blocker := range result.Blockers {
+		codes[i] = blocker.Code
+	}
+	if !slices.Equal(codes, []string{"changes_requested", "merge_conflicts"}) {
+		t.Fatalf("blockers = %#v", result.Blockers)
+	}
+	contributorResult := read(contributorToken)
+	if contributorResult.CanMerge || contributorResult.Blockers[len(contributorResult.Blockers)-1].Code != "insufficient_permissions" {
+		t.Fatalf("contributor readiness = %#v", contributorResult)
+	}
+	objectsAfter, _ := opened.ListObjects()
+	refsAfter, _ := opened.ListReferences()
+	if len(objectsAfter) != len(objectsBefore) || !slices.Equal(refsAfter, refsBefore) {
+		t.Fatalf("readiness mutated repository: objects %d -> %d, refs %#v -> %#v", len(objectsBefore), len(objectsAfter), refsBefore, refsAfter)
+	}
+
+	// When the source moves, conflict analysis is intentionally unavailable and
+	// current reviews become stale; the response explains all three consequences.
+	newSource, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(sourceTree)+"\nparent "+string(source)+"\nauthor A <a@x> 4 +0000\ncommitter A <a@x> 4 +0000\n\nmore\n"))
+	opened.UpdateReference(storage.Reference{Name: "refs/heads/candidate", ObjectID: newSource})
+	result = read(ownerToken)
+	if result.HasConflicts != nil || result.SourceBranch.MatchesPullRequest || result.Reviews.StaleReviews != 2 || result.Blockers[0].Code != "source_branch_changed" || result.Blockers[1].Code != "owner_approval_required" {
+		t.Fatalf("changed-source readiness = %#v", result)
+	}
+}
+
+func TestPullRequestReadinessIsReadyForOwnerAfterCurrentApproval(t *testing.T) {
+	gitStorage, _ := storage.New(t.TempDir())
+	catalog, _ := repositories.New(t.TempDir(), gitStorage)
+	proposalStore, _ := proposals.New(t.TempDir())
+	pullRequestStore, _ := pullrequests.New(t.TempDir())
+	userStore, _ := users.New(t.TempDir())
+	credentials, _ := auth.New(t.TempDir())
+	owner, _ := userStore.Create(users.Profile{Handle: "owner", DisplayName: "Owner"})
+	repository, _ := catalog.Create(string(owner.ID), repositories.Metadata{Name: "project", Visibility: repositories.Private})
+	opened, _ := catalog.Open(repository.ID)
+	tree, _ := opened.WriteObject(storage.TreeObject, nil)
+	base, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(tree)+"\nauthor A <a@x> 1 +0000\ncommitter A <a@x> 1 +0000\n\nbase\n"))
+	change, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(tree)+"\nparent "+string(base)+"\nauthor A <a@x> 2 +0000\ncommitter A <a@x> 2 +0000\n\nchange\n"))
+	opened.CreateReference(storage.Reference{Name: "refs/heads/main", ObjectID: base})
+	opened.CreateReference(storage.Reference{Name: "refs/heads/candidate", ObjectID: change})
+	pr, _ := pullRequestStore.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), AuthorID: string(owner.ID), Title: "Change", SourceBranch: "candidate", TargetBranch: "main", SourceCommitID: string(change), TargetCommitID: string(base)})
+	pullRequestStore.PutReview(string(repository.ID), pr.ID, string(owner.ID), pullrequests.Approve, string(change))
+	token := issueAccess(t, credentials, string(owner.ID), auth.API, auth.RepositoryRead)
+	mux := http.NewServeMux()
+	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, catalog, credentials)
+	req := httptest.NewRequest(http.MethodGet, "/repositories/"+string(repository.ID)+"/pull-requests/"+pr.ID+"/readiness", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	var result readinessResponse
+	json.NewDecoder(w.Body).Decode(&result)
+	if w.Code != http.StatusOK || !result.Ready || !result.CanMerge || result.HasConflicts == nil || *result.HasConflicts || len(result.Blockers) != 0 {
+		t.Fatalf("readiness = %d %#v", w.Code, result)
+	}
+}

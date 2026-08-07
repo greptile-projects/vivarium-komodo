@@ -200,7 +200,9 @@ The repository-scoped JSON contract is:
 - `DELETE /repositories/{id}/pull-requests/{pull_request_id}/reviews/me`
   withdraws the authenticated actor's current decision;
 - `GET /repositories/{id}/pull-requests/{pull_request_id}/reviews` lists each
-  participant's current decision with the shared bounded pagination envelope.
+  participant's current decision with the shared bounded pagination envelope;
+- `GET /repositories/{id}/pull-requests/{pull_request_id}/readiness` reports
+  every currently known merge blocker without changing repository state.
 
 Both named branches must exist and point directly to commits at creation. A
 linked proposal must belong to the same repository. Commit inspection walks
@@ -217,13 +219,28 @@ evaluated commit with the live source-branch tip, so later source commits do not
 silently inherit an earlier decision; a missing source branch also makes every
 remaining review stale.
 
+Readiness is caller-aware and reports `ready`, the caller's `can_merge`
+permission, live source and target branch tips alongside their snapshotted
+commit IDs, review counts, conflict state, and an ordered list of stable blocker
+codes with explanations. A ready pull request is open, still has its exact
+snapshotted source commit at the source branch, has both branches available,
+has one current approval from the repository owner, has no current
+request-changes reviews, merges cleanly into the live target, and is being
+inspected by the owner. Target movement is visible but does not itself block a
+clean merge. Source movement blocks the represented request and makes its prior
+reviews stale. Conflict inspection uses stock Git with a disposable object
+directory and the repository object database mounted read-only as an alternate,
+so the readiness request writes neither objects nor references. When missing or
+changed branches prevent a meaningful merge probe, `has_conflicts` is `null`
+and the corresponding branch blockers explain why.
+
 Creation, discussion, and review mutation require authenticated
 `repository:write` access;
 public reads are anonymous, private reads require owner or contributor
 membership and `repository:read`, and denied authenticated users receive
 `404`. Commit, file, comment, and review lists use the shared pagination
-envelope. Lifecycle transitions, readiness, and merge behavior remain separate
-later contracts.
+envelope. Lifecycle transitions and merge behavior remain separate later
+contracts.
 
 ## Git repository storage
 
