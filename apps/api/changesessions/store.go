@@ -35,18 +35,31 @@ const Failed RunState = "failed"
 const Canceled RunState = "canceled"
 
 type Run struct {
-	ID                  string     `json:"id"`
-	InitiatorID         string     `json:"initiator_id"`
-	Agent               string     `json:"agent"`
-	Instructions        string     `json:"instructions"`
-	RevisionID          string     `json:"revision_id"`
-	ContextPaths        []string   `json:"context_paths"`
-	WorkingBranch       string     `json:"working_branch"`
-	CredentialGrantID   string     `json:"credential_grant_id"`
-	CredentialExpiresAt time.Time  `json:"credential_expires_at"`
-	CredentialRevokedAt *time.Time `json:"credential_revoked_at,omitempty"`
-	State               RunState   `json:"state"`
-	CreatedAt           time.Time  `json:"created_at"`
+	ID                  string       `json:"id"`
+	InitiatorID         string       `json:"initiator_id"`
+	Agent               string       `json:"agent"`
+	Instructions        string       `json:"instructions"`
+	RevisionID          string       `json:"revision_id"`
+	ContextPaths        []string     `json:"context_paths"`
+	WorkingBranch       string       `json:"working_branch"`
+	CredentialGrantID   string       `json:"credential_grant_id"`
+	CredentialExpiresAt time.Time    `json:"credential_expires_at"`
+	CredentialRevokedAt *time.Time   `json:"credential_revoked_at,omitempty"`
+	State               RunState     `json:"state"`
+	Publication         *Publication `json:"publication,omitempty"`
+	CreatedAt           time.Time    `json:"created_at"`
+}
+
+// Publication is the durable, review-facing outcome of a successful run.
+// Commit and file identities are derived from repository state by the API.
+type Publication struct {
+	Summary        string    `json:"summary"`
+	CommitIDs      []string  `json:"commit_ids"`
+	ChangedFiles   []string  `json:"changed_files"`
+	Checks         []string  `json:"checks"`
+	Concerns       []string  `json:"concerns"`
+	SourceCommitID string    `json:"source_commit_id"`
+	PublishedAt    time.Time `json:"published_at"`
 }
 
 type Event struct {
@@ -168,6 +181,55 @@ func (s *Store) AppendRunEvent(repositoryID, pullRequestID, sessionID, runID, ev
 		return event, nil
 	}
 	return Event{}, ErrNotFound
+}
+
+func (s *Store) Publish(repositoryID, pullRequestID, sessionID, runID string, publication Publication) (Event, Run, error) {
+	publication.Summary = strings.TrimSpace(publication.Summary)
+	if publication.Summary == "" || len(publication.Summary) > 10000 || publication.SourceCommitID == "" || len(publication.CommitIDs) == 0 || len(publication.ChangedFiles) > 1000 || !validSummaries(publication.Checks, 100) || !validSummaries(publication.Concerns, 100) {
+		return Event{}, Run{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(repositoryID, pullRequestID, sessionID)
+	if err != nil {
+		return Event{}, Run{}, err
+	}
+	for i := range item.Runs {
+		run := &item.Runs[i]
+		if run.ID != runID {
+			continue
+		}
+		if run.State != Running || run.Publication != nil {
+			return Event{}, Run{}, ErrInvalid
+		}
+		id, err := newID()
+		if err != nil {
+			return Event{}, Run{}, err
+		}
+		publication.PublishedAt = s.now().UTC()
+		run.Publication = &publication
+		run.State = Succeeded
+		event := Event{ID: id, Type: "run.published", ActorID: run.InitiatorID, RunID: run.ID, InitiatorID: run.InitiatorID, Agent: run.Agent, RevisionID: run.RevisionID, Metadata: map[string]string{"summary": publication.Summary, "source_commit_id": publication.SourceCommitID}, CreatedAt: publication.PublishedAt}
+		item.Events = append(item.Events, event)
+		item.UpdatedAt = publication.PublishedAt
+		if err := s.write(item); err != nil {
+			return Event{}, Run{}, err
+		}
+		return event, *run, nil
+	}
+	return Event{}, Run{}, ErrNotFound
+}
+
+func validSummaries(items []string, maximum int) bool {
+	if len(items) > maximum {
+		return false
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item) == "" || len(item) > 1000 {
+			return false
+		}
+	}
+	return true
 }
 
 type Session struct {
