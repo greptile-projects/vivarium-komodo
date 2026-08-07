@@ -24,3 +24,6 @@ export const Folder = (p: IconProps) => <Icon {...p}><path d="M3 6a2 2 0 0 1 2-2
 export const Clock = (p: IconProps) => <Icon {...p}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></Icon>;
 export const ChevronRight = (p: IconProps) => <Icon {...p}><path d="m9 18 6-6-6-6"/></Icon>;
 export const Code = (p: IconProps) => <Icon {...p}><path d="m8 9-3 3 3 3m8-6 3 3-3 3m-3-8-2 10"/></Icon>;
+export const MessageCircle = (p: IconProps) => <Icon {...p}><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></Icon>;
+export const Lightbulb = (p: IconProps) => <Icon {...p}><path d="M9 18h6M10 22h4"/><path d="M8.5 14.5A7 7 0 1 1 15.5 14.5c-.9.7-1.5 1.6-1.5 2.5h-4c0-.9-.6-1.8-1.5-2.5Z"/></Icon>;
+export const Edit = (p: IconProps) => <Icon {...p}><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></Icon>;

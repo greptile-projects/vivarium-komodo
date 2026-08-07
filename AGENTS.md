@@ -72,7 +72,10 @@ whenever dependencies change or the web job fails before it starts.
   and exact-commit context belongs in the URL (`ref`, `path`, and `view`) so
   file and history navigation remains shareable. Read repository graph data
   through the JSON browser endpoints rather than interpreting Git objects in
-  the frontend.
+  the frontend. Proposal discovery is the `view=proposals` repository tab;
+  state, search, and inspected proposal context remain shareable through the
+  `state`, `q`, and `proposal` query parameters. Keep proposal mutations behind
+  the same-origin proxy and reflect API author/owner permissions in controls.
 - **API** — `main.go` registers handlers on a `net/http` mux with Go 1.22+
   method-and-path patterns (`"GET /health"`). The `storage` package owns bare
   Git repository lifecycles; use its `RepositoryStore` boundary rather than
