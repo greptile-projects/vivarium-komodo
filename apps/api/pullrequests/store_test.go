@@ -34,3 +34,21 @@ func TestPullRequestValidation(t *testing.T) {
 		t.Fatalf("same branch error = %v", err)
 	}
 }
+
+func TestPullRequestDiscussionSurvivesReopen(t *testing.T) {
+	root := t.TempDir()
+	store, _ := New(root)
+	pullRequest, _ := store.Create(CreateParams{RepositoryID: "repository", AuthorID: "author", Title: "Change", SourceBranch: "candidate", TargetBranch: "main", SourceCommitID: "source", TargetCommitID: "target"})
+	created, err := store.AddComment("repository", pullRequest.ID, "collaborator", "  This explains the tradeoff.  ")
+	if err != nil || created.Body != "This explains the tradeoff." || created.AuthorID != "collaborator" {
+		t.Fatalf("created comment = %#v, %v", created, err)
+	}
+	reopened, _ := New(root)
+	comments, err := reopened.ListComments("repository", pullRequest.ID)
+	if err != nil || len(comments) != 1 || comments[0] != created {
+		t.Fatalf("reopened comments = %#v, %v", comments, err)
+	}
+	if _, err := reopened.AddComment("repository", pullRequest.ID, "collaborator", " "); err != ErrInvalidComment {
+		t.Fatalf("empty comment error = %v", err)
+	}
+}

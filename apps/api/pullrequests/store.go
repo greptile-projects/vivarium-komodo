@@ -17,8 +17,9 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("pull request not found")
-	ErrInvalid  = errors.New("invalid pull request")
+	ErrNotFound       = errors.New("pull request not found")
+	ErrInvalid        = errors.New("invalid pull request")
+	ErrInvalidComment = errors.New("invalid pull request comment")
 )
 
 type Status string
@@ -51,6 +52,14 @@ type CreateParams struct {
 	TargetBranch   string
 	SourceCommitID string
 	TargetCommitID string
+}
+
+type Comment struct {
+	ID            string    `json:"id"`
+	PullRequestID string    `json:"pull_request_id"`
+	AuthorID      string    `json:"author_id"`
+	Body          string    `json:"body"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type Store struct {
@@ -130,6 +139,65 @@ func (s *Store) List(repositoryID string) ([]PullRequest, error) {
 	return items, nil
 }
 
+func (s *Store) AddComment(repositoryID, pullRequestID, authorID, body string) (Comment, error) {
+	body = strings.TrimSpace(body)
+	if authorID == "" || body == "" || len(body) > 65536 {
+		return Comment{}, ErrInvalidComment
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.read(repositoryID, pullRequestID); err != nil {
+		return Comment{}, err
+	}
+	id, err := newID()
+	if err != nil {
+		return Comment{}, err
+	}
+	comment := Comment{ID: id, PullRequestID: pullRequestID, AuthorID: authorID, Body: body, CreatedAt: s.now().UTC()}
+	if err := s.writeJSON(s.commentPath(repositoryID, pullRequestID, id), comment); err != nil {
+		return Comment{}, err
+	}
+	return comment, nil
+}
+
+func (s *Store) ListComments(repositoryID, pullRequestID string) ([]Comment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.read(repositoryID, pullRequestID); err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(s.root, repositoryID, pullRequestID)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return []Comment{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	items := []Comment{}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		var comment Comment
+		if json.Unmarshal(data, &comment) != nil || !validID(comment.ID) || comment.PullRequestID != pullRequestID || comment.AuthorID == "" || comment.Body == "" || comment.CreatedAt.IsZero() {
+			return nil, errors.New("invalid stored pull request comment")
+		}
+		items = append(items, comment)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].CreatedAt.Before(items[j].CreatedAt)
+	})
+	return items, nil
+}
+
 func (s *Store) read(repositoryID, id string) (PullRequest, error) {
 	if !validID(id) {
 		return PullRequest{}, ErrNotFound
@@ -149,11 +217,19 @@ func (s *Store) read(repositoryID, id string) (PullRequest, error) {
 }
 
 func (s *Store) write(item PullRequest) error {
-	dir := filepath.Join(s.root, item.RepositoryID)
+	return s.writeJSON(filepath.Join(s.root, item.RepositoryID, item.ID+".json"), item)
+}
+
+func (s *Store) commentPath(repositoryID, pullRequestID, id string) string {
+	return filepath.Join(s.root, repositoryID, pullRequestID, id+".json")
+}
+
+func (s *Store) writeJSON(path string, value any) error {
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
-	data, err := json.Marshal(item)
+	data, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
@@ -175,7 +251,7 @@ func (s *Store) write(item PullRequest) error {
 	if err != nil {
 		return err
 	}
-	return os.Rename(name, filepath.Join(dir, item.ID+".json"))
+	return os.Rename(name, path)
 }
 
 func newID() (string, error) {

@@ -15,6 +15,8 @@ type pullRequestStore interface {
 	Create(pullrequests.CreateParams) (pullrequests.PullRequest, error)
 	Get(string, string) (pullrequests.PullRequest, error)
 	List(string) ([]pullrequests.PullRequest, error)
+	AddComment(string, string, string, string) (pullrequests.Comment, error)
+	ListComments(string, string) ([]pullrequests.Comment, error)
 }
 
 type pullRequestRepositoryStore interface {
@@ -26,6 +28,10 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests", createPullRequest(store, proposalStore, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests", listPullRequests(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}", getPullRequest(store, repositories, credentials))
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/commits", listPullRequestCommits(store, repositories, credentials))
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/files", listPullRequestFiles(store, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/comments", createPullRequestComment(store, repositories, credentials))
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/comments", listPullRequestComments(store, repositories, credentials))
 }
 
 func createPullRequest(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
@@ -133,4 +139,127 @@ func getPullRequest(store pullRequestStore, repositories pullRequestRepositorySt
 		}
 		writeJSON(w, 200, item)
 	}
+}
+
+func listPullRequestCommits(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, _, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		item, ok := readPullRequest(w, store, string(repository.ID), r.PathValue("pull_request"))
+		if !ok {
+			return
+		}
+		opened, err := repositories.Open(repository.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		items, err := commitsBetween(opened, storage.ObjectID(item.SourceCommitID), storage.ObjectID(item.TargetCommitID))
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		page, perPage, ok := readPagination(w, r)
+		if !ok {
+			return
+		}
+		total := len(items)
+		items = paginate(items, page, perPage)
+		writeJSON(w, 200, map[string]any{"items": items, "page": page, "per_page": perPage, "total_count": total})
+	}
+}
+
+func listPullRequestFiles(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, _, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		item, ok := readPullRequest(w, store, string(repository.ID), r.PathValue("pull_request"))
+		if !ok {
+			return
+		}
+		opened, err := repositories.Open(repository.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		items, err := filesBetween(opened, storage.ObjectID(item.SourceCommitID), storage.ObjectID(item.TargetCommitID))
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		page, perPage, ok := readPagination(w, r)
+		if !ok {
+			return
+		}
+		total := len(items)
+		items = paginate(items, page, perPage)
+		writeJSON(w, 200, map[string]any{"items": items, "page": page, "per_page": perPage, "total_count": total})
+	}
+}
+
+func createPullRequestComment(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var input struct {
+			Body string `json:"body"`
+		}
+		if !readJSON(w, r, &input, 70<<10) {
+			return
+		}
+		item, err := store.AddComment(string(repository.ID), r.PathValue("pull_request"), actor.UserID, input.Body)
+		if errors.Is(err, pullrequests.ErrInvalidComment) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_comment"})
+			return
+		}
+		if err != nil {
+			writePullRequestError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, item)
+	}
+}
+
+func listPullRequestComments(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, _, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		items, err := store.ListComments(string(repository.ID), r.PathValue("pull_request"))
+		if err != nil {
+			writePullRequestError(w, err)
+			return
+		}
+		page, perPage, ok := readPagination(w, r)
+		if !ok {
+			return
+		}
+		total := len(items)
+		items = paginate(items, page, perPage)
+		writeJSON(w, 200, map[string]any{"items": items, "page": page, "per_page": perPage, "total_count": total})
+	}
+}
+
+func readPullRequest(w http.ResponseWriter, store pullRequestStore, repositoryID, id string) (pullrequests.PullRequest, bool) {
+	item, err := store.Get(repositoryID, id)
+	if err != nil {
+		writePullRequestError(w, err)
+		return pullrequests.PullRequest{}, false
+	}
+	return item, true
+}
+
+func writePullRequestError(w http.ResponseWriter, err error) {
+	if errors.Is(err, pullrequests.ErrNotFound) {
+		writeJSON(w, 404, map[string]string{"error": "not_found"})
+		return
+	}
+	writeJSON(w, 500, map[string]string{"error": "internal_error"})
 }
