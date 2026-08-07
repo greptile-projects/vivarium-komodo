@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
@@ -38,6 +43,154 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/reviews/me", putPullRequestReview(store, repositories, credentials))
 	mux.HandleFunc("DELETE /repositories/{repository}/pull-requests/{pull_request}/reviews/me", deletePullRequestReview(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials))
+}
+
+type readinessBranch struct {
+	Name               string `json:"name"`
+	Exists             bool   `json:"exists"`
+	CommitID           string `json:"commit_id,omitempty"`
+	SnapshotCommitID   string `json:"snapshot_commit_id"`
+	MatchesPullRequest bool   `json:"matches_pull_request"`
+}
+
+type readinessReviews struct {
+	RequiredOwnerApprovals int `json:"required_owner_approvals"`
+	CurrentOwnerApprovals  int `json:"current_owner_approvals"`
+	CurrentChangeRequests  int `json:"current_change_requests"`
+	StaleReviews           int `json:"stale_reviews"`
+}
+
+type readinessBlocker struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type readinessResponse struct {
+	Ready        bool               `json:"ready"`
+	CanMerge     bool               `json:"can_merge"`
+	HasConflicts *bool              `json:"has_conflicts"`
+	SourceBranch readinessBranch    `json:"source_branch"`
+	TargetBranch readinessBranch    `json:"target_branch"`
+	Reviews      readinessReviews   `json:"reviews"`
+	Blockers     []readinessBlocker `json:"blockers"`
+}
+
+func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		item, ok := readPullRequest(w, store, string(repository.ID), r.PathValue("pull_request"))
+		if !ok {
+			return
+		}
+		opened, err := repositories.Open(repository.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+
+		response := readinessResponse{
+			CanMerge:     actor.UserID != "" && actor.UserID == repository.OwnerID,
+			HasConflicts: nil,
+			SourceBranch: inspectReadinessBranch(opened, item.SourceBranch, item.SourceCommitID),
+			TargetBranch: inspectReadinessBranch(opened, item.TargetBranch, item.TargetCommitID),
+			Reviews:      readinessReviews{RequiredOwnerApprovals: 1},
+			Blockers:     []readinessBlocker{},
+		}
+		addBlocker := func(code, message string) {
+			response.Blockers = append(response.Blockers, readinessBlocker{Code: code, Message: message})
+		}
+		if item.Status != pullrequests.Open {
+			addBlocker("pull_request_not_open", "The pull request is not open.")
+		}
+		if !response.SourceBranch.Exists {
+			addBlocker("source_branch_missing", "The source branch no longer exists.")
+		} else if !response.SourceBranch.MatchesPullRequest {
+			addBlocker("source_branch_changed", "The source branch no longer points to the commit represented by the pull request.")
+		}
+		if !response.TargetBranch.Exists {
+			addBlocker("target_branch_missing", "The target branch no longer exists.")
+		}
+
+		reviews, err := store.ListReviews(string(repository.ID), item.ID)
+		if err != nil {
+			writePullRequestError(w, err)
+			return
+		}
+		for _, review := range reviews {
+			if !response.SourceBranch.Exists || review.CommitID != response.SourceBranch.CommitID {
+				response.Reviews.StaleReviews++
+				continue
+			}
+			if review.Decision == pullrequests.RequestChanges {
+				response.Reviews.CurrentChangeRequests++
+			}
+			if review.ReviewerID == repository.OwnerID && review.Decision == pullrequests.Approve {
+				response.Reviews.CurrentOwnerApprovals++
+			}
+		}
+		if response.Reviews.CurrentOwnerApprovals < response.Reviews.RequiredOwnerApprovals {
+			addBlocker("owner_approval_required", "A current approval from the repository owner is required.")
+		}
+		if response.Reviews.CurrentChangeRequests > 0 {
+			addBlocker("changes_requested", "A current review requests changes.")
+		}
+
+		if response.SourceBranch.Exists && response.SourceBranch.MatchesPullRequest && response.TargetBranch.Exists {
+			hasConflicts, err := mergeHasConflicts(r.Context(), opened, storage.ObjectID(response.TargetBranch.CommitID), storage.ObjectID(response.SourceBranch.CommitID))
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			response.HasConflicts = &hasConflicts
+			if hasConflicts {
+				addBlocker("merge_conflicts", "The source and target commits have merge conflicts.")
+			}
+		}
+		if !response.CanMerge {
+			addBlocker("insufficient_permissions", "Only the repository owner can merge this pull request.")
+		}
+		response.Ready = len(response.Blockers) == 0
+		writeJSON(w, 200, response)
+	}
+}
+
+func inspectReadinessBranch(repository *storage.Repository, name, snapshotCommitID string) readinessBranch {
+	branch := readinessBranch{Name: name, SnapshotCommitID: snapshotCommitID}
+	if id, _, found := branchTip(repository, name); found {
+		branch.Exists = true
+		branch.CommitID = string(id)
+		branch.MatchesPullRequest = branch.CommitID == snapshotCommitID
+	}
+	return branch
+}
+
+// mergeHasConflicts asks stock Git to perform its normal recursive merge while
+// redirecting every object it might create to a disposable object directory.
+// Existing repository objects are available only as alternates, so readiness
+// inspection cannot mutate the repository even when Git produces a result tree.
+func mergeHasConflicts(ctx context.Context, repository *storage.Repository, target, source storage.ObjectID) (bool, error) {
+	objectDirectory, err := os.MkdirTemp("", "pull-request-readiness-objects-")
+	if err != nil {
+		return false, err
+	}
+	defer os.RemoveAll(objectDirectory)
+	if err := os.MkdirAll(filepath.Join(objectDirectory, "pack"), 0o750); err != nil {
+		return false, err
+	}
+	command := exec.CommandContext(ctx, "git", "--git-dir="+repository.GitDir(), "merge-tree", "--write-tree", "--quiet", "--allow-unrelated-histories", string(target), string(source))
+	command.Env = append(os.Environ(), "GIT_OBJECT_DIRECTORY="+objectDirectory, "GIT_ALTERNATE_OBJECT_DIRECTORIES="+filepath.Join(repository.GitDir(), "objects"))
+	if output, err := command.CombinedOutput(); err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) && exitError.ExitCode() == 1 {
+			return true, nil
+		}
+		return false, fmt.Errorf("inspect merge conflicts: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return false, nil
 }
 
 type reviewResponse struct {

@@ -141,7 +141,12 @@ whenever dependencies change or the web job fails before it starts.
   it, and reviews retain the exact source commit evaluated so the API can mark
   them stale when the live source branch moves or disappears. Apply the same
   repository visibility and participant policy to pull request reads and
-  mutations rather than reading their files directly.
+  mutations rather than reading their files directly. Pull request readiness
+  is a caller-aware, read-only report: it requires a current owner approval,
+  rejects current change requests, verifies that both branches exist and that
+  the source still names the snapshotted commit, checks the live target for Git
+  merge conflicts without writing repository objects, and identifies that only
+  the owner has merge permission.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 
