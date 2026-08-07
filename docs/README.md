@@ -166,6 +166,35 @@ its conversation remain readable and cannot be reopened, preserving the
 recorded outcome. Denied authenticated users receive `404` just as they do for
 the containing repository.
 
+## Pull requests
+
+Pull requests connect published candidate branches to the maintained branch
+they propose changing. Durable records live beneath `$PULL_REQUEST_ROOT`, or
+`apps/api/data/pull-requests` by default, behind the `apps/api/pullrequests`
+boundary. Each record carries an immutable repository and author ID, optional
+link to a proposal in that repository, title and body describing the purpose,
+source and target branch names, the exact commit ID at each branch tip when the
+request was opened, an `open` lifecycle status, and creation and update times.
+Moving either branch later does not silently change the state represented by
+the request.
+
+The repository-scoped JSON contract is:
+
+- `POST /repositories/{id}/pull-requests` opens a request from `title`, optional
+  `body` and `proposal_id`, plus distinct `source_branch` and `target_branch`;
+- `GET /repositories/{id}/pull-requests` lists requests with the shared bounded
+  pagination envelope;
+- `GET /repositories/{id}/pull-requests/{pull_request_id}` inspects the durable
+  request and its commit snapshot.
+
+Both named branches must exist and point directly to commits at creation. A
+linked proposal must belong to the same repository. Creation requires an owner
+or contributor with `repository:write`; public reads are anonymous, private
+reads require owner or contributor membership and `repository:read`, and denied
+authenticated users receive `404`. Diff inspection, discussion, lifecycle
+transitions, review, readiness, and merge behavior remain separate later
+contracts.
+
 ## Git repository storage
 
 `apps/api/storage` is the repository lifecycle boundary. A store owns one root

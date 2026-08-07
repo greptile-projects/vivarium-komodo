@@ -127,6 +127,14 @@ whenever dependencies change or the web job fails before it starts.
   or discuss a proposal, while
   only its author or the repository owner may edit or close it. Stable user IDs
   preserve authorship and closing attribution as profiles change.
+  Pull requests are durable records beneath `$PULL_REQUEST_ROOT` (default
+  `apps/api/data/pull-requests`) owned by the `pullrequests.Store` boundary.
+  Creation resolves existing source and target branches through storage and
+  snapshots both commit IDs; later branch movement must not rewrite that
+  represented state. Pull requests may link a repository proposal, use stable
+  author IDs, and begin in the `open` lifecycle status. Apply the same
+  repository visibility and participant policy to pull request reads and
+  creation rather than reading their files directly.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 
