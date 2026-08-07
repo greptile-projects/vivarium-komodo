@@ -79,6 +79,22 @@ repository catalog and storage boundaries. Public repository browsing is
 anonymous. Private browsing requires owner or contributor membership and a
 `repository:read` grant, matching metadata and Git transport policy.
 
+## Web proposal workflow
+
+The repository Proposals tab brings decision context into the same browser as
+code and history. It leads with title and description search plus open, closed,
+and all-state filters so collaborators can find overlapping ideas before
+starting work. A proposal detail presents its durable description and complete
+conversation; authenticated collaborators can create and discuss proposals,
+while authors and repository owners can edit or close them. Closed proposals
+remain readable as historical context.
+
+Proposal navigation uses the repository route with `view=proposals`. The
+`state`, `q`, and `proposal` query parameters preserve the current discovery
+filter and exact inspected record in a shareable URL. Browser mutations call
+the existing repository-scoped proposal endpoints through the same-origin web
+proxy, so the API remains the authority for visibility and mutation policy.
+
 ## Human identity
 
 The API exposes durable human accounts as JSON resources. Accounts live beneath
