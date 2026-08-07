@@ -163,6 +163,32 @@ func (s *Store) List(repositoryID string) ([]PullRequest, error) {
 	return items, nil
 }
 
+// SynchronizeSource advances an open pull request's represented source state
+// after its author publishes review follow-up commits to the source branch.
+func (s *Store) SynchronizeSource(repositoryID, id, commitID string) (PullRequest, error) {
+	if commitID == "" {
+		return PullRequest{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(repositoryID, id)
+	if err != nil {
+		return PullRequest{}, err
+	}
+	if item.Status != Open {
+		return PullRequest{}, ErrInvalid
+	}
+	if item.SourceCommitID == commitID {
+		return item, nil
+	}
+	item.SourceCommitID = commitID
+	item.UpdatedAt = s.now().UTC()
+	if err := s.write(item); err != nil {
+		return PullRequest{}, err
+	}
+	return item, nil
+}
+
 func (s *Store) AddComment(repositoryID, pullRequestID, authorID, body string) (Comment, error) {
 	body = strings.TrimSpace(body)
 	if authorID == "" || body == "" || len(body) > 65536 {

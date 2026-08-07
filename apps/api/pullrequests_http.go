@@ -25,6 +25,7 @@ type pullRequestStore interface {
 	Create(pullrequests.CreateParams) (pullrequests.PullRequest, error)
 	Get(string, string) (pullrequests.PullRequest, error)
 	List(string) ([]pullrequests.PullRequest, error)
+	SynchronizeSource(string, string, string) (pullrequests.PullRequest, error)
 	AddComment(string, string, string, string) (pullrequests.Comment, error)
 	ListComments(string, string) ([]pullrequests.Comment, error)
 	PutReview(string, string, string, pullrequests.ReviewDecision, string) (pullrequests.Review, error)
@@ -42,6 +43,7 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests", createPullRequest(store, proposalStore, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests", listPullRequests(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}", getPullRequest(store, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/synchronize", synchronizePullRequest(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/commits", listPullRequestCommits(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/files", listPullRequestFiles(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/comments", createPullRequestComment(store, repositories, credentials))
@@ -51,6 +53,43 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequest(store, proposalStore, repositories, credentials))
+}
+
+func synchronizePullRequest(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		item, ok := readPullRequest(w, store, string(repository.ID), r.PathValue("pull_request"))
+		if !ok {
+			return
+		}
+		if actor.UserID != item.AuthorID {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+			return
+		}
+		opened, err := repositories.Open(repository.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		commitID, _, found := branchTip(opened, item.SourceBranch)
+		if !found {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "source_branch_unavailable"})
+			return
+		}
+		updated, err := store.SynchronizeSource(string(repository.ID), item.ID, string(commitID))
+		if errors.Is(err, pullrequests.ErrInvalid) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "pull_request_not_open"})
+			return
+		}
+		if err != nil {
+			writePullRequestError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, updated)
+	}
 }
 
 type readinessBranch struct {

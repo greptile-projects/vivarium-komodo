@@ -176,7 +176,9 @@ link to a proposal in that repository, title and body describing the purpose,
 source and target branch names, the exact commit ID at each branch tip when the
 request was opened, an `open` lifecycle status, and creation and update times.
 Moving either branch later does not silently change the state represented by
-the request.
+the request. The author may explicitly synchronize an open request after
+publishing follow-up commits; this advances only its represented source commit,
+while existing reviews retain the commit they actually evaluated.
 
 The repository-scoped JSON contract is:
 
@@ -186,6 +188,9 @@ The repository-scoped JSON contract is:
   pagination envelope;
 - `GET /repositories/{id}/pull-requests/{pull_request_id}` inspects the durable
   request and its commit snapshot.
+- `POST /repositories/{id}/pull-requests/{pull_request_id}/synchronize` lets
+  the author advance an open request to the current source-branch commit after
+  publishing review follow-up work;
 - `GET /repositories/{id}/pull-requests/{pull_request_id}/commits` lists the
   source-only commits represented by the snapshot in oldest-first order;
 - `GET /repositories/{id}/pull-requests/{pull_request_id}/files` lists the
@@ -220,7 +225,8 @@ reviewer has at most one current decision: another `PUT` replaces it and a
 `DELETE` withdraws it. Review responses derive `stale` by comparing the
 evaluated commit with the live source-branch tip, so later source commits do not
 silently inherit an earlier decision; a missing source branch also makes every
-remaining review stale.
+remaining review stale. Explicit synchronization similarly makes reviews of
+the previous source commit stale until reviewers evaluate the updated work.
 
 Readiness is caller-aware and reports `ready`, the caller's `can_merge`
 permission, live source and target branch tips alongside their snapshotted
@@ -250,6 +256,13 @@ live target and snapshotted source as its parents, uses the merged tree, and
 retains the pull request title/body plus pull request, proposal, author, and
 maintainer stable IDs in its message. Thus stock Git history and application
 resources both preserve what changed and the collaboration that accepted it.
+
+Black-box workflow coverage provisions two accounts and then uses only the
+public JSON and smart-HTTP Git contracts to admit a newcomer, discuss a
+proposal, publish a candidate branch, open a linked pull request, receive and
+address a change request, synchronize the follow-up commit, earn approval, and
+merge. A fresh anonymous clone and the closed proposal verify the resulting
+code and collaboration state without inspecting application storage.
 
 ## Git repository storage
 
