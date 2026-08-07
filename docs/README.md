@@ -103,17 +103,22 @@ select distinct source and target branches, describe the change and requested
 feedback, and optionally connect the work to an open proposal. The resulting
 page brings the purpose, related proposal, captured branch commits, current
 branch tips, source-only commits, recursive file changes, text patches or
-binary metadata, and attributable discussion into one inspection surface.
+binary metadata, attributable discussion, and the full maintainer workflow
+into one inspection surface. Participants can approve or request changes and
+replace or withdraw their current decision. Decisions visibly retain the
+commit they evaluated and become stale after follow-up work. The author can
+explicitly synchronize a moved source branch, while the readiness panel
+explains branch, approval, change-request, conflict, and permission blockers.
+Only an authorized owner sees the final merge control, and it remains disabled
+until the API reports the request ready.
 
 Pull request navigation uses the repository route with `view=pulls`. The
 `pull` query parameter identifies the durable request and `section` preserves
 the overview, commits, files, or discussion view in a shareable URL. Browser
 reads and mutations use the existing repository-scoped pull request endpoints
-through the same-origin proxy. Public repository changes remain anonymously
-readable; creation and discussion controls appear only for an authenticated
-participant. Review decisions, source synchronization, readiness, and merging
-are deliberately outside this inspection workflow and remain governed by the
-API until their browser workflow is introduced.
+through the same-origin proxy. Public repository changes and readiness remain
+anonymously readable; creation, discussion, review, synchronization, and merge
+controls appear according to the authenticated actor's API-backed permissions.
 
 ## Human identity
 
