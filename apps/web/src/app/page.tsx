@@ -1,65 +1,62 @@
-import Image from "next/image";
+import { ActivityItem, Avatar, Badge, Button, EmptyState, RepositoryCard } from "@/components/ui";
+import { ArrowRight, Branch, GitPullRequest, Plus, Sparkles } from "@/components/icons";
+
+const repositories = [
+  { name: "wayfinder", description: "Tools for making collaborative work legible.", language: "TypeScript", color: "#2dd4bf", updated: "12 min ago" },
+  { name: "field-notes", description: "A shared record of decisions, experiments, and outcomes.", language: "Go", color: "#38bdf8", updated: "Yesterday" },
+];
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="page-grid">
+      <section className="min-w-0" aria-labelledby="welcome-heading">
+        <div className="eyebrow"><Sparkles size={14} /> Your workspace</div>
+        <div className="page-heading">
+          <div>
+            <h1 id="welcome-heading">Good morning, Rowan.</h1>
+            <p>Pick up where your collaborators left off.</p>
+          </div>
+          <Button><Plus size={16} /> New repository</Button>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
+
+        <div className="section-heading">
+          <div><h2>Repositories</h2><p>Your most recently active projects</p></div>
+          <a className="text-link" href="#repositories">View all <ArrowRight size={15} /></a>
+        </div>
+        <div className="repo-grid" id="repositories">
+          {repositories.map((repository) => <RepositoryCard key={repository.name} {...repository} />)}
+        </div>
+
+        <div className="section-heading activity-heading">
+          <div><h2>Recent activity</h2><p>Work moving across your projects</p></div>
+        </div>
+        <div className="panel activity-list">
+          <ActivityItem icon={<GitPullRequest size={16} />} actor="Mina Okafor" action="opened a pull request" subject="Clarify repository access states" repository="wayfinder" time="18 minutes ago" accent="purple" />
+          <ActivityItem icon={<Branch size={16} />} actor="Alex Chen" action="pushed 3 commits to" subject="feat/review-summary" repository="field-notes" time="2 hours ago" accent="blue" />
+          <ActivityItem avatar={<Avatar initials="RO" size="sm" />} actor="You" action="commented on" subject="Design the contributor handoff" repository="wayfinder" time="Yesterday" />
+        </div>
+      </section>
+
+      <aside className="sidebar" aria-label="Workspace summary">
+        <div className="panel attention-panel">
+          <div className="panel-title"><span>Needs attention</span><Badge tone="accent">2</Badge></div>
+          <a className="attention-item" href="#activity">
+            <span className="attention-icon purple"><GitPullRequest size={16} /></span>
+            <span><strong>Review requested</strong><small>wayfinder · #24</small></span>
+            <span className="attention-time">18m</span>
           </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
+          <a className="attention-item" href="#activity">
+            <span className="attention-icon green">✓</span>
+            <span><strong>Ready to merge</strong><small>field-notes · #17</small></span>
+            <span className="attention-time">3h</span>
           </a>
         </div>
-      </main>
+
+        <div className="panel quick-panel">
+          <div className="panel-title"><span>Quick start</span></div>
+          <EmptyState icon={<Branch size={20} />} title="Start something together" description="Create a repository and invite collaborators when you’re ready." action={<Button variant="secondary" size="sm">Create repository</Button>} />
+        </div>
+      </aside>
     </div>
   );
 }
