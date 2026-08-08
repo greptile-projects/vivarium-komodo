@@ -170,6 +170,21 @@ behavior with distinct durable reasons. Removing a queue entry never closes or
 rewrites its pull request, while a successful candidate records that pull
 request as merged at the exact candidate commit.
 
+Integration coordination is visible in the repository's **Integration queue**
+tab (`view=queue&ref={target-branch}`) as well as on each pull request. The
+branch view combines current policy, ordered active entries, candidate checks,
+plain-language blockers and next actions, every retained candidate generation,
+and completed outcomes. Repository owners can pause or resume an entry, retry
+its exact candidate checks, move it within the active order, or remove it;
+each intervention is appended to the durable entry with stable actor
+attribution. `PATCH /repositories/{id}/integration-queue/entries/{entry}`
+accepts `pause`, `resume`, `retry`, `reprioritize` (with a one-based
+`position`), or `remove`. The branch collection retains completed entries and
+their candidate attempt history rather than treating removal or publication as
+erasure. Automatic blocked, removed, and merged outcomes also enter the
+activity ledger and produce pull-request links in the affected contributor's
+inbox, so required intervention remains connected to the shared change.
+
 Pull request navigation uses the repository route with `view=pulls`. The
 `pull` query parameter identifies the durable request and `section` preserves
 the overview, commits, files, or discussion view in a shareable URL. Browser

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/integrationqueue"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
@@ -28,6 +29,7 @@ type integrationQueueCoordinator struct {
 	repositories queueRepositoryStore
 	checks       readinessCheckStore
 	starter      checkRunStarter
+	activity     activityStore
 	mu           sync.Mutex
 }
 
@@ -83,9 +85,12 @@ func (c *integrationQueueCoordinator) reconcileBranch(ctx context.Context, repos
 			return
 		}
 		entry := items[0]
+		if entry.State == "paused" {
+			return
+		}
 		pull, pullErr := c.pulls.Get(repositoryID, entry.PullRequestID)
 		if pullErr != nil {
-			_, _ = c.queue.Transition(entry.ID, "removed", "pull_request_closed", true)
+			c.transition(entry, pullrequests.PullRequest{}, "removed", "pull_request_closed", true)
 			continue
 		}
 		liveTarget, _, targetFound := branchTip(opened, branch)
@@ -102,17 +107,17 @@ func (c *integrationQueueCoordinator) reconcileBranch(ctx context.Context, repos
 			continue
 		}
 		if pull.Status != pullrequests.Open {
-			_, _ = c.queue.Transition(entry.ID, "removed", "pull_request_closed", true)
+			c.transition(entry, pull, "removed", "pull_request_closed", true)
 			continue
 		}
 		sourceRepository, sourceErr := c.repositories.Open(storage.ID(pull.SourceRepositoryID))
 		if sourceErr != nil {
-			_, _ = c.queue.Transition(entry.ID, "removed", "source_unavailable", true)
+			c.transition(entry, pull, "removed", "source_unavailable", true)
 			continue
 		}
 		liveSource, _, sourceFound := branchTip(sourceRepository, pull.SourceBranch)
 		if !sourceFound || string(liveSource) != entry.SourceCommitID || pull.SourceCommitID != entry.SourceCommitID {
-			_, _ = c.queue.Transition(entry.ID, "removed", "source_updated", true)
+			c.transition(entry, pull, "removed", "source_updated", true)
 			continue
 		}
 		if string(liveTarget) != entry.TargetCommitID {
@@ -149,10 +154,10 @@ func (c *integrationQueueCoordinator) reconcileBranch(ctx context.Context, repos
 				reason = "checks_canceled"
 			}
 			if policy.FailureBehavior == "remove" {
-				_, _ = c.queue.Transition(entry.ID, "removed", reason, true)
+				c.transition(entry, pull, "removed", reason, true)
 				continue
 			}
-			_, _ = c.queue.Transition(entry.ID, "blocked", reason, false)
+			c.transition(entry, pull, "blocked", reason, false)
 			return
 		}
 
@@ -169,6 +174,18 @@ func (c *integrationQueueCoordinator) reconcileBranch(ctx context.Context, repos
 	}
 }
 
+func (c *integrationQueueCoordinator) transition(entry integrationqueue.Entry, pull pullrequests.PullRequest, state, reason string, terminal bool) {
+	if entry.State == state && entry.Reason == reason {
+		return
+	}
+	updated, err := c.queue.Transition(entry.ID, state, reason, terminal)
+	if err != nil || c.activity == nil || pull.ID == "" {
+		return
+	}
+	eventType := "integration_queue." + state
+	_, _ = c.activity.Record(activities.Input{RepositoryID: entry.RepositoryID, ActorID: "integration-queue", Type: eventType, Resource: activities.Resource{Type: "pull_request", ID: pull.ID}, TargetUserID: pull.AuthorID, Metadata: map[string]string{"entry_id": updated.ID, "branch": updated.TargetBranch, "reason": reason}})
+}
+
 func (c *integrationQueueCoordinator) rebuildAffected(ctx context.Context, repository repositories.Repository, opened *storage.Repository, entries []integrationqueue.Entry, target storage.ObjectID, policy repositories.IntegrationQueuePolicy) {
 	limit := policy.Concurrency
 	if limit < 1 || limit > len(entries) {
@@ -180,17 +197,17 @@ func (c *integrationQueueCoordinator) rebuildAffected(ctx context.Context, repos
 		}
 		pull, err := c.pulls.Get(string(repository.ID), entry.PullRequestID)
 		if err != nil || pull.Status != pullrequests.Open {
-			_, _ = c.queue.Transition(entry.ID, "removed", "pull_request_closed", true)
+			c.transition(entry, pull, "removed", "pull_request_closed", true)
 			continue
 		}
 		sourceRepository, err := c.repositories.Open(storage.ID(pull.SourceRepositoryID))
 		if err != nil {
-			_, _ = c.queue.Transition(entry.ID, "removed", "source_unavailable", true)
+			c.transition(entry, pull, "removed", "source_unavailable", true)
 			continue
 		}
 		liveSource, _, found := branchTip(sourceRepository, pull.SourceBranch)
 		if !found || string(liveSource) != entry.SourceCommitID || pull.SourceCommitID != entry.SourceCommitID {
-			_, _ = c.queue.Transition(entry.ID, "removed", "source_updated", true)
+			c.transition(entry, pull, "removed", "source_updated", true)
 			continue
 		}
 		_ = c.rebuild(ctx, repository, opened, pull, entry, target, policy)
@@ -208,6 +225,9 @@ func (c *integrationQueueCoordinator) finishMerged(repository repositories.Repos
 		return false
 	}
 	_, err := c.queue.Transition(entry.ID, "merged", "", true)
+	if err == nil && c.activity != nil {
+		_, _ = c.activity.Record(activities.Input{RepositoryID: entry.RepositoryID, ActorID: repository.OwnerID, Type: "integration_queue.merged", Resource: activities.Resource{Type: "pull_request", ID: pull.ID}, TargetUserID: pull.AuthorID, Metadata: map[string]string{"entry_id": entry.ID, "branch": entry.TargetBranch, "candidate_commit_id": entry.CandidateCommitID}})
+	}
 	return err == nil
 }
 
@@ -228,7 +248,7 @@ func (c *integrationQueueCoordinator) rebuild(ctx context.Context, repository re
 		if terminal {
 			state = "removed"
 		}
-		_, _ = c.queue.Transition(entry.ID, state, "merge_conflict", terminal)
+		c.transition(entry, pull, state, "merge_conflict", terminal)
 		return false
 	}
 	tree, err := materializeMergeTree(ctx, opened, target, source)

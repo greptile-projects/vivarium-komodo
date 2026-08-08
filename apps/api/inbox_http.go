@@ -115,6 +115,18 @@ func registerInboxHTTP(mux *http.ServeMux, activity inboxActivityStore, state in
 				if pull, getErr := pullStore.Get(event.RepositoryID, event.Resource.ID); getErr == nil && pull.AuthorID == userID {
 					classification, title, summary = "awareness", "Pull request merged", "Your change is now part of the target branch."
 				}
+			case "integration_queue.blocked":
+				if event.TargetUserID == userID {
+					classification, title, summary = "response", "Integration is blocked", "Inspect the candidate evidence and coordinate a retry or update."
+				}
+			case "integration_queue.removed":
+				if event.TargetUserID == userID {
+					classification, title, summary = "response", "Change left the integration queue", "Review the recorded reason before synchronizing or asking for readmission."
+				}
+			case "integration_queue.merged":
+				if event.TargetUserID == userID {
+					classification, title, summary = "awareness", "Change landed from the queue", "The verified candidate is now on the target branch."
+				}
 			case "proposal.commented":
 				if proposal, getErr := proposalStore.Get(event.RepositoryID, event.Resource.ID); getErr == nil && proposal.AuthorID == userID && proposal.State == proposals.Open && !mentionedSources[event.ID] {
 					classification, title, summary = "response", "New proposal reply", "Read the discussion and continue the decision."

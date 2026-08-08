@@ -303,7 +303,14 @@ type IntegrationQueueEntry = {
   candidate_tree_id: string;
   required_checks: string[];
   position: number;
-  state: "verifying" | "blocked" | "passed";
+  state: "verifying" | "blocked" | "passed" | "paused" | "removed" | "merged";
+  reason?: string;
+  completed_at?: string;
+  next_action: string;
+  blocker?: string;
+  enqueued_by_id: string;
+  events: { action: string; actor_id?: string; from?: number; to?: number; created_at: string }[];
+  attempt_history: { generation: number; target_commit_id: string; candidate_commit_id: string; created_at: string; checks: PullRequestReadiness["checks"] }[];
   created_at: string;
   checks: PullRequestReadiness["checks"];
 };
@@ -435,6 +442,8 @@ export default function RepositoryPage({
         ? "proposals"
         : query.view === "pulls"
           ? "pulls"
+          : query.view === "queue"
+            ? "queue"
           : query.view === "people"
             ? "people"
             : "code";
@@ -475,6 +484,7 @@ export default function RepositoryPage({
       if (
         view === "proposals" ||
         view === "pulls" ||
+        view === "queue" ||
         view === "people" ||
         repo.empty ||
         !selected
@@ -536,6 +546,7 @@ export default function RepositoryPage({
     if (
       nextView !== "proposals" &&
       nextView !== "pulls" &&
+      nextView !== "queue" &&
       nextView !== "people"
     ) {
       const nextRef = next.ref ?? ref;
@@ -633,6 +644,13 @@ export default function RepositoryPage({
           Code
         </button>
         <button
+          className={view === "queue" ? "active" : ""}
+          onClick={() => navigate({ view: "queue", ref: branches.default_branch, path: "" })}
+        >
+          <Branch size={15} />
+          Integration queue
+        </button>
+        <button
           className={view === "commits" ? "active" : ""}
           onClick={() => navigate({ view: "commits", path: "" })}
         >
@@ -678,6 +696,8 @@ export default function RepositoryPage({
           selected={query.pull}
           section={query.section}
         />
+      ) : view === "queue" ? (
+        <IntegrationQueueWorkspace repository={repository} branches={branches.items} initialBranch={revision || branches.default_branch} actor={actor} onBranch={(branch) => navigate({ view: "queue", ref: branch, path: "" })} />
       ) : view === "people" && actor === repository.owner_id ? (
         <CollaboratorWorkspace repository={id} />
       ) : repository.empty ? (
@@ -1087,6 +1107,56 @@ function CollaboratorWorkspace({ repository }: { repository: string }) {
       </section>
     </section>
   );
+}
+
+function IntegrationQueueWorkspace({ repository, branches, initialBranch, actor, onBranch }: { repository: Repository; branches: BranchRecord[]; initialBranch: string; actor: string; onBranch: (branch: string) => void }) {
+  const [data, setData] = useState<IntegrationQueueEntries>();
+  const [pulls, setPulls] = useState<PullRequest[]>([]);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    setError("");
+    try {
+      const [queue, requests] = await Promise.all([
+        get<IntegrationQueueEntries>(`/repositories/${repository.id}/integration-queue/entries?branch=${encodeURIComponent(initialBranch)}`),
+        get<PullRequestList>(`/repositories/${repository.id}/pull-requests?per_page=100`),
+      ]);
+      setData(queue); setPulls(requests.items);
+    } catch { setError("The integration queue could not be loaded."); }
+  }, [repository.id, initialBranch]);
+  useEffect(() => {
+    // Queue state follows the shareable target-branch URL.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  }, [load]);
+  async function operate(entry: IntegrationQueueEntry, action: string, position?: number) {
+    setBusy(entry.id + action); setError("");
+    try { await send(`/repositories/${repository.id}/integration-queue/entries/${entry.id}`, "PATCH", { action, position }); await load(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "The queue action could not be completed."); }
+    finally { setBusy(""); }
+  }
+  const active = data?.items.filter((entry) => !entry.completed_at) ?? [];
+  const completed = data?.items.filter((entry) => entry.completed_at) ?? [];
+  const title = (id: string) => pulls.find((pull) => pull.id === id)?.title ?? `Pull request ${short(id)}`;
+  return <section className="queue-workspace">
+    <header className="proposal-toolbar"><div><p className="eyebrow"><Branch size={14}/>Shared integration workflow</p><h2>{initialBranch} queue</h2><p>See why every change is waiting, the exact candidate evidence, and the next available intervention.</p></div><label className="queue-branch">Target branch<select value={initialBranch} onChange={(event) => onBranch(event.target.value)}>{branches.map((branch) => <option key={branch.name}>{branch.name}</option>)}</select></label></header>
+    {error && <p className="form-error" role="alert">{error}</p>}
+    <div className="queue-policy-banner panel"><span><strong>{data?.policy.enabled ? "Queue protection active" : "Queue protection disabled"}</strong><small>{data?.policy.concurrency ?? 1} concurrent candidate {(data?.policy.concurrency ?? 1) === 1 ? "slot" : "slots"} · failures {data?.policy.failure_behavior === "remove" ? "leave the queue" : "pause for intervention"}</small></span><Badge tone={data?.policy.enabled ? "accent" : "neutral"}>{active.length} active</Badge></div>
+    <div className="queue-board">
+      {active.map((entry, index) => <article className={`queue-card panel ${entry.state}`} key={entry.id}>
+        <div className="queue-order"><strong>#{entry.position}</strong><span>{entry.state}</span></div>
+        <div className="queue-card-body"><header><div><p className="eyebrow">Pull request</p><Link href={`/repositories/${repository.id}?view=pulls&pull=${entry.pull_request_id}`}>{title(entry.pull_request_id)}</Link></div><code>{short(entry.candidate_commit_id)}</code></header>
+          <p className="queue-next"><strong>Next:</strong> {entry.next_action}</p>
+          {entry.blocker && <p className="queue-blocker"><Clock size={13}/>{entry.blocker.replaceAll("_", " ")}</p>}
+          <div className="queue-checks">{entry.checks.requirements.length ? entry.checks.requirements.map((check) => <span className={check.status} key={check.name}><Check size={11}/>{check.name} · {check.status}</span>) : <span className="succeeded"><Check size={11}/>No required checks</span>}</div>
+          <details><summary>{entry.attempt_history.length} retained candidate {entry.attempt_history.length === 1 ? "attempt" : "attempts"}</summary>{entry.attempt_history.map((attempt) => <div className="queue-attempt" key={attempt.generation}><span>Generation {attempt.generation} · <code>{short(attempt.candidate_commit_id)}</code></span><small>Base {short(attempt.target_commit_id)} · {attempt.checks.satisfied ? "passed" : "not passed"} · {new Date(attempt.created_at).toLocaleString()}</small></div>)}</details>
+          {actor === repository.owner_id && <div className="queue-controls">{entry.state === "paused" ? <Button size="sm" variant="secondary" disabled={Boolean(busy)} onClick={() => void operate(entry, "resume")}>Resume</Button> : <Button size="sm" variant="secondary" disabled={Boolean(busy)} onClick={() => void operate(entry, "pause")}>Pause</Button>}{entry.state === "blocked" && <Button size="sm" variant="secondary" disabled={Boolean(busy)} onClick={() => void operate(entry, "retry")}>Retry checks</Button>}<Button size="sm" variant="secondary" disabled={Boolean(busy) || index === 0} onClick={() => void operate(entry, "reprioritize", entry.position - 1)}>Move up</Button><Button size="sm" variant="secondary" disabled={Boolean(busy) || index === active.length - 1} onClick={() => void operate(entry, "reprioritize", entry.position + 1)}>Move down</Button><button className="withdraw-review" disabled={Boolean(busy)} onClick={() => void operate(entry, "remove")}>Remove</button></div>}
+        </div>
+      </article>)}
+      {!active.length && <div className="proposal-empty panel"><Branch/><h3>No changes are waiting</h3><p>Ready pull requests admitted to this branch will appear here in policy order.</p></div>}
+    </div>
+    {completed.length > 0 && <section className="queue-history"><h3>Recent outcomes</h3>{completed.map((entry) => <article className="panel" key={entry.id}><span className={`pull-status ${entry.state}`}>{entry.state}</span><div><Link href={`/repositories/${repository.id}?view=pulls&pull=${entry.pull_request_id}`}>{title(entry.pull_request_id)}</Link><small>{entry.blocker ? entry.blocker.replaceAll("_", " ") : `Candidate ${short(entry.candidate_commit_id)}`} · operated by <Actor id={entry.events.at(-1)?.actor_id || entry.enqueued_by_id} compact /></small></div><time>{new Date(entry.completed_at ?? entry.created_at).toLocaleString()}</time></article>)}</section>}
+  </section>;
 }
 
 function ProposalWorkspace({
@@ -2975,7 +3045,7 @@ function ReviewWorkflow({
     readiness.source_branch.exists &&
     !readiness.source_branch.matches_pull_request;
   const blockers = readiness.blockers;
-  const queued = queueEntries.find((entry) => entry.pull_request_id === pull.id);
+  const queued = queueEntries.find((entry) => entry.pull_request_id === pull.id && !entry.completed_at);
   const [concurrency, setConcurrency] = useState(queuePolicy?.concurrency ?? 1);
   const [failureBehavior, setFailureBehavior] = useState<"pause" | "remove">(queuePolicy?.failure_behavior ?? "pause");
   async function act(
@@ -3219,6 +3289,8 @@ function ReviewWorkflow({
               {requirement.run_id ? <> · <a href={`?view=pulls&pull=${pull.id}&section=checks`}>logs and artifacts</a></> : null}
             </span>
           )) : <span className="succeeded">No required candidate checks</span>}
+          {queued.blocker && <span className="failed"><b>Blocker</b> {queued.blocker.replaceAll("_", " ")}</span>}
+          <small><b>Next:</b> {queued.next_action} <Link href={`/repositories/${repository}?view=queue&ref=${encodeURIComponent(pull.target_branch)}`}>Open the branch queue and retained attempts →</Link></small>
         </div>
       )}
       {readiness.can_merge && pull.status === "open" && <section className="queue-policy">

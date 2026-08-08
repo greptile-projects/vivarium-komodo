@@ -302,6 +302,14 @@ whenever dependencies change or the web job fails before it starts.
   candidates, while conflicts and failed or canceled checks block or remove
   entries according to branch policy. Reconciliation is completion-driven and
   periodically recovered after restarts.
+  Integration coordination is a shared repository workflow at `view=queue`,
+  with the target branch in `ref`. Queue reads retain completed outcomes,
+  candidate generations, check-attempt evidence, operator events, blockers,
+  and the next scheduled action. Owners may reprioritize, pause/resume, retry,
+  or remove active entries through the entry resource; keep those operations
+  attributable and preserve prior candidates and check runs. Automated blocked,
+  removed, and merged outcomes create pull-request-linked inbox activity for
+  the contributor.
   Pull-request change sessions live beneath `$CHANGE_SESSION_ROOT` (default
   `apps/api/data/change-sessions`) behind the `changesessions.Store` boundary.
   Any authenticated repository participant may start one on an open pull
