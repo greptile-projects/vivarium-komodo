@@ -12,6 +12,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/inbox"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/incidents"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/integrationqueue"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
@@ -86,6 +87,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	incidentRoot := os.Getenv("INCIDENT_ROOT")
+	if incidentRoot == "" {
+		incidentRoot = "data/incidents"
+	}
+	incidentStore, err := incidents.New(incidentRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	changeSessionRoot := os.Getenv("CHANGE_SESSION_ROOT")
 	if changeSessionRoot == "" {
 		changeSessionRoot = "data/change-sessions"
@@ -145,6 +154,7 @@ func main() {
 	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore)
 	registerReleasesHTTP(mux, releaseStore, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials)
 	registerDeploymentsHTTP(mux, deploymentStore, releaseStore, checkRunStore, repositoryCatalog, credentials, activityStore, changeSessionStore, pullRequestStore)
+	registerIncidentsHTTP(mux, incidentStore, deploymentStore, repositoryCatalog, credentials)
 	registerChangeSessionsHTTP(mux, changeSessionStore, pullRequestStore, repositoryCatalog, credentials, activityStore, checkRunner)
 	registerCheckRunsHTTP(mux, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials, changeSessionStore, activityStore)
 	registerActivitiesHTTP(mux, activityStore, repositoryCatalog, credentials)
