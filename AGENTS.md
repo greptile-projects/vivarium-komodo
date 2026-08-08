@@ -403,6 +403,14 @@ whenever dependencies change or the web job fails before it starts.
   exact release, source commit, build attempt, artifact checksum, initiator,
   approvers, state transitions, and redacted logs. Never return environment
   secret values or replace this evidence when adding health and rollback.
+  Exact release commits define rollout policy in `.komodo/deployments.json`
+  (schema version `1`): named environments contain ordered stages, and every
+  stage has repository-defined shell health signals. Promotion validates the
+  matching environment policy before reserving concurrency. Deployment events
+  retain stage and signal outcomes, redacted logs, affected revision, and
+  attributed pause, resume, cancel, or manual-failure decisions. Paused
+  deployments retain their concurrency slot; participant controls use the
+  deployment `/control` resource and create deployment-linked inbox activity.
   Meaningful collaboration transitions are appended through the
   `activities.Store` boundary beneath `$ACTIVITY_ROOT` (default
   `apps/api/data/activities`). Repository activity retains stable actor and

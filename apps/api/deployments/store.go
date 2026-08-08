@@ -48,6 +48,24 @@ type EnvironmentInput struct {
 	RequiredApprovals int               `json:"required_approvals"`
 	Concurrency       int               `json:"concurrency"`
 }
+type HealthSignal struct {
+	Name           string `json:"name"`
+	Command        string `json:"command"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+}
+type RolloutStage struct {
+	Name    string         `json:"name"`
+	Command string         `json:"command,omitempty"`
+	Health  []HealthSignal `json:"health"`
+}
+type ManifestEnvironment struct {
+	Name   string         `json:"name"`
+	Stages []RolloutStage `json:"stages"`
+}
+type Manifest struct {
+	Version      int                   `json:"version"`
+	Environments []ManifestEnvironment `json:"environments"`
+}
 type Approval struct {
 	ActorID   string    `json:"actor_id"`
 	CreatedAt time.Time `json:"created_at"`
@@ -59,6 +77,9 @@ type Event struct {
 	ActorID   string    `json:"actor_id,omitempty"`
 	Stream    string    `json:"stream,omitempty"`
 	Message   string    `json:"message,omitempty"`
+	Stage     string    `json:"stage,omitempty"`
+	Signal    string    `json:"signal,omitempty"`
+	Outcome   string    `json:"outcome,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 type Deployment struct {
@@ -78,6 +99,9 @@ type Deployment struct {
 	CreatedAt      time.Time  `json:"created_at"`
 	StartedAt      *time.Time `json:"started_at,omitempty"`
 	CompletedAt    *time.Time `json:"completed_at,omitempty"`
+	CurrentStage   string     `json:"current_stage,omitempty"`
+	DecisionByID   string     `json:"decision_by_id,omitempty"`
+	DecisionReason string     `json:"decision_reason,omitempty"`
 }
 type CreateDeployment struct{ RepositoryID, EnvironmentID, ReleaseID, BuildRunID, ArtifactID, ArtifactPath, ArtifactSHA256, SourceCommitID, ActorID string }
 
@@ -202,7 +226,7 @@ func (s *Store) Create(p CreateDeployment) (Deployment, error) {
 	all, _ := s.listDeployments(p.RepositoryID)
 	active := 0
 	for _, d := range all {
-		if d.EnvironmentID == env.ID && (d.State == "pending" || d.State == "queued" || d.State == "running") {
+		if d.EnvironmentID == env.ID && (d.State == "pending" || d.State == "queued" || d.State == "running" || d.State == "paused") {
 			active++
 		}
 	}
@@ -267,17 +291,75 @@ func (s *Store) Log(repositoryID, id, stream, message string) error {
 	if e != nil {
 		return e
 	}
-	if d.State != "running" {
+	if d.State != "running" && d.State != "paused" {
 		return ErrTransition
 	}
 	d.append(Event{Type: "log", Stream: stream, Message: message, CreatedAt: s.now().UTC()})
 	return s.writeDeployment(d)
 }
+func (s *Store) Stage(repositoryID, id, stage, eventType, signal, outcome, message string) (Deployment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, err := s.readDeployment(repositoryID, id)
+	if err != nil || (d.State != "running" && d.State != "paused") {
+		if err == nil {
+			err = ErrTransition
+		}
+		return d, err
+	}
+	now := s.now().UTC()
+	d.CurrentStage = stage
+	d.append(Event{Type: eventType, State: d.State, Stage: stage, Signal: signal, Outcome: outcome, Message: message, CreatedAt: now})
+	return d, s.writeDeployment(d)
+}
+func (s *Store) Control(repositoryID, id, actor, action, reason string) (Deployment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, err := s.readDeployment(repositoryID, id)
+	if err != nil {
+		return d, err
+	}
+	reason = strings.TrimSpace(reason)
+	now := s.now().UTC()
+	switch action {
+	case "pause":
+		if d.State != "running" {
+			return d, ErrTransition
+		}
+		d.State = "paused"
+	case "resume":
+		if d.State != "paused" {
+			return d, ErrTransition
+		}
+		d.State = "running"
+	case "cancel":
+		if d.State != "pending" && d.State != "queued" && d.State != "running" && d.State != "paused" {
+			return d, ErrTransition
+		}
+		d.State = "canceled"
+	case "fail":
+		if d.State != "running" && d.State != "paused" {
+			return d, ErrTransition
+		}
+		if reason == "" {
+			return d, ErrInvalid
+		}
+		d.State = "failed"
+	default:
+		return d, ErrInvalid
+	}
+	d.DecisionByID, d.DecisionReason = actor, reason
+	if d.State == "failed" || d.State == "canceled" {
+		d.CompletedAt = &now
+	}
+	d.append(Event{Type: "rollout." + action, State: d.State, ActorID: actor, Message: reason, Stage: d.CurrentStage, CreatedAt: now})
+	return d, s.writeDeployment(d)
+}
 func (s *Store) Complete(repositoryID, id string, success bool, message string) (Deployment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	d, e := s.readDeployment(repositoryID, id)
-	if e != nil || d.State != "running" {
+	if e != nil || (d.State != "running" && d.State != "paused") {
 		if e == nil {
 			e = ErrTransition
 		}
@@ -413,6 +495,42 @@ func nonNilMap(v map[string]string) map[string]string {
 		return map[string]string{}
 	}
 	return v
+}
+func ParseManifest(data []byte, environmentName string) ([]RolloutStage, error) {
+	var manifest Manifest
+	if json.Unmarshal(data, &manifest) != nil || manifest.Version != 1 || len(manifest.Environments) == 0 {
+		return nil, ErrInvalid
+	}
+	for _, environment := range manifest.Environments {
+		if strings.EqualFold(strings.TrimSpace(environment.Name), strings.TrimSpace(environmentName)) {
+			if len(environment.Stages) == 0 {
+				return nil, ErrInvalid
+			}
+			seenStages := map[string]bool{}
+			for i := range environment.Stages {
+				stage := &environment.Stages[i]
+				stage.Name = strings.TrimSpace(stage.Name)
+				if stage.Name == "" || seenStages[stage.Name] || len(stage.Health) == 0 {
+					return nil, ErrInvalid
+				}
+				seenStages[stage.Name] = true
+				seenSignals := map[string]bool{}
+				for j := range stage.Health {
+					signal := &stage.Health[j]
+					signal.Name, signal.Command = strings.TrimSpace(signal.Name), strings.TrimSpace(signal.Command)
+					if signal.Name == "" || signal.Command == "" || seenSignals[signal.Name] || signal.TimeoutSeconds < 0 || signal.TimeoutSeconds > 600 {
+						return nil, ErrInvalid
+					}
+					if signal.TimeoutSeconds == 0 {
+						signal.TimeoutSeconds = 60
+					}
+					seenSignals[signal.Name] = true
+				}
+			}
+			return environment.Stages, nil
+		}
+	}
+	return nil, ErrNotFound
 }
 func newID() (string, error) {
 	b := make([]byte, 16)

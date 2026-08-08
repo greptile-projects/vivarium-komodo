@@ -1,7 +1,7 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Book, Branch } from "./icons";
 
-export function Button({ variant = "primary", size = "md", className = "", ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary"; size?: "sm" | "md" }) {
+export function Button({ variant = "primary", size = "md", className = "", ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger"; size?: "sm" | "md" }) {
   return <button className={`button ${variant} ${size} ${className}`} {...props} />;
 }
 export function Avatar({ initials, size = "md" }: { initials: string; size?: "sm" | "md" }) { return <span className={`avatar ${size}`} aria-hidden="true">{initials}</span>; }
