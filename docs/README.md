@@ -125,6 +125,18 @@ through the same-origin proxy. Public repository changes and readiness remain
 anonymously readable; creation, discussion, review, synchronization, and merge
 controls appear according to the authenticated actor's API-backed permissions.
 
+A fork owner can turn independently published work into an upstream pull
+request from the fork header's **Contribute upstream** action. Creation is sent
+to the upstream repository's pull-request collection with the fork's
+`source_repository_id`, source branch, and selected upstream target branch.
+The durable request remains discoverable under the upstream target while
+retaining both repository IDs and both exact opening revisions. Its commits and
+file changes read the source snapshot from the fork and the base snapshot from
+upstream, so fork-only objects never need to be copied into the target merely
+for review. The author can explicitly synchronize the request after an
+authorized push advances the fork branch; the source repository and lineage
+are revalidated before the captured source revision changes.
+
 ### Agent change sessions
 
 The pull request's Agent sessions section is the durable entry point for agent

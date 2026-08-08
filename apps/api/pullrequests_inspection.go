@@ -32,13 +32,17 @@ type pullRequestFileChange struct {
 }
 
 func commitsBetween(repository *storage.Repository, sourceID, targetID storage.ObjectID) ([]pullRequestCommit, error) {
+	return commitsBetweenRepositories(repository, repository, sourceID, targetID)
+}
+
+func commitsBetweenRepositories(sourceRepository, targetRepository *storage.Repository, sourceID, targetID storage.ObjectID) ([]pullRequestCommit, error) {
 	targetReachable := map[storage.ObjectID]bool{}
-	if err := walkCommits(repository, targetID, targetReachable, nil); err != nil {
+	if err := walkCommits(targetRepository, targetID, targetReachable, nil); err != nil {
 		return nil, err
 	}
 	seen := map[storage.ObjectID]bool{}
 	ordered := []storage.Commit{}
-	if err := walkCommits(repository, sourceID, seen, func(commit storage.Commit) {
+	if err := walkCommits(sourceRepository, sourceID, seen, func(commit storage.Commit) {
 		if !targetReachable[commit.ID] {
 			ordered = append(ordered, commit)
 		}
@@ -95,19 +99,23 @@ func commitDetails(content []byte) (map[string]string, string) {
 }
 
 func filesBetween(repository *storage.Repository, sourceID, targetID storage.ObjectID) ([]pullRequestFileChange, error) {
-	source, err := repository.ReadCommit(sourceID)
+	return filesBetweenRepositories(repository, repository, sourceID, targetID)
+}
+
+func filesBetweenRepositories(sourceRepository, targetRepository *storage.Repository, sourceID, targetID storage.ObjectID) ([]pullRequestFileChange, error) {
+	source, err := sourceRepository.ReadCommit(sourceID)
 	if err != nil {
 		return nil, err
 	}
-	target, err := repository.ReadCommit(targetID)
+	target, err := targetRepository.ReadCommit(targetID)
 	if err != nil {
 		return nil, err
 	}
-	oldFiles, err := flattenTree(repository, target.Tree)
+	oldFiles, err := flattenTree(targetRepository, target.Tree)
 	if err != nil {
 		return nil, err
 	}
-	newFiles, err := flattenTree(repository, source.Tree)
+	newFiles, err := flattenTree(sourceRepository, source.Tree)
 	if err != nil {
 		return nil, err
 	}
@@ -145,11 +153,11 @@ func filesBetween(repository *storage.Repository, sourceID, targetID storage.Obj
 		default:
 			change.Status = "modified"
 		}
-		oldContent, err := fileContent(repository, oldEntry, oldOK)
+		oldContent, err := fileContent(targetRepository, oldEntry, oldOK)
 		if err != nil {
 			return nil, err
 		}
-		newContent, err := fileContent(repository, newEntry, newOK)
+		newContent, err := fileContent(sourceRepository, newEntry, newOK)
 		if err != nil {
 			return nil, err
 		}

@@ -84,6 +84,12 @@ whenever dependencies change or the web job fails before it starts.
   live readiness report. Keep review, author synchronization, and owner merge
   actions separate and permission-aware; synchronization deliberately makes
   prior commit-bound reviews stale.
+  Fork owners open upstream pull requests from the fork repository surface. A
+  cross-repository request is stored beneath the upstream target repository and
+  retains both `repository_id` (target) and `source_repository_id` (fork), plus
+  both exact branch revisions. Resolve live source state, synchronization,
+  commits, and the new side of file comparisons through the source repository;
+  never assume the source branch or its pushed objects exist in the target.
   Agent collaboration begins in the pull request's `section=sessions` view.
   Change sessions retain their initiating user, captured pull request source
   commit, current state, and ordered public timeline; keep later worker

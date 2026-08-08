@@ -80,7 +80,11 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 
 func synchronizePullRequest(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, checks checkRunStarter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		repository, _, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, false)
+		if !ok {
+			return
+		}
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
 		if !ok {
 			return
 		}
@@ -92,7 +96,12 @@ func synchronizePullRequest(store pullRequestStore, repositories pullRequestRepo
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 			return
 		}
-		opened, err := repositories.Open(repository.ID)
+		sourceRepository, err := repositories.Inspect(storage.ID(item.SourceRepositoryID))
+		if err != nil || (sourceRepository.ID != repository.ID && (sourceRepository.OwnerID != actor.UserID || sourceRepository.UpstreamID != repository.ID)) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+			return
+		}
+		opened, err := repositories.Open(sourceRepository.ID)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
@@ -178,7 +187,12 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 		if !ok {
 			return
 		}
-		opened, err := repositories.Open(repository.ID)
+		sourceOpened, err := repositories.Open(storage.ID(item.SourceRepositoryID))
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		targetOpened, err := repositories.Open(repository.ID)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
@@ -187,8 +201,8 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 		response := readinessResponse{
 			CanMerge:     actor.UserID != "" && actor.UserID == repository.OwnerID,
 			HasConflicts: nil,
-			SourceBranch: inspectReadinessBranch(opened, item.SourceBranch, item.SourceCommitID),
-			TargetBranch: inspectReadinessBranch(opened, item.TargetBranch, item.TargetCommitID),
+			SourceBranch: inspectReadinessBranch(sourceOpened, item.SourceBranch, item.SourceCommitID),
+			TargetBranch: inspectReadinessBranch(targetOpened, item.TargetBranch, item.TargetCommitID),
 			Reviews:      readinessReviews{RequiredOwnerApprovals: 1},
 			Checks:       readinessChecks{TargetBranch: item.TargetBranch, CommitID: item.SourceCommitID, Requirements: []readinessCheck{}, Satisfied: true},
 			Blockers:     []readinessBlocker{},
@@ -248,8 +262,8 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 			}
 		}
 
-		if response.SourceBranch.Exists && response.SourceBranch.MatchesPullRequest && response.TargetBranch.Exists {
-			hasConflicts, err := mergeHasConflicts(r.Context(), opened, storage.ObjectID(response.TargetBranch.CommitID), storage.ObjectID(response.SourceBranch.CommitID))
+		if item.SourceRepositoryID == item.RepositoryID && response.SourceBranch.Exists && response.SourceBranch.MatchesPullRequest && response.TargetBranch.Exists {
+			hasConflicts, err := mergeHasConflicts(r.Context(), targetOpened, storage.ObjectID(response.TargetBranch.CommitID), storage.ObjectID(response.SourceBranch.CommitID))
 			if err != nil {
 				writeJSON(w, 500, map[string]string{"error": "internal_error"})
 				return
@@ -568,12 +582,12 @@ func putPullRequestReview(store pullRequestStore, repositories pullRequestReposi
 		if !readJSON(w, r, &input, 4<<10) {
 			return
 		}
-		opened, err := repositories.Open(repository.ID)
+		sourceOpened, err := repositories.Open(storage.ID(item.SourceRepositoryID))
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
-		commitID, _, found := branchTip(opened, item.SourceBranch)
+		commitID, _, found := branchTip(sourceOpened, item.SourceBranch)
 		if !found {
 			writeJSON(w, 409, map[string]string{"error": "source_branch_unavailable"})
 			return
@@ -634,7 +648,7 @@ func listPullRequestReviews(store pullRequestStore, repositories pullRequestRepo
 			return
 		}
 		current := ""
-		if opened, err := repositories.Open(repository.ID); err == nil {
+		if opened, err := repositories.Open(storage.ID(item.SourceRepositoryID)); err == nil {
 			if id, _, found := branchTip(opened, item.SourceBranch); found {
 				current = string(id)
 			}
@@ -658,16 +672,21 @@ func listPullRequestReviews(store pullRequestStore, repositories pullRequestRepo
 
 func createPullRequest(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, checks checkRunStarter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		repository, _, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, false)
+		if !ok {
+			return
+		}
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
 		if !ok {
 			return
 		}
 		var input struct {
-			ProposalID   string `json:"proposal_id"`
-			Title        string `json:"title"`
-			Body         string `json:"body"`
-			SourceBranch string `json:"source_branch"`
-			TargetBranch string `json:"target_branch"`
+			ProposalID         string `json:"proposal_id"`
+			Title              string `json:"title"`
+			Body               string `json:"body"`
+			SourceBranch       string `json:"source_branch"`
+			TargetBranch       string `json:"target_branch"`
+			SourceRepositoryID string `json:"source_repository_id"`
 		}
 		if !readJSON(w, r, &input, 70<<10) {
 			return
@@ -681,18 +700,39 @@ func createPullRequest(store pullRequestStore, proposalStore proposalStore, repo
 				return
 			}
 		}
-		opened, err := repositories.Open(repository.ID)
+		sourceRepositoryID := repository.ID
+		if input.SourceRepositoryID != "" {
+			sourceRepositoryID = storage.ID(input.SourceRepositoryID)
+		}
+		sourceRepository, err := repositories.Inspect(sourceRepositoryID)
+		if err != nil || (sourceRepositoryID != repository.ID && (sourceRepository.OwnerID != actor.UserID || sourceRepository.UpstreamID != repository.ID)) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_source_repository"})
+			return
+		}
+		if sourceRepositoryID == repository.ID {
+			collaborator, collaboratorErr := repositories.IsCollaborator(repository.ID, actor.UserID)
+			if actor.UserID != repository.OwnerID && (collaboratorErr != nil || !collaborator) {
+				writeJSON(w, 404, map[string]string{"error": "not_found"})
+				return
+			}
+		}
+		sourceOpened, err := repositories.Open(sourceRepositoryID)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
-		source, sourceName, sourceOK := branchTip(opened, input.SourceBranch)
-		target, targetName, targetOK := branchTip(opened, input.TargetBranch)
-		if !sourceOK || !targetOK || sourceName == targetName {
+		targetOpened, err := repositories.Open(repository.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		source, sourceName, sourceOK := branchTip(sourceOpened, input.SourceBranch)
+		target, targetName, targetOK := branchTip(targetOpened, input.TargetBranch)
+		if !sourceOK || !targetOK || (sourceRepositoryID == repository.ID && sourceName == targetName) {
 			writeJSON(w, 422, map[string]string{"error": "invalid_branches"})
 			return
 		}
-		item, err := store.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), ProposalID: input.ProposalID, AuthorID: actor.UserID, Title: input.Title, Body: input.Body, SourceBranch: sourceName, TargetBranch: targetName, SourceCommitID: string(source), TargetCommitID: string(target)})
+		item, err := store.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), SourceRepositoryID: string(sourceRepositoryID), ProposalID: input.ProposalID, AuthorID: actor.UserID, Title: input.Title, Body: input.Body, SourceBranch: sourceName, TargetBranch: targetName, SourceCommitID: string(source), TargetCommitID: string(target)})
 		if errors.Is(err, pullrequests.ErrInvalid) {
 			writeJSON(w, 422, map[string]string{"error": "invalid_pull_request"})
 			return
@@ -701,7 +741,7 @@ func createPullRequest(store pullRequestStore, proposalStore proposalStore, repo
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
-		metadata := map[string]string{"title": item.Title, "source_branch": item.SourceBranch, "target_branch": item.TargetBranch}
+		metadata := map[string]string{"title": item.Title, "source_repository_id": item.SourceRepositoryID, "source_branch": item.SourceBranch, "target_branch": item.TargetBranch}
 		if item.ProposalID != "" {
 			metadata["proposal_id"] = item.ProposalID
 		}
@@ -784,12 +824,17 @@ func listPullRequestCommits(store pullRequestStore, repositories pullRequestRepo
 		if !ok {
 			return
 		}
-		opened, err := repositories.Open(repository.ID)
+		sourceOpened, err := repositories.Open(storage.ID(item.SourceRepositoryID))
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
-		items, err := commitsBetween(opened, storage.ObjectID(item.SourceCommitID), storage.ObjectID(item.TargetCommitID))
+		targetOpened, err := repositories.Open(repository.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		items, err := commitsBetweenRepositories(sourceOpened, targetOpened, storage.ObjectID(item.SourceCommitID), storage.ObjectID(item.TargetCommitID))
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
@@ -814,12 +859,17 @@ func listPullRequestFiles(store pullRequestStore, repositories pullRequestReposi
 		if !ok {
 			return
 		}
-		opened, err := repositories.Open(repository.ID)
+		sourceOpened, err := repositories.Open(storage.ID(item.SourceRepositoryID))
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
-		items, err := filesBetween(opened, storage.ObjectID(item.SourceCommitID), storage.ObjectID(item.TargetCommitID))
+		targetOpened, err := repositories.Open(repository.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		items, err := filesBetweenRepositories(sourceOpened, targetOpened, storage.ObjectID(item.SourceCommitID), storage.ObjectID(item.TargetCommitID))
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
