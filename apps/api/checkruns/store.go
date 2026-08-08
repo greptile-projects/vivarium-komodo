@@ -61,21 +61,22 @@ type Artifact struct {
 }
 
 type Run struct {
-	ID            string     `json:"id"`
-	RepositoryID  string     `json:"repository_id"`
-	PullRequestID string     `json:"pull_request_id"`
-	CommitID      string     `json:"commit_id"`
-	Definition    Definition `json:"definition"`
-	TriggeredByID string     `json:"triggered_by_id,omitempty"`
-	RetryOfID     string     `json:"retry_of_id,omitempty"`
-	CanceledByID  string     `json:"canceled_by_id,omitempty"`
-	State         State      `json:"state"`
-	ExitCode      *int       `json:"exit_code,omitempty"`
-	Error         string     `json:"error,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	StartedAt     *time.Time `json:"started_at,omitempty"`
-	CompletedAt   *time.Time `json:"completed_at,omitempty"`
-	Events        []Event    `json:"events"`
+	ID                 string     `json:"id"`
+	RepositoryID       string     `json:"repository_id"`
+	SourceRepositoryID string     `json:"source_repository_id"`
+	PullRequestID      string     `json:"pull_request_id"`
+	CommitID           string     `json:"commit_id"`
+	Definition         Definition `json:"definition"`
+	TriggeredByID      string     `json:"triggered_by_id,omitempty"`
+	RetryOfID          string     `json:"retry_of_id,omitempty"`
+	CanceledByID       string     `json:"canceled_by_id,omitempty"`
+	State              State      `json:"state"`
+	ExitCode           *int       `json:"exit_code,omitempty"`
+	Error              string     `json:"error,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	StartedAt          *time.Time `json:"started_at,omitempty"`
+	CompletedAt        *time.Time `json:"completed_at,omitempty"`
+	Events             []Event    `json:"events"`
 }
 
 type Store struct {
@@ -99,10 +100,18 @@ func New(root string) (*Store, error) {
 }
 
 func (s *Store) Create(repositoryID, pullRequestID, commitID string, definition Definition) (Run, error) {
-	return s.CreateAttempt(repositoryID, pullRequestID, commitID, definition, "", "")
+	return s.CreateForSource(repositoryID, repositoryID, pullRequestID, commitID, definition)
+}
+
+func (s *Store) CreateForSource(repositoryID, sourceRepositoryID, pullRequestID, commitID string, definition Definition) (Run, error) {
+	return s.createAttempt(repositoryID, sourceRepositoryID, pullRequestID, commitID, definition, "", "")
 }
 
 func (s *Store) CreateAttempt(repositoryID, pullRequestID, commitID string, definition Definition, actorID, retryOfID string) (Run, error) {
+	return s.createAttempt(repositoryID, repositoryID, pullRequestID, commitID, definition, actorID, retryOfID)
+}
+
+func (s *Store) createAttempt(repositoryID, sourceRepositoryID, pullRequestID, commitID string, definition Definition, actorID, retryOfID string) (Run, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	idBytes := make([]byte, 16)
@@ -110,7 +119,7 @@ func (s *Store) CreateAttempt(repositoryID, pullRequestID, commitID string, defi
 		return Run{}, err
 	}
 	now := s.now().UTC()
-	run := Run{ID: hex.EncodeToString(idBytes), RepositoryID: repositoryID, PullRequestID: pullRequestID, CommitID: commitID, Definition: definition, State: Queued, TriggeredByID: actorID, RetryOfID: retryOfID, CreatedAt: now}
+	run := Run{ID: hex.EncodeToString(idBytes), RepositoryID: repositoryID, SourceRepositoryID: sourceRepositoryID, PullRequestID: pullRequestID, CommitID: commitID, Definition: definition, State: Queued, TriggeredByID: actorID, RetryOfID: retryOfID, CreatedAt: now}
 	run.Events = []Event{{Sequence: 1, Type: "status", Timestamp: now, Status: Queued, ActorID: actorID}}
 	return run, s.write(run)
 }
@@ -289,6 +298,11 @@ func (s *Store) read(id string) (Run, error) {
 		return run, err
 	}
 	err = json.Unmarshal(data, &run)
+	// Runs created before fork-based verification sourced their snapshot from
+	// the repository that owns the pull request.
+	if run.SourceRepositoryID == "" {
+		run.SourceRepositoryID = run.RepositoryID
+	}
 	return run, err
 }
 func (s *Store) write(run Run) error {

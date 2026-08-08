@@ -96,7 +96,11 @@ whenever dependencies change or the web job fails before it starts.
   participant then receives a 24-hour Git credential limited to the fork and
   exact contribution branch. Disabling the policy or closing the request
   revokes those credentials. Merge links immutable source objects into the
-  target without sharing refs or granting general fork access.
+  target without sharing refs or granting general fork access. Cross-repository
+  check runs are cataloged beneath the target pull request but retain and read
+  their exact snapshot from `source_repository_id`; reruns must preserve that
+  source identity. Merge commits retain source repository, branch, and commit
+  trailers so provenance survives later fork or branch deletion.
   Agent collaboration begins in the pull request's `section=sessions` view.
   Change sessions retain their initiating user, captured pull request source
   commit, current state, and ordered public timeline; keep later worker

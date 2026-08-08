@@ -19,11 +19,11 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/users"
 )
 
-type recordedCheckStart struct{ repositoryID, pullRequestID, commitID string }
+type recordedCheckStart struct{ repositoryID, sourceRepositoryID, pullRequestID, commitID string }
 type recordingCheckStarter struct{ starts []recordedCheckStart }
 
-func (s *recordingCheckStarter) Start(repositoryID, pullRequestID, commitID string) error {
-	s.starts = append(s.starts, recordedCheckStart{repositoryID, pullRequestID, commitID})
+func (s *recordingCheckStarter) Start(repositoryID, sourceRepositoryID, pullRequestID, commitID string) error {
+	s.starts = append(s.starts, recordedCheckStart{repositoryID, sourceRepositoryID, pullRequestID, commitID})
 	return nil
 }
 
@@ -32,8 +32,10 @@ func TestForkOwnerOpensAndSynchronizesUpstreamPullRequest(t *testing.T) {
 	catalog, _ := repositories.New(t.TempDir(), gitStorage)
 	proposalStore, _ := proposals.New(t.TempDir())
 	pullStore, _ := pullrequests.New(t.TempDir())
+	checkStore, _ := checkruns.New(t.TempDir())
 	credentials, _ := auth.New(t.TempDir())
 	upstream, _ := catalog.Create("maintainer", repositories.Metadata{Name: "project", Visibility: repositories.Public})
+	_, _ = catalog.SetRequiredChecks("maintainer", upstream.ID, "main", []string{"fork-quality"})
 	upstreamGit, _ := catalog.Open(upstream.ID)
 	baseTree, _ := upstreamGit.WriteObject(storage.TreeObject, nil)
 	base, _ := upstreamGit.WriteObject(storage.CommitObject, []byte("tree "+string(baseTree)+"\nauthor Maintainer <m@example.test> 1 +0000\ncommitter Maintainer <m@example.test> 1 +0000\n\nbase\n"))
@@ -47,7 +49,8 @@ func TestForkOwnerOpensAndSynchronizesUpstreamPullRequest(t *testing.T) {
 	token := issueAccess(t, credentials, "contributor", auth.API, auth.RepositoryWrite)
 	maintainerToken := issueAccess(t, credentials, "maintainer", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	mux := http.NewServeMux()
-	registerPullRequestsHTTP(mux, pullStore, proposalStore, catalog, credentials)
+	checkStarts := &recordingCheckStarter{}
+	registerPullRequestsHTTP(mux, pullStore, proposalStore, catalog, credentials, checkStarts, checkStore)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
@@ -59,6 +62,9 @@ func TestForkOwnerOpensAndSynchronizesUpstreamPullRequest(t *testing.T) {
 	response.Body.Close()
 	if response.StatusCode != http.StatusCreated || created.RepositoryID != string(upstream.ID) || created.SourceRepositoryID != string(fork.ID) || created.SourceCommitID != string(change) || created.TargetCommitID != string(base) {
 		t.Fatalf("created = %#v, status %d", created, response.StatusCode)
+	}
+	if len(checkStarts.starts) != 1 || checkStarts.starts[0].repositoryID != string(upstream.ID) || checkStarts.starts[0].sourceRepositoryID != string(fork.ID) || checkStarts.starts[0].commitID != string(change) {
+		t.Fatalf("initial check start = %#v", checkStarts.starts)
 	}
 	response, _ = http.Get(server.URL + "/repositories/" + string(upstream.ID) + "/pull-requests/" + created.ID + "/files")
 	var files struct {
@@ -80,6 +86,19 @@ func TestForkOwnerOpensAndSynchronizesUpstreamPullRequest(t *testing.T) {
 	response.Body.Close()
 	if response.StatusCode != http.StatusOK || synchronized.SourceCommitID != string(followUp) {
 		t.Fatalf("synchronized = %#v, status %d", synchronized, response.StatusCode)
+	}
+	if len(checkStarts.starts) != 2 || checkStarts.starts[1].sourceRepositoryID != string(fork.ID) || checkStarts.starts[1].commitID != string(followUp) {
+		t.Fatalf("synchronized check start = %#v", checkStarts.starts)
+	}
+	commentURL := server.URL + "/repositories/" + string(upstream.ID) + "/pull-requests/" + created.ID + "/comments"
+	request, _ = http.NewRequest(http.MethodPost, commentURL, strings.NewReader(`{"body":"Verified the outside contribution."}`))
+	request.Header.Set("Authorization", "Bearer "+maintainerToken)
+	response, _ = http.DefaultClient.Do(request)
+	var discussion pullrequests.Comment
+	json.NewDecoder(response.Body).Decode(&discussion)
+	response.Body.Close()
+	if response.StatusCode != http.StatusCreated || discussion.AuthorID != "maintainer" {
+		t.Fatalf("outside discussion = %#v status %d", discussion, response.StatusCode)
 	}
 
 	modifyURL := server.URL + "/repositories/" + string(upstream.ID) + "/pull-requests/" + created.ID + "/maintainer-modification"
@@ -111,6 +130,18 @@ func TestForkOwnerOpensAndSynchronizesUpstreamPullRequest(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer "+maintainerToken)
 	response, _ = http.DefaultClient.Do(request)
 	response.Body.Close()
+	passing, _ := checkStore.CreateForSource(string(upstream.ID), string(fork.ID), created.ID, string(followUp), checkruns.Definition{Name: "fork-quality"})
+	_, _ = checkStore.Start(passing.ID)
+	_, _ = checkStore.Complete(passing.ID, 0, false, "")
+	request, _ = http.NewRequest(http.MethodGet, server.URL+"/repositories/"+string(upstream.ID)+"/pull-requests/"+created.ID+"/readiness", nil)
+	request.Header.Set("Authorization", "Bearer "+maintainerToken)
+	response, _ = http.DefaultClient.Do(request)
+	var readiness readinessResponse
+	json.NewDecoder(response.Body).Decode(&readiness)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || !readiness.Ready || !readiness.Checks.Satisfied || readiness.Checks.CommitID != string(followUp) {
+		t.Fatalf("outside readiness = %#v status %d", readiness, response.StatusCode)
+	}
 	request, _ = http.NewRequest(http.MethodPost, server.URL+"/repositories/"+string(upstream.ID)+"/pull-requests/"+created.ID+"/merge", nil)
 	request.Header.Set("Authorization", "Bearer "+maintainerToken)
 	response, _ = http.DefaultClient.Do(request)
@@ -119,6 +150,14 @@ func TestForkOwnerOpensAndSynchronizesUpstreamPullRequest(t *testing.T) {
 	response.Body.Close()
 	if response.StatusCode != http.StatusOK || merged.Status != pullrequests.Merged {
 		t.Fatalf("cross-repository merge = %#v status %d", merged, response.StatusCode)
+	}
+	if err := catalog.Delete("contributor", fork.ID); err != nil {
+		t.Fatal(err)
+	}
+	durable, err := pullStore.Get(string(upstream.ID), created.ID)
+	mergeCommit, commitErr := upstreamGit.ReadCommit(storage.ObjectID(merged.MergeCommitID))
+	if err != nil || commitErr != nil || durable.AuthorID != "contributor" || durable.SourceRepositoryID != string(fork.ID) || durable.SourceBranch != "contribution" || durable.SourceCommitID != string(followUp) || !strings.Contains(string(mergeCommit.Content), "Source-Repository: "+string(fork.ID)) || !strings.Contains(string(mergeCommit.Content), "Source-Commit: "+string(followUp)) || !slices.Contains(mergeCommit.Parents, followUp) {
+		t.Fatalf("durable provenance = pull %#v commit %#v errors %v %v", durable, mergeCommit, err, commitErr)
 	}
 }
 
