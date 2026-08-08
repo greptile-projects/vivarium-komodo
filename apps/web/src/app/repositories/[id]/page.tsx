@@ -262,6 +262,17 @@ type PullRequestReadiness = {
     current_change_requests: number;
     stale_reviews: number;
   };
+  checks: {
+    target_branch: string;
+    commit_id: string;
+    satisfied: boolean;
+    requirements: {
+      name: string;
+      status: "missing" | "pending" | "failed" | "canceled" | "stale" | "succeeded";
+      run_id?: string;
+      commit_id?: string;
+    }[];
+  };
   blockers: { code: string; message: string }[];
 };
 type UserRecord = { id: string; handle: string; display_name: string };
@@ -2054,6 +2065,7 @@ function PullRequestDetail({
           pull={item}
           actor={actor}
           runs={checks}
+          readiness={readiness}
           onChanged={() => void load()}
         />
       ) : (
@@ -2074,18 +2086,24 @@ function PullChecks({
   pull,
   actor,
   runs,
+  readiness,
   onChanged,
 }: {
   repository: string;
   pull: PullRequest;
   actor: string;
   runs: CheckRun[];
+  readiness?: PullRequestReadiness;
   onChanged: () => void;
 }) {
   const [selected, setSelected] = useState(runs[0]?.id ?? "");
   const [detail, setDetail] = useState<CheckRun | undefined>(runs[0]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [savingPolicy, setSavingPolicy] = useState(false);
+  const [required, setRequired] = useState(
+    readiness?.checks.requirements.map((requirement) => requirement.name) ?? [],
+  );
   const current = runs.find((run) => run.id === selected) ?? runs[0];
 
   useEffect(() => {
@@ -2131,13 +2149,42 @@ function PullChecks({
     }
   };
 
+  const availableNames = Array.from(new Set(runs.map((run) => run.definition.name))).sort();
+  const savePolicy = async () => {
+    setSavingPolicy(true);
+    setError("");
+    try {
+      await send(`/repositories/${repository}/required-checks`, "PUT", {
+        branch: pull.target_branch,
+        checks: required,
+      });
+      onChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Required checks could not be saved.");
+    } finally {
+      setSavingPolicy(false);
+    }
+  };
+
+  const policy = readiness?.can_merge ? (
+    <section className="check-policy panel">
+      <div><p className="eyebrow">Target branch policy</p><h3>Required checks for <code>{pull.target_branch}</code></h3><p>Only successful attempts for revision <code>{short(pull.source_commit_id)}</code> satisfy this policy.</p></div>
+      <div className="check-policy-options">
+        {availableNames.length ? availableNames.map((name) => (
+          <label key={name}><input type="checkbox" checked={required.includes(name)} onChange={(event) => setRequired((current) => event.target.checked ? [...current, name] : current.filter((item) => item !== name))}/><span>{name}</span></label>
+        )) : <p>No declared check names are available on this pull request.</p>}
+      </div>
+      <Button variant="secondary" size="sm" disabled={savingPolicy} onClick={() => void savePolicy()}>{savingPolicy ? "Saving…" : "Save requirements"}</Button>
+    </section>
+  ) : null;
+
   if (!runs.length)
     return (
-      <section className="checks-empty panel">
+      <>{policy}<section className="checks-empty panel">
         <Check size={20} />
         <h3>No verification configured</h3>
         <p>This revision does not declare checks in <code>.komodo/checks.json</code>.</p>
-      </section>
+      </section></>
     );
 
   const shown = detail?.id === current?.id ? detail : current;
@@ -2145,7 +2192,7 @@ function PullChecks({
   const artifacts = shown?.events.flatMap((event) => event.artifact ? [event.artifact] : []) ?? [];
   const active = shown?.state === "queued" || shown?.state === "running";
   return (
-    <section className="checks-workspace">
+    <>{policy}<section className="checks-workspace">
       <aside className="check-attempts panel" aria-label="Check attempts">
         <header><div><h3>Verification attempts</h3><p>Live and historical runs for every revision.</p></div><Badge>{runs.length}</Badge></header>
         {runs.map((run) => (
@@ -2177,7 +2224,7 @@ function PullChecks({
         <pre className="check-log" aria-live="polite">{logs.length ? logs.map((event) => <span className={event.stream} key={event.sequence}>{event.message}</span>) : <span className="quiet">No output captured.</span>}</pre>
         <div className="check-artifacts"><h4>Artifacts</h4>{artifacts.length ? artifacts.map((artifact) => <a className="artifact-row" key={artifact.id} href={`/api/repositories/${repository}/pull-requests/${pull.id}/check-runs/${shown.id}/artifacts/${artifact.id}`}><File size={15}/><span><strong>{artifact.path}</strong><small>{formatSize(artifact.size)} · SHA-256 {short(artifact.sha256)}</small></span><span>Download</span></a>) : <p>No artifacts retained for this attempt.</p>}</div>
       </article>}
-    </section>
+    </section></>
   );
 }
 
@@ -2842,7 +2889,22 @@ function ReviewWorkflow({
           <Check size={13} />
           No change requests
         </span>
+        <span className={readiness.checks.satisfied ? "passed" : "failed"}>
+          <Check size={13} />
+          {readiness.checks.requirements.length
+            ? `${readiness.checks.requirements.length} required ${readiness.checks.requirements.length === 1 ? "check" : "checks"}`
+            : "No required checks"}
+        </span>
       </div>
+      {readiness.checks.requirements.length > 0 && (
+        <div className="required-check-summary">
+          <strong>Quality policy for <code>{readiness.checks.target_branch}</code></strong>
+          <small>Evaluated revision <code>{short(readiness.checks.commit_id)}</code></small>
+          {readiness.checks.requirements.map((requirement) => (
+            <span className={requirement.status} key={requirement.name}><b>{requirement.name}</b> {requirement.status}{requirement.commit_id && requirement.commit_id !== readiness.checks.commit_id ? <> · result from <code>{short(requirement.commit_id)}</code></> : null}</span>
+          ))}
+        </div>
+      )}
       {blockers.length > 0 && pull.status === "open" && (
         <ul className="readiness-blockers">
           {blockers.map((blocker) => (

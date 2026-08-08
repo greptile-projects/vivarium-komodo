@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
@@ -399,16 +400,79 @@ func TestPullRequestReadinessIsReadyForOwnerAfterCurrentApproval(t *testing.T) {
 	}
 }
 
+func TestRequiredChecksEvaluateOnlyThePullRequestRevision(t *testing.T) {
+	gitStorage, _ := storage.New(t.TempDir())
+	catalog, _ := repositories.New(t.TempDir(), gitStorage)
+	proposalStore, _ := proposals.New(t.TempDir())
+	pullRequestStore, _ := pullrequests.New(t.TempDir())
+	checkStore, _ := checkruns.New(t.TempDir())
+	userStore, _ := users.New(t.TempDir())
+	credentials, _ := auth.New(t.TempDir())
+	owner, _ := userStore.Create(users.Profile{Handle: "owner", DisplayName: "Owner"})
+	repository, _ := catalog.Create(string(owner.ID), repositories.Metadata{Name: "project", Visibility: repositories.Private})
+	_, _ = catalog.SetRequiredChecks(string(owner.ID), repository.ID, "main", []string{"lint"})
+	opened, _ := catalog.Open(repository.ID)
+	tree, _ := opened.WriteObject(storage.TreeObject, nil)
+	base, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(tree)+"\nauthor A <a@x> 1 +0000\ncommitter A <a@x> 1 +0000\n\nbase\n"))
+	change, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(tree)+"\nparent "+string(base)+"\nauthor A <a@x> 2 +0000\ncommitter A <a@x> 2 +0000\n\nchange\n"))
+	opened.CreateReference(storage.Reference{Name: "refs/heads/main", ObjectID: base})
+	opened.CreateReference(storage.Reference{Name: "refs/heads/candidate", ObjectID: change})
+	pr, _ := pullRequestStore.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), AuthorID: string(owner.ID), Title: "Change", SourceBranch: "candidate", TargetBranch: "main", SourceCommitID: string(change), TargetCommitID: string(base)})
+	pullRequestStore.PutReview(string(repository.ID), pr.ID, string(owner.ID), pullrequests.Approve, string(change))
+	token := issueAccess(t, credentials, string(owner.ID), auth.API, auth.RepositoryRead)
+	mux := http.NewServeMux()
+	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, catalog, credentials, checkStore)
+	read := func() readinessResponse {
+		req := httptest.NewRequest(http.MethodGet, "/repositories/"+string(repository.ID)+"/pull-requests/"+pr.ID+"/readiness", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		var result readinessResponse
+		json.NewDecoder(w.Body).Decode(&result)
+		if w.Code != 200 {
+			t.Fatalf("readiness = %d %s", w.Code, w.Body.String())
+		}
+		return result
+	}
+	assertStatus := func(want string) {
+		t.Helper()
+		got := read()
+		if got.Ready || got.Checks.CommitID != string(change) || len(got.Checks.Requirements) != 1 || got.Checks.Requirements[0].Status != want {
+			t.Fatalf("want %s: %#v", want, got)
+		}
+	}
+	assertStatus("missing")
+	_, _ = checkStore.Create(string(repository.ID), pr.ID, string(base), checkruns.Definition{Name: "lint"})
+	assertStatus("stale")
+	pending, _ := checkStore.Create(string(repository.ID), pr.ID, string(change), checkruns.Definition{Name: "lint"})
+	assertStatus("pending")
+	_, _ = checkStore.Start(pending.ID)
+	_, _ = checkStore.Complete(pending.ID, 1, false, "failed")
+	assertStatus("failed")
+	canceled, _ := checkStore.Create(string(repository.ID), pr.ID, string(change), checkruns.Definition{Name: "lint"})
+	_, _ = checkStore.Cancel(canceled.ID, string(owner.ID))
+	assertStatus("canceled")
+	passing, _ := checkStore.Create(string(repository.ID), pr.ID, string(change), checkruns.Definition{Name: "lint"})
+	_, _ = checkStore.Start(passing.ID)
+	_, _ = checkStore.Complete(passing.ID, 0, false, "")
+	got := read()
+	if !got.Ready || !got.Checks.Satisfied || got.Checks.Requirements[0].RunID != passing.ID {
+		t.Fatalf("passing readiness = %#v", got)
+	}
+}
+
 func TestOwnerMergesReadyPullRequestAndClosesLinkedCollaboration(t *testing.T) {
 	gitStorage, _ := storage.New(t.TempDir())
 	catalog, _ := repositories.New(t.TempDir(), gitStorage)
 	proposalStore, _ := proposals.New(t.TempDir())
 	pullRequestStore, _ := pullrequests.New(t.TempDir())
+	checkStore, _ := checkruns.New(t.TempDir())
 	userStore, _ := users.New(t.TempDir())
 	credentials, _ := auth.New(t.TempDir())
 	owner, _ := userStore.Create(users.Profile{Handle: "owner", DisplayName: "Owner"})
 	contributor, _ := userStore.Create(users.Profile{Handle: "contributor", DisplayName: "Contributor"})
 	repository, _ := catalog.Create(string(owner.ID), repositories.Metadata{Name: "project", Visibility: repositories.Private})
+	_, _ = catalog.SetRequiredChecks(string(owner.ID), repository.ID, "main", []string{"acceptance"})
 	catalog.AddCollaborator(string(owner.ID), repository.ID, string(contributor.ID))
 	opened, _ := catalog.Open(repository.ID)
 	baseTree, _ := opened.WriteObject(storage.TreeObject, nil)
@@ -424,7 +488,7 @@ func TestOwnerMergesReadyPullRequestAndClosesLinkedCollaboration(t *testing.T) {
 	ownerToken := issueAccess(t, credentials, string(owner.ID), auth.API, auth.RepositoryWrite)
 	contributorToken := issueAccess(t, credentials, string(contributor.ID), auth.API, auth.RepositoryWrite)
 	mux := http.NewServeMux()
-	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, catalog, credentials)
+	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, catalog, credentials, checkStore)
 	path := "/repositories/" + string(repository.ID) + "/pull-requests/" + pr.ID + "/merge"
 	do := func(token string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, path, nil)
@@ -436,6 +500,12 @@ func TestOwnerMergesReadyPullRequestAndClosesLinkedCollaboration(t *testing.T) {
 	if w := do(contributorToken); w.Code != http.StatusNotFound {
 		t.Fatalf("contributor merge = %d %s", w.Code, w.Body.String())
 	}
+	if w := do(ownerToken); w.Code != http.StatusConflict {
+		t.Fatalf("merge without required check = %d %s", w.Code, w.Body.String())
+	}
+	passing, _ := checkStore.Create(string(repository.ID), pr.ID, string(change), checkruns.Definition{Name: "acceptance"})
+	_, _ = checkStore.Start(passing.ID)
+	_, _ = checkStore.Complete(passing.ID, 0, false, "")
 	w := do(ownerToken)
 	var merged pullrequests.PullRequest
 	json.NewDecoder(w.Body).Decode(&merged)

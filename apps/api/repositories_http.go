@@ -18,6 +18,7 @@ type ownedRepositoryStore interface {
 	Update(string, storage.ID, repositories.Metadata) (repositories.Repository, error)
 	Delete(string, storage.ID) error
 	IsCollaborator(storage.ID, string) (bool, error)
+	SetRequiredChecks(string, storage.ID, string, []string) (repositories.Repository, error)
 }
 
 func registerRepositoriesHTTP(mux *http.ServeMux, store ownedRepositoryStore, credentials authStore) {
@@ -26,6 +27,45 @@ func registerRepositoriesHTTP(mux *http.ServeMux, store ownedRepositoryStore, cr
 	mux.HandleFunc("GET /repositories/{repository}", getRepository(store, credentials))
 	mux.HandleFunc("PATCH /repositories/{repository}", updateRepository(store, credentials))
 	mux.HandleFunc("DELETE /repositories/{repository}", deleteRepository(store, credentials))
+	mux.HandleFunc("GET /repositories/{repository}/required-checks", getRequiredChecks(store, credentials))
+	mux.HandleFunc("PUT /repositories/{repository}/required-checks", putRequiredChecks(store, credentials))
+}
+
+func getRequiredChecks(store ownedRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		item, _, ok := proposalRepositoryAccess(w, r, store, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		branch := r.URL.Query().Get("branch")
+		writeJSON(w, 200, map[string]any{"branch": branch, "checks": item.RequiredChecks[branch]})
+	}
+}
+
+func putRequiredChecks(store ownedRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var input struct {
+			Branch string   `json:"branch"`
+			Checks []string `json:"checks"`
+		}
+		if !readJSON(w, r, &input, 8192) {
+			return
+		}
+		item, err := store.SetRequiredChecks(actor.UserID, storage.ID(r.PathValue("repository")), input.Branch, input.Checks)
+		if errors.Is(err, repositories.ErrInvalidRepository) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_required_checks"})
+			return
+		}
+		if err != nil {
+			writeRepositoryError(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"branch": input.Branch, "checks": item.RequiredChecks[input.Branch]})
+	}
 }
 
 func createRepository(store ownedRepositoryStore, credentials authStore) http.HandlerFunc {

@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -37,6 +38,20 @@ func TestOwnedRepositoryLifecycle(t *testing.T) {
 	updated, err := store.Update("owner-one", first.ID, Metadata{Name: "renamed", Description: "A repository", Visibility: Public})
 	if err != nil || updated.Name != "renamed" || updated.Description != "A repository" || updated.Visibility != Public || updated.UpdatedAt.Before(updated.CreatedAt) {
 		t.Fatalf("updated repository = %#v, %v", updated, err)
+	}
+	protected, err := store.SetRequiredChecks("owner-one", first.ID, "main", []string{"test", "lint"})
+	if err != nil || !slices.Equal(protected.RequiredChecks["main"], []string{"lint", "test"}) {
+		t.Fatalf("required checks = %#v, %v", protected.RequiredChecks, err)
+	}
+	if _, err := store.SetRequiredChecks("owner-two", first.ID, "main", []string{"lint"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-owner required checks error = %v", err)
+	}
+	if _, err := store.SetRequiredChecks("owner-one", first.ID, "bad..branch", []string{"lint"}); !errors.Is(err, ErrInvalidRepository) {
+		t.Fatalf("invalid branch error = %v", err)
+	}
+	reopened, _ := store.Inspect(first.ID)
+	if !slices.Equal(reopened.RequiredChecks["main"], []string{"lint", "test"}) {
+		t.Fatalf("reopened required checks = %#v", reopened.RequiredChecks)
 	}
 
 	items, err := store.List("owner-one")
