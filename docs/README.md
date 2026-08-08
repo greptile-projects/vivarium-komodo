@@ -60,6 +60,23 @@ actor, reason, current stage, resulting state, and time; unhealthy outcomes and
 interventions become deployment-linked inbox activity. Paused rollouts retain
 their environment concurrency slot.
 
+An unhealthy deployment has two explicit recovery paths at `POST
+/repositories/{repository}/deployments/{deployment}/recovery`. `rollback`
+finds the newest earlier successful deployment in the same environment and
+starts a new governed deployment using that retained release, build attempt,
+artifact identity, checksum, and source commit. It does not bypass the
+environment's approval or concurrency policy, and both records retain their
+recovery relationship.
+
+`repair` creates a draft pull request on a unique `codex/recovery-*` branch at
+the failed release commit and immediately queues a change-session run. The
+session snapshots release, deployment, artifact, redacted logs, rollout stage,
+health-signal outcomes, and source context. Its one-time credential lasts at
+most 24 hours and writes only that candidate branch; it carries neither
+environment secrets nor API deployment authority. Publication therefore
+returns through pull-request synchronization, required checks, review,
+integration, a new release, and governed promotion.
+
 ## Entrypoints
 
 - `apps/web` — Next.js frontend. Starts at `src/app/page.tsx`; routes are

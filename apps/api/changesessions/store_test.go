@@ -29,6 +29,19 @@ func TestSessionSurvivesReopenWithTimeline(t *testing.T) {
 	}
 }
 
+func TestDeploymentRepairSessionRetainsRedactedEvidence(t *testing.T) {
+	store, _ := New(t.TempDir())
+	failure := &DeploymentFailure{DeploymentID: "deployment", ReleaseID: "release", EnvironmentID: "production", SourceCommitID: "abc123", State: "failed", Events: []DeploymentEvidenceEvent{{Sequence: 4, Type: "health.completed", Stage: "canary", Signal: "error-rate", Outcome: "failed", Message: "threshold exceeded"}}}
+	item, err := store.CreateWithDeploymentFailure("repo", "pull", "actor", "abc123", failure)
+	if err != nil || item.DeploymentFailure == nil || item.DeploymentFailure.Events[0].Signal != "error-rate" {
+		t.Fatalf("deployment repair = %#v, %v", item, err)
+	}
+	restored, _ := store.Get("repo", "pull", item.ID)
+	if restored.DeploymentFailure.ReleaseID != "release" || restored.Events[0].Metadata["deployment_id"] != "deployment" {
+		t.Fatalf("restored deployment evidence = %#v", restored)
+	}
+}
+
 func TestCollaboratorInterventionsHaveOrderedControlSemantics(t *testing.T) {
 	store, _ := New(t.TempDir())
 	session, _ := store.Create("repo", "pull", "initiator", "revision")

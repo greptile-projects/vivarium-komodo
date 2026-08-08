@@ -14,8 +14,10 @@ import (
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
 
@@ -35,7 +37,7 @@ type deploymentStore interface {
 	ListDeployments(string) ([]deployments.Deployment, error)
 }
 
-func registerDeploymentsHTTP(mux *http.ServeMux, store deploymentStore, releaseStore releaseStore, builds releaseBuildStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) {
+func registerDeploymentsHTTP(mux *http.ServeMux, store deploymentStore, releaseStore releaseStore, builds releaseBuildStore, repositories pullRequestRepositoryStore, credentials changeSessionCredentialStore, activity activityStore, sessions changeSessionStore, pulls pullRequestStore) {
 	mux.HandleFunc("GET /repositories/{repository}/environments", listEnvironments(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/environments", putEnvironment(store, repositories, credentials, false))
 	mux.HandleFunc("PUT /repositories/{repository}/environments/{environment}", putEnvironment(store, repositories, credentials, true))
@@ -44,6 +46,139 @@ func registerDeploymentsHTTP(mux *http.ServeMux, store deploymentStore, releaseS
 	mux.HandleFunc("POST /repositories/{repository}/deployments", createDeployment(store, releaseStore, builds, repositories, credentials, activity))
 	mux.HandleFunc("POST /repositories/{repository}/deployments/{deployment}/approvals", approveDeployment(store, repositories, credentials, builds, activity))
 	mux.HandleFunc("POST /repositories/{repository}/deployments/{deployment}/control", controlDeployment(store, repositories, credentials, activity))
+	mux.HandleFunc("POST /repositories/{repository}/deployments/{deployment}/recovery", recoverDeployment(store, builds, repositories, credentials, activity, sessions, pulls))
+}
+
+func recoverDeployment(store deploymentStore, builds releaseBuildStore, repositories pullRequestRepositoryStore, credentials changeSessionCredentialStore, activity activityStore, sessions changeSessionStore, pulls pullRequestStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		participant := actor.UserID == repo.OwnerID
+		if !participant {
+			participant, _ = repositories.IsCollaborator(repo.ID, actor.UserID)
+		}
+		if !participant {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		failed, err := store.GetDeployment(string(repo.ID), r.PathValue("deployment"))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if failed.State != "failed" {
+			writeJSON(w, 409, map[string]string{"error": "deployment_not_unhealthy"})
+			return
+		}
+		var input struct {
+			Action       string   `json:"action"`
+			Instructions string   `json:"instructions"`
+			ContextPaths []string `json:"context_paths"`
+		}
+		if !readJSON(w, r, &input, 32<<10) {
+			return
+		}
+		switch input.Action {
+		case "rollback":
+			items, listErr := store.ListDeployments(string(repo.ID))
+			if listErr != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			var known *deployments.Deployment
+			for i := range items {
+				candidate := &items[i]
+				if candidate.EnvironmentID == failed.EnvironmentID && candidate.State == "succeeded" && candidate.CreatedAt.Before(failed.CreatedAt) {
+					known = candidate
+					break
+				}
+			}
+			if known == nil {
+				writeJSON(w, 409, map[string]string{"error": "no_known_good_deployment"})
+				return
+			}
+			item, createErr := store.Create(deployments.CreateDeployment{RepositoryID: string(repo.ID), EnvironmentID: known.EnvironmentID, ReleaseID: known.ReleaseID, BuildRunID: known.BuildRunID, ArtifactID: known.ArtifactID, ArtifactPath: known.ArtifactPath, ArtifactSHA256: known.ArtifactSHA256, SourceCommitID: known.SourceCommitID, ActorID: actor.UserID, RecoveryOfID: failed.ID, RecoveryAction: "rollback"})
+			if createErr != nil {
+				writeJSON(w, 409, map[string]string{"error": "recovery_not_accepted"})
+				return
+			}
+			_ = recordActivity(activity, activities.Input{RepositoryID: string(repo.ID), ActorID: actor.UserID, Type: "deployment.rollback_started", Resource: activities.Resource{Type: "deployment", ID: item.ID}, Metadata: map[string]string{"failed_deployment_id": failed.ID, "known_good_deployment_id": known.ID, "release_id": item.ReleaseID, "environment_id": item.EnvironmentID}})
+			if item.State == "queued" {
+				go runDeployment(store, builds, repositories, activity, item)
+			}
+			writeJSON(w, http.StatusCreated, map[string]any{"deployment": item, "known_good_deployment_id": known.ID})
+			return
+		case "repair":
+			if strings.TrimSpace(input.Instructions) == "" {
+				input.Instructions = "Diagnose the unhealthy deployment evidence and prepare a reviewed code repair. Do not operate the deployment environment."
+			}
+			if len(input.Instructions) > 10000 || len(input.ContextPaths) > 50 {
+				writeJSON(w, 422, map[string]string{"error": "invalid_recovery"})
+				return
+			}
+			for _, contextPath := range input.ContextPaths {
+				if contextPath == "" || strings.HasPrefix(contextPath, "/") || strings.Contains(contextPath, "..") || len(contextPath) > 500 {
+					writeJSON(w, 422, map[string]string{"error": "invalid_recovery"})
+					return
+				}
+			}
+			opened, openErr := repositories.Open(repo.ID)
+			if openErr != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			defaultRef, refErr := opened.DefaultBranch()
+			if refErr != nil {
+				writeJSON(w, 409, map[string]string{"error": "default_branch_unavailable"})
+				return
+			}
+			targetBranch := strings.TrimPrefix(string(defaultRef), "refs/heads/")
+			target, _, targetOK := branchTip(opened, targetBranch)
+			if !targetOK {
+				writeJSON(w, 409, map[string]string{"error": "default_branch_unavailable"})
+				return
+			}
+			branch := "codex/recovery-" + failed.ID[:12]
+			refName := storage.ReferenceName("refs/heads/" + branch)
+			if err = opened.CreateReference(storage.Reference{Name: refName, ObjectID: storage.ObjectID(failed.SourceCommitID)}); err != nil {
+				writeJSON(w, 409, map[string]string{"error": "recovery_branch_unavailable"})
+				return
+			}
+			pull, err := pulls.Create(pullrequests.CreateParams{RepositoryID: string(repo.ID), AuthorID: actor.UserID, Title: "Repair unhealthy deployment", Body: "Diagnose deployment " + failed.ID + " for release " + failed.ReleaseID + ". Changes must pass ordinary review and integration before a new release.", SourceBranch: branch, TargetBranch: targetBranch, SourceCommitID: failed.SourceCommitID, TargetCommitID: string(target), Draft: true})
+			if err != nil {
+				_ = opened.DeleteReference(refName)
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			evidence := &changesessions.DeploymentFailure{DeploymentID: failed.ID, ReleaseID: failed.ReleaseID, EnvironmentID: failed.EnvironmentID, BuildRunID: failed.BuildRunID, ArtifactID: failed.ArtifactID, ArtifactPath: failed.ArtifactPath, ArtifactSHA256: failed.ArtifactSHA256, SourceCommitID: failed.SourceCommitID, State: failed.State, CurrentStage: failed.CurrentStage}
+			for _, event := range failed.Events {
+				evidence.Events = append(evidence.Events, changesessions.DeploymentEvidenceEvent{Sequence: event.Sequence, Type: event.Type, Stream: event.Stream, Message: event.Message, Stage: event.Stage, Signal: event.Signal, Outcome: event.Outcome, CreatedAt: event.CreatedAt})
+			}
+			session, err := sessions.CreateWithDeploymentFailure(string(repo.ID), pull.ID, actor.UserID, failed.SourceCommitID, evidence)
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			issued, err := credentials.IssueRepositoryGit(actor.UserID, "Deployment repair "+session.ID, string(repo.ID), string(refName), 24*time.Hour)
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			run, err := sessions.Delegate(string(repo.ID), pull.ID, session.ID, changesessions.DelegateParams{InitiatorID: actor.UserID, Agent: "codex", Instructions: input.Instructions, RevisionID: failed.SourceCommitID, ContextPaths: input.ContextPaths, WorkingBranch: branch, CredentialGrantID: issued.ID, CredentialExpiresAt: issued.ExpiresAt})
+			if err != nil {
+				_, _ = credentials.Revoke(actor.UserID, issued.ID)
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			_ = recordActivity(activity, activities.Input{RepositoryID: string(repo.ID), ActorID: actor.UserID, Type: "deployment.repair_started", Resource: activities.Resource{Type: "pull_request", ID: pull.ID}, Metadata: map[string]string{"deployment_id": failed.ID, "release_id": failed.ReleaseID, "session_id": session.ID, "run_id": run.ID}})
+			writeJSON(w, http.StatusCreated, map[string]any{"pull_request": pull, "session": session, "run": run, "credential": map[string]any{"token": issued.Token, "username": "agent", "expires_at": issued.ExpiresAt, "repository_id": string(repo.ID), "branch": string(refName)}})
+			return
+		default:
+			writeJSON(w, 422, map[string]string{"error": "invalid_recovery"})
+		}
+	}
 }
 
 func listEnvironments(store deploymentStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {

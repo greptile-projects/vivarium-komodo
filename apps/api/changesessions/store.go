@@ -233,19 +233,46 @@ func validSummaries(items []string, maximum int) bool {
 }
 
 type Session struct {
-	ID                        string        `json:"id"`
-	RepositoryID              string        `json:"repository_id"`
-	PullRequestID             string        `json:"pull_request_id"`
-	InitiatorID               string        `json:"initiator_id"`
-	SourceCommitID            string        `json:"source_commit_id"`
-	CheckFailure              *CheckFailure `json:"check_failure,omitempty"`
-	TaskContext               *TaskContext  `json:"task_context,omitempty"`
-	ContributionPullRequestID string        `json:"contribution_pull_request_id,omitempty"`
-	State                     State         `json:"state"`
-	CreatedAt                 time.Time     `json:"created_at"`
-	UpdatedAt                 time.Time     `json:"updated_at"`
-	Events                    []Event       `json:"events,omitempty"`
-	Runs                      []Run         `json:"runs,omitempty"`
+	ID                        string             `json:"id"`
+	RepositoryID              string             `json:"repository_id"`
+	PullRequestID             string             `json:"pull_request_id"`
+	InitiatorID               string             `json:"initiator_id"`
+	SourceCommitID            string             `json:"source_commit_id"`
+	CheckFailure              *CheckFailure      `json:"check_failure,omitempty"`
+	TaskContext               *TaskContext       `json:"task_context,omitempty"`
+	DeploymentFailure         *DeploymentFailure `json:"deployment_failure,omitempty"`
+	ContributionPullRequestID string             `json:"contribution_pull_request_id,omitempty"`
+	State                     State              `json:"state"`
+	CreatedAt                 time.Time          `json:"created_at"`
+	UpdatedAt                 time.Time          `json:"updated_at"`
+	Events                    []Event            `json:"events,omitempty"`
+	Runs                      []Run              `json:"runs,omitempty"`
+}
+
+// DeploymentFailure captures only public deployment evidence. It deliberately
+// contains no environment credential values or authority to operate delivery.
+type DeploymentFailure struct {
+	DeploymentID   string                    `json:"deployment_id"`
+	ReleaseID      string                    `json:"release_id"`
+	EnvironmentID  string                    `json:"environment_id"`
+	BuildRunID     string                    `json:"build_run_id"`
+	ArtifactID     string                    `json:"artifact_id"`
+	ArtifactPath   string                    `json:"artifact_path"`
+	ArtifactSHA256 string                    `json:"artifact_sha256"`
+	SourceCommitID string                    `json:"source_commit_id"`
+	State          string                    `json:"state"`
+	CurrentStage   string                    `json:"current_stage,omitempty"`
+	Events         []DeploymentEvidenceEvent `json:"events"`
+}
+type DeploymentEvidenceEvent struct {
+	Sequence  int64     `json:"sequence"`
+	Type      string    `json:"type"`
+	Stream    string    `json:"stream,omitempty"`
+	Message   string    `json:"message,omitempty"`
+	Stage     string    `json:"stage,omitempty"`
+	Signal    string    `json:"signal,omitempty"`
+	Outcome   string    `json:"outcome,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // LinkTaskContribution gives pre-review execution evidence a durable backlink
@@ -424,6 +451,24 @@ func (s *Store) CreateForTask(repositoryID, scopeID, initiatorID, sourceCommitID
 
 func (s *Store) CreateWithCheckFailure(repositoryID, pullRequestID, initiatorID, sourceCommitID string, failure *CheckFailure) (Session, error) {
 	return s.create(repositoryID, pullRequestID, initiatorID, sourceCommitID, failure, nil)
+}
+
+func (s *Store) CreateWithDeploymentFailure(repositoryID, pullRequestID, initiatorID, sourceCommitID string, failure *DeploymentFailure) (Session, error) {
+	item, err := s.create(repositoryID, pullRequestID, initiatorID, sourceCommitID, nil, nil)
+	if err != nil {
+		return item, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err = s.read(repositoryID, pullRequestID, item.ID)
+	if err != nil {
+		return item, err
+	}
+	item.DeploymentFailure = failure
+	item.Events[0].Metadata["deployment_id"] = failure.DeploymentID
+	item.Events[0].Metadata["release_id"] = failure.ReleaseID
+	err = s.write(item)
+	return item, err
 }
 
 func (s *Store) create(repositoryID, pullRequestID, initiatorID, sourceCommitID string, failure *CheckFailure, taskContext *TaskContext) (Session, error) {
