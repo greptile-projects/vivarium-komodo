@@ -19,16 +19,19 @@ var (
 )
 
 type Entry struct {
-	ID             string    `json:"id"`
-	RepositoryID   string    `json:"repository_id"`
-	PullRequestID  string    `json:"pull_request_id"`
-	TargetBranch   string    `json:"target_branch"`
-	SourceCommitID string    `json:"source_commit_id"`
-	TargetCommitID string    `json:"target_commit_id"`
-	EnqueuedByID   string    `json:"enqueued_by_id"`
-	Position       int       `json:"position"`
-	State          string    `json:"state"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID                string    `json:"id"`
+	RepositoryID      string    `json:"repository_id"`
+	PullRequestID     string    `json:"pull_request_id"`
+	TargetBranch      string    `json:"target_branch"`
+	SourceCommitID    string    `json:"source_commit_id"`
+	TargetCommitID    string    `json:"target_commit_id"`
+	CandidateCommitID string    `json:"candidate_commit_id"`
+	CandidateTreeID   string    `json:"candidate_tree_id"`
+	RequiredChecks    []string  `json:"required_checks"`
+	EnqueuedByID      string    `json:"enqueued_by_id"`
+	Position          int       `json:"position"`
+	State             string    `json:"state"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 type Store struct {
 	root string
@@ -46,7 +49,7 @@ func New(root string) (*Store, error) {
 	}
 	return &Store{root: abs, now: time.Now}, nil
 }
-func (s *Store) Enqueue(repositoryID, pullID, branch, source, target, actor string) (Entry, error) {
+func (s *Store) Enqueue(repositoryID, pullID, branch, source, target, candidate, tree, actor string, required []string) (Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	items, err := s.list(repositoryID, branch)
@@ -62,7 +65,7 @@ func (s *Store) Enqueue(repositoryID, pullID, branch, source, target, actor stri
 	if _, err = rand.Read(b); err != nil {
 		return Entry{}, err
 	}
-	e := Entry{ID: hex.EncodeToString(b), RepositoryID: repositoryID, PullRequestID: pullID, TargetBranch: branch, SourceCommitID: source, TargetCommitID: target, EnqueuedByID: actor, Position: len(items) + 1, State: "queued", CreatedAt: s.now().UTC()}
+	e := Entry{ID: hex.EncodeToString(b), RepositoryID: repositoryID, PullRequestID: pullID, TargetBranch: branch, SourceCommitID: source, TargetCommitID: target, CandidateCommitID: candidate, CandidateTreeID: tree, RequiredChecks: append([]string(nil), required...), EnqueuedByID: actor, Position: len(items) + 1, State: "verifying", CreatedAt: s.now().UTC()}
 	dir := filepath.Join(s.root, repositoryID)
 	if err = os.MkdirAll(dir, 0750); err != nil {
 		return Entry{}, err
@@ -108,7 +111,7 @@ func (s *Store) list(repositoryID, branch string) ([]Entry, error) {
 			return nil, e
 		}
 		var v Entry
-		if json.Unmarshal(data, &v) == nil && v.RepositoryID == repositoryID && v.TargetBranch == branch && v.State == "queued" {
+		if json.Unmarshal(data, &v) == nil && v.RepositoryID == repositoryID && v.TargetBranch == branch {
 			out = append(out, v)
 		}
 	}

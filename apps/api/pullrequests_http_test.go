@@ -12,6 +12,7 @@ import (
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/integrationqueue"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
@@ -25,6 +26,60 @@ type recordingCheckStarter struct{ starts []recordedCheckStart }
 func (s *recordingCheckStarter) Start(repositoryID, sourceRepositoryID, pullRequestID, commitID string) error {
 	s.starts = append(s.starts, recordedCheckStart{repositoryID, sourceRepositoryID, pullRequestID, commitID})
 	return nil
+}
+
+func TestQueueAdmissionCreatesProspectiveMergeCandidate(t *testing.T) {
+	gitStorage, _ := storage.New(t.TempDir())
+	catalog, _ := repositories.New(t.TempDir(), gitStorage)
+	proposalStore, _ := proposals.New(t.TempDir())
+	pullStore, _ := pullrequests.New(t.TempDir())
+	checkStore, _ := checkruns.New(t.TempDir())
+	queueStore, _ := integrationqueue.New(t.TempDir())
+	credentials, _ := auth.New(t.TempDir())
+	repository, _ := catalog.Create("owner", repositories.Metadata{Name: "project", Visibility: repositories.Public})
+	_, _ = catalog.SetRequiredChecks("owner", repository.ID, "main", []string{"unit"})
+	_, _ = catalog.SetIntegrationQueue("owner", repository.ID, "main", repositories.IntegrationQueuePolicy{Enabled: true, Concurrency: 1, FailureBehavior: "pause"})
+	opened, _ := catalog.Open(repository.ID)
+	baseBlob, _ := opened.WriteObject(storage.BlobObject, []byte("base\n"))
+	baseTree, _ := opened.WriteObject(storage.TreeObject, testTree(t, map[string]storage.ObjectID{"base.txt": baseBlob}))
+	base, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(baseTree)+"\nauthor Owner <o@example.test> 1 +0000\ncommitter Owner <o@example.test> 1 +0000\n\nbase\n"))
+	changeBlob, _ := opened.WriteObject(storage.BlobObject, []byte("change\n"))
+	changeTree, _ := opened.WriteObject(storage.TreeObject, testTree(t, map[string]storage.ObjectID{"base.txt": baseBlob, "change.txt": changeBlob}))
+	change, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(changeTree)+"\nparent "+string(base)+"\nauthor Contributor <c@example.test> 2 +0000\ncommitter Contributor <c@example.test> 2 +0000\n\nchange\n"))
+	_ = opened.CreateReference(storage.Reference{Name: "refs/heads/main", ObjectID: base})
+	_ = opened.CreateReference(storage.Reference{Name: "refs/heads/change", ObjectID: change})
+	pull, _ := pullStore.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), AuthorID: "contributor", Title: "Ship change", SourceBranch: "change", TargetBranch: "main", SourceCommitID: string(change), TargetCommitID: string(base)})
+	_, _ = pullStore.PutReview(string(repository.ID), pull.ID, "owner", pullrequests.Approve, string(change))
+	sourceRun, _ := checkStore.Create(string(repository.ID), pull.ID, string(change), checkruns.Definition{Name: "unit", Command: "true", TimeoutSeconds: 1})
+	_, _ = checkStore.Start(sourceRun.ID)
+	_, _ = checkStore.Complete(sourceRun.ID, 0, false, "")
+	token := issueAccess(t, credentials, "owner", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
+	starter := &recordingCheckStarter{}
+	mux := http.NewServeMux()
+	registerPullRequestsHTTP(mux, pullStore, proposalStore, catalog, credentials, starter, checkStore, queueStore)
+	request := httptest.NewRequest(http.MethodPost, "/repositories/"+string(repository.ID)+"/pull-requests/"+pull.ID+"/queue", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	var entry struct {
+		integrationqueue.Entry
+		Checks readinessChecks `json:"checks"`
+	}
+	_ = json.Unmarshal(response.Body.Bytes(), &entry)
+	if response.Code != http.StatusCreated || entry.CandidateCommitID == "" || entry.CandidateCommitID == string(change) || entry.TargetCommitID != string(base) || entry.State != "verifying" {
+		t.Fatalf("candidate = %#v, status %d, body %s", entry, response.Code, response.Body.String())
+	}
+	candidate, err := opened.ReadCommit(storage.ObjectID(entry.CandidateCommitID))
+	if err != nil || candidate.Tree != storage.ObjectID(entry.CandidateTreeID) || !slices.Equal(candidate.Parents, []storage.ObjectID{base, change}) {
+		t.Fatalf("candidate commit = %#v, %v", candidate, err)
+	}
+	main, _ := opened.ReadReference("refs/heads/main")
+	if main.ObjectID != base {
+		t.Fatalf("queue admission advanced main to %s", main.ObjectID)
+	}
+	if len(starter.starts) != 1 || starter.starts[0].sourceRepositoryID != string(repository.ID) || starter.starts[0].commitID != entry.CandidateCommitID {
+		t.Fatalf("candidate check start = %#v", starter.starts)
+	}
 }
 
 func TestForkOwnerOpensAndSynchronizesUpstreamPullRequest(t *testing.T) {

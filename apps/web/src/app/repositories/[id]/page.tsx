@@ -294,7 +294,19 @@ type PullRequestReadiness = {
   blockers: { code: string; message: string }[];
 };
 type IntegrationQueuePolicy = { branch: string; enabled: boolean; concurrency: number; failure_behavior: "pause" | "remove"; required_checks: string[] | null; required_owner_approvals: number };
-type IntegrationQueueEntry = { id: string; pull_request_id: string; source_commit_id: string; target_commit_id: string; position: number; state: "queued"; created_at: string };
+type IntegrationQueueEntry = {
+  id: string;
+  pull_request_id: string;
+  source_commit_id: string;
+  target_commit_id: string;
+  candidate_commit_id: string;
+  candidate_tree_id: string;
+  required_checks: string[];
+  position: number;
+  state: "verifying" | "blocked" | "passed";
+  created_at: string;
+  checks: PullRequestReadiness["checks"];
+};
 type IntegrationQueueEntries = { items: IntegrationQueueEntry[]; total_count: number; policy: IntegrationQueuePolicy };
 type UserRecord = { id: string; handle: string; display_name: string };
 type Collaborator = {
@@ -3195,6 +3207,20 @@ function ReviewWorkflow({
           </Button>
         )}
       </div>
+      {queued && (
+        <div className="required-check-summary">
+          <strong>Queue candidate #{queued.position} · {queued.state}</strong>
+          <small>
+            Prospective merge <code>{short(queued.candidate_commit_id)}</code> combines base <code>{short(queued.target_commit_id)}</code> with reviewed source <code>{short(queued.source_commit_id)}</code>.
+          </small>
+          {queued.checks.requirements.length ? queued.checks.requirements.map((requirement) => (
+            <span className={requirement.status} key={requirement.name}>
+              <b>{requirement.name}</b> {requirement.status}
+              {requirement.run_id ? <> · <a href={`?view=pulls&pull=${pull.id}&section=checks`}>logs and artifacts</a></> : null}
+            </span>
+          )) : <span className="succeeded">No required candidate checks</span>}
+        </div>
+      )}
       {readiness.can_merge && pull.status === "open" && <section className="queue-policy">
         <div><strong>Integration policy for <code>{pull.target_branch}</code></strong><small>Admission still requires the current maintainer approval, no change requests or conflicts, and {queuePolicy?.required_checks?.length ?? 0} required checks.</small></div>
         <label><input type="checkbox" checked={queuePolicy?.enabled ?? false} onChange={(event) => void act("policy", `/repositories/${repository}/integration-queue`, "PUT", {branch: pull.target_branch, enabled: event.target.checked, concurrency, failure_behavior: failureBehavior})}/> Require queue</label>

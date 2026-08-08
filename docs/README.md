@@ -133,12 +133,25 @@ Once protected, direct merge returns `integration_queue_required`. An owner can
 admit a currently ready request with `POST
 /repositories/{id}/pull-requests/{pull}/queue`; the durable entry captures its
 exact reviewed source revision, current target revision, actor, and ordered
-position. `GET /repositories/{id}/integration-queue/entries?branch=...` is
-repository-policy readable and returns both ordered admissions and their
+position. Admission also creates an immutable two-parent candidate commit in
+the target repository: the current eligible target is its first parent, the
+reviewed source revision is its second parent, and its tree is the prospective
+recursive merge result. Cross-repository source objects are hard-linked into
+the target first, while no branch reference is advanced.
+
+The target branch's required check names are executed anew against that exact
+candidate commit. Queue entry reads expose the source, base, candidate commit,
+candidate tree, required check attempts, and a derived `verifying`, `blocked`,
+or `passed` lifecycle. Attempt IDs lead through the ordinary public pull-request
+check resources to retained status events, stdout/stderr, outcomes, and
+artifacts; the candidate commit itself is inspectable through the repository
+commit browser. Thus source-revision success remains admission evidence while
+queue success describes the repository state that would actually be merged.
+`GET /repositories/{id}/integration-queue/entries?branch=...` is
+repository-policy readable and returns those ordered candidates plus their
 governing policy. Queue data lives beneath `$INTEGRATION_QUEUE_ROOT`, defaulting
-to `apps/api/data/integration-queue`. Candidate construction and automatic
-advancement are deliberately later workflow stages; admission continues to use
-the existing review, conflict, permission, and exact required-check rules.
+to `apps/api/data/integration-queue`. Automatic candidate advancement remains a
+later workflow stage.
 
 Pull request navigation uses the repository route with `view=pulls`. The
 `pull` query parameter identifies the durable request and `section` preserves

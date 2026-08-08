@@ -55,7 +55,7 @@ type readinessCheckStore interface {
 	List(string, string) ([]checkruns.Run, error)
 }
 type integrationQueueStore interface {
-	Enqueue(string, string, string, string, string, string) (integrationqueue.Entry, error)
+	Enqueue(string, string, string, string, string, string, string, string, []string) (integrationqueue.Entry, error)
 	List(string, string) ([]integrationqueue.Entry, error)
 }
 
@@ -89,14 +89,14 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequest(store, proposalStore, repositories, credentials, activity, checkResults))
-	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/queue", enqueuePullRequest(store, repositories, credentials, checkResults, queue))
-	mux.HandleFunc("GET /repositories/{repository}/integration-queue/entries", listIntegrationQueueEntries(repositories, credentials, queue))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/queue", enqueuePullRequest(store, repositories, credentials, checkResults, checks, queue))
+	mux.HandleFunc("GET /repositories/{repository}/integration-queue/entries", listIntegrationQueueEntries(repositories, credentials, checkResults, queue))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/close", closePullRequest(store, repositories, credentials, activity))
 	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/maintainer-modification", setMaintainerModification(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/source-credential", issuePullRequestSourceCredential(store, repositories, credentials))
 }
 
-func enqueuePullRequest(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, checks readinessCheckStore, queue integrationQueueStore) http.HandlerFunc {
+func enqueuePullRequest(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, checkResults readinessCheckStore, starter checkRunStarter, queue integrationQueueStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -120,7 +120,7 @@ func enqueuePullRequest(store pullRequestStore, repositories pullRequestReposito
 			return
 		}
 		recorder := httptest.NewRecorder()
-		getPullRequestReadiness(store, repositories, credentials, checks).ServeHTTP(recorder, r)
+		getPullRequestReadiness(store, repositories, credentials, checkResults).ServeHTTP(recorder, r)
 		if recorder.Code != 200 {
 			for k, v := range recorder.Header() {
 				w.Header()[k] = v
@@ -134,7 +134,45 @@ func enqueuePullRequest(store pullRequestStore, repositories pullRequestReposito
 			writeJSON(w, 409, map[string]any{"error": "pull_request_not_ready", "readiness": readiness})
 			return
 		}
-		entry, err := queue.Enqueue(string(repository.ID), item.ID, item.TargetBranch, item.SourceCommitID, readiness.TargetBranch.CommitID, actor.UserID)
+		targetOpened, err := repositories.Open(repository.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		if item.SourceRepositoryID != item.RepositoryID {
+			if err := repositories.LinkObjects(storage.ID(item.SourceRepositoryID), repository.ID); err != nil {
+				writeJSON(w, 409, map[string]string{"error": "source_repository_unavailable"})
+				return
+			}
+		}
+		target := storage.ObjectID(readiness.TargetBranch.CommitID)
+		source := storage.ObjectID(item.SourceCommitID)
+		currentTarget, _, found := branchTip(targetOpened, item.TargetBranch)
+		if !found || currentTarget != target {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "target_branch_changed"})
+			return
+		}
+		mergeTree, err := materializeMergeTree(r.Context(), targetOpened, target, source)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		now := time.Now().UTC()
+		identityTime := fmt.Sprintf("%d +0000", now.Unix())
+		message := fmt.Sprintf("Integration candidate for %s\n\nPull-Request: %s\nSource-Repository: %s\nSource-Commit: %s\nTarget-Commit: %s\n", item.Title, item.ID, item.SourceRepositoryID, source, target)
+		content := fmt.Sprintf("tree %s\nparent %s\nparent %s\nauthor %s <%s@users.local> %s\ncommitter %s <%s@users.local> %s\n\n%s", mergeTree, target, source, item.AuthorID, item.AuthorID, identityTime, actor.UserID, actor.UserID, identityTime, message)
+		candidate, err := targetOpened.WriteObject(storage.CommitObject, []byte(content))
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		currentTarget, _, found = branchTip(targetOpened, item.TargetBranch)
+		if !found || currentTarget != target {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "target_branch_changed"})
+			return
+		}
+		required := append([]string(nil), repository.RequiredChecks[item.TargetBranch]...)
+		entry, err := queue.Enqueue(string(repository.ID), item.ID, item.TargetBranch, item.SourceCommitID, readiness.TargetBranch.CommitID, string(candidate), string(mergeTree), actor.UserID, required)
 		if errors.Is(err, integrationqueue.ErrConflict) {
 			writeJSON(w, 409, map[string]string{"error": "pull_request_already_queued"})
 			return
@@ -143,11 +181,14 @@ func enqueuePullRequest(store pullRequestStore, repositories pullRequestReposito
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
+		if starter != nil {
+			_ = starter.Start(string(repository.ID), string(repository.ID), item.ID, string(candidate))
+		}
 		w.Header().Set("Location", "/repositories/"+string(repository.ID)+"/integration-queue/entries")
-		writeJSON(w, 201, entry)
+		writeJSON(w, 201, queueEntryResponse(entry, nil))
 	}
 }
-func listIntegrationQueueEntries(repositories pullRequestRepositoryStore, credentials authStore, queue integrationQueueStore) http.HandlerFunc {
+func listIntegrationQueueEntries(repositories pullRequestRepositoryStore, credentials authStore, checks readinessCheckStore, queue integrationQueueStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, _, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
 		if !ok {
@@ -167,8 +208,54 @@ func listIntegrationQueueEntries(repositories pullRequestRepositoryStore, creden
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"items": items, "total_count": len(items), "branch": branch, "policy": integrationPolicyResponse(repository, branch)})
+		var runs []checkruns.Run
+		if checks != nil {
+			for _, entry := range items {
+				all, runErr := checks.List(string(repository.ID), entry.PullRequestID)
+				if runErr != nil {
+					writeJSON(w, 500, map[string]string{"error": "internal_error"})
+					return
+				}
+				runs = append(runs, all...)
+			}
+		}
+		responses := make([]integrationQueueEntryResponse, 0, len(items))
+		for _, entry := range items {
+			responses = append(responses, queueEntryResponse(entry, runs))
+		}
+		writeJSON(w, 200, map[string]any{"items": responses, "total_count": len(responses), "branch": branch, "policy": integrationPolicyResponse(repository, branch)})
 	}
+}
+
+type integrationQueueEntryResponse struct {
+	integrationqueue.Entry
+	Checks readinessChecks `json:"checks"`
+}
+
+func queueEntryResponse(entry integrationqueue.Entry, runs []checkruns.Run) integrationQueueEntryResponse {
+	matching := make([]checkruns.Run, 0)
+	for _, run := range runs {
+		if run.PullRequestID == entry.PullRequestID && run.CommitID == entry.CandidateCommitID {
+			matching = append(matching, run)
+		}
+	}
+	checks := evaluateRequiredChecks(entry.RequiredChecks, entry.CandidateCommitID, matching)
+	checks.TargetBranch = entry.TargetBranch
+	if runs == nil {
+		return integrationQueueEntryResponse{Entry: entry, Checks: checks}
+	}
+	state := "passed"
+	if !checks.Satisfied {
+		state = "blocked"
+		for _, requirement := range checks.Requirements {
+			if requirement.Status == "pending" {
+				state = "verifying"
+				break
+			}
+		}
+	}
+	entry.State = state
+	return integrationQueueEntryResponse{Entry: entry, Checks: checks}
 }
 
 type repositoryGitIssuer interface {
