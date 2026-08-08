@@ -3,6 +3,7 @@ package incidents
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -68,6 +69,49 @@ type Finding struct {
 	AuthorID    string    `json:"author_id"`
 	CreatedAt   time.Time `json:"created_at"`
 }
+type Revision struct {
+	RepositoryID string `json:"repository_id"`
+	CommitID     string `json:"commit_id"`
+}
+type OperationalAccess struct {
+	RepositoryID string     `json:"repository_id"`
+	Kind         string     `json:"kind"`
+	ResourceID   string     `json:"resource_id"`
+	StartAt      *time.Time `json:"start_at,omitempty"`
+	EndAt        *time.Time `json:"end_at,omitempty"`
+}
+type InvestigationRecord struct {
+	Sequence    int64     `json:"sequence"`
+	Type        string    `json:"type"`
+	ActorID     string    `json:"actor_id"`
+	Message     string    `json:"message"`
+	EvidenceIDs []string  `json:"evidence_ids,omitempty"`
+	Uncertainty string    `json:"uncertainty,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+type Investigation struct {
+	ID                  string                `json:"id"`
+	Agent               string                `json:"agent"`
+	Mandate             string                `json:"mandate"`
+	EvidenceIDs         []string              `json:"evidence_ids"`
+	Revisions           []Revision            `json:"revisions"`
+	OperationalAccess   []OperationalAccess   `json:"operational_access"`
+	Authority           []string              `json:"authority"`
+	State               string                `json:"state"`
+	InitiatedByID       string                `json:"initiated_by_id"`
+	Records             []InvestigationRecord `json:"records"`
+	CreatedAt           time.Time             `json:"created_at"`
+	UpdatedAt           time.Time             `json:"updated_at"`
+	CredentialExpiresAt time.Time             `json:"credential_expires_at"`
+	CredentialDigest    string                `json:"credential_digest,omitempty"`
+}
+type InvestigationInput struct {
+	ActorID           string
+	Agent, Mandate    string
+	EvidenceIDs       []string
+	Revisions         []Revision
+	OperationalAccess []OperationalAccess
+}
 type Event struct {
 	Sequence       int64                 `json:"sequence"`
 	Type           string                `json:"type"`
@@ -96,6 +140,7 @@ type Incident struct {
 	Acknowledgements []Acknowledgement     `json:"acknowledgements"`
 	Evidence         []Evidence            `json:"evidence"`
 	Findings         []Finding             `json:"findings"`
+	Investigations   []Investigation       `json:"investigations"`
 	Timeline         []Event               `json:"timeline"`
 	CreatedAt        time.Time             `json:"created_at"`
 	UpdatedAt        time.Time             `json:"updated_at"`
@@ -141,7 +186,7 @@ func (s *Store) Create(in CreateInput) (Incident, error) {
 		return Incident{}, err
 	}
 	now := s.now().UTC()
-	i := Incident{ID: id, RepositoryID: in.RepositoryID, Title: in.Title, Summary: in.Summary, Severity: in.Severity, Status: "declared", DeclaredByID: in.ActorID, Roles: copyRoles(in.Roles), Affected: copyAffected(in.Affected), SourceSignal: in.SourceSignal, Followers: []string{in.ActorID}, Acknowledgements: []Acknowledgement{}, Evidence: []Evidence{}, Findings: []Finding{}, Timeline: []Event{}, CreatedAt: now, UpdatedAt: now}
+	i := Incident{ID: id, RepositoryID: in.RepositoryID, Title: in.Title, Summary: in.Summary, Severity: in.Severity, Status: "declared", DeclaredByID: in.ActorID, Roles: copyRoles(in.Roles), Affected: copyAffected(in.Affected), SourceSignal: in.SourceSignal, Followers: []string{in.ActorID}, Acknowledgements: []Acknowledgement{}, Evidence: []Evidence{}, Findings: []Finding{}, Investigations: []Investigation{}, Timeline: []Event{}, CreatedAt: now, UpdatedAt: now}
 	i.append(Event{Type: "declared", ActorID: in.ActorID, Status: i.Status, Severity: i.Severity, Message: i.Summary, Roles: copyRoles(i.Roles), Affected: copyAffected(i.Affected), CreatedAt: now})
 	return i, s.write(i)
 }
@@ -374,6 +419,174 @@ func (s *Store) AddFinding(repositoryID, id, actor string, finding Finding) (Inc
 	i.append(Event{Type: "investigation." + finding.Kind, ActorID: actor, Audience: finding.Audience, Message: finding.Body, CreatedAt: finding.CreatedAt})
 	return i, s.write(i)
 }
+func (s *Store) StartInvestigation(repositoryID, id string, in InvestigationInput) (Incident, string, error) {
+	in.Agent, in.Mandate = strings.TrimSpace(in.Agent), strings.TrimSpace(in.Mandate)
+	if in.ActorID == "" || in.Agent == "" || len(in.Agent) > 100 || in.Mandate == "" || len(in.Mandate) > 10000 || len(in.EvidenceIDs) == 0 || len(in.Revisions) == 0 || len(in.OperationalAccess) == 0 {
+		return Incident{}, "", ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i, err := s.read(repositoryID, id)
+	if err != nil {
+		return i, "", err
+	}
+	if i.Status == "resolved" {
+		return i, "", ErrTransition
+	}
+	seen := map[string]bool{}
+	for _, e := range i.Evidence {
+		seen[e.ID] = true
+	}
+	for _, eid := range in.EvidenceIDs {
+		if !seen[eid] {
+			return i, "", ErrInvalid
+		}
+	}
+	for _, a := range in.OperationalAccess {
+		if a.RepositoryID == "" || a.ResourceID == "" || (a.Kind != "deployment_logs" && a.Kind != "health_signals") || (a.StartAt != nil && a.EndAt != nil && a.EndAt.Before(*a.StartAt)) {
+			return i, "", ErrInvalid
+		}
+	}
+	for _, rev := range in.Revisions {
+		if rev.RepositoryID == "" || rev.CommitID == "" {
+			return i, "", ErrInvalid
+		}
+	}
+	sid, err := newID()
+	if err != nil {
+		return i, "", err
+	}
+	token, err := newToken()
+	if err != nil {
+		return i, "", err
+	}
+	now := s.now().UTC()
+	investigation := Investigation{ID: sid, Agent: in.Agent, Mandate: in.Mandate, EvidenceIDs: append([]string{}, in.EvidenceIDs...), Revisions: append([]Revision{}, in.Revisions...), OperationalAccess: append([]OperationalAccess{}, in.OperationalAccess...), Authority: []string{"incident:read", "evidence:read", "deployment_logs:read", "health_signals:read"}, State: "running", InitiatedByID: in.ActorID, Records: []InvestigationRecord{}, CreatedAt: now, UpdatedAt: now, CredentialExpiresAt: now.Add(24 * time.Hour), CredentialDigest: digestToken(token)}
+	i.Investigations = append(i.Investigations, investigation)
+	i.UpdatedAt = now
+	i.append(Event{Type: "investigation.delegated", ActorID: in.ActorID, Audience: "participants", Message: in.Mandate, CreatedAt: now})
+	return i, token, s.write(i)
+}
+func (s *Store) InvestigationContext(token string) (Incident, Investigation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.findInvestigation(token)
+}
+func (s *Store) AddInvestigationRecord(token, typ, message, uncertainty string, evidenceIDs []string) (Incident, Investigation, error) {
+	typ, message, uncertainty = strings.ToLower(strings.TrimSpace(typ)), strings.TrimSpace(message), strings.TrimSpace(uncertainty)
+	if (typ != "finding" && typ != "tool" && typ != "question" && typ != "uncertainty") || message == "" || len(message) > 10000 || len(uncertainty) > 2000 {
+		return Incident{}, Investigation{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i, inv, err := s.findInvestigation(token)
+	if err != nil {
+		return i, inv, err
+	}
+	if inv.State != "running" {
+		return i, inv, ErrTransition
+	}
+	allowed := map[string]bool{}
+	for _, id := range inv.EvidenceIDs {
+		allowed[id] = true
+	}
+	for _, id := range evidenceIDs {
+		if !allowed[id] {
+			return i, inv, ErrInvalid
+		}
+	}
+	now := s.now().UTC()
+	rec := InvestigationRecord{Sequence: int64(len(inv.Records) + 1), Type: typ, ActorID: "agent:" + inv.Agent, Message: message, EvidenceIDs: append([]string{}, evidenceIDs...), Uncertainty: uncertainty, CreatedAt: now}
+	inv.Records = append(inv.Records, rec)
+	inv.UpdatedAt = now
+	for x := range i.Investigations {
+		if i.Investigations[x].ID == inv.ID {
+			i.Investigations[x] = inv
+		}
+	}
+	i.UpdatedAt = now
+	i.append(Event{Type: "agent." + typ, ActorID: rec.ActorID, Audience: "participants", Message: message, CreatedAt: now})
+	err = s.write(i)
+	return i, inv, err
+}
+func (s *Store) ControlInvestigation(repositoryID, id, session, actor, action, message string) (Incident, error) {
+	action, message = strings.ToLower(strings.TrimSpace(action)), strings.TrimSpace(message)
+	if actor == "" || (action != "guide" && action != "pause" && action != "resume" && action != "cancel") || (action == "guide" && message == "") {
+		return Incident{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i, err := s.read(repositoryID, id)
+	if err != nil {
+		return i, err
+	}
+	now := s.now().UTC()
+	for x := range i.Investigations {
+		inv := &i.Investigations[x]
+		if inv.ID != session {
+			continue
+		}
+		if inv.State == "cancelled" {
+			return i, ErrTransition
+		}
+		switch action {
+		case "pause":
+			if inv.State != "running" {
+				return i, ErrTransition
+			}
+			inv.State = "paused"
+		case "resume":
+			if inv.State != "paused" {
+				return i, ErrTransition
+			}
+			inv.State = "running"
+		case "cancel":
+			inv.State = "cancelled"
+			inv.CredentialDigest = ""
+		case "guide":
+		}
+		inv.Records = append(inv.Records, InvestigationRecord{Sequence: int64(len(inv.Records) + 1), Type: action, ActorID: actor, Message: message, CreatedAt: now})
+		inv.UpdatedAt = now
+		i.UpdatedAt = now
+		i.append(Event{Type: "investigation." + action, ActorID: actor, Audience: "participants", Message: message, CreatedAt: now})
+		return i, s.write(i)
+	}
+	return i, ErrNotFound
+}
+func (s *Store) findInvestigation(token string) (Incident, Investigation, error) {
+	d := digestToken(token)
+	entries, _ := os.ReadDir(s.root)
+	for _, repo := range entries {
+		if !repo.IsDir() {
+			continue
+		}
+		files, _ := os.ReadDir(filepath.Join(s.root, repo.Name()))
+		for _, f := range files {
+			if filepath.Ext(f.Name()) != ".json" {
+				continue
+			}
+			i, err := s.read(repo.Name(), strings.TrimSuffix(f.Name(), ".json"))
+			if err != nil {
+				continue
+			}
+			for _, inv := range i.Investigations {
+				if inv.CredentialDigest == d && d != "" {
+					if s.now().UTC().After(inv.CredentialExpiresAt) || inv.State == "cancelled" {
+						return i, inv, ErrTransition
+					}
+					return i, inv, nil
+				}
+			}
+		}
+	}
+	return Incident{}, Investigation{}, ErrNotFound
+}
+func newToken() (string, error) {
+	b := make([]byte, 32)
+	_, err := rand.Read(b)
+	return hex.EncodeToString(b), err
+}
+func digestToken(v string) string { sum := sha256.Sum256([]byte(v)); return hex.EncodeToString(sum[:]) }
 func (i *Incident) append(e Event) {
 	e.Sequence = int64(len(i.Timeline) + 1)
 	i.Timeline = append(i.Timeline, e)

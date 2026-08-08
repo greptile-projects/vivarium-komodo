@@ -124,6 +124,23 @@ acknowledgement state. Source creation is accepted only when the responder can
 read the source repository and the referenced record exists through its owning
 storage boundary.
 
+The declaring responder or a current incident role holder can delegate a
+bounded agent investigation. A session captures its mandate, selected incident
+evidence IDs, exact repository commits, and an allowlist of affected deployment
+log or health-signal resources. Its one-time 24-hour worker credential is
+recognized only by the investigation context, operational-read, and record
+publication endpoints; it is not an API, Git, deployment-control, environment,
+or secret-management credential. Operational reads return retained redacted
+deployment evidence and have no mutation counterpart.
+
+Agents append attributable findings, tool actions, questions, and explicit
+uncertainty to the durable session and participant incident timeline. Incident
+responders can add guidance and pause, resume, or cancel a session; paused
+sessions reject worker publication, while cancellation immediately invalidates
+the credential. The public incident representation omits delegated sessions,
+and persisted credential digests are never returned through incident or worker
+responses.
+
 ## Entrypoints
 
 - `apps/web` — Next.js frontend. Starts at `src/app/page.tsx`; routes are
