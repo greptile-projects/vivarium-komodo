@@ -376,6 +376,17 @@ whenever dependencies change or the web job fails before it starts.
   evidence-backed delegation, agent publication, required-check readiness,
   review, and merge, and proves that failed and successful attempt evidence
   remains available after publication.
+  Release candidates are durable immutable source definitions beneath
+  `$RELEASE_ROOT` (default `apps/api/data/releases`) owned by the
+  `releases.Store` boundary. Authenticated repository participants create one
+  from an exact verified commit, a repository-unique version, release notes,
+  and an optional prior release that must be its ancestor. The API derives and
+  snapshots merged pull requests in that history delta plus their linked
+  proposals, tasks, and stable contributor IDs; clients must not supply this
+  attribution. Reads follow repository visibility, while later build and
+  promotion workflows should evolve the candidate lifecycle without replacing
+  its captured source or inclusion definition. The web surface is the
+  shareable `view=releases&release={id}` repository tab.
   Meaningful collaboration transitions are appended through the
   `activities.Store` boundary beneath `$ACTIVITY_ROOT` (default
   `apps/api/data/activities`). Repository activity retains stable actor and
