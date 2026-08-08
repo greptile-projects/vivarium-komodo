@@ -479,6 +479,14 @@ func (s *Store) ListAccessible(userID string) ([]Repository, error) {
 	})
 }
 
+// ListPublic returns the discovery index without granting membership.
+func (s *Store) ListPublic(query string) ([]Repository, error) {
+	query = strings.ToLower(strings.TrimSpace(query))
+	return s.list(func(item Repository) bool {
+		return item.Visibility == Public && (query == "" || strings.Contains(strings.ToLower(item.Name+" "+item.Description), query))
+	})
+}
+
 func (s *Store) list(include func(Repository) bool) ([]Repository, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

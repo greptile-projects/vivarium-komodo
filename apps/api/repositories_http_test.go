@@ -110,6 +110,18 @@ func TestAuthenticatedOwnerCreatesDiscoversUsesAndRemovesRepository(t *testing.T
 	if updated["name"] != "renamed" || updated["visibility"] != "public" || updated["description"] != "Consumer-ready repository" {
 		t.Fatalf("partial update = %#v", updated)
 	}
+	response, err = http.Get(server.URL + "/repositories/public?q=consumer&per_page=30")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var discovered struct {
+		Items []map[string]any `json:"items"`
+		Total int              `json:"total_count"`
+	}
+	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&discovered) != nil || discovered.Total != 1 || discovered.Items[0]["id"] != id {
+		t.Fatalf("anonymous public discovery = %d %#v", response.StatusCode, discovered)
+	}
+	response.Body.Close()
 
 	request, _ = http.NewRequest(http.MethodGet, server.URL+"/repositories?page=1&per_page=1", nil)
 	request.AddCookie(session)
