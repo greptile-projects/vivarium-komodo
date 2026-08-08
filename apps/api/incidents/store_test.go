@@ -1,6 +1,9 @@
 package incidents
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestIncidentRetainsCoordinationTimelineAndAcknowledgements(t *testing.T) {
 	store, _ := New(t.TempDir())
@@ -19,6 +22,23 @@ func TestIncidentRetainsCoordinationTimelineAndAcknowledgements(t *testing.T) {
 	restored, _ := store.Get("repo", item.ID)
 	if restored.Timeline[2].Audience != "public" || restored.Timeline[2].ActorID != "bob" {
 		t.Fatalf("restored timeline = %#v", restored.Timeline)
+	}
+}
+
+func TestInvestigationConnectsFindingsToTimeBoundedEvidence(t *testing.T) {
+	store, _ := New(t.TempDir())
+	item, _ := store.Create(CreateInput{RepositoryID: "repo", ActorID: "alice", Title: "Degraded", Summary: "Impact", Severity: "high", Roles: map[string]string{"commander": "alice"}, Affected: []AffectedEnvironment{{RepositoryID: "repo"}}})
+	start, end := time.Now().Add(-time.Hour), time.Now()
+	item, err := store.AddEvidence("repo", item.ID, "alice", Evidence{Kind: "logs", RepositoryID: "repo", ResourceID: "deploy", StartAt: &start, EndAt: &end, Title: "Error-rate increase", Audience: "participants"})
+	if err != nil || len(item.Evidence) != 1 || item.Evidence[0].AttachedByID != "alice" {
+		t.Fatalf("evidence = %#v, %v", item.Evidence, err)
+	}
+	item, err = store.AddFinding("repo", item.ID, "bob", Finding{Kind: "hypothesis", Body: "The rollout exhausted connections.", Query: "rate(errors[5m])", EvidenceIDs: []string{item.Evidence[0].ID}, Audience: "public"})
+	if err != nil || len(item.Findings) != 1 || item.Findings[0].AuthorID != "bob" || len(item.Timeline) != 3 {
+		t.Fatalf("finding = %#v, %v", item, err)
+	}
+	if _, err = store.AddFinding("repo", item.ID, "bob", Finding{Kind: "conclusion", Body: "Unsupported", EvidenceIDs: []string{"missing"}, Audience: "public"}); err != ErrInvalid {
+		t.Fatalf("missing source = %v", err)
 	}
 }
 
