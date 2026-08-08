@@ -239,11 +239,42 @@ type Session struct {
 	InitiatorID    string        `json:"initiator_id"`
 	SourceCommitID string        `json:"source_commit_id"`
 	CheckFailure   *CheckFailure `json:"check_failure,omitempty"`
+	TaskContext    *TaskContext  `json:"task_context,omitempty"`
 	State          State         `json:"state"`
 	CreatedAt      time.Time     `json:"created_at"`
 	UpdatedAt      time.Time     `json:"updated_at"`
 	Events         []Event       `json:"events,omitempty"`
 	Runs           []Run         `json:"runs,omitempty"`
+}
+
+// TaskContext is the immutable shared intent captured when an assigned plan
+// task starts before a pull request exists.
+type TaskContext struct {
+	ProposalID          string            `json:"proposal_id"`
+	ProposalTitle       string            `json:"proposal_title"`
+	ProposalDescription string            `json:"proposal_description"`
+	TaskID              string            `json:"task_id"`
+	TaskTitle           string            `json:"task_title"`
+	TaskOutcome         string            `json:"task_outcome"`
+	Mandate             string            `json:"mandate"`
+	Dependencies        []TaskDependency  `json:"dependencies"`
+	Repository          RepositoryContext `json:"repository"`
+}
+
+type TaskDependency struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Outcome string `json:"outcome"`
+	Status  string `json:"status"`
+}
+
+type RepositoryContext struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	DefaultBranch string `json:"default_branch"`
+	BaseRevision  string `json:"base_revision"`
+	WorkingBranch string `json:"working_branch"`
 }
 
 // CheckFailure is an immutable evidence snapshot used to start an informed
@@ -364,7 +395,15 @@ func (s *Store) Create(repositoryID, pullRequestID, initiatorID, sourceCommitID 
 	return s.CreateWithCheckFailure(repositoryID, pullRequestID, initiatorID, sourceCommitID, nil)
 }
 
+func (s *Store) CreateForTask(repositoryID, scopeID, initiatorID, sourceCommitID string, context TaskContext) (Session, error) {
+	return s.create(repositoryID, scopeID, initiatorID, sourceCommitID, nil, &context)
+}
+
 func (s *Store) CreateWithCheckFailure(repositoryID, pullRequestID, initiatorID, sourceCommitID string, failure *CheckFailure) (Session, error) {
+	return s.create(repositoryID, pullRequestID, initiatorID, sourceCommitID, failure, nil)
+}
+
+func (s *Store) create(repositoryID, pullRequestID, initiatorID, sourceCommitID string, failure *CheckFailure, taskContext *TaskContext) (Session, error) {
 	if repositoryID == "" || pullRequestID == "" || initiatorID == "" || sourceCommitID == "" {
 		return Session{}, ErrInvalid
 	}
@@ -384,7 +423,12 @@ func (s *Store) CreateWithCheckFailure(repositoryID, pullRequestID, initiatorID,
 		metadata["check_run_id"] = failure.RunID
 		metadata["check_name"] = failure.Name
 	}
-	item := Session{ID: id, RepositoryID: repositoryID, PullRequestID: pullRequestID, InitiatorID: initiatorID, SourceCommitID: sourceCommitID, CheckFailure: failure, State: AwaitingInstructions, CreatedAt: now, UpdatedAt: now, Events: []Event{{ID: eventID, Type: "session.started", ActorID: initiatorID, Metadata: metadata, CreatedAt: now}}}
+	if taskContext != nil {
+		metadata["proposal_id"] = taskContext.ProposalID
+		metadata["task_id"] = taskContext.TaskID
+		metadata["working_branch"] = taskContext.Repository.WorkingBranch
+	}
+	item := Session{ID: id, RepositoryID: repositoryID, PullRequestID: pullRequestID, InitiatorID: initiatorID, SourceCommitID: sourceCommitID, CheckFailure: failure, TaskContext: taskContext, State: AwaitingInstructions, CreatedAt: now, UpdatedAt: now, Events: []Event{{ID: eventID, Type: "session.started", ActorID: initiatorID, Metadata: metadata, CreatedAt: now}}}
 	if err := s.write(item); err != nil {
 		return Session{}, err
 	}

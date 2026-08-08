@@ -24,6 +24,7 @@ type proposalStore interface {
 	UpdateTask(string, string, string, string, proposals.TaskInput) (proposals.Task, error)
 	AssignTask(string, string, string, string, string, proposals.AssignmentInput) (proposals.Task, error)
 	RevokeTaskAssignment(string, string, string, string, string) (proposals.Task, error)
+	StartAssignedTask(string, string, string, string, string, string, string) (proposals.Task, error)
 }
 
 type proposalRepositoryStore interface {

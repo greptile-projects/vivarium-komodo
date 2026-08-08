@@ -67,6 +67,44 @@ type TaskAssignment struct {
 	CredentialIssued bool         `json:"credential_issued"`
 	AssignedByID     string       `json:"assigned_by_id"`
 	AssignedAt       time.Time    `json:"assigned_at"`
+	SessionID        string       `json:"session_id,omitempty"`
+	WorkingBranch    string       `json:"working_branch,omitempty"`
+	StartedAt        *time.Time   `json:"started_at,omitempty"`
+}
+
+func (s *Store) StartAssignedTask(repositoryID, proposalID, taskID, actorID, expectedAssignmentID, sessionID, workingBranch string) (Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tasks, err := s.readTasks(repositoryID, proposalID)
+	if err != nil {
+		return Task{}, err
+	}
+	index := taskIndex(tasks, taskID)
+	if index < 0 {
+		return Task{}, ErrNotFound
+	}
+	current := tasks[index]
+	if current.Assignment == nil || current.Assignment.ID != expectedAssignmentID {
+		return Task{}, ErrAssignmentConflict
+	}
+	if current.Assignment.Kind != AgentAssignee || current.Assignment.SessionID != "" || sessionID == "" || workingBranch == "" {
+		return Task{}, ErrTaskAssigned
+	}
+	now := s.now().UTC()
+	current.Assignment.CredentialIssued = true
+	current.Assignment.SessionID = sessionID
+	current.Assignment.WorkingBranch = workingBranch
+	current.Assignment.StartedAt = &now
+	current.Status, current.Ready = TaskInProgress, false
+	current.UpdatedByID, current.UpdatedAt = actorID, now
+	tasks[index] = current
+	if err := s.writeTasks(repositoryID, proposalID, tasks); err != nil {
+		return Task{}, err
+	}
+	if err := s.appendPlanEvent(repositoryID, proposalID, actorID, "task.started", current); err != nil {
+		return Task{}, err
+	}
+	return current, nil
 }
 
 type AssignmentInput struct {
@@ -272,6 +310,9 @@ func (s *Store) RevokeTaskAssignment(repositoryID, proposalID, taskID, actorID, 
 	current := tasks[index]
 	if current.Assignment == nil || expectedAssignmentID == "" || current.Assignment.ID != expectedAssignmentID {
 		return Task{}, ErrAssignmentConflict
+	}
+	if current.Assignment.SessionID != "" {
+		return Task{}, ErrTaskAssigned
 	}
 	revokedSnapshot := current
 	current.Assignment = nil
