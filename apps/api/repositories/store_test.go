@@ -53,6 +53,18 @@ func TestOwnedRepositoryLifecycle(t *testing.T) {
 	if !slices.Equal(reopened.RequiredChecks["main"], []string{"lint", "test"}) {
 		t.Fatalf("reopened required checks = %#v", reopened.RequiredChecks)
 	}
+	queuePolicy := IntegrationQueuePolicy{Enabled: true, Concurrency: 2, FailureBehavior: "remove"}
+	protected, err = store.SetIntegrationQueue("owner-one", first.ID, "main", queuePolicy)
+	if err != nil || protected.IntegrationQueue["main"] != queuePolicy {
+		t.Fatalf("integration policy = %#v, %v", protected.IntegrationQueue, err)
+	}
+	if _, err := store.SetIntegrationQueue("owner-one", first.ID, "main", IntegrationQueuePolicy{Enabled: true, Concurrency: 0, FailureBehavior: "pause"}); !errors.Is(err, ErrInvalidRepository) {
+		t.Fatalf("invalid queue policy error = %v", err)
+	}
+	reopened, _ = store.Inspect(first.ID)
+	if reopened.IntegrationQueue["main"] != queuePolicy {
+		t.Fatalf("reopened integration policy = %#v", reopened.IntegrationQueue)
+	}
 
 	items, err := store.List("owner-one")
 	if err != nil {

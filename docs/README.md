@@ -124,6 +124,22 @@ explains branch, approval, change-request, conflict, and permission blockers.
 Only an authorized owner sees the final merge control, and it remains disabled
 until the API reports the request ready.
 
+Owners can protect an individual target branch with an integration queue from
+the same readiness surface. `GET` and `PUT
+/repositories/{id}/integration-queue?branch=...` expose and configure whether
+the queue is required, its bounded concurrency, its pause-or-remove failure
+behavior, and the branch's existing required checks and owner-approval rule.
+Once protected, direct merge returns `integration_queue_required`. An owner can
+admit a currently ready request with `POST
+/repositories/{id}/pull-requests/{pull}/queue`; the durable entry captures its
+exact reviewed source revision, current target revision, actor, and ordered
+position. `GET /repositories/{id}/integration-queue/entries?branch=...` is
+repository-policy readable and returns both ordered admissions and their
+governing policy. Queue data lives beneath `$INTEGRATION_QUEUE_ROOT`, defaulting
+to `apps/api/data/integration-queue`. Candidate construction and automatic
+advancement are deliberately later workflow stages; admission continues to use
+the existing review, conflict, permission, and exact required-check rules.
+
 Pull request navigation uses the repository route with `view=pulls`. The
 `pull` query parameter identifies the durable request and `section` preserves
 the overview, commits, files, or discussion view in a shareable URL. Browser

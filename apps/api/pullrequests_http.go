@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"compress/zlib"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +20,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/integrationqueue"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -51,11 +54,16 @@ type checkRunStarter interface {
 type readinessCheckStore interface {
 	List(string, string) ([]checkruns.Run, error)
 }
+type integrationQueueStore interface {
+	Enqueue(string, string, string, string, string, string) (integrationqueue.Entry, error)
+	List(string, string) ([]integrationqueue.Entry, error)
+}
 
 func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, extras ...any) {
 	var activity activityStore
 	var checks checkRunStarter
 	var checkResults readinessCheckStore
+	var queue integrationQueueStore
 	for _, extra := range extras {
 		switch value := extra.(type) {
 		case activityStore:
@@ -64,6 +72,8 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 			checks = value
 		case readinessCheckStore:
 			checkResults = value
+		case integrationQueueStore:
+			queue = value
 		}
 	}
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests", createPullRequest(store, proposalStore, repositories, credentials, activity, checks))
@@ -79,9 +89,86 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequest(store, proposalStore, repositories, credentials, activity, checkResults))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/queue", enqueuePullRequest(store, repositories, credentials, checkResults, queue))
+	mux.HandleFunc("GET /repositories/{repository}/integration-queue/entries", listIntegrationQueueEntries(repositories, credentials, queue))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/close", closePullRequest(store, repositories, credentials, activity))
 	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/maintainer-modification", setMaintainerModification(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/source-credential", issuePullRequestSourceCredential(store, repositories, credentials))
+}
+
+func enqueuePullRequest(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, checks readinessCheckStore, queue integrationQueueStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if actor.UserID != repository.OwnerID {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		item, ok := readPullRequest(w, store, string(repository.ID), r.PathValue("pull_request"))
+		if !ok {
+			return
+		}
+		policy, protected := repository.IntegrationQueue[item.TargetBranch]
+		if !protected || !policy.Enabled {
+			writeJSON(w, 409, map[string]string{"error": "integration_queue_not_required"})
+			return
+		}
+		if queue == nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		recorder := httptest.NewRecorder()
+		getPullRequestReadiness(store, repositories, credentials, checks).ServeHTTP(recorder, r)
+		if recorder.Code != 200 {
+			for k, v := range recorder.Header() {
+				w.Header()[k] = v
+			}
+			w.WriteHeader(recorder.Code)
+			_, _ = w.Write(recorder.Body.Bytes())
+			return
+		}
+		var readiness readinessResponse
+		if json.Unmarshal(recorder.Body.Bytes(), &readiness) != nil || !readiness.Ready {
+			writeJSON(w, 409, map[string]any{"error": "pull_request_not_ready", "readiness": readiness})
+			return
+		}
+		entry, err := queue.Enqueue(string(repository.ID), item.ID, item.TargetBranch, item.SourceCommitID, readiness.TargetBranch.CommitID, actor.UserID)
+		if errors.Is(err, integrationqueue.ErrConflict) {
+			writeJSON(w, 409, map[string]string{"error": "pull_request_already_queued"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		w.Header().Set("Location", "/repositories/"+string(repository.ID)+"/integration-queue/entries")
+		writeJSON(w, 201, entry)
+	}
+}
+func listIntegrationQueueEntries(repositories pullRequestRepositoryStore, credentials authStore, queue integrationQueueStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, _, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		branch := strings.TrimSpace(r.URL.Query().Get("branch"))
+		if branch == "" {
+			writeJSON(w, 422, map[string]string{"error": "branch_required"})
+			return
+		}
+		if queue == nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		items, err := queue.List(string(repository.ID), branch)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"items": items, "total_count": len(items), "branch": branch, "policy": integrationPolicyResponse(repository, branch)})
+	}
 }
 
 type repositoryGitIssuer interface {
@@ -483,6 +570,10 @@ func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repos
 		}
 		item, ok := readPullRequest(w, store, string(repository.ID), r.PathValue("pull_request"))
 		if !ok {
+			return
+		}
+		if policy, protected := repository.IntegrationQueue[item.TargetBranch]; protected && policy.Enabled {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "integration_queue_required"})
 			return
 		}
 		if item.Status != pullrequests.Open {

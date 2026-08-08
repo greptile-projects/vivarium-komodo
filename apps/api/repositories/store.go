@@ -37,17 +37,50 @@ const (
 )
 
 type Repository struct {
-	ID              storage.ID          `json:"id"`
-	OwnerID         string              `json:"owner_id"`
-	Name            string              `json:"name"`
-	Description     string              `json:"description"`
-	Visibility      Visibility          `json:"visibility"`
-	Empty           bool                `json:"empty"`
-	CreatedAt       time.Time           `json:"created_at"`
-	UpdatedAt       time.Time           `json:"updated_at"`
-	CollaboratorIDs []string            `json:"collaborator_ids,omitempty"`
-	RequiredChecks  map[string][]string `json:"required_checks,omitempty"`
-	UpstreamID      storage.ID          `json:"upstream_repository_id,omitempty"`
+	ID               storage.ID                        `json:"id"`
+	OwnerID          string                            `json:"owner_id"`
+	Name             string                            `json:"name"`
+	Description      string                            `json:"description"`
+	Visibility       Visibility                        `json:"visibility"`
+	Empty            bool                              `json:"empty"`
+	CreatedAt        time.Time                         `json:"created_at"`
+	UpdatedAt        time.Time                         `json:"updated_at"`
+	CollaboratorIDs  []string                          `json:"collaborator_ids,omitempty"`
+	RequiredChecks   map[string][]string               `json:"required_checks,omitempty"`
+	IntegrationQueue map[string]IntegrationQueuePolicy `json:"integration_queue,omitempty"`
+	UpstreamID       storage.ID                        `json:"upstream_repository_id,omitempty"`
+}
+
+type IntegrationQueuePolicy struct {
+	Enabled         bool   `json:"enabled"`
+	Concurrency     int    `json:"concurrency"`
+	FailureBehavior string `json:"failure_behavior"`
+}
+
+func (s *Store) SetIntegrationQueue(ownerID string, id storage.ID, branch string, policy IntegrationQueuePolicy) (Repository, error) {
+	branch = strings.TrimSpace(branch)
+	if branch == "" || strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, "/") || strings.Contains(branch, "..") || strings.ContainsAny(branch, " ~^:?*[\\") || policy.Concurrency < 1 || policy.Concurrency > 10 || (policy.FailureBehavior != "pause" && policy.FailureBehavior != "remove") {
+		return Repository{}, ErrInvalidRepository
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(id)
+	if err != nil || item.OwnerID != ownerID {
+		return Repository{}, ErrNotFound
+	}
+	if item.IntegrationQueue == nil {
+		item.IntegrationQueue = map[string]IntegrationQueuePolicy{}
+	}
+	if !policy.Enabled {
+		delete(item.IntegrationQueue, branch)
+	} else {
+		item.IntegrationQueue[branch] = policy
+	}
+	item.UpdatedAt = s.now().UTC()
+	if err := s.write(item); err != nil {
+		return Repository{}, err
+	}
+	return item, nil
 }
 
 func (s *Store) SetRequiredChecks(ownerID string, id storage.ID, branch string, checks []string) (Repository, error) {

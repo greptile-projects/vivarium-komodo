@@ -293,6 +293,9 @@ type PullRequestReadiness = {
   };
   blockers: { code: string; message: string }[];
 };
+type IntegrationQueuePolicy = { branch: string; enabled: boolean; concurrency: number; failure_behavior: "pause" | "remove"; required_checks: string[] | null; required_owner_approvals: number };
+type IntegrationQueueEntry = { id: string; pull_request_id: string; source_commit_id: string; target_commit_id: string; position: number; state: "queued"; created_at: string };
+type IntegrationQueueEntries = { items: IntegrationQueueEntry[]; total_count: number; policy: IntegrationQueuePolicy };
 type UserRecord = { id: string; handle: string; display_name: string };
 type Collaborator = {
   user_id: string;
@@ -1938,6 +1941,8 @@ function PullRequestDetail({
   const [sessions, setSessions] = useState<ChangeSession[]>([]);
   const [checks, setChecks] = useState<CheckRun[]>([]);
   const [readiness, setReadiness] = useState<PullRequestReadiness>();
+  const [queuePolicy, setQueuePolicy] = useState<IntegrationQueuePolicy>();
+  const [queueEntries, setQueueEntries] = useState<IntegrationQueueEntry[]>([]);
   const [proposal, setProposal] = useState<Proposal>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1956,7 +1961,7 @@ function PullRequestDetail({
         sessionData,
         checkData,
         readyData,
-        linked,
+        linked, policy, queue,
       ] = await Promise.all([
         get<PullRequestCommitList>(
           `/repositories/${repository}/pull-requests/${id}/commits?per_page=100`,
@@ -1984,6 +1989,8 @@ function PullRequestDetail({
               `/repositories/${repository}/proposals/${pull.proposal_id}`,
             ).catch(() => undefined)
           : Promise.resolve(undefined),
+        get<IntegrationQueuePolicy>(`/repositories/${repository}/integration-queue?branch=${encodeURIComponent(pull.target_branch)}`),
+        get<IntegrationQueueEntries>(`/repositories/${repository}/integration-queue/entries?branch=${encodeURIComponent(pull.target_branch)}`),
       ]);
       setItem(pull);
       setCommits(commitData.items);
@@ -1994,6 +2001,8 @@ function PullRequestDetail({
       setChecks(checkData.items);
       setReadiness(readyData);
       setProposal(linked);
+      setQueuePolicy(policy);
+      setQueueEntries(queue.items);
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Pull request unavailable.",
@@ -2097,6 +2106,8 @@ function PullRequestDetail({
           actor={actor}
           reviews={reviews}
           readiness={readiness}
+          queuePolicy={queuePolicy}
+          queueEntries={queueEntries}
           onChanged={() => void load()}
         />
       )}
@@ -2932,6 +2943,8 @@ function ReviewWorkflow({
   actor,
   reviews,
   readiness,
+  queuePolicy,
+  queueEntries,
   onChanged,
 }: {
   repository: string;
@@ -2939,6 +2952,8 @@ function ReviewWorkflow({
   actor: string;
   reviews: PullRequestReview[];
   readiness: PullRequestReadiness;
+  queuePolicy?: IntegrationQueuePolicy;
+  queueEntries: IntegrationQueueEntry[];
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState("");
@@ -2948,6 +2963,9 @@ function ReviewWorkflow({
     readiness.source_branch.exists &&
     !readiness.source_branch.matches_pull_request;
   const blockers = readiness.blockers;
+  const queued = queueEntries.find((entry) => entry.pull_request_id === pull.id);
+  const [concurrency, setConcurrency] = useState(queuePolicy?.concurrency ?? 1);
+  const [failureBehavior, setFailureBehavior] = useState<"pause" | "remove">(queuePolicy?.failure_behavior ?? "pause");
   async function act(
     name: string,
     path: string,
@@ -3150,7 +3168,12 @@ function ReviewWorkflow({
             {busy === "sync" ? "Synchronizing…" : "Synchronize updated work"}
           </Button>
         )}
-        {pull.status === "open" && readiness.can_merge && (
+        {pull.status === "open" && readiness.can_merge && queuePolicy?.enabled && (
+          <Button size="sm" disabled={!readiness.ready || Boolean(busy) || Boolean(queued)} onClick={() => void act("queue", `/repositories/${repository}/pull-requests/${pull.id}/queue`, "POST", {})}>
+            {busy === "queue" ? "Adding…" : queued ? `Queued #${queued.position}` : "Add to integration queue"}
+          </Button>
+        )}
+        {pull.status === "open" && readiness.can_merge && !queuePolicy?.enabled && (
           <Button
             size="sm"
             disabled={!readiness.ready || Boolean(busy)}
@@ -3172,6 +3195,13 @@ function ReviewWorkflow({
           </Button>
         )}
       </div>
+      {readiness.can_merge && pull.status === "open" && <section className="queue-policy">
+        <div><strong>Integration policy for <code>{pull.target_branch}</code></strong><small>Admission still requires the current maintainer approval, no change requests or conflicts, and {queuePolicy?.required_checks?.length ?? 0} required checks.</small></div>
+        <label><input type="checkbox" checked={queuePolicy?.enabled ?? false} onChange={(event) => void act("policy", `/repositories/${repository}/integration-queue`, "PUT", {branch: pull.target_branch, enabled: event.target.checked, concurrency, failure_behavior: failureBehavior})}/> Require queue</label>
+        <label>Concurrency <select value={concurrency} onChange={(event) => setConcurrency(Number(event.target.value))}>{Array.from({length: 10}, (_, index) => index + 1).map((value) => <option key={value}>{value}</option>)}</select></label>
+        <label>On failure <select value={failureBehavior} onChange={(event) => setFailureBehavior(event.target.value as "pause" | "remove")}><option value="pause">Pause queue</option><option value="remove">Remove failed item</option></select></label>
+        {queuePolicy?.enabled && <Button variant="secondary" size="sm" disabled={Boolean(busy)} onClick={() => void act("policy", `/repositories/${repository}/integration-queue`, "PUT", {branch: pull.target_branch, enabled: true, concurrency, failure_behavior: failureBehavior})}>{busy === "policy" ? "Saving…" : "Save queue policy"}</Button>}
+      </section>}
       {!actor && pull.status === "open" && (
         <p className="review-note">
           Sign in as a repository participant to leave a review decision.
