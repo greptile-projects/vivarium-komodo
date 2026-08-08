@@ -77,6 +77,15 @@ environment secrets nor API deployment authority. Publication therefore
 returns through pull-request synchronization, required checks, review,
 integration, a new release, and governed promotion.
 
+Agent publication leaves the recovery pull request as a draft until its author
+explicitly calls the pull request's `POST .../request-review` resource. The
+transition does not change the represented source commit, so the published
+revision, check evidence, and deployment-failure context remain continuous as
+ordinary review begins. `release_delivery_workflow_test.go` exercises the
+complete public merge-to-release path, a health-signal failure, known-good
+rollback, evidence-backed agent repair, maintainer review, and corrected
+promotion.
+
 ## Entrypoints
 
 - `apps/web` — Next.js frontend. Starts at `src/app/page.tsx`; routes are

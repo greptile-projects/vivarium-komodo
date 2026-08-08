@@ -419,7 +419,13 @@ whenever dependencies change or the web job fails before it starts.
   snapshots only redacted deployment evidence into its change session, and
   issues an ordinary 24-hour branch credential. It receives no environment
   credentials or deployment authority; publication must proceed through
-  checks, review, integration, and a separately defined release.
+  checks, review, integration, and a separately defined release. After agent
+  publication synchronizes that draft to the pushed revision, its author must
+  explicitly request review through the pull request's `/request-review`
+  action; this preserves the exact snapshot while removing the draft blocker.
+  `release_delivery_workflow_test.go` is the black-box regression boundary for
+  the complete merge-to-recovery loop, including governed rollback and a
+  reviewed agent repair delivered as a corrected release.
   Meaningful collaboration transitions are appended through the
   `activities.Store` boundary beneath `$ACTIVITY_ROOT` (default
   `apps/api/data/activities`). Repository activity retains stable actor and

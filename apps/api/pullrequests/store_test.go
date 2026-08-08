@@ -53,6 +53,18 @@ func TestOpenPullRequestSynchronizesPublishedSource(t *testing.T) {
 	}
 }
 
+func TestDraftCanRequestReviewWithoutChangingSnapshot(t *testing.T) {
+	store, _ := New(t.TempDir())
+	created, _ := store.Create(CreateParams{RepositoryID: "repository", AuthorID: "author", Title: "Repair", SourceBranch: "repair", TargetBranch: "main", SourceCommitID: "source", TargetCommitID: "target", Draft: true})
+	updated, err := store.RequestReview("repository", created.ID)
+	if err != nil || updated.Draft || updated.SourceCommitID != created.SourceCommitID || !updated.UpdatedAt.After(created.UpdatedAt) {
+		t.Fatalf("requested review = %#v, %v", updated, err)
+	}
+	if _, err := store.RequestReview("repository", created.ID); err != ErrInvalid {
+		t.Fatalf("second review request error = %v", err)
+	}
+}
+
 func TestAuthorPolicyAndCloseAreDurable(t *testing.T) {
 	store, _ := New(t.TempDir())
 	item, _ := store.Create(CreateParams{RepositoryID: "target", SourceRepositoryID: "fork", AuthorID: "author", Title: "Change", SourceBranch: "topic", TargetBranch: "main", SourceCommitID: "source", TargetCommitID: "target"})

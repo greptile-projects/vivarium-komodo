@@ -205,6 +205,26 @@ func (s *Store) SynchronizeSource(repositoryID, id, commitID string) (PullReques
 	return item, nil
 }
 
+// RequestReview moves an open draft into the ordinary review workflow. The
+// represented commit is unchanged; checks and reviews continue to bind to it.
+func (s *Store) RequestReview(repositoryID, id string) (PullRequest, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(repositoryID, id)
+	if err != nil {
+		return PullRequest{}, err
+	}
+	if item.Status != Open || !item.Draft {
+		return PullRequest{}, ErrInvalid
+	}
+	item.Draft = false
+	item.UpdatedAt = s.now().UTC()
+	if err := s.write(item); err != nil {
+		return PullRequest{}, err
+	}
+	return item, nil
+}
+
 func (s *Store) SetMaintainerCanModify(repositoryID, id string, allowed bool) (PullRequest, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
