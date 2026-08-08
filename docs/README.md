@@ -393,6 +393,26 @@ disclosed; anonymous private reads receive `401`. The `id`, canonical API path, 
 be resolved against the API origin and used immediately with a Git access
 token.
 
+Readable repositories can also seed independently owned forks. `POST
+/repositories/{upstream}/forks` accepts optional `name`, `description`, and
+`visibility` fields, defaults the name and description from upstream and the
+visibility to private, and returns the ordinary repository resource with
+`upstream_repository_id` and `upstream_api_url` lineage fields. The caller
+needs `repository:write` and must be able to read the upstream repository; no
+upstream write or contributor role is granted. The fork has its own Git remote,
+owner policy, references, branches, and lifecycle.
+
+Fork creation and later synchronization share immutable object files through
+filesystem hard links managed by `storage.Store`. This preserves one physical
+copy of identical Git objects while making either repository safe to delete;
+reference files are never shared. A fork owner synchronizes a named branch with
+`POST /repositories/{fork}/sync` and `{ "branch": "main" }`. The API links any
+new upstream objects before fast-forwarding the identically named fork branch,
+returns the before/after commits and whether it changed, and rejects missing
+upstream branches or diverged fork history without rewriting independent work.
+The web repository header exposes fork creation, lineage inspection, and the
+same selected-branch synchronization action.
+
 Collection endpoints (`GET /repositories` and `GET /access-grants`) return an
 envelope containing `items`, `page`, `per_page`, and `total_count`. They accept
 positive `page` and `per_page` query parameters, default to 1 and 30, and cap

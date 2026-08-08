@@ -31,6 +31,8 @@ type Info struct {
 // RepositoryStore is the lifecycle boundary implemented by Store.
 type RepositoryStore interface {
 	Create() (*Repository, error)
+	Fork(ID) (*Repository, error)
+	LinkObjects(ID, ID) error
 	Open(ID) (*Repository, error)
 	Delete(ID) error
 }
@@ -128,6 +130,127 @@ func (s *Store) Create() (*Repository, error) {
 	}
 
 	return &Repository{id: id, gitDir: gitDir}, nil
+}
+
+// Fork creates an independent repository whose initial immutable object files
+// share filesystem storage with source through hard links. References are
+// copied into the new repository, while later reference changes remain fully
+// independent. A source deletion cannot remove objects still linked by a fork.
+func (s *Store) Fork(sourceID ID) (*Repository, error) {
+	source, err := s.Open(sourceID)
+	if err != nil {
+		return nil, err
+	}
+	target, err := s.Create()
+	if err != nil {
+		return nil, err
+	}
+	failed := true
+	defer func() {
+		if failed {
+			_ = s.Delete(target.ID())
+		}
+	}()
+	if err := s.linkObjects(source, target); err != nil {
+		return nil, err
+	}
+	if err := copyReferenceFiles(source, target); err != nil {
+		return nil, err
+	}
+	failed = false
+	return target, nil
+}
+
+// LinkObjects makes every immutable object file currently published by source
+// available in target without copying its bytes. It is idempotent and is used
+// before advancing a fork reference during upstream synchronization.
+func (s *Store) LinkObjects(sourceID, targetID ID) error {
+	source, err := s.Open(sourceID)
+	if err != nil {
+		return err
+	}
+	target, err := s.Open(targetID)
+	if err != nil {
+		return err
+	}
+	return s.linkObjects(source, target)
+}
+
+func (s *Store) linkObjects(source, target *Repository) error {
+	sourceRoot := filepath.Join(source.gitDir, "objects")
+	targetRoot := filepath.Join(target.gitDir, "objects")
+	return filepath.WalkDir(sourceRoot, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(sourceRoot, path)
+		if err != nil || relative == "." {
+			return err
+		}
+		destination := filepath.Join(targetRoot, relative)
+		if entry.IsDir() {
+			return os.MkdirAll(destination, 0o750)
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		parts := strings.Split(filepath.ToSlash(relative), "/")
+		looseObject := len(parts) == 2 && validHexComponent(parts[0], 2) && validHexComponent(parts[1], 38)
+		packObject := len(parts) == 2 && parts[0] == "pack" && strings.HasPrefix(parts[1], "pack-")
+		if !looseObject && !packObject {
+			return nil
+		}
+		if err := os.Link(path, destination); err != nil && !errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("link repository object %s: %w", relative, err)
+		}
+		return nil
+	})
+}
+
+func copyReferenceFiles(source, target *Repository) error {
+	if err := os.RemoveAll(filepath.Join(target.gitDir, "refs")); err != nil {
+		return err
+	}
+	if err := copyFileTree(filepath.Join(source.gitDir, "refs"), filepath.Join(target.gitDir, "refs")); err != nil {
+		return err
+	}
+	for _, name := range []string{"HEAD", "packed-refs"} {
+		contents, err := os.ReadFile(filepath.Join(source.gitDir, name))
+		if errors.Is(err, fs.ErrNotExist) && name == "packed-refs" {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(target.gitDir, name), contents, 0o640); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func copyFileTree(sourceRoot, targetRoot string) error {
+	return filepath.WalkDir(sourceRoot, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(sourceRoot, path)
+		if err != nil {
+			return err
+		}
+		destination := filepath.Join(targetRoot, relative)
+		if entry.IsDir() {
+			return os.MkdirAll(destination, 0o750)
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(destination, contents, 0o640)
+	})
 }
 
 // Open returns a handle to an existing, valid repository.

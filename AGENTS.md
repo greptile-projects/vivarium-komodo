@@ -166,6 +166,14 @@ whenever dependencies change or the web job fails before it starts.
   publish non-default candidate branches, but cannot update the default branch
   or exercise metadata, visibility, deletion, or access-management powers.
   Authenticated non-participants receive `404` for denied repository access.
+  A user may fork any repository they can read without gaining authority over
+  it. Fork catalog records retain their immediate upstream repository ID while
+  ownership, visibility, collaborators, references, and Git write policy remain
+  independent. Storage creates and synchronizes forks by hard-linking immutable
+  object files, never by sharing mutable references or copying object bytes;
+  deletion of either repository must leave the other valid. Fork branch sync is
+  owner-only and fast-forward-only from the identically named upstream branch,
+  so diverged independent work is never overwritten.
   The default repository collection remains owner-only; the
   `affiliation=all` collection returns the actor's owned and contributed
   repositories for durable workspace discovery, not public search.

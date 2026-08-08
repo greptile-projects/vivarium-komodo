@@ -33,6 +33,8 @@ type Repository = {
   empty: boolean;
   git_url: string;
   updated_at: string;
+  upstream_repository_id?: string;
+  upstream_api_url?: string;
 };
 type BranchRecord = { name: string; commit_id: string; is_default: boolean };
 type Branches = { items: BranchRecord[]; default_branch: string };
@@ -339,6 +341,12 @@ async function send<T>(
                   ? "Resolve the listed blockers before merging."
                   : result.error === "source_branch_unavailable"
                     ? "The candidate branch is no longer available."
+                    : result.error === "name_taken"
+                      ? "You already have a repository with that name."
+                      : result.error === "fork_branch_diverged"
+                        ? "This branch contains independent work and cannot be fast-forwarded. Merge upstream in a local clone instead."
+                        : result.error === "upstream_branch_not_found"
+                          ? "The upstream repository does not publish this branch."
                     : "This action is not available to your account.",
     );
   }
@@ -415,6 +423,7 @@ export default function RepositoryPage({
             ? "people"
             : "code";
   const [repository, setRepository] = useState<Repository>();
+  const [upstream, setUpstream] = useState<Repository>();
   const [branches, setBranches] = useState<Branches>();
   const [tree, setTree] = useState<Tree>();
   const [blob, setBlob] = useState<Blob>();
@@ -422,6 +431,9 @@ export default function RepositoryPage({
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [actor, setActor] = useState("");
+  const [showFork, setShowFork] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [actionError, setActionError] = useState("");
   const ref = revision || branches?.default_branch || "";
 
   const load = useCallback(async () => {
@@ -440,6 +452,7 @@ export default function RepositoryPage({
       ]);
       setActor(currentActor);
       setRepository(repo);
+      setUpstream(repo.upstream_repository_id ? await get<Repository>(`/repositories/${repo.upstream_repository_id}`).catch(() => undefined) : undefined);
       setBranches(branchData);
       const selected = revision || branchData.default_branch;
       if (
@@ -524,6 +537,19 @@ export default function RepositoryPage({
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   }
+  async function synchronize() {
+    if (!ref) return;
+    setSyncing(true);
+    setActionError("");
+    try {
+      await send(`/repositories/${id}/sync`, "POST", { branch: ref });
+      await load();
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : "Could not synchronize this branch.");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   if (error)
     return (
@@ -566,14 +592,20 @@ export default function RepositoryPage({
             </p>
           </div>
         </div>
-        <div className="clone-control">
-          <code>{clone}</code>
-          <Button variant="secondary" size="sm" onClick={copyClone}>
-            {copied ? <Check size={14} /> : <Copy size={14} />}{" "}
-            {copied ? "Copied" : "Clone"}
-          </Button>
+        <div className="repository-actions">
+          <div className="clone-control">
+            <code>{clone}</code>
+            <Button variant="secondary" size="sm" onClick={copyClone}>
+              {copied ? <Check size={14} /> : <Copy size={14} />}{" "}
+              {copied ? "Copied" : "Clone"}
+            </Button>
+          </div>
+          {actor && actor !== repository.owner_id && <Button size="sm" onClick={() => setShowFork(true)}><Branch size={14}/>Fork</Button>}
         </div>
       </header>
+      {repository.upstream_repository_id && <div className="fork-lineage panel"><Branch size={15}/><span>Forked from <Link href={`/repositories/${repository.upstream_repository_id}`}>{upstream?.name ?? short(repository.upstream_repository_id)}</Link></span>{actor === repository.owner_id && ref && <Button variant="secondary" size="sm" disabled={syncing} onClick={() => void synchronize()}>{syncing ? "Synchronizing…" : `Sync ${ref}`}</Button>}</div>}
+      {showFork && <ForkRepository repository={repository} close={() => setShowFork(false)} created={(fork) => router.push(`/repositories/${fork.id}`)}/>}
+      {actionError && <p className="form-error fork-action-error" role="alert">{actionError}</p>}
       <nav className="repository-tabs" aria-label="Repository">
         <button
           className={view === "code" ? "active" : ""}
@@ -689,6 +721,24 @@ export default function RepositoryPage({
       )}
     </RepositoryFrame>
   );
+}
+
+function ForkRepository({ repository, close, created }: { repository: Repository; close: () => void; created: (fork: Repository) => void }) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    setError("");
+    const data = new FormData(event.currentTarget);
+    try {
+      created(await send<Repository>(`/repositories/${repository.id}/forks`, "POST", { name: data.get("name"), visibility: data.get("visibility") }));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not create this fork.");
+      setPending(false);
+    }
+  }
+  return <section className="fork-panel panel" aria-labelledby="fork-title"><div><span className="repo-icon"><Branch/></span><div><h2 id="fork-title">Fork {repository.name}</h2><p>Create an independently owned copy for experiments and contributions.</p></div></div><form className="repository-form" onSubmit={submit}><label>Fork name<input name="name" required pattern="[a-z0-9._-]+" maxLength={100} defaultValue={repository.name}/></label><label>Visibility<select name="visibility" defaultValue="private"><option value="private">Private</option><option value="public">Public</option></select></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="form-actions"><Button type="button" variant="secondary" onClick={close}>Cancel</Button><Button type="submit" disabled={pending}>{pending ? "Forking…" : "Create fork"}</Button></div></form></section>;
 }
 
 function RepositoryFrame({ children }: { children: React.ReactNode }) {
