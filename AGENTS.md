@@ -446,6 +446,18 @@ whenever dependencies change or the web job fails before it starts.
   owning store and repository policy; anonymous public reads must redact all
   participant-only evidence, findings, timeline entries, follower state, and
   acknowledgements rather than exposing responder context.
+  The declaring actor or an assigned incident role holder may start a bounded
+  delegated investigation with selected incident evidence IDs, exact verified
+  repository commits, a mandate, and allowlisted affected deployment-log or
+  health-signal reads. Its 24-hour credential is an incident-worker credential,
+  not a general API or Git grant: accept it only on the investigation context,
+  operational-read, and progress-record resources, never on deployment
+  controls, environment or secret management, repository writes, or Git.
+  Agent findings, tool actions, questions, and uncertainty append to the
+  participant timeline with agent attribution. Responders may guide, pause,
+  resume, or cancel; paused publication is rejected and cancellation revokes
+  the credential. Never expose the persisted credential digest, and keep
+  delegated sessions out of anonymous public incident views.
   Meaningful collaboration transitions are appended through the
   `activities.Store` boundary beneath `$ACTIVITY_ROOT` (default
   `apps/api/data/activities`). Repository activity retains stable actor and

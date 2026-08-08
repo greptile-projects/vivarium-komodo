@@ -20,6 +20,10 @@ type incidentStore interface {
 	Acknowledge(string, string, string, int64) (incidents.Incident, error)
 	AddEvidence(string, string, string, incidents.Evidence) (incidents.Incident, error)
 	AddFinding(string, string, string, incidents.Finding) (incidents.Incident, error)
+	StartInvestigation(string, string, incidents.InvestigationInput) (incidents.Incident, string, error)
+	InvestigationContext(string) (incidents.Incident, incidents.Investigation, error)
+	AddInvestigationRecord(string, string, string, string, []string) (incidents.Incident, incidents.Investigation, error)
+	ControlInvestigation(string, string, string, string, string, string) (incidents.Incident, error)
 }
 
 func registerIncidentsHTTP(mux *http.ServeMux, store incidentStore, deployments deploymentStore, releases releaseStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) {
@@ -33,6 +37,11 @@ func registerIncidentsHTTP(mux *http.ServeMux, store incidentStore, deployments 
 	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/acknowledgements", acknowledgeIncident(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/evidence", addIncidentEvidence(store, deployments, releases, pulls, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/findings", addIncidentFinding(store, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/investigations", startIncidentInvestigation(store, deployments, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/investigations/{session}/control", controlIncidentInvestigation(store, repositories, credentials))
+	mux.HandleFunc("GET /incident-investigations/context", incidentInvestigationContext(store))
+	mux.HandleFunc("GET /incident-investigations/operational/{resource}", incidentInvestigationOperational(store, deployments))
+	mux.HandleFunc("POST /incident-investigations/records", addIncidentInvestigationRecord(store))
 }
 func incidentAccess(w http.ResponseWriter, r *http.Request, repositories pullRequestRepositoryStore, credentials authStore, write bool) (string, string, bool) {
 	scope := auth.RepositoryRead
@@ -129,6 +138,213 @@ func addIncidentFinding(store incidentStore, repositories pullRequestRepositoryS
 		writeIncidentResult(w, item, err, 201)
 	}
 }
+func startIncidentInvestigation(store incidentStore, deployments deploymentStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := incidentAccess(w, r, repositories, credentials, true)
+		if !ok {
+			return
+		}
+		current, err := store.Get(repo, r.PathValue("incident"))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if !incidentResponder(current, actor) {
+			writeJSON(w, 403, map[string]string{"error": "responder_required"})
+			return
+		}
+		var in struct {
+			Agent             string                        `json:"agent"`
+			Mandate           string                        `json:"mandate"`
+			EvidenceIDs       []string                      `json:"evidence_ids"`
+			Revisions         []incidents.Revision          `json:"revisions"`
+			OperationalAccess []incidents.OperationalAccess `json:"operational_access"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		for _, rev := range in.Revisions {
+			if !incidentAffected(current, rev.RepositoryID) {
+				writeJSON(w, 422, map[string]string{"error": "invalid_revision"})
+				return
+			}
+			repository, er := repositories.Open(storage.ID(rev.RepositoryID))
+			if er != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_revision"})
+				return
+			}
+			if _, er = repository.ReadCommit(storage.ObjectID(rev.CommitID)); er != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_revision"})
+				return
+			}
+		}
+		for _, access := range in.OperationalAccess {
+			if _, er := deployments.GetDeployment(access.RepositoryID, access.ResourceID); er != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_operational_access"})
+				return
+			}
+			if !incidentAffected(current, access.RepositoryID) {
+				writeJSON(w, 422, map[string]string{"error": "invalid_operational_access"})
+				return
+			}
+		}
+		item, token, er := store.StartInvestigation(repo, current.ID, incidents.InvestigationInput{ActorID: actor, Agent: in.Agent, Mandate: in.Mandate, EvidenceIDs: in.EvidenceIDs, Revisions: in.Revisions, OperationalAccess: in.OperationalAccess})
+		if er != nil {
+			writeIncidentResult(w, item, er, 201)
+			return
+		}
+		scrubInvestigationCredentials(&item)
+		writeJSON(w, 201, map[string]any{"incident": item, "worker_credential": token, "credential_notice": "shown once; read-only incident investigation access; no deployment, secret, repository-write, or Git authority"})
+	}
+}
+func controlIncidentInvestigation(store incidentStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := incidentAccess(w, r, repositories, credentials, true)
+		if !ok {
+			return
+		}
+		current, err := store.Get(repo, r.PathValue("incident"))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if !incidentResponder(current, actor) {
+			writeJSON(w, 403, map[string]string{"error": "responder_required"})
+			return
+		}
+		var in struct {
+			Action  string `json:"action"`
+			Message string `json:"message"`
+		}
+		if !readJSON(w, r, &in, 70<<10) {
+			return
+		}
+		item, err := store.ControlInvestigation(repo, current.ID, r.PathValue("session"), actor, in.Action, in.Message)
+		writeIncidentResult(w, item, err, 200)
+	}
+}
+func incidentInvestigationContext(store incidentStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := investigationBearer(r)
+		if token == "" {
+			writeJSON(w, 401, map[string]string{"error": "invalid_worker_credential"})
+			return
+		}
+		item, inv, err := store.InvestigationContext(token)
+		if err != nil {
+			writeJSON(w, 401, map[string]string{"error": "invalid_worker_credential"})
+			return
+		}
+		selected := []incidents.Evidence{}
+		allowed := map[string]bool{}
+		for _, id := range inv.EvidenceIDs {
+			allowed[id] = true
+		}
+		for _, e := range item.Evidence {
+			if allowed[e.ID] {
+				selected = append(selected, e)
+			}
+		}
+		inv.CredentialDigest = ""
+		writeJSON(w, 200, map[string]any{"incident": map[string]any{"id": item.ID, "repository_id": item.RepositoryID, "title": item.Title, "summary": item.Summary, "severity": item.Severity, "status": item.Status}, "investigation": inv, "evidence": selected})
+	}
+}
+func incidentInvestigationOperational(store incidentStore, deployments deploymentStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := investigationBearer(r)
+		if token == "" {
+			writeJSON(w, 401, map[string]string{"error": "invalid_worker_credential"})
+			return
+		}
+		_, inv, err := store.InvestigationContext(token)
+		if err != nil {
+			writeJSON(w, 401, map[string]string{"error": "invalid_worker_credential"})
+			return
+		}
+		if inv.State != "running" {
+			writeJSON(w, 409, map[string]string{"error": "investigation_not_running"})
+			return
+		}
+		var allowed *incidents.OperationalAccess
+		for x := range inv.OperationalAccess {
+			if inv.OperationalAccess[x].ResourceID == r.PathValue("resource") {
+				allowed = &inv.OperationalAccess[x]
+				break
+			}
+		}
+		if allowed == nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		deployment, err := deployments.GetDeployment(allowed.RepositoryID, allowed.ResourceID)
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		// Deployment resources contain redacted execution evidence and identifiers,
+		// never environment secret values. The worker route deliberately has no
+		// mutation counterpart.
+		writeJSON(w, 200, map[string]any{"access": allowed, "deployment": deployment})
+	}
+}
+func addIncidentInvestigationRecord(store incidentStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := investigationBearer(r)
+		if token == "" {
+			writeJSON(w, 401, map[string]string{"error": "invalid_worker_credential"})
+			return
+		}
+		var in struct {
+			Type        string   `json:"type"`
+			Message     string   `json:"message"`
+			Uncertainty string   `json:"uncertainty"`
+			EvidenceIDs []string `json:"evidence_ids"`
+		}
+		if !readJSON(w, r, &in, 70<<10) {
+			return
+		}
+		_, inv, err := store.AddInvestigationRecord(token, in.Type, in.Message, in.Uncertainty, in.EvidenceIDs)
+		inv.CredentialDigest = ""
+		switch {
+		case errors.Is(err, incidents.ErrNotFound):
+			writeJSON(w, 401, map[string]string{"error": "invalid_worker_credential"})
+		case errors.Is(err, incidents.ErrTransition):
+			writeJSON(w, 409, map[string]string{"error": "investigation_not_running"})
+		case errors.Is(err, incidents.ErrInvalid):
+			writeJSON(w, 422, map[string]string{"error": "invalid_record"})
+		case err != nil:
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+		default:
+			writeJSON(w, 201, inv)
+		}
+	}
+}
+func investigationBearer(r *http.Request) string {
+	v := strings.TrimSpace(r.Header.Get("Authorization"))
+	if len(v) > 7 && strings.EqualFold(v[:7], "Bearer ") {
+		return strings.TrimSpace(v[7:])
+	}
+	return ""
+}
+func incidentResponder(i incidents.Incident, actor string) bool {
+	if i.DeclaredByID == actor {
+		return true
+	}
+	for _, id := range i.Roles {
+		if id == actor {
+			return true
+		}
+	}
+	return false
+}
+func incidentAffected(i incidents.Incident, repo string) bool {
+	for _, a := range i.Affected {
+		if a.RepositoryID == repo {
+			return true
+		}
+	}
+	return false
+}
 func validateEvidenceSource(e incidents.Evidence, actor string, deployments deploymentStore, releases releaseStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, incidentStore incidentStore) bool {
 	repository, err := repositories.Inspect(storage.ID(e.RepositoryID))
 	if err != nil {
@@ -190,6 +406,7 @@ func incidentParticipant(repositories pullRequestRepositoryStore, repositoryID, 
 	return ok
 }
 func visibleIncident(i incidents.Incident, participant bool) incidents.Incident {
+	scrubInvestigationCredentials(&i)
 	if participant {
 		return i
 	}
@@ -207,6 +424,7 @@ func visibleIncident(i incidents.Incident, participant bool) incidents.Incident 
 		}
 	}
 	i.Findings = findings
+	i.Investigations = nil
 	timeline := i.Timeline[:0]
 	for _, item := range i.Timeline {
 		if item.Audience == "" || item.Audience == "public" {
@@ -217,6 +435,11 @@ func visibleIncident(i incidents.Incident, participant bool) incidents.Incident 
 	i.Followers = nil
 	i.Acknowledgements = nil
 	return i
+}
+func scrubInvestigationCredentials(i *incidents.Incident) {
+	for x := range i.Investigations {
+		i.Investigations[x].CredentialDigest = ""
+	}
 }
 func createIncident(store incidentStore, deploymentStore deploymentStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -323,6 +546,7 @@ func acknowledgeIncident(store incidentStore, repositories pullRequestRepository
 	}
 }
 func writeIncidentResult(w http.ResponseWriter, item incidents.Incident, err error, status int) {
+	scrubInvestigationCredentials(&item)
 	switch {
 	case errors.Is(err, incidents.ErrNotFound):
 		writeJSON(w, 404, map[string]string{"error": "not_found"})
