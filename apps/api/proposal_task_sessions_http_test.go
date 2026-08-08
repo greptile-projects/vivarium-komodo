@@ -10,6 +10,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
@@ -19,6 +20,7 @@ func TestAgentAssignedTaskStartsBeforePullRequest(t *testing.T) {
 	catalog, _ := repositories.New(t.TempDir(), gitStorage)
 	plans, _ := proposals.New(t.TempDir())
 	sessions, _ := changesessions.New(t.TempDir())
+	pulls, _ := pullrequests.New(t.TempDir())
 	credentials, _ := auth.New(t.TempDir())
 	repository, _ := catalog.Create("owner", repositories.Metadata{Name: "planned-work", Description: "Shared repository context", Visibility: repositories.Private})
 	opened, _ := catalog.Open(repository.ID)
@@ -32,7 +34,8 @@ func TestAgentAssignedTaskStartsBeforePullRequest(t *testing.T) {
 	task, _ = plans.AssignTask(string(repository.ID), proposal.ID, task.ID, "owner", "", proposals.AssignmentInput{Kind: proposals.AgentAssignee, AssigneeID: "codex", Mandate: "Implement only the agreed onboarding flow.", RepositoryID: string(repository.ID), BaseRevision: string(base)})
 	token := issueAccess(t, credentials, "owner", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	mux := http.NewServeMux()
-	registerProposalTaskSessionsHTTP(mux, plans, sessions, catalog, credentials, nil)
+	registerProposalTaskSessionsHTTP(mux, plans, sessions, catalog, credentials, nil, pulls)
+	registerPullRequestsHTTP(mux, pulls, plans, catalog, credentials)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	baseURL := server.URL + "/repositories/" + string(repository.ID) + "/proposals/" + proposal.ID + "/plan/tasks/" + task.ID + "/change-sessions"
@@ -107,5 +110,37 @@ func TestAgentAssignedTaskStartsBeforePullRequest(t *testing.T) {
 	response.Body.Close()
 	if response.StatusCode != http.StatusConflict {
 		t.Fatalf("duplicate start = %d", response.StatusCode)
+	}
+
+	change, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(tree)+"\nparent "+string(base)+"\nauthor Agent <agent@example.test> 2 +0000\ncommitter Agent <agent@example.test> 2 +0000\n\nimplement flow\n"))
+	_ = opened.UpdateReference(storage.Reference{Name: storage.ReferenceName(started.Credential.Branch), ObjectID: change})
+	publishURL := server.URL + "/repositories/" + string(repository.ID) + "/proposals/" + proposal.ID + "/plan/tasks/" + task.ID + "/contributions"
+	publishBody := `{"expected_assignment_id":"` + task.Assignment.ID + `","session_id":"` + started.Session.ID + `","title":"Implement onboarding flow","body":"Execution evidence is linked from the task session.","target_branch":"main"}`
+	request, _ = http.NewRequest(http.MethodPost, publishURL, strings.NewReader(publishBody))
+	request.Header.Set("Authorization", "Bearer "+started.Credential.Token)
+	response, _ = http.DefaultClient.Do(request)
+	var publication struct {
+		Task        proposals.Task           `json:"task"`
+		PullRequest pullrequests.PullRequest `json:"pull_request"`
+	}
+	_ = json.NewDecoder(response.Body).Decode(&publication)
+	response.Body.Close()
+	if response.StatusCode != http.StatusCreated || publication.Task.Status != proposals.TaskReview || publication.PullRequest.TaskID != task.ID || publication.PullRequest.ChangeSessionID != started.Session.ID || publication.PullRequest.SourceCommitID != string(change) || publication.PullRequest.ProposalID != proposal.ID {
+		t.Fatalf("publication = %#v status %d", publication, response.StatusCode)
+	}
+	linkedSession, _ := sessions.Get(string(repository.ID), taskSessionScope(task.ID), started.Session.ID)
+	if linkedSession.ContributionPullRequestID != publication.PullRequest.ID {
+		t.Fatalf("session backlink = %#v", linkedSession)
+	}
+	if _, err := credentials.Authenticate(started.Credential.Token, auth.GitWrite); err == nil {
+		t.Fatal("published worker credential remains usable")
+	}
+	request, _ = http.NewRequest(http.MethodPost, server.URL+"/repositories/"+string(repository.ID)+"/pull-requests/"+publication.PullRequest.ID+"/close", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, _ = http.DefaultClient.Do(request)
+	response.Body.Close()
+	plan, _ := plans.GetPlan(string(repository.ID), proposal.ID)
+	if response.StatusCode != http.StatusOK || plan.Tasks[1].Status != proposals.TaskClosed || plan.Tasks[1].Contributions[0].Status != proposals.ContributionClosed {
+		t.Fatalf("closed task contribution = %#v status %d", plan.Tasks[1], response.StatusCode)
 	}
 }

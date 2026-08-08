@@ -95,7 +95,7 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/queue", enqueuePullRequest(store, repositories, credentials, activity, checkResults, checks, queue))
 	mux.HandleFunc("GET /repositories/{repository}/integration-queue/entries", listIntegrationQueueEntries(repositories, credentials, checkResults, queue))
 	mux.HandleFunc("PATCH /repositories/{repository}/integration-queue/entries/{entry}", operateIntegrationQueueEntry(repositories, credentials, activity, checks, queue))
-	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/close", closePullRequest(store, repositories, credentials, activity))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/close", closePullRequest(store, proposalStore, repositories, credentials, activity))
 	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/maintainer-modification", setMaintainerModification(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/source-credential", issuePullRequestSourceCredential(store, repositories, credentials))
 }
@@ -429,7 +429,7 @@ func issuePullRequestSourceCredential(store pullRequestStore, repositories pullR
 	}
 }
 
-func closePullRequest(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
+func closePullRequest(store pullRequestStore, proposalsStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -456,6 +456,9 @@ func closePullRequest(store pullRequestStore, repositories pullRequestRepository
 			_ = issuer.RevokeRepositoryGit(item.SourceRepositoryID, "refs/heads/"+item.SourceBranch, "pull request "+item.ID)
 		}
 		_ = recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "pull_request.closed", Resource: activities.Resource{Type: "pull_request", ID: item.ID}})
+		if item.ProposalID != "" && item.TaskID != "" && proposalsStore != nil {
+			_, _ = proposalsStore.UpdateTaskContribution(item.RepositoryID, item.ProposalID, item.TaskID, item.ID, actor.UserID, proposals.ContributionClosed)
+		}
 		writeJSON(w, 200, closed)
 	}
 }
@@ -594,6 +597,9 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 		}
 		if item.Status != pullrequests.Open {
 			addBlocker("pull_request_not_open", "The pull request is not open.")
+		}
+		if item.Draft {
+			addBlocker("pull_request_draft", "The task contribution is still a draft.")
 		}
 		if !response.SourceBranch.Exists {
 			addBlocker("source_branch_missing", "The source branch no longer exists.")
@@ -830,6 +836,12 @@ func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repos
 		if item.ProposalID != "" {
 			message += "\nProposal: " + item.ProposalID
 		}
+		if item.TaskID != "" {
+			message += "\nProposal-Task: " + item.TaskID
+		}
+		if item.ChangeSessionID != "" {
+			message += "\nChange-Session: " + item.ChangeSessionID
+		}
 		identityTime := fmt.Sprintf("%d +0000", now.Unix())
 		commitContent := fmt.Sprintf("tree %s\nparent %s\nparent %s\nauthor %s <%s@users.local> %s\ncommitter %s <%s@users.local> %s\n\n%s\n", mergeTree, target, source, item.AuthorID, item.AuthorID, identityTime, actor.UserID, actor.UserID, identityTime, message)
 		mergeCommit, err := opened.WriteObject(storage.CommitObject, []byte(commitContent))
@@ -861,7 +873,9 @@ func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repos
 			return
 		}
 		if item.ProposalID != "" {
-			if _, err := proposalStore.Close(string(repository.ID), item.ProposalID, actor.UserID); err != nil {
+			if item.TaskID != "" {
+				_, _ = proposalStore.UpdateTaskContribution(item.RepositoryID, item.ProposalID, item.TaskID, item.ID, actor.UserID, proposals.ContributionMerged)
+			} else if _, err := proposalStore.Close(string(repository.ID), item.ProposalID, actor.UserID); err != nil {
 				writeJSON(w, 500, map[string]string{"error": "internal_error"})
 				return
 			}

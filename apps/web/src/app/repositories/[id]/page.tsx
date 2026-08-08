@@ -105,7 +105,7 @@ type ProposalTask = {
   title: string;
   outcome: string;
   position: number;
-  status: "planned" | "in_progress" | "completed" | "canceled";
+  status: "planned" | "in_progress" | "completed" | "canceled" | "draft" | "review" | "merged" | "closed" | "superseded";
   depends_on: string[];
   discussion_comment_ids: string[];
   created_by_id: string;
@@ -124,7 +124,18 @@ type ProposalTask = {
     credential_issued: boolean;
     assigned_by_id: string;
     assigned_at: string;
+    session_id?: string;
+    working_branch?: string;
   };
+  contributions?: Array<{
+    pull_request_id: string;
+    session_id?: string;
+    source_commit_id: string;
+    target_commit_id: string;
+    status: "draft" | "review" | "merged" | "closed" | "superseded";
+    published_by_id: string;
+    published_at: string;
+  }>;
 };
 type ProposalPlanEvent = {
   id: string;
@@ -1740,6 +1751,7 @@ function ProposalPlanView({
   const [editing, setEditing] = useState<string>();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [assigning, setAssigning] = useState<string>();
+  const [publishing, setPublishing] = useState<string>();
   const [error, setError] = useState("");
   const completed = plan.tasks.filter((task) => task.status === "completed").length;
   async function update(task: ProposalTask, changes: Partial<ProposalTask>) {
@@ -1806,14 +1818,17 @@ function ProposalPlanView({
               {task.discussion_comment_ids.length > 0 && <small><MessageCircle size={11} /> Linked to {task.discussion_comment_ids.length} discussion {task.discussion_comment_ids.length === 1 ? "decision" : "decisions"}</small>}
               <small>Last changed by <Actor id={task.updated_by_id} /> · {new Date(task.updated_at).toLocaleString()}</small>
               {task.assignment && <div className="task-assignment"><strong>{task.assignment.kind === "agent" ? task.assignment.assignee_id : <Actor id={task.assignment.assignee_id} />} owns this task</strong><span>{task.assignment.mandate}</span><small>Base <code>{short(task.assignment.base_revision)}</code> in this repository · {task.assignment.permissions.join(" + ")} · no credential issued</small><small>Assigned by <Actor id={task.assignment.assigned_by_id} /> · {new Date(task.assignment.assigned_at).toLocaleString()}</small></div>}
+              {task.contributions?.map((contribution) => <div className="task-assignment" key={contribution.pull_request_id}><strong><Link href={`/repositories/${repository}?view=pulls&pull=${contribution.pull_request_id}`}>Pull request {short(contribution.pull_request_id)}</Link> · {contribution.status}</strong><span>Exact candidate <code>{short(contribution.source_commit_id)}</code>{contribution.session_id ? " with linked execution evidence" : ""}</span><small>Published by <Actor id={contribution.published_by_id} /> · {new Date(contribution.published_at).toLocaleString()}</small></div>)}
               {assigning === task.id && <TaskAssignmentForm task={task} repository={assignmentRepository} branches={branches} actor={actor} onCancel={() => setAssigning(undefined)} onAssigned={() => { setAssigning(undefined); onChanged(); }} />}
+              {publishing === task.id && <TaskContributionForm task={task} repository={repository} branches={branches} onCancel={() => setPublishing(undefined)} onPublished={() => { setPublishing(undefined); onChanged(); }} />}
             </div>
             {canEdit && <div className="task-actions">
               {task.ready && <button aria-label={`${task.assignment ? "Reassign" : "Assign"} ${task.title}`} onClick={() => setAssigning(assigning === task.id ? undefined : task.id)}><User size={13} /></button>}
+              {task.assignment?.kind === "human" && task.assignment.assignee_id === actor && <button aria-label={`Publish ${task.title} for review`} onClick={() => setPublishing(publishing === task.id ? undefined : task.id)}><GitPullRequest size={13} /></button>}
               {task.assignment && <button aria-label={`Revoke assignment for ${task.title}`} onClick={async () => { try { await send(`/repositories/${repository}/proposals/${proposal}/plan/tasks/${task.id}/assignment?expected_assignment_id=${task.assignment?.id}`, "DELETE"); onChanged(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to revoke assignment."); } }}><Trash size={13} /></button>}
-              <select aria-label={`Status for ${task.title}`} value={task.status} onChange={(event) => void update(task, {status: event.target.value as ProposalTask["status"]})}>
+              {!["draft", "review", "merged", "closed", "superseded"].includes(task.status) && <select aria-label={`Status for ${task.title}`} value={task.status} onChange={(event) => void update(task, {status: event.target.value as ProposalTask["status"]})}>
                 <option value="planned">Planned</option><option value="in_progress">In progress</option><option value="completed">Completed</option><option value="canceled">Canceled</option>
-              </select>
+              </select>}
               <button aria-label={`Edit ${task.title}`} onClick={() => setEditing(task.id)}><Edit size={13} /></button>
               <button aria-label={`Move ${task.title} up`} disabled={task.position === 1} onClick={() => void update(task, {position: task.position - 1})}>↑</button>
               <button aria-label={`Move ${task.title} down`} disabled={task.position === plan.tasks.length} onClick={() => void update(task, {position: task.position + 1})}>↓</button>
@@ -1825,6 +1840,23 @@ function ProposalPlanView({
       {historyOpen && <div className="plan-history panel"><h4>Plan history</h4>{[...plan.history].reverse().map((event) => <div key={event.id}><span className="avatar sm"><User size={12} /></span><p><strong><Actor id={event.actor_id} /></strong> {event.action.replace("task.", "").replaceAll("_", " ")} <b>{event.task.title}</b><small>{event.task.status.replace("_", " ")} · {new Date(event.created_at).toLocaleString()}</small></p></div>)}</div>}
     </section>
   );
+}
+
+function TaskContributionForm({ task, repository, branches, onCancel, onPublished }: { task: ProposalTask; repository: string; branches: BranchRecord[]; onCancel: () => void; onPublished: () => void }) {
+  const defaultBranch = branches.find((branch) => branch.is_default)?.name ?? "main";
+  const candidates = branches.filter((branch) => branch.name !== defaultBranch);
+  const [source, setSource] = useState(task.assignment?.working_branch ?? candidates[0]?.name ?? "");
+  const [title, setTitle] = useState(task.title);
+  const [body, setBody] = useState(`Delivers proposal task: ${task.outcome}`);
+  const [draft, setDraft] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return <form className="assignment-form" onSubmit={async (event) => { event.preventDefault(); setBusy(true); setError(""); try { await send(`/repositories/${repository}/proposals/${task.proposal_id}/plan/tasks/${task.id}/contributions`, "POST", { expected_assignment_id: task.assignment?.id, source_branch: source, target_branch: defaultBranch, title, body, draft }); onPublished(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to publish task work."); setBusy(false); } }}>
+    <div><label>Candidate branch<select required value={source} onChange={(event) => setSource(event.target.value)}>{candidates.map((branch) => <option key={branch.name} value={branch.name}>{branch.name} · {short(branch.commit_id)}</option>)}</select></label><label>Pull request title<input required maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} /></label></div>
+    <label>Review context<textarea maxLength={65536} value={body} onChange={(event) => setBody(event.target.value)} /></label>
+    <label><input type="checkbox" checked={draft} onChange={(event) => setDraft(event.target.checked)} /> Publish as draft</label>
+    {error && <p className="form-error" role="alert">{error}</p>}<div className="form-actions"><Button type="button" variant="secondary" size="sm" onClick={onCancel}>Cancel</Button><Button type="submit" size="sm" disabled={busy || !source}>{busy ? "Publishing…" : draft ? "Publish draft" : "Request review"}</Button></div>
+  </form>;
 }
 
 function TaskForm({ task, tasks, comments, submit, onCancel, onSubmit }: { task?: ProposalTask; tasks: ProposalTask[]; comments: ProposalComment[]; submit: string; onCancel: () => void; onSubmit: (input: Record<string, unknown>) => Promise<void> }) {
