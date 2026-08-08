@@ -161,6 +161,7 @@ type PullRequest = {
   target_branch: string;
   source_commit_id: string;
   target_commit_id: string;
+  draft: boolean;
   status: "open" | "merged";
   created_at: string;
   updated_at: string;
@@ -3557,6 +3558,15 @@ function ReviewWorkflow({
       </div>
       {error && <p className="form-error">{error}</p>}
       <div className="review-actions">
+        {pull.status === "open" && pull.draft && actor === pull.author_id && (
+          <Button
+            size="sm"
+            disabled={Boolean(busy)}
+            onClick={() => void act("request-review", `/repositories/${repository}/pull-requests/${pull.id}/request-review`, "POST", {})}
+          >
+            {busy === "request-review" ? "Requesting…" : "Request review"}
+          </Button>
+        )}
         {pull.status === "open" && actor && (
           <>
             <Button

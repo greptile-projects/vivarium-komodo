@@ -31,6 +31,7 @@ type pullRequestStore interface {
 	Get(string, string) (pullrequests.PullRequest, error)
 	List(string) ([]pullrequests.PullRequest, error)
 	SynchronizeSource(string, string, string) (pullrequests.PullRequest, error)
+	RequestReview(string, string) (pullrequests.PullRequest, error)
 	AddComment(string, string, string, string) (pullrequests.Comment, error)
 	ListComments(string, string) ([]pullrequests.Comment, error)
 	PutReview(string, string, string, pullrequests.ReviewDecision, string) (pullrequests.Review, error)
@@ -83,6 +84,7 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests", listPullRequests(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}", getPullRequest(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/synchronize", synchronizePullRequest(store, repositories, credentials, activity, checks))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/request-review", requestPullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/commits", listPullRequestCommits(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/files", listPullRequestFiles(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/comments", createPullRequestComment(store, repositories, credentials, activity))
@@ -98,6 +100,30 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/close", closePullRequest(store, proposalStore, repositories, credentials, activity))
 	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/maintainer-modification", setMaintainerModification(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/source-credential", issuePullRequestSourceCredential(store, repositories, credentials))
+}
+
+func requestPullRequestReview(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		item, ok := readPullRequest(w, store, string(repository.ID), r.PathValue("pull_request"))
+		if !ok {
+			return
+		}
+		if item.AuthorID != actor.UserID {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+			return
+		}
+		item, err := store.RequestReview(string(repository.ID), item.ID)
+		if err != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "review_not_accepted"})
+			return
+		}
+		_ = recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "pull_request.review_requested", Resource: activities.Resource{Type: "pull_request", ID: item.ID}, Metadata: map[string]string{"source_commit_id": item.SourceCommitID}})
+		writeJSON(w, http.StatusOK, item)
+	}
 }
 
 func enqueuePullRequest(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, checkResults readinessCheckStore, starter checkRunStarter, queue integrationQueueStore) http.HandlerFunc {
