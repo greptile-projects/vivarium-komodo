@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -25,10 +26,46 @@ type repositoryOpener interface {
 type Runner struct {
 	store        *Store
 	repositories repositoryOpener
+	mu           sync.Mutex
+	cancels      map[string]context.CancelFunc
 }
 
 func NewRunner(store *Store, repositories repositoryOpener) *Runner {
-	return &Runner{store: store, repositories: repositories}
+	return &Runner{store: store, repositories: repositories, cancels: map[string]context.CancelFunc{}}
+}
+
+// Rerun creates a distinct attempt from the exact definition and revision of
+// an existing run. The initiating collaborator remains durable attribution.
+func (r *Runner) Rerun(repositoryID, pullRequestID, runID, actorID string) (Run, error) {
+	previous, err := r.store.Get(repositoryID, pullRequestID, runID)
+	if err != nil {
+		return Run{}, err
+	}
+	if previous.State == Queued || previous.State == Running {
+		return Run{}, ErrInvalidTransition
+	}
+	run, err := r.store.CreateAttempt(repositoryID, pullRequestID, previous.CommitID, previous.Definition, actorID, previous.ID)
+	if err == nil {
+		go r.execute(run.ID)
+	}
+	return run, err
+}
+
+func (r *Runner) Cancel(repositoryID, pullRequestID, runID, actorID string) (Run, error) {
+	if _, err := r.store.Get(repositoryID, pullRequestID, runID); err != nil {
+		return Run{}, err
+	}
+	run, err := r.store.Cancel(runID, actorID)
+	if err != nil {
+		return Run{}, err
+	}
+	r.mu.Lock()
+	cancel := r.cancels[runID]
+	r.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return run, nil
 }
 
 // Start discovers the manifest from the exact candidate commit and durably queues
@@ -126,6 +163,16 @@ func findEntry(repository *storage.Repository, treeID storage.ObjectID, parts []
 }
 
 func (r *Runner) execute(id string) {
+	rootContext, stop := context.WithCancel(context.Background())
+	r.mu.Lock()
+	r.cancels[id] = stop
+	r.mu.Unlock()
+	defer func() {
+		stop()
+		r.mu.Lock()
+		delete(r.cancels, id)
+		r.mu.Unlock()
+	}()
 	run, err := r.store.Start(id)
 	if err != nil {
 		return
@@ -154,7 +201,7 @@ func (r *Runner) execute(id string) {
 		_, _ = r.store.Complete(id, -1, false, "working directory unavailable")
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(run.Definition.TimeoutSeconds)*time.Second)
+	ctx, cancel := context.WithTimeout(rootContext, time.Duration(run.Definition.TimeoutSeconds)*time.Second)
 	defer cancel()
 	sandboxWorking := "/workspace"
 	if run.Definition.WorkingDirectory != "" {
@@ -188,8 +235,10 @@ func (r *Runner) execute(id string) {
 		if errors.As(commandErr, &exit) {
 			exitCode = exit.ExitCode()
 		}
-		if ctx.Err() != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			message = "check timed out"
+		} else if errors.Is(ctx.Err(), context.Canceled) {
+			message = "check canceled"
 		} else {
 			message = "command failed"
 		}
@@ -209,7 +258,7 @@ func (r *Runner) execute(id string) {
 			_, _ = r.store.AddArtifact(id, artifactPath, mediaType, content)
 		}
 	}
-	_, _ = r.store.Complete(id, exitCode, ctx.Err() != nil, message)
+	_, _ = r.store.Complete(id, exitCode, errors.Is(ctx.Err(), context.DeadlineExceeded), message)
 }
 
 func (r *Runner) capture(id, stream string, reader io.Reader, done chan<- struct{}) {

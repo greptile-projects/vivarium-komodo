@@ -239,6 +239,21 @@ reads all follow the pull request repository's existing visibility policy;
 separate attempts remain tied to their verified commit after success or
 failure.
 
+The pull request's Checks section keeps verification beside the code and
+discussion. It lists every automatic and rerun attempt, polls active attempts
+for live stdout and stderr, and exposes retained artifacts as authenticated
+same-origin downloads. Any authenticated repository participant can cancel a
+queued or running attempt or rerun a terminal one. Cancellation terminates the
+active sandbox process and appends a terminal attributed event. A rerun copies
+the original exact commit and check definition into a distinct attempt with
+the requesting user's stable ID and a link to the prior attempt, so neither
+history nor authorship is overwritten.
+
+The control resources are `POST .../check-runs/{run}/cancel` and `POST
+.../check-runs/{run}/rerun`. They require ordinary authenticated repository
+write participation; public and private read behavior for attempts, evidence,
+and artifacts remains unchanged.
+
 Each command receives a newly materialized copy of its exact Git snapshot with
 no `.git` directory or credentials. Bubblewrap gives it a private process,
 mount, IPC, user, and network namespace; only the writable snapshot, disposable

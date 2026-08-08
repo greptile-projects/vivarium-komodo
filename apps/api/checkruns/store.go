@@ -21,7 +21,10 @@ const (
 	Running   State = "running"
 	Succeeded State = "succeeded"
 	Failed    State = "failed"
+	Canceled  State = "canceled"
 )
+
+var ErrInvalidTransition = errors.New("invalid check run transition")
 
 type Definition struct {
 	Name             string            `json:"name"`
@@ -41,6 +44,7 @@ type Event struct {
 	Message   string          `json:"message,omitempty"`
 	Outcome   *CommandOutcome `json:"outcome,omitempty"`
 	Artifact  *Artifact       `json:"artifact,omitempty"`
+	ActorID   string          `json:"actor_id,omitempty"`
 }
 
 type CommandOutcome struct {
@@ -62,6 +66,9 @@ type Run struct {
 	PullRequestID string     `json:"pull_request_id"`
 	CommitID      string     `json:"commit_id"`
 	Definition    Definition `json:"definition"`
+	TriggeredByID string     `json:"triggered_by_id,omitempty"`
+	RetryOfID     string     `json:"retry_of_id,omitempty"`
+	CanceledByID  string     `json:"canceled_by_id,omitempty"`
 	State         State      `json:"state"`
 	ExitCode      *int       `json:"exit_code,omitempty"`
 	Error         string     `json:"error,omitempty"`
@@ -92,6 +99,10 @@ func New(root string) (*Store, error) {
 }
 
 func (s *Store) Create(repositoryID, pullRequestID, commitID string, definition Definition) (Run, error) {
+	return s.CreateAttempt(repositoryID, pullRequestID, commitID, definition, "", "")
+}
+
+func (s *Store) CreateAttempt(repositoryID, pullRequestID, commitID string, definition Definition, actorID, retryOfID string) (Run, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	idBytes := make([]byte, 16)
@@ -99,8 +110,8 @@ func (s *Store) Create(repositoryID, pullRequestID, commitID string, definition 
 		return Run{}, err
 	}
 	now := s.now().UTC()
-	run := Run{ID: hex.EncodeToString(idBytes), RepositoryID: repositoryID, PullRequestID: pullRequestID, CommitID: commitID, Definition: definition, State: Queued, CreatedAt: now}
-	run.Events = []Event{{Sequence: 1, Type: "status", Timestamp: now, Status: Queued}}
+	run := Run{ID: hex.EncodeToString(idBytes), RepositoryID: repositoryID, PullRequestID: pullRequestID, CommitID: commitID, Definition: definition, State: Queued, TriggeredByID: actorID, RetryOfID: retryOfID, CreatedAt: now}
+	run.Events = []Event{{Sequence: 1, Type: "status", Timestamp: now, Status: Queued, ActorID: actorID}}
 	return run, s.write(run)
 }
 
@@ -108,8 +119,11 @@ func (s *Store) Start(id string) (Run, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	run, err := s.read(id)
-	if err != nil || run.State != Queued {
+	if err != nil {
 		return Run{}, err
+	}
+	if run.State != Queued {
+		return Run{}, ErrInvalidTransition
 	}
 	now := s.now().UTC()
 	run.State, run.StartedAt = Running, &now
@@ -123,6 +137,9 @@ func (s *Store) AppendLog(id, stream, message string) error {
 	run, err := s.read(id)
 	if err != nil {
 		return err
+	}
+	if run.State != Running {
+		return ErrInvalidTransition
 	}
 	if stream != "stdout" && stream != "stderr" {
 		return errors.New("invalid log stream")
@@ -151,6 +168,9 @@ func (s *Store) Complete(id string, exitCode int, timedOut bool, message string)
 	if err != nil {
 		return Run{}, err
 	}
+	if run.State != Running {
+		return Run{}, ErrInvalidTransition
+	}
 	now := s.now().UTC()
 	run.ExitCode, run.CompletedAt, run.Error = &exitCode, &now, message
 	run.append(Event{Type: "command", Timestamp: now, Outcome: &CommandOutcome{ExitCode: exitCode, TimedOut: timedOut}})
@@ -163,12 +183,31 @@ func (s *Store) Complete(id string, exitCode int, timedOut bool, message string)
 	return run, s.write(run)
 }
 
+func (s *Store) Cancel(id, actorID string) (Run, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run, err := s.read(id)
+	if err != nil {
+		return Run{}, err
+	}
+	if run.State != Queued && run.State != Running {
+		return Run{}, ErrInvalidTransition
+	}
+	now := s.now().UTC()
+	run.State, run.CanceledByID, run.CompletedAt = Canceled, actorID, &now
+	run.append(Event{Type: "status", Timestamp: now, Status: Canceled, ActorID: actorID, Message: "check canceled"})
+	return run, s.write(run)
+}
+
 func (s *Store) AddArtifact(id, path, mediaType string, content []byte) (Artifact, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	run, err := s.read(id)
 	if err != nil {
 		return Artifact{}, err
+	}
+	if run.State != Running {
+		return Artifact{}, ErrInvalidTransition
 	}
 	contentDigest := sha256.Sum256(content)
 	identity := sha256.New()

@@ -18,7 +18,12 @@ type checkRunStore interface {
 	OpenArtifact(string, string, string, string) (checkruns.Artifact, *os.File, error)
 }
 
-func registerCheckRunsHTTP(mux *http.ServeMux, runs checkRunStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) {
+type checkRunController interface {
+	Rerun(string, string, string, string) (checkruns.Run, error)
+	Cancel(string, string, string, string) (checkruns.Run, error)
+}
+
+func registerCheckRunsHTTP(mux *http.ServeMux, runs checkRunStore, controller checkRunController, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) {
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/check-runs", func(w http.ResponseWriter, r *http.Request) {
 		repository, _, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
 		if !ok {
@@ -121,4 +126,42 @@ func registerCheckRunsHTTP(mux *http.ServeMux, runs checkRunStore, pulls pullReq
 		w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(path.Base(artifact.Path)))
 		http.ServeContent(w, r, path.Base(artifact.Path), time.Time{}, file)
 	})
+
+	control := func(w http.ResponseWriter, r *http.Request, rerun bool) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		pullID := r.PathValue("pull_request")
+		if _, ok := readPullRequest(w, pulls, string(repository.ID), pullID); !ok {
+			return
+		}
+		var run checkruns.Run
+		var err error
+		if rerun {
+			run, err = controller.Rerun(string(repository.ID), pullID, r.PathValue("run"), actor.UserID)
+		} else {
+			run, err = controller.Cancel(string(repository.ID), pullID, r.PathValue("run"), actor.UserID)
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if errors.Is(err, checkruns.ErrInvalidTransition) {
+			writeJSON(w, 409, map[string]string{"error": "invalid_check_state"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		if rerun {
+			w.Header().Set("Location", "/repositories/"+string(repository.ID)+"/pull-requests/"+pullID+"/check-runs/"+run.ID)
+			writeJSON(w, 201, run)
+			return
+		}
+		writeJSON(w, 200, run)
+	}
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/check-runs/{run}/rerun", func(w http.ResponseWriter, r *http.Request) { control(w, r, true) })
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/check-runs/{run}/cancel", func(w http.ResponseWriter, r *http.Request) { control(w, r, false) })
 }

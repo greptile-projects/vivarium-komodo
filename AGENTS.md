@@ -233,6 +233,11 @@ whenever dependencies change or the web job fails before it starts.
   declared artifacts. Consumers reconnect through the run's
   `/events?after={sequence}` resource and download artifacts through their
   run-scoped artifact resource; both use ordinary repository read policy.
+  Check attempts are investigated in the pull request's `section=checks` web
+  view. Authenticated repository participants may cancel queued or running
+  attempts and rerun terminal attempts. A rerun copies the original exact
+  commit and check definition into a new durable attempt, while requester and
+  canceler stable user IDs remain visible on the run and its evidence stream.
   Pull-request change sessions live beneath `$CHANGE_SESSION_ROOT` (default
   `apps/api/data/change-sessions`) behind the `changesessions.Store` boundary.
   Any authenticated repository participant may start one on an open pull
