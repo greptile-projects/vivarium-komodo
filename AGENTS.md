@@ -107,9 +107,13 @@ whenever dependencies change or the web job fails before it starts.
   execution details behind this application-facing contract.
   Delegated runs retain their mandate, exact session revision, selected context
   paths, agent identity, and explicit working branch. Their one-time worker Git
-  credential is limited to that repository and branch, expires after 24 hours,
-  and may be revoked by the initiating collaborator; never substitute a general
-  user credential or expose its secret after creation.
+  credential is limited to the pull request's source repository and exact source
+  branch, expires after 24 hours, and may be revoked by the initiating
+  collaborator; never substitute a general user credential or expose its secret
+  after creation. On cross-repository requests, the author may delegate against
+  their fork directly; other upstream participants require the author's active
+  maintainer-modification opt-in, and disabling it or closing the request revokes
+  agent grants alongside human delegated-write grants.
   Workers use that exact-run credential to append typed public progress records
   for status, messages, tool actions, artifacts, failures, and branch updates.
   Derive initiator, agent, run, and revision attribution from session storage

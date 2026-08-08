@@ -112,6 +112,90 @@ func TestCollaboratorDelegatesBoundedRunAndRevokesCredential(t *testing.T) {
 	}
 }
 
+func TestMaintainerDelegatesAndPublishesForkSourceWithoutUpstreamAuthority(t *testing.T) {
+	gitStorage, _ := storage.New(t.TempDir())
+	catalog, _ := repositories.New(t.TempDir(), gitStorage)
+	pulls, _ := pullrequests.New(t.TempDir())
+	sessions, _ := changesessions.New(t.TempDir())
+	credentials, _ := auth.New(t.TempDir())
+	upstream, _ := catalog.Create("maintainer", repositories.Metadata{Name: "project", Visibility: repositories.Public})
+	upstreamGit, _ := catalog.Open(upstream.ID)
+	baseTree, _ := upstreamGit.WriteObject(storage.TreeObject, nil)
+	base := writeCommit(t, upstreamGit, baseTree, nil, "Base")
+	_ = upstreamGit.CreateReference(storage.Reference{Name: "refs/heads/main", ObjectID: base})
+	fork, _ := catalog.Fork("contributor", upstream.ID, repositories.Metadata{Name: "project-fork", Visibility: repositories.Private})
+	forkGit, _ := catalog.Open(fork.ID)
+	change := writeCommit(t, forkGit, baseTree, []storage.ObjectID{base}, "Outside change")
+	_ = forkGit.CreateReference(storage.Reference{Name: "refs/heads/contribution", ObjectID: change})
+	pull, _ := pulls.Create(pullrequests.CreateParams{RepositoryID: string(upstream.ID), SourceRepositoryID: string(fork.ID), AuthorID: "contributor", Title: "Outside contribution", SourceBranch: "contribution", TargetBranch: "main", SourceCommitID: string(change), TargetCommitID: string(base)})
+	maintainerToken := issueAccess(t, credentials, "maintainer", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
+	mux := http.NewServeMux()
+	checkStarts := &recordingCheckStarter{}
+	registerChangeSessionsHTTP(mux, sessions, pulls, catalog, credentials, nil, checkStarts)
+	baseURL := "/repositories/" + string(upstream.ID) + "/pull-requests/" + pull.ID + "/change-sessions"
+
+	req := httptest.NewRequest(http.MethodPost, baseURL, strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer "+maintainerToken)
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+	var session changesessions.Session
+	_ = json.NewDecoder(res.Body).Decode(&session)
+	delegateBody := `{"instructions":"Improve the outside contribution.","revision_id":"` + string(change) + `","working_branch":"contribution"}`
+	req = httptest.NewRequest(http.MethodPost, baseURL+"/"+session.ID+"/runs", strings.NewReader(delegateBody))
+	req.Header.Set("Authorization", "Bearer "+maintainerToken)
+	res = httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("delegation without contributor permission = %d %s", res.Code, res.Body.String())
+	}
+	_, _ = pulls.SetMaintainerCanModify(string(upstream.ID), pull.ID, true)
+	req = httptest.NewRequest(http.MethodPost, baseURL+"/"+session.ID+"/runs", strings.NewReader(delegateBody))
+	req.Header.Set("Authorization", "Bearer "+maintainerToken)
+	res = httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+	var delegated struct {
+		Run        changesessions.Run `json:"run"`
+		Credential struct {
+			Token        string `json:"token"`
+			RepositoryID string `json:"repository_id"`
+			Branch       string `json:"branch"`
+		} `json:"credential"`
+	}
+	_ = json.NewDecoder(res.Body).Decode(&delegated)
+	if res.Code != http.StatusCreated || delegated.Credential.RepositoryID != string(fork.ID) || delegated.Credential.Branch != "refs/heads/contribution" {
+		t.Fatalf("fork delegation = %d %#v", res.Code, delegated)
+	}
+	grant, err := credentials.Authenticate(delegated.Credential.Token, auth.GitWrite)
+	if err != nil || grant.RepositoryID == string(upstream.ID) || grant.RepositoryID != string(fork.ID) {
+		t.Fatalf("worker authority crossed repository boundary: %#v %v", grant, err)
+	}
+	workerBase := baseURL + "/" + session.ID + "/runs/" + delegated.Run.ID
+	req = httptest.NewRequest(http.MethodPost, workerBase+"/events", strings.NewReader(`{"type":"run.started","metadata":{"status":"working in fork"}}`))
+	req.Header.Set("Authorization", "Bearer "+delegated.Credential.Token)
+	res = httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("fork worker event = %d %s", res.Code, res.Body.String())
+	}
+	updatedTree, _ := forkGit.WriteObject(storage.TreeObject, testTree(t, map[string]storage.ObjectID{}))
+	updated := writeCommit(t, forkGit, updatedTree, []storage.ObjectID{change}, "Agent follow-up")
+	_ = forkGit.UpdateReference(storage.Reference{Name: "refs/heads/contribution", ObjectID: updated})
+	req = httptest.NewRequest(http.MethodPost, workerBase+"/publication", strings.NewReader(`{"summary":"Improved the contribution.","checks":["go test ./..."],"concerns":[]}`))
+	req.Header.Set("Authorization", "Bearer "+delegated.Credential.Token)
+	res = httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("fork publication = %d %s", res.Code, res.Body.String())
+	}
+	published, _ := pulls.Get(string(upstream.ID), pull.ID)
+	if published.SourceCommitID != string(updated) || len(checkStarts.starts) != 1 || checkStarts.starts[0].repositoryID != string(upstream.ID) || checkStarts.starts[0].sourceRepositoryID != string(fork.ID) {
+		t.Fatalf("published fork revision = %#v checks %#v", published, checkStarts.starts)
+	}
+	if _, err := credentials.Authenticate(delegated.Credential.Token, auth.GitWrite); !errors.Is(err, auth.ErrUnauthenticated) {
+		t.Fatalf("published worker credential remained usable: %v", err)
+	}
+}
+
 func TestWorkerPublishesAttributedRunTimeline(t *testing.T) {
 	gitStorage, _ := storage.New(t.TempDir())
 	catalog, _ := repositories.New(t.TempDir(), gitStorage)
