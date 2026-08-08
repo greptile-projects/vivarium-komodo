@@ -26,6 +26,61 @@ func (s *recordingCheckStarter) Start(repositoryID, pullRequestID, commitID stri
 	return nil
 }
 
+func TestForkOwnerOpensAndSynchronizesUpstreamPullRequest(t *testing.T) {
+	gitStorage, _ := storage.New(t.TempDir())
+	catalog, _ := repositories.New(t.TempDir(), gitStorage)
+	proposalStore, _ := proposals.New(t.TempDir())
+	pullStore, _ := pullrequests.New(t.TempDir())
+	credentials, _ := auth.New(t.TempDir())
+	upstream, _ := catalog.Create("maintainer", repositories.Metadata{Name: "project", Visibility: repositories.Public})
+	upstreamGit, _ := catalog.Open(upstream.ID)
+	baseTree, _ := upstreamGit.WriteObject(storage.TreeObject, nil)
+	base, _ := upstreamGit.WriteObject(storage.CommitObject, []byte("tree "+string(baseTree)+"\nauthor Maintainer <m@example.test> 1 +0000\ncommitter Maintainer <m@example.test> 1 +0000\n\nbase\n"))
+	upstreamGit.CreateReference(storage.Reference{Name: "refs/heads/main", ObjectID: base})
+	fork, _ := catalog.Fork("contributor", upstream.ID, repositories.Metadata{Name: "project-fork", Visibility: repositories.Private})
+	forkGit, _ := catalog.Open(fork.ID)
+	content, _ := forkGit.WriteObject(storage.BlobObject, []byte("outside contribution\n"))
+	tree, _ := forkGit.WriteObject(storage.TreeObject, testTree(t, map[string]storage.ObjectID{"contribution.txt": content}))
+	change, _ := forkGit.WriteObject(storage.CommitObject, []byte("tree "+string(tree)+"\nparent "+string(base)+"\nauthor Contributor <c@example.test> 2 +0000\ncommitter Contributor <c@example.test> 2 +0000\n\ncontribute\n"))
+	forkGit.CreateReference(storage.Reference{Name: "refs/heads/contribution", ObjectID: change})
+	token := issueAccess(t, credentials, "contributor", auth.API, auth.RepositoryWrite)
+	mux := http.NewServeMux()
+	registerPullRequestsHTTP(mux, pullStore, proposalStore, catalog, credentials)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	request, _ := http.NewRequest(http.MethodPost, server.URL+"/repositories/"+string(upstream.ID)+"/pull-requests", strings.NewReader(`{"title":"Outside contribution","source_repository_id":"`+string(fork.ID)+`","source_branch":"contribution","target_branch":"main"}`))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, _ := http.DefaultClient.Do(request)
+	var created pullrequests.PullRequest
+	json.NewDecoder(response.Body).Decode(&created)
+	response.Body.Close()
+	if response.StatusCode != http.StatusCreated || created.RepositoryID != string(upstream.ID) || created.SourceRepositoryID != string(fork.ID) || created.SourceCommitID != string(change) || created.TargetCommitID != string(base) {
+		t.Fatalf("created = %#v, status %d", created, response.StatusCode)
+	}
+	response, _ = http.Get(server.URL + "/repositories/" + string(upstream.ID) + "/pull-requests/" + created.ID + "/files")
+	var files struct {
+		Total int `json:"total_count"`
+	}
+	json.NewDecoder(response.Body).Decode(&files)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || files.Total != 1 {
+		t.Fatalf("files = %#v, status %d", files, response.StatusCode)
+	}
+
+	followUp, _ := forkGit.WriteObject(storage.CommitObject, []byte("tree "+string(tree)+"\nparent "+string(change)+"\nauthor Contributor <c@example.test> 3 +0000\ncommitter Contributor <c@example.test> 3 +0000\n\nfollow up\n"))
+	forkGit.UpdateReference(storage.Reference{Name: "refs/heads/contribution", ObjectID: followUp})
+	request, _ = http.NewRequest(http.MethodPost, server.URL+"/repositories/"+string(upstream.ID)+"/pull-requests/"+created.ID+"/synchronize", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, _ = http.DefaultClient.Do(request)
+	var synchronized pullrequests.PullRequest
+	json.NewDecoder(response.Body).Decode(&synchronized)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || synchronized.SourceCommitID != string(followUp) {
+		t.Fatalf("synchronized = %#v, status %d", synchronized, response.StatusCode)
+	}
+}
+
 func TestPullRequestExposesSnapshottedCommitsFilesAndDiscussion(t *testing.T) {
 	gitStorage, _ := storage.New(t.TempDir())
 	catalog, _ := repositories.New(t.TempDir(), gitStorage)

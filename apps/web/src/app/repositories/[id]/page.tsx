@@ -101,6 +101,7 @@ type CommentList = { items: ProposalComment[]; total_count: number };
 type PullRequest = {
   id: string;
   repository_id: string;
+  source_repository_id: string;
   proposal_id?: string;
   author_id: string;
   title: string;
@@ -432,6 +433,7 @@ export default function RepositoryPage({
   const [copied, setCopied] = useState(false);
   const [actor, setActor] = useState("");
   const [showFork, setShowFork] = useState(false);
+  const [showUpstreamPull, setShowUpstreamPull] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [actionError, setActionError] = useState("");
   const ref = revision || branches?.default_branch || "";
@@ -603,7 +605,8 @@ export default function RepositoryPage({
           {actor && actor !== repository.owner_id && <Button size="sm" onClick={() => setShowFork(true)}><Branch size={14}/>Fork</Button>}
         </div>
       </header>
-      {repository.upstream_repository_id && <div className="fork-lineage panel"><Branch size={15}/><span>Forked from <Link href={`/repositories/${repository.upstream_repository_id}`}>{upstream?.name ?? short(repository.upstream_repository_id)}</Link></span>{actor === repository.owner_id && ref && <Button variant="secondary" size="sm" disabled={syncing} onClick={() => void synchronize()}>{syncing ? "Synchronizing…" : `Sync ${ref}`}</Button>}</div>}
+      {repository.upstream_repository_id && <div className="fork-lineage panel"><Branch size={15}/><span>Forked from <Link href={`/repositories/${repository.upstream_repository_id}`}>{upstream?.name ?? short(repository.upstream_repository_id)}</Link></span>{actor === repository.owner_id && <><Button size="sm" onClick={() => setShowUpstreamPull((value) => !value)}><GitPullRequest size={14}/>Contribute upstream</Button>{ref && <Button variant="secondary" size="sm" disabled={syncing} onClick={() => void synchronize()}>{syncing ? "Synchronizing…" : `Sync ${ref}`}</Button>}</>}</div>}
+      {showUpstreamPull && repository.upstream_repository_id && <UpstreamPullRequestForm fork={repository} upstream={upstream} branches={branches.items} close={() => setShowUpstreamPull(false)} created={(item) => router.push(`/repositories/${repository.upstream_repository_id}?view=pulls&pull=${item.id}`)}/>}
       {showFork && <ForkRepository repository={repository} close={() => setShowFork(false)} created={(fork) => router.push(`/repositories/${fork.id}`)}/>}
       {actionError && <p className="form-error fork-action-error" role="alert">{actionError}</p>}
       <nav className="repository-tabs" aria-label="Repository">
@@ -739,6 +742,36 @@ function ForkRepository({ repository, close, created }: { repository: Repository
     }
   }
   return <section className="fork-panel panel" aria-labelledby="fork-title"><div><span className="repo-icon"><Branch/></span><div><h2 id="fork-title">Fork {repository.name}</h2><p>Create an independently owned copy for experiments and contributions.</p></div></div><form className="repository-form" onSubmit={submit}><label>Fork name<input name="name" required pattern="[a-z0-9._-]+" maxLength={100} defaultValue={repository.name}/></label><label>Visibility<select name="visibility" defaultValue="private"><option value="private">Private</option><option value="public">Public</option></select></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="form-actions"><Button type="button" variant="secondary" onClick={close}>Cancel</Button><Button type="submit" disabled={pending}>{pending ? "Forking…" : "Create fork"}</Button></div></form></section>;
+}
+
+function UpstreamPullRequestForm({ fork, upstream, branches, close, created }: { fork: Repository; upstream?: Repository; branches: BranchRecord[]; close: () => void; created: (pull: PullRequest) => void }) {
+  const [targets, setTargets] = useState<BranchRecord[]>([]);
+  const [source, setSource] = useState(branches.find((branch) => !branch.is_default)?.name ?? branches[0]?.name ?? "");
+  const [target, setTarget] = useState("");
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!fork.upstream_repository_id) return;
+    get<Branches>(`/repositories/${fork.upstream_repository_id}/branches`).then((result) => {
+      setTargets(result.items);
+      setTarget(result.default_branch || result.items[0]?.name || "");
+    }).catch(() => setError("Could not read upstream branches."));
+  }, [fork.upstream_repository_id]);
+  return <form className="pull-form panel" onSubmit={async (event) => {
+    event.preventDefault(); setBusy(true); setError("");
+    try {
+      created(await send<PullRequest>(`/repositories/${fork.upstream_repository_id}/pull-requests`, "POST", { title, body, source_repository_id: fork.id, source_branch: source, target_branch: target }));
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to open the upstream pull request."); setBusy(false); }
+  }}>
+    <div className="pull-form-intro"><GitPullRequest/><span><strong>Contribute to {upstream?.name ?? "upstream"}</strong><small>Your fork branch and both exact revisions will be recorded for upstream review.</small></span></div>
+    <label>Title<input required maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Summarize the contribution"/></label>
+    <label className="pull-body">Description<textarea maxLength={65536} value={body} onChange={(event) => setBody(event.target.value)} placeholder="Explain the change and where feedback would help."/></label>
+    <div className="branch-compare"><label>Fork branch<select value={source} onChange={(event) => setSource(event.target.value)}>{branches.map((branch) => <option key={branch.name}>{branch.name}</option>)}</select></label><span>into</span><label>Upstream branch<select value={target} onChange={(event) => setTarget(event.target.value)}>{targets.map((branch) => <option key={branch.name}>{branch.name}</option>)}</select></label></div>
+    {error && <p className="form-error" role="alert">{error}</p>}
+    <div className="form-actions"><Button type="button" variant="secondary" onClick={close}>Cancel</Button><Button type="submit" disabled={busy || !source || !target}>{busy ? "Opening…" : "Open upstream pull request"}</Button></div>
+  </form>;
 }
 
 function RepositoryFrame({ children }: { children: React.ReactNode }) {
@@ -1707,7 +1740,7 @@ function PullRequestGroup({
             <strong>{item.title}</strong>
             <p>{item.body || "No description was added."}</p>
             <small>
-              <code>{item.source_branch}</code> into{" "}
+              {item.source_repository_id !== item.repository_id && <>fork <code>{short(item.source_repository_id)}</code> · </>}<code>{item.source_branch}</code> into{" "}
               <code>{item.target_branch}</code> · opened{" "}
               {new Date(item.created_at).toLocaleDateString()}
               {item.proposal_id ? " · linked proposal" : ""}
@@ -1987,7 +2020,11 @@ function PullRequestDetail({
         </Button>
       </section>
     );
-  const source = branches.find((branch) => branch.name === item.source_branch);
+  const source = item.source_repository_id === item.repository_id
+    ? branches.find((branch) => branch.name === item.source_branch)
+    : readiness?.source_branch.exists
+      ? { name: item.source_branch, commit_id: readiness.source_branch.commit_id ?? "", is_default: false }
+      : undefined;
   const target = branches.find((branch) => branch.name === item.target_branch);
   const additions = files.reduce((total, file) => total + file.additions, 0);
   const deletions = files.reduce((total, file) => total + file.deletions, 0);
@@ -2004,7 +2041,7 @@ function PullRequestDetail({
           </span>
           <h2>{item.title}</h2>
           <p>
-            <code>{item.source_branch}</code> proposes {commits.length}{" "}
+            {item.source_repository_id !== item.repository_id && <><Link href={`/repositories/${item.source_repository_id}`}>Fork {short(item.source_repository_id)}</Link>{" · "}</>}<code>{item.source_branch}</code> proposes {commits.length}{" "}
             {commits.length === 1 ? "commit" : "commits"} into{" "}
             <code>{item.target_branch}</code>
           </p>

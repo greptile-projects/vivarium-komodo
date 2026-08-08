@@ -1,4 +1,5 @@
-// Package pullrequests owns durable requests to merge one repository branch into another.
+// Package pullrequests owns durable requests to merge a source repository branch
+// into a target repository branch.
 package pullrequests
 
 import (
@@ -31,34 +32,36 @@ const (
 )
 
 type PullRequest struct {
-	ID             string     `json:"id"`
-	RepositoryID   string     `json:"repository_id"`
-	ProposalID     string     `json:"proposal_id,omitempty"`
-	AuthorID       string     `json:"author_id"`
-	Title          string     `json:"title"`
-	Body           string     `json:"body"`
-	SourceBranch   string     `json:"source_branch"`
-	TargetBranch   string     `json:"target_branch"`
-	SourceCommitID string     `json:"source_commit_id"`
-	TargetCommitID string     `json:"target_commit_id"`
-	Status         Status     `json:"status"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	MergedAt       *time.Time `json:"merged_at,omitempty"`
-	MergedByID     string     `json:"merged_by_id,omitempty"`
-	MergeCommitID  string     `json:"merge_commit_id,omitempty"`
+	ID                 string     `json:"id"`
+	RepositoryID       string     `json:"repository_id"`
+	SourceRepositoryID string     `json:"source_repository_id"`
+	ProposalID         string     `json:"proposal_id,omitempty"`
+	AuthorID           string     `json:"author_id"`
+	Title              string     `json:"title"`
+	Body               string     `json:"body"`
+	SourceBranch       string     `json:"source_branch"`
+	TargetBranch       string     `json:"target_branch"`
+	SourceCommitID     string     `json:"source_commit_id"`
+	TargetCommitID     string     `json:"target_commit_id"`
+	Status             Status     `json:"status"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+	MergedAt           *time.Time `json:"merged_at,omitempty"`
+	MergedByID         string     `json:"merged_by_id,omitempty"`
+	MergeCommitID      string     `json:"merge_commit_id,omitempty"`
 }
 
 type CreateParams struct {
-	RepositoryID   string
-	ProposalID     string
-	AuthorID       string
-	Title          string
-	Body           string
-	SourceBranch   string
-	TargetBranch   string
-	SourceCommitID string
-	TargetCommitID string
+	RepositoryID       string
+	SourceRepositoryID string
+	ProposalID         string
+	AuthorID           string
+	Title              string
+	Body               string
+	SourceBranch       string
+	TargetBranch       string
+	SourceCommitID     string
+	TargetCommitID     string
 }
 
 type Comment struct {
@@ -109,7 +112,10 @@ func New(root string) (*Store, error) {
 func (s *Store) Create(params CreateParams) (PullRequest, error) {
 	params.Title = strings.TrimSpace(params.Title)
 	params.Body = strings.TrimSpace(params.Body)
-	if params.RepositoryID == "" || params.AuthorID == "" || params.Title == "" || len(params.Title) > 200 || len(params.Body) > 65536 || params.SourceBranch == "" || params.TargetBranch == "" || params.SourceBranch == params.TargetBranch || params.SourceCommitID == "" || params.TargetCommitID == "" {
+	if params.SourceRepositoryID == "" {
+		params.SourceRepositoryID = params.RepositoryID
+	}
+	if params.RepositoryID == "" || params.AuthorID == "" || params.Title == "" || len(params.Title) > 200 || len(params.Body) > 65536 || params.SourceBranch == "" || params.TargetBranch == "" || (params.SourceRepositoryID == params.RepositoryID && params.SourceBranch == params.TargetBranch) || params.SourceCommitID == "" || params.TargetCommitID == "" {
 		return PullRequest{}, ErrInvalid
 	}
 	s.mu.Lock()
@@ -119,7 +125,7 @@ func (s *Store) Create(params CreateParams) (PullRequest, error) {
 		return PullRequest{}, err
 	}
 	now := s.now().UTC()
-	item := PullRequest{ID: id, RepositoryID: params.RepositoryID, ProposalID: params.ProposalID, AuthorID: params.AuthorID, Title: params.Title, Body: params.Body, SourceBranch: params.SourceBranch, TargetBranch: params.TargetBranch, SourceCommitID: params.SourceCommitID, TargetCommitID: params.TargetCommitID, Status: Open, CreatedAt: now, UpdatedAt: now}
+	item := PullRequest{ID: id, RepositoryID: params.RepositoryID, SourceRepositoryID: params.SourceRepositoryID, ProposalID: params.ProposalID, AuthorID: params.AuthorID, Title: params.Title, Body: params.Body, SourceBranch: params.SourceBranch, TargetBranch: params.TargetBranch, SourceCommitID: params.SourceCommitID, TargetCommitID: params.TargetCommitID, Status: Open, CreatedAt: now, UpdatedAt: now}
 	if err := s.write(item); err != nil {
 		return PullRequest{}, err
 	}
@@ -367,7 +373,15 @@ func (s *Store) read(repositoryID, id string) (PullRequest, error) {
 		return PullRequest{}, err
 	}
 	var item PullRequest
-	if json.Unmarshal(data, &item) != nil || item.ID != id || item.RepositoryID != repositoryID || item.AuthorID == "" || item.Title == "" || item.SourceBranch == "" || item.TargetBranch == "" || item.SourceCommitID == "" || item.TargetCommitID == "" || (item.Status != Open && item.Status != Merged) || item.CreatedAt.IsZero() || item.UpdatedAt.IsZero() || (item.Status == Merged && (item.MergedAt == nil || item.MergedByID == "" || item.MergeCommitID == "")) {
+	if json.Unmarshal(data, &item) != nil {
+		return PullRequest{}, errors.New("invalid stored pull request")
+	}
+	// Records created before cross-repository requests implicitly sourced from
+	// their target repository.
+	if item.SourceRepositoryID == "" {
+		item.SourceRepositoryID = item.RepositoryID
+	}
+	if item.ID != id || item.RepositoryID != repositoryID || item.AuthorID == "" || item.Title == "" || item.SourceBranch == "" || item.TargetBranch == "" || item.SourceCommitID == "" || item.TargetCommitID == "" || (item.Status != Open && item.Status != Merged) || item.CreatedAt.IsZero() || item.UpdatedAt.IsZero() || (item.Status == Merged && (item.MergedAt == nil || item.MergedByID == "" || item.MergeCommitID == "")) {
 		return PullRequest{}, errors.New("invalid stored pull request")
 	}
 	return item, nil
