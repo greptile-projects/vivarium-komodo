@@ -38,6 +38,36 @@ type Acknowledgement struct {
 	UpdateSequence int64     `json:"update_sequence"`
 	CreatedAt      time.Time `json:"created_at"`
 }
+
+// Evidence is a durable pointer to operational or collaboration data. The
+// source remains authoritative; CapturedAt and the optional time window make
+// the responder's exact investigative context reproducible.
+type Evidence struct {
+	ID            string     `json:"id"`
+	Kind          string     `json:"kind"`
+	RepositoryID  string     `json:"repository_id"`
+	ResourceID    string     `json:"resource_id"`
+	EventSequence int64      `json:"event_sequence,omitempty"`
+	StartAt       *time.Time `json:"start_at,omitempty"`
+	EndAt         *time.Time `json:"end_at,omitempty"`
+	Title         string     `json:"title"`
+	Audience      string     `json:"audience"`
+	AttachedByID  string     `json:"attached_by_id"`
+	CapturedAt    time.Time  `json:"captured_at"`
+}
+
+// Finding records the team's reasoning separately from raw evidence. Sources
+// are evidence IDs, so later readers can verify each claim without guessing.
+type Finding struct {
+	ID          string    `json:"id"`
+	Kind        string    `json:"kind"`
+	Body        string    `json:"body"`
+	Query       string    `json:"query,omitempty"`
+	EvidenceIDs []string  `json:"evidence_ids"`
+	Audience    string    `json:"audience"`
+	AuthorID    string    `json:"author_id"`
+	CreatedAt   time.Time `json:"created_at"`
+}
 type Event struct {
 	Sequence       int64                 `json:"sequence"`
 	Type           string                `json:"type"`
@@ -64,6 +94,8 @@ type Incident struct {
 	SourceSignal     *SourceSignal         `json:"source_signal,omitempty"`
 	Followers        []string              `json:"followers"`
 	Acknowledgements []Acknowledgement     `json:"acknowledgements"`
+	Evidence         []Evidence            `json:"evidence"`
+	Findings         []Finding             `json:"findings"`
 	Timeline         []Event               `json:"timeline"`
 	CreatedAt        time.Time             `json:"created_at"`
 	UpdatedAt        time.Time             `json:"updated_at"`
@@ -109,7 +141,7 @@ func (s *Store) Create(in CreateInput) (Incident, error) {
 		return Incident{}, err
 	}
 	now := s.now().UTC()
-	i := Incident{ID: id, RepositoryID: in.RepositoryID, Title: in.Title, Summary: in.Summary, Severity: in.Severity, Status: "declared", DeclaredByID: in.ActorID, Roles: copyRoles(in.Roles), Affected: copyAffected(in.Affected), SourceSignal: in.SourceSignal, Followers: []string{in.ActorID}, Acknowledgements: []Acknowledgement{}, Timeline: []Event{}, CreatedAt: now, UpdatedAt: now}
+	i := Incident{ID: id, RepositoryID: in.RepositoryID, Title: in.Title, Summary: in.Summary, Severity: in.Severity, Status: "declared", DeclaredByID: in.ActorID, Roles: copyRoles(in.Roles), Affected: copyAffected(in.Affected), SourceSignal: in.SourceSignal, Followers: []string{in.ActorID}, Acknowledgements: []Acknowledgement{}, Evidence: []Evidence{}, Findings: []Finding{}, Timeline: []Event{}, CreatedAt: now, UpdatedAt: now}
 	i.append(Event{Type: "declared", ActorID: in.ActorID, Status: i.Status, Severity: i.Severity, Message: i.Summary, Roles: copyRoles(i.Roles), Affected: copyAffected(i.Affected), CreatedAt: now})
 	return i, s.write(i)
 }
@@ -284,6 +316,64 @@ func (s *Store) Acknowledge(repositoryID, id, actor string, sequence int64) (Inc
 	i.append(Event{Type: "acknowledged", ActorID: actor, UpdateSequence: sequence, CreatedAt: now})
 	return i, s.write(i)
 }
+func (s *Store) AddEvidence(repositoryID, id, actor string, evidence Evidence) (Incident, error) {
+	evidence.Kind, evidence.Title, evidence.Audience = strings.ToLower(strings.TrimSpace(evidence.Kind)), strings.TrimSpace(evidence.Title), strings.ToLower(strings.TrimSpace(evidence.Audience))
+	if actor == "" || evidence.RepositoryID == "" || evidence.ResourceID == "" || evidence.Title == "" || len(evidence.Title) > 300 || !validEvidenceKind(evidence.Kind) || !validAudience(evidence.Audience) || (evidence.StartAt != nil && evidence.EndAt != nil && evidence.EndAt.Before(*evidence.StartAt)) {
+		return Incident{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i, err := s.read(repositoryID, id)
+	if err != nil {
+		return i, err
+	}
+	if i.Status == "resolved" {
+		return i, ErrTransition
+	}
+	evidence.ID, err = newID()
+	if err != nil {
+		return i, err
+	}
+	evidence.AttachedByID, evidence.CapturedAt = actor, s.now().UTC()
+	i.Evidence = append(i.Evidence, evidence)
+	i.UpdatedAt = evidence.CapturedAt
+	i.append(Event{Type: "evidence.attached", ActorID: actor, Audience: evidence.Audience, Message: evidence.Title, CreatedAt: evidence.CapturedAt})
+	return i, s.write(i)
+}
+func (s *Store) AddFinding(repositoryID, id, actor string, finding Finding) (Incident, error) {
+	finding.Kind, finding.Body, finding.Query, finding.Audience = strings.ToLower(strings.TrimSpace(finding.Kind)), strings.TrimSpace(finding.Body), strings.TrimSpace(finding.Query), strings.ToLower(strings.TrimSpace(finding.Audience))
+	if actor == "" || !validFindingKind(finding.Kind) || finding.Body == "" || len(finding.Body) > 10000 || len(finding.Query) > 4000 || !validAudience(finding.Audience) {
+		return Incident{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i, err := s.read(repositoryID, id)
+	if err != nil {
+		return i, err
+	}
+	if i.Status == "resolved" {
+		return i, ErrTransition
+	}
+	seen := map[string]bool{}
+	for _, e := range i.Evidence {
+		seen[e.ID] = true
+	}
+	for _, source := range finding.EvidenceIDs {
+		if !seen[source] {
+			return i, ErrInvalid
+		}
+	}
+	finding.ID, err = newID()
+	if err != nil {
+		return i, err
+	}
+	finding.AuthorID, finding.CreatedAt = actor, s.now().UTC()
+	finding.EvidenceIDs = append([]string{}, finding.EvidenceIDs...)
+	i.Findings = append(i.Findings, finding)
+	i.UpdatedAt = finding.CreatedAt
+	i.append(Event{Type: "investigation." + finding.Kind, ActorID: actor, Audience: finding.Audience, Message: finding.Body, CreatedAt: finding.CreatedAt})
+	return i, s.write(i)
+}
 func (i *Incident) append(e Event) {
 	e.Sequence = int64(len(i.Timeline) + 1)
 	i.Timeline = append(i.Timeline, e)
@@ -335,6 +425,13 @@ func newID() (string, error) {
 }
 func validSeverity(v string) bool {
 	return v == "critical" || v == "high" || v == "medium" || v == "low"
+}
+func validAudience(v string) bool { return v == "participants" || v == "public" }
+func validEvidenceKind(v string) bool {
+	return v == "logs" || v == "health_signal" || v == "deployment" || v == "release" || v == "commit" || v == "pull_request" || v == "incident"
+}
+func validFindingKind(v string) bool {
+	return v == "observation" || v == "hypothesis" || v == "query" || v == "conclusion"
 }
 func validStatus(v string) bool {
 	return v == "declared" || v == "investigating" || v == "mitigating" || v == "monitoring" || v == "resolved"

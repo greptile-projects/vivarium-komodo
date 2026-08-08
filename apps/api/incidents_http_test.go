@@ -10,6 +10,8 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/incidents"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
@@ -27,7 +29,9 @@ func TestIncidentPublicAPIStartsFromFailedHealthSignal(t *testing.T) {
 	deployment, _ = deploymentStore.Stage(string(repository.ID), deployment.ID, "canary", "health.completed", "availability", "failed", "probe failed")
 	incidentStore, _ := incidents.New(t.TempDir())
 	mux := http.NewServeMux()
-	registerIncidentsHTTP(mux, incidentStore, deploymentStore, catalog, credentials)
+	releaseStore, _ := releases.New(t.TempDir())
+	pullStore, _ := pullrequests.New(t.TempDir())
+	registerIncidentsHTTP(mux, incidentStore, deploymentStore, releaseStore, pullStore, catalog, credentials)
 	body, _ := json.Marshal(map[string]any{"title": "Availability loss", "summary": "Canary is unavailable", "severity": "critical", "roles": map[string]string{"commander": "owner"}, "affected": []map[string]string{{"repository_id": string(repository.ID), "environment_id": environment.ID}}, "source_signal": map[string]any{"repository_id": string(repository.ID), "deployment_id": deployment.ID, "event_sequence": deployment.Events[len(deployment.Events)-1].Sequence}})
 	request := httptest.NewRequest(http.MethodPost, "/repositories/"+string(repository.ID)+"/incidents", bytes.NewReader(body))
 	request.Header.Set("Authorization", "Bearer "+token)
@@ -48,5 +52,18 @@ func TestIncidentPublicAPIStartsFromFailedHealthSignal(t *testing.T) {
 	mux.ServeHTTP(response, request)
 	if response.Code != http.StatusCreated {
 		t.Fatalf("update = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestPublicIncidentViewRedactsParticipantInvestigation(t *testing.T) {
+	item := incidents.Incident{
+		Followers: []string{"responder"}, Acknowledgements: []incidents.Acknowledgement{{ActorID: "responder"}},
+		Evidence: []incidents.Evidence{{ID: "private", Audience: "participants"}, {ID: "public", Audience: "public"}},
+		Findings: []incidents.Finding{{ID: "private", Audience: "participants"}, {ID: "public", Audience: "public"}},
+		Timeline: []incidents.Event{{Sequence: 1, Type: "declared"}, {Sequence: 2, Type: "update", Audience: "participants"}, {Sequence: 3, Type: "update", Audience: "public"}},
+	}
+	visible := visibleIncident(item, false)
+	if len(visible.Evidence) != 1 || visible.Evidence[0].ID != "public" || len(visible.Findings) != 1 || visible.Findings[0].ID != "public" || len(visible.Timeline) != 2 || visible.Followers != nil || visible.Acknowledgements != nil {
+		t.Fatalf("public incident leaked participant state: %#v", visible)
 	}
 }

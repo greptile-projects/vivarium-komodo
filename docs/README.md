@@ -107,6 +107,23 @@ Storage is rooted at `$INCIDENT_ROOT`, defaulting to
 writes require participant repository access. The web workspace uses the
 shareable `view=incidents&incident={id}` repository context.
 
+Diagnosis in that workspace is a durable notebook rather than free-form status
+text. Responders attach source pointers for deployment logs, health signals,
+deployments, releases, exact commits, pull requests, and prior incidents. Log
+sources require an explicit start and end time, health signals retain their
+event sequence, and every attachment records who captured it and when. The
+linked source remains live and inspectable while the pointer preserves the
+historical window used during response.
+
+Investigation entries are typed as observations, hypotheses, reproducible
+queries, or conclusions. Each entry may cite exact attachment IDs and retains
+its author, timestamp, query or command text, and audience. Both attachments
+and findings use `participants` or `public` access; public incident reads omit
+participant-only diagnosis and timeline updates as well as follower and
+acknowledgement state. Source creation is accepted only when the responder can
+read the source repository and the referenced record exists through its owning
+storage boundary.
+
 ## Entrypoints
 
 - `apps/web` — Next.js frontend. Starts at `src/app/page.tsx`; routes are

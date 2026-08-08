@@ -438,6 +438,14 @@ whenever dependencies change or the web job fails before it starts.
   explicitly audience-labelled `participants` or `public`, while incident
   reads continue to follow the anchor repository's ordinary visibility policy.
   The shareable web surface is `view=incidents&incident={id}`.
+  Incident investigations attach durable pointers to time-bounded deployment
+  logs, health signals, deployments, releases, commits, pull requests, and
+  prior incidents. Observations, hypotheses, queries, and conclusions cite
+  those evidence IDs and retain author, creation time, reproducible query text,
+  and `participants` or `public` audience. Validate every source through its
+  owning store and repository policy; anonymous public reads must redact all
+  participant-only evidence, findings, timeline entries, follower state, and
+  acknowledgements rather than exposing responder context.
   Meaningful collaboration transitions are appended through the
   `activities.Store` boundary beneath `$ACTIVITY_ROOT` (default
   `apps/api/data/activities`). Repository activity retains stable actor and
