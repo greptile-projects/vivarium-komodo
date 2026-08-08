@@ -199,3 +199,62 @@ func TestCollaboratorsExecuteAttributedProposalPlanThroughAPI(t *testing.T) {
 		t.Fatalf("invalid discussion link = %d", response.StatusCode)
 	}
 }
+
+func TestReadyTaskAssignmentContractThroughAPI(t *testing.T) {
+	gitStorage, _ := storage.New(t.TempDir())
+	catalog, _ := repositories.New(t.TempDir(), gitStorage)
+	proposalStore, _ := proposals.New(t.TempDir())
+	userStore, _ := users.New(t.TempDir())
+	credentials, _ := auth.New(t.TempDir())
+	owner, _ := userStore.Create(users.Profile{Handle: "assign-owner", DisplayName: "Owner"})
+	collaborator, _ := userStore.Create(users.Profile{Handle: "assignee", DisplayName: "Assignee"})
+	repository, _ := catalog.Create(string(owner.ID), repositories.Metadata{Name: "assigned-project", Visibility: repositories.Private})
+	_, _ = catalog.AddCollaborator(string(owner.ID), repository.ID, string(collaborator.ID))
+	opened, _ := catalog.Open(repository.ID)
+	tree, _ := opened.WriteObject(storage.TreeObject, []byte{})
+	baseRevision, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(tree)+"\nauthor Owner <o@example.test> 1 +0000\ncommitter Owner <o@example.test> 1 +0000\n\nbase\n"))
+	proposal, _ := proposalStore.Create(string(repository.ID), string(owner.ID), "Assign work", "")
+	task, _ := proposalStore.CreateTask(string(repository.ID), proposal.ID, string(owner.ID), proposals.TaskInput{Title: "Build it", Outcome: "A reviewable change exists."})
+	ownerToken := issueAccess(t, credentials, string(owner.ID), auth.API, auth.RepositoryRead, auth.RepositoryWrite)
+	mux := http.NewServeMux()
+	registerProposalsHTTP(mux, proposalStore, catalog, credentials)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	endpoint := server.URL + "/repositories/" + string(repository.ID) + "/proposals/" + proposal.ID + "/plan/tasks/" + task.ID + "/assignment"
+
+	request, _ := http.NewRequest(http.MethodPut, endpoint, strings.NewReader(`{"kind":"agent","assignee_id":"codex","mandate":"Deliver only the documented outcome.","repository_id":"`+string(repository.ID)+`","base_revision":"`+string(baseRevision)+`"}`))
+	request.Header.Set("Authorization", "Bearer "+ownerToken)
+	response, _ := http.DefaultClient.Do(request)
+	var assigned proposals.Task
+	json.NewDecoder(response.Body).Decode(&assigned)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || assigned.Assignment == nil || assigned.Assignment.CredentialIssued || assigned.Assignment.BaseRevision != string(baseRevision) {
+		t.Fatalf("assigned = %#v status %d", assigned, response.StatusCode)
+	}
+
+	request, _ = http.NewRequest(http.MethodPut, endpoint, strings.NewReader(`{"kind":"human","assignee_id":"`+string(collaborator.ID)+`","mandate":"Race for ownership.","base_revision":"`+string(baseRevision)+`"}`))
+	request.Header.Set("Authorization", "Bearer "+ownerToken)
+	response, _ = http.DefaultClient.Do(request)
+	response.Body.Close()
+	if response.StatusCode != http.StatusConflict {
+		t.Fatalf("concurrent claim = %d", response.StatusCode)
+	}
+
+	request, _ = http.NewRequest(http.MethodPut, endpoint, strings.NewReader(`{"kind":"human","assignee_id":"`+string(collaborator.ID)+`","mandate":"Take accountable ownership.","base_revision":"`+string(baseRevision)+`","expected_assignment_id":"`+assigned.Assignment.ID+`"}`))
+	request.Header.Set("Authorization", "Bearer "+ownerToken)
+	response, _ = http.DefaultClient.Do(request)
+	var reassigned proposals.Task
+	json.NewDecoder(response.Body).Decode(&reassigned)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || reassigned.Assignment.AssigneeID != string(collaborator.ID) {
+		t.Fatalf("reassigned = %#v status %d", reassigned, response.StatusCode)
+	}
+
+	request, _ = http.NewRequest(http.MethodDelete, endpoint+"?expected_assignment_id="+reassigned.Assignment.ID, nil)
+	request.Header.Set("Authorization", "Bearer "+ownerToken)
+	response, _ = http.DefaultClient.Do(request)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("revoke = %d", response.StatusCode)
+	}
+}

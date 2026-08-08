@@ -13,8 +13,11 @@ import (
 )
 
 var (
-	ErrInvalidTask       = errors.New("invalid proposal task")
-	ErrInvalidDependency = errors.New("invalid proposal task dependency")
+	ErrInvalidTask        = errors.New("invalid proposal task")
+	ErrInvalidDependency  = errors.New("invalid proposal task dependency")
+	ErrTaskNotReady       = errors.New("proposal task is not ready")
+	ErrTaskAssigned       = errors.New("proposal task is already assigned")
+	ErrAssignmentConflict = errors.New("proposal task assignment changed")
 )
 
 type TaskStatus string
@@ -27,19 +30,51 @@ const (
 )
 
 type Task struct {
-	ID                   string     `json:"id"`
-	ProposalID           string     `json:"proposal_id"`
-	Title                string     `json:"title"`
-	Outcome              string     `json:"outcome"`
-	Position             int        `json:"position"`
-	Status               TaskStatus `json:"status"`
-	DependsOn            []string   `json:"depends_on"`
-	DiscussionCommentIDs []string   `json:"discussion_comment_ids"`
-	CreatedByID          string     `json:"created_by_id"`
-	UpdatedByID          string     `json:"updated_by_id"`
-	CreatedAt            time.Time  `json:"created_at"`
-	UpdatedAt            time.Time  `json:"updated_at"`
-	Ready                bool       `json:"ready"`
+	ID                   string          `json:"id"`
+	ProposalID           string          `json:"proposal_id"`
+	Title                string          `json:"title"`
+	Outcome              string          `json:"outcome"`
+	Position             int             `json:"position"`
+	Status               TaskStatus      `json:"status"`
+	DependsOn            []string        `json:"depends_on"`
+	DiscussionCommentIDs []string        `json:"discussion_comment_ids"`
+	CreatedByID          string          `json:"created_by_id"`
+	UpdatedByID          string          `json:"updated_by_id"`
+	CreatedAt            time.Time       `json:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at"`
+	Ready                bool            `json:"ready"`
+	Assignment           *TaskAssignment `json:"assignment,omitempty"`
+}
+
+type AssigneeKind string
+
+const (
+	HumanAssignee AssigneeKind = "human"
+	AgentAssignee AssigneeKind = "agent"
+)
+
+// TaskAssignment is the pre-work responsibility contract. It describes the
+// exact context and authority a worker will receive; credentials and execution
+// are deliberately created only when work starts.
+type TaskAssignment struct {
+	ID               string       `json:"id"`
+	Kind             AssigneeKind `json:"kind"`
+	AssigneeID       string       `json:"assignee_id"`
+	Mandate          string       `json:"mandate"`
+	RepositoryID     string       `json:"repository_id"`
+	BaseRevision     string       `json:"base_revision"`
+	Permissions      []string     `json:"permissions"`
+	CredentialIssued bool         `json:"credential_issued"`
+	AssignedByID     string       `json:"assigned_by_id"`
+	AssignedAt       time.Time    `json:"assigned_at"`
+}
+
+type AssignmentInput struct {
+	Kind         AssigneeKind
+	AssigneeID   string
+	Mandate      string
+	RepositoryID string
+	BaseRevision string
 }
 
 type TaskInput struct {
@@ -171,6 +206,94 @@ func (s *Store) UpdateTask(repositoryID, proposalID, taskID, actorID string, inp
 		return Task{}, err
 	}
 	return taskByID(tasks, taskID), nil
+}
+
+func (s *Store) AssignTask(repositoryID, proposalID, taskID, actorID, expectedAssignmentID string, input AssignmentInput) (Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tasks, err := s.readTasks(repositoryID, proposalID)
+	if err != nil {
+		return Task{}, err
+	}
+	index := taskIndex(tasks, taskID)
+	if index < 0 {
+		return Task{}, ErrNotFound
+	}
+	deriveReadiness(tasks)
+	current := tasks[index]
+	if !current.Ready {
+		return Task{}, ErrTaskNotReady
+	}
+	if current.Assignment != nil && expectedAssignmentID == "" {
+		return Task{}, ErrTaskAssigned
+	}
+	if current.Assignment != nil && current.Assignment.ID != expectedAssignmentID {
+		return Task{}, ErrAssignmentConflict
+	}
+	if current.Assignment == nil && expectedAssignmentID != "" {
+		return Task{}, ErrAssignmentConflict
+	}
+	input.AssigneeID, input.Mandate, input.RepositoryID, input.BaseRevision = strings.TrimSpace(input.AssigneeID), strings.TrimSpace(input.Mandate), strings.TrimSpace(input.RepositoryID), strings.TrimSpace(input.BaseRevision)
+	if (input.Kind != HumanAssignee && input.Kind != AgentAssignee) || input.AssigneeID == "" || len(input.AssigneeID) > 100 || input.Mandate == "" || len(input.Mandate) > 4096 || input.RepositoryID == "" || input.BaseRevision == "" {
+		return Task{}, ErrInvalidTask
+	}
+	id, err := newID()
+	if err != nil {
+		return Task{}, err
+	}
+	now := s.now().UTC()
+	current.Assignment = &TaskAssignment{ID: id, Kind: input.Kind, AssigneeID: input.AssigneeID, Mandate: input.Mandate, RepositoryID: input.RepositoryID, BaseRevision: input.BaseRevision, Permissions: []string{"contents:read", "candidate_branch:write"}, CredentialIssued: false, AssignedByID: actorID, AssignedAt: now}
+	current.UpdatedByID, current.UpdatedAt = actorID, now
+	tasks[index] = current
+	if err := s.writeTasks(repositoryID, proposalID, tasks); err != nil {
+		return Task{}, err
+	}
+	action := "task.assigned"
+	if expectedAssignmentID != "" {
+		action = "task.reassigned"
+	}
+	if err := s.appendPlanEvent(repositoryID, proposalID, actorID, action, current); err != nil {
+		return Task{}, err
+	}
+	return current, nil
+}
+
+func (s *Store) RevokeTaskAssignment(repositoryID, proposalID, taskID, actorID, expectedAssignmentID string) (Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tasks, err := s.readTasks(repositoryID, proposalID)
+	if err != nil {
+		return Task{}, err
+	}
+	index := taskIndex(tasks, taskID)
+	if index < 0 {
+		return Task{}, ErrNotFound
+	}
+	current := tasks[index]
+	if current.Assignment == nil || expectedAssignmentID == "" || current.Assignment.ID != expectedAssignmentID {
+		return Task{}, ErrAssignmentConflict
+	}
+	revokedSnapshot := current
+	current.Assignment = nil
+	current.UpdatedByID, current.UpdatedAt = actorID, s.now().UTC()
+	tasks[index] = current
+	if err := s.writeTasks(repositoryID, proposalID, tasks); err != nil {
+		return Task{}, err
+	}
+	revokedSnapshot.UpdatedByID, revokedSnapshot.UpdatedAt = actorID, current.UpdatedAt
+	if err := s.appendPlanEvent(repositoryID, proposalID, actorID, "task.assignment_revoked", revokedSnapshot); err != nil {
+		return Task{}, err
+	}
+	return current, nil
+}
+
+func taskIndex(tasks []Task, id string) int {
+	for i := range tasks {
+		if tasks[i].ID == id {
+			return i
+		}
+	}
+	return -1
 }
 
 func normalizeTaskInput(input TaskInput) TaskInput {

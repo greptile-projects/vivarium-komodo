@@ -22,6 +22,8 @@ type proposalStore interface {
 	GetPlan(string, string) (proposals.Plan, error)
 	CreateTask(string, string, string, proposals.TaskInput) (proposals.Task, error)
 	UpdateTask(string, string, string, string, proposals.TaskInput) (proposals.Task, error)
+	AssignTask(string, string, string, string, string, proposals.AssignmentInput) (proposals.Task, error)
+	RevokeTaskAssignment(string, string, string, string, string) (proposals.Task, error)
 }
 
 type proposalRepositoryStore interface {
@@ -43,6 +45,95 @@ func registerProposalsHTTP(mux *http.ServeMux, store proposalStore, repositories
 	mux.HandleFunc("GET /repositories/{repository}/proposals/{proposal}/plan", getProposalPlan(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/proposals/{proposal}/plan/tasks", createProposalTask(store, repositories, credentials, activity))
 	mux.HandleFunc("PATCH /repositories/{repository}/proposals/{proposal}/plan/tasks/{task}", updateProposalTask(store, repositories, credentials, activity))
+	mux.HandleFunc("PUT /repositories/{repository}/proposals/{proposal}/plan/tasks/{task}/assignment", assignProposalTask(store, repositories, credentials, activity))
+	mux.HandleFunc("DELETE /repositories/{repository}/proposals/{proposal}/plan/tasks/{task}/assignment", revokeProposalTaskAssignment(store, repositories, credentials, activity))
+}
+
+var availableTaskAgents = map[string]bool{"codex": true}
+
+func assignProposalTask(store proposalStore, repositoryStore proposalRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositoryStore, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var input struct {
+			Kind                 proposals.AssigneeKind `json:"kind"`
+			AssigneeID           string                 `json:"assignee_id"`
+			Mandate              string                 `json:"mandate"`
+			RepositoryID         string                 `json:"repository_id"`
+			BaseRevision         string                 `json:"base_revision"`
+			ExpectedAssignmentID string                 `json:"expected_assignment_id"`
+		}
+		if !readJSON(w, r, &input, 16<<10) {
+			return
+		}
+		if input.RepositoryID == "" {
+			input.RepositoryID = string(repository.ID)
+		}
+		if input.RepositoryID != string(repository.ID) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_assignment_repository"})
+			return
+		}
+		if input.Kind == proposals.HumanAssignee {
+			participant := input.AssigneeID == repository.OwnerID
+			if !participant {
+				participant, _ = repositoryStore.IsCollaborator(repository.ID, input.AssigneeID)
+			}
+			if !participant {
+				writeJSON(w, 422, map[string]string{"error": "invalid_assignee"})
+				return
+			}
+		} else if input.Kind == proposals.AgentAssignee {
+			if !availableTaskAgents[input.AssigneeID] {
+				writeJSON(w, 422, map[string]string{"error": "agent_unavailable"})
+				return
+			}
+		}
+		opener, ok := repositoryStore.(interface {
+			Open(storage.ID) (*storage.Repository, error)
+		})
+		if !ok {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		opened, err := opener.Open(repository.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		if _, err = opened.ReadCommit(storage.ObjectID(input.BaseRevision)); err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_base_revision"})
+			return
+		}
+		task, err := store.AssignTask(string(repository.ID), r.PathValue("proposal"), r.PathValue("task"), actor.UserID, input.ExpectedAssignmentID, proposals.AssignmentInput{Kind: input.Kind, AssigneeID: input.AssigneeID, Mandate: input.Mandate, RepositoryID: input.RepositoryID, BaseRevision: input.BaseRevision})
+		if writeProposalTaskError(w, err) {
+			return
+		}
+		if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "proposal.task.assigned", Resource: activities.Resource{Type: "proposal", ID: task.ProposalID}, Metadata: map[string]string{"task_id": task.ID, "assignee_id": input.AssigneeID, "kind": string(input.Kind)}}); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, 200, task)
+	}
+}
+
+func revokeProposalTaskAssignment(store proposalStore, repositories proposalRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		task, err := store.RevokeTaskAssignment(string(repository.ID), r.PathValue("proposal"), r.PathValue("task"), actor.UserID, r.URL.Query().Get("expected_assignment_id"))
+		if writeProposalTaskError(w, err) {
+			return
+		}
+		if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "proposal.task.assignment_revoked", Resource: activities.Resource{Type: "proposal", ID: task.ProposalID}, Metadata: map[string]string{"task_id": task.ID}}); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, 200, task)
+	}
 }
 
 type proposalTaskInput struct {
@@ -155,6 +246,12 @@ func writeProposalTaskError(w http.ResponseWriter, err error) bool {
 		writeJSON(w, 422, map[string]string{"error": "invalid_dependency"})
 	} else if errors.Is(err, proposals.ErrInvalidTask) {
 		writeJSON(w, 422, map[string]string{"error": "invalid_task"})
+	} else if errors.Is(err, proposals.ErrTaskNotReady) {
+		writeJSON(w, 409, map[string]string{"error": "task_not_ready"})
+	} else if errors.Is(err, proposals.ErrTaskAssigned) {
+		writeJSON(w, 409, map[string]string{"error": "task_already_assigned"})
+	} else if errors.Is(err, proposals.ErrAssignmentConflict) {
+		writeJSON(w, 409, map[string]string{"error": "assignment_changed"})
 	} else {
 		writeJSON(w, 500, map[string]string{"error": "internal_error"})
 	}

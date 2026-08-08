@@ -35,6 +35,7 @@ type Repository = {
   updated_at: string;
   upstream_repository_id?: string;
   upstream_api_url?: string;
+  collaborator_ids?: string[];
 };
 type BranchRecord = { name: string; commit_id: string; is_default: boolean };
 type Branches = { items: BranchRecord[]; default_branch: string };
@@ -112,6 +113,18 @@ type ProposalTask = {
   created_at: string;
   updated_at: string;
   ready: boolean;
+  assignment?: {
+    id: string;
+    kind: "human" | "agent";
+    assignee_id: string;
+    mandate: string;
+    repository_id: string;
+    base_revision: string;
+    permissions: string[];
+    credential_issued: boolean;
+    assigned_by_id: string;
+    assigned_at: string;
+  };
 };
 type ProposalPlanEvent = {
   id: string;
@@ -710,7 +723,8 @@ export default function RepositoryPage({
       </nav>
       {view === "proposals" ? (
         <ProposalWorkspace
-          repository={id}
+          repository={repository}
+          branches={branches.items}
           owner={repository.owner_id}
           selected={query.proposal}
           initialState={query.state}
@@ -1188,12 +1202,14 @@ function IntegrationQueueWorkspace({ repository, branches, initialBranch, actor,
 
 function ProposalWorkspace({
   repository,
+  branches,
   owner,
   selected,
   initialState,
   initialQuery,
 }: {
-  repository: string;
+  repository: Repository;
+  branches: BranchRecord[];
   owner: string;
   selected?: string;
   initialState?: string;
@@ -1229,12 +1245,12 @@ function ProposalWorkspace({
         .catch(() => "");
       if (selected) {
         const [item, conversation, proposalPlan, user] = await Promise.all([
-          get<Proposal>(`/repositories/${repository}/proposals/${selected}`),
+          get<Proposal>(`/repositories/${repository.id}/proposals/${selected}`),
           get<CommentList>(
-            `/repositories/${repository}/proposals/${selected}/comments?per_page=100`,
+            `/repositories/${repository.id}/proposals/${selected}/comments?per_page=100`,
           ),
           get<ProposalPlan>(
-            `/repositories/${repository}/proposals/${selected}/plan`,
+            `/repositories/${repository.id}/proposals/${selected}/plan`,
           ),
           session,
         ]);
@@ -1246,7 +1262,7 @@ function ProposalWorkspace({
         const suffix = state === "all" ? "" : `&state=${state}`;
         const [list, user] = await Promise.all([
           get<ProposalList>(
-            `/repositories/${repository}/proposals?per_page=100${suffix}`,
+            `/repositories/${repository.id}/proposals?per_page=100${suffix}`,
           ),
           session,
         ]);
@@ -1261,7 +1277,7 @@ function ProposalWorkspace({
     } finally {
       setLoading(false);
     }
-  }, [repository, selected, state]);
+  }, [repository.id, selected, state]);
   useEffect(() => {
     // Proposal state follows the shareable state/query/detail URL.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -1274,7 +1290,7 @@ function ProposalWorkspace({
     const nextQuery = next.q ?? query;
     if (nextQuery) values.set("q", nextQuery);
     if (next.proposal) values.set("proposal", next.proposal);
-    router.push(`/repositories/${repository}?${values}`);
+    router.push(`/repositories/${repository.id}?${values}`);
   }
   const filtered = items.filter(
     (item) =>
@@ -1300,7 +1316,10 @@ function ProposalWorkspace({
         item={proposal}
         comments={comments}
         plan={plan ?? { proposal_id: proposal.id, tasks: [], history: [] }}
-        repository={repository}
+        repository={repository.id}
+        assignmentRepository={repository}
+        branches={branches}
+        actor={actor}
         canDiscuss={Boolean(actor)}
         canPlan={Boolean(actor)}
         canEdit={actor === proposal.author_id || actor === owner}
@@ -1338,7 +1357,7 @@ function ProposalWorkspace({
           onCancel={() => setCreating(false)}
           onSubmit={async (title, body) => {
             const created = await send<Proposal>(
-              `/repositories/${repository}/proposals`,
+              `/repositories/${repository.id}/proposals`,
               "POST",
               { title, body },
             );
@@ -1474,6 +1493,9 @@ function ProposalDetail({
   comments,
   plan,
   repository,
+  assignmentRepository,
+  branches,
+  actor,
   canDiscuss,
   canPlan,
   canEdit,
@@ -1486,6 +1508,9 @@ function ProposalDetail({
   comments: ProposalComment[];
   plan: ProposalPlan;
   repository: string;
+  assignmentRepository: Repository;
+  branches: BranchRecord[];
+  actor: string;
   canDiscuss: boolean;
   canPlan: boolean;
   canEdit: boolean;
@@ -1590,6 +1615,9 @@ function ProposalDetail({
       )}
       <ProposalPlanView
         repository={repository}
+        assignmentRepository={assignmentRepository}
+        branches={branches}
+        actor={actor}
         proposal={item.id}
         plan={plan}
         comments={comments}
@@ -1689,6 +1717,9 @@ function ProposalDetail({
 
 function ProposalPlanView({
   repository,
+  assignmentRepository,
+  branches,
+  actor,
   proposal,
   plan,
   comments,
@@ -1696,6 +1727,9 @@ function ProposalPlanView({
   onChanged,
 }: {
   repository: string;
+  assignmentRepository: Repository;
+  branches: BranchRecord[];
+  actor: string;
   proposal: string;
   plan: ProposalPlan;
   comments: ProposalComment[];
@@ -1705,6 +1739,7 @@ function ProposalPlanView({
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<string>();
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [assigning, setAssigning] = useState<string>();
   const [error, setError] = useState("");
   const completed = plan.tasks.filter((task) => task.status === "completed").length;
   async function update(task: ProposalTask, changes: Partial<ProposalTask>) {
@@ -1770,8 +1805,12 @@ function ProposalPlanView({
               {task.depends_on.length > 0 && <small>After {task.depends_on.map((id) => plan.tasks.find((candidate) => candidate.id === id)?.title ?? id).join(", ")}</small>}
               {task.discussion_comment_ids.length > 0 && <small><MessageCircle size={11} /> Linked to {task.discussion_comment_ids.length} discussion {task.discussion_comment_ids.length === 1 ? "decision" : "decisions"}</small>}
               <small>Last changed by <Actor id={task.updated_by_id} /> · {new Date(task.updated_at).toLocaleString()}</small>
+              {task.assignment && <div className="task-assignment"><strong>{task.assignment.kind === "agent" ? task.assignment.assignee_id : <Actor id={task.assignment.assignee_id} />} owns this task</strong><span>{task.assignment.mandate}</span><small>Base <code>{short(task.assignment.base_revision)}</code> in this repository · {task.assignment.permissions.join(" + ")} · no credential issued</small><small>Assigned by <Actor id={task.assignment.assigned_by_id} /> · {new Date(task.assignment.assigned_at).toLocaleString()}</small></div>}
+              {assigning === task.id && <TaskAssignmentForm task={task} repository={assignmentRepository} branches={branches} actor={actor} onCancel={() => setAssigning(undefined)} onAssigned={() => { setAssigning(undefined); onChanged(); }} />}
             </div>
             {canEdit && <div className="task-actions">
+              {task.ready && <button aria-label={`${task.assignment ? "Reassign" : "Assign"} ${task.title}`} onClick={() => setAssigning(assigning === task.id ? undefined : task.id)}><User size={13} /></button>}
+              {task.assignment && <button aria-label={`Revoke assignment for ${task.title}`} onClick={async () => { try { await send(`/repositories/${repository}/proposals/${proposal}/plan/tasks/${task.id}/assignment?expected_assignment_id=${task.assignment?.id}`, "DELETE"); onChanged(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to revoke assignment."); } }}><Trash size={13} /></button>}
               <select aria-label={`Status for ${task.title}`} value={task.status} onChange={(event) => void update(task, {status: event.target.value as ProposalTask["status"]})}>
                 <option value="planned">Planned</option><option value="in_progress">In progress</option><option value="completed">Completed</option><option value="canceled">Canceled</option>
               </select>
@@ -1783,7 +1822,7 @@ function ProposalPlanView({
         ))}
         {!plan.tasks.length && <div className="plan-empty panel"><Check /><h4>No delivery tasks yet</h4><p>Add outcomes in dependency order so the next collaborator knows where to begin.</p></div>}
       </div>
-      {historyOpen && <div className="plan-history panel"><h4>Plan history</h4>{[...plan.history].reverse().map((event) => <div key={event.id}><span className="avatar sm"><User size={12} /></span><p><strong><Actor id={event.actor_id} /></strong> {event.action === "task.created" ? "created" : "updated"} <b>{event.task.title}</b><small>{event.task.status.replace("_", " ")} · {new Date(event.created_at).toLocaleString()}</small></p></div>)}</div>}
+      {historyOpen && <div className="plan-history panel"><h4>Plan history</h4>{[...plan.history].reverse().map((event) => <div key={event.id}><span className="avatar sm"><User size={12} /></span><p><strong><Actor id={event.actor_id} /></strong> {event.action.replace("task.", "").replaceAll("_", " ")} <b>{event.task.title}</b><small>{event.task.status.replace("_", " ")} · {new Date(event.created_at).toLocaleString()}</small></p></div>)}</div>}
     </section>
   );
 }
@@ -1802,6 +1841,28 @@ function TaskForm({ task, tasks, comments, submit, onCancel, onSubmit }: { task?
     {choices.length > 0 && <fieldset><legend>Depends on</legend>{choices.map((candidate) => <label key={candidate.id}><input type="checkbox" checked={dependencies.includes(candidate.id)} onChange={() => setDependencies((current) => current.includes(candidate.id) ? current.filter((id) => id !== candidate.id) : [...current, candidate.id])} />{candidate.position}. {candidate.title}</label>)}</fieldset>}
     {comments.length > 0 && <fieldset><legend>Motivating discussion</legend>{comments.map((comment, index) => <label key={comment.id}><input type="checkbox" checked={links.includes(comment.id)} onChange={() => setLinks((current) => current.includes(comment.id) ? current.filter((id) => id !== comment.id) : [...current, comment.id])} />Reply {index + 1} by <Actor id={comment.author_id} /></label>)}</fieldset>}
     {error && <p className="form-error">{error}</p>}<div className="form-actions"><Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Saving…" : submit}</Button></div>
+  </form>;
+}
+
+function TaskAssignmentForm({ task, repository, branches, actor, onCancel, onAssigned }: { task: ProposalTask; repository: Repository; branches: BranchRecord[]; actor: string; onCancel: () => void; onAssigned: () => void }) {
+  const [kind, setKind] = useState<"human" | "agent">(task.assignment?.kind ?? "human");
+  const members = Array.from(new Set([repository.owner_id, ...(repository.collaborator_ids ?? []), actor].filter(Boolean)));
+  const [assignee, setAssignee] = useState(task.assignment?.assignee_id ?? actor);
+  const [revision, setRevision] = useState(task.assignment?.base_revision ?? branches.find((branch) => branch.is_default)?.commit_id ?? branches[0]?.commit_id ?? "");
+  const [mandate, setMandate] = useState(task.assignment?.mandate ?? task.outcome);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return <form className="assignment-form" onSubmit={async (event) => {
+    event.preventDefault(); setBusy(true); setError("");
+    try {
+      await send(`/repositories/${repository.id}/proposals/${task.proposal_id}/plan/tasks/${task.id}/assignment`, "PUT", { kind, assignee_id: kind === "agent" ? "codex" : assignee, mandate, repository_id: repository.id, base_revision: revision, expected_assignment_id: task.assignment?.id ?? "" });
+      onAssigned();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to assign task."); setBusy(false); }
+  }}>
+    <div><label>Owner type<select value={kind} onChange={(event) => { const next = event.target.value as "human" | "agent"; setKind(next); setAssignee(next === "agent" ? "codex" : actor); }}><option value="human">Human collaborator</option><option value="agent">Available agent</option></select></label><label>Accountable owner<select value={kind === "agent" ? "codex" : assignee} onChange={(event) => setAssignee(event.target.value)}>{kind === "agent" ? <option value="codex">Codex</option> : members.map((id) => <option key={id} value={id}>{id === actor ? "Claim for me" : id}</option>)}</select></label><label>Base revision<select required value={revision} onChange={(event) => setRevision(event.target.value)}>{branches.map((branch) => <option key={branch.name} value={branch.commit_id}>{branch.name} · {short(branch.commit_id)}</option>)}</select></label></div>
+    <label>Mandate<textarea required maxLength={4096} value={mandate} onChange={(event) => setMandate(event.target.value)} /></label>
+    <p><strong>Authority preview:</strong> read repository contents and write only the future candidate branch created for this task. No credential is issued until work starts.</p>
+    {error && <p className="form-error" role="alert">{error}</p>}<div className="form-actions"><Button type="button" variant="secondary" size="sm" onClick={onCancel}>Cancel</Button><Button type="submit" size="sm" disabled={busy || !revision}>{busy ? "Assigning…" : task.assignment ? "Reassign" : kind === "human" && assignee === actor ? "Claim task" : "Assign task"}</Button></div>
   </form>;
 }
 
