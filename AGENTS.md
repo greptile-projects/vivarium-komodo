@@ -310,6 +310,11 @@ whenever dependencies change or the web job fails before it starts.
   attributable and preserve prior candidates and check runs. Automated blocked,
   removed, and merged outcomes create pull-request-linked inbox activity for
   the contributor.
+  `integration_queue_workflow_test.go` is the black-box regression boundary for
+  parallel human and agent publication through the protected-branch queue. It
+  proves policy-order landing, evolved-target rechecks, failed-change isolation,
+  continued integration, and retained candidate evidence and attribution using
+  public HTTP surfaces and stock Git.
   Pull-request change sessions live beneath `$CHANGE_SESSION_ROOT` (default
   `apps/api/data/change-sessions`) behind the `changesessions.Store` boundary.
   Any authenticated repository participant may start one on an open pull
