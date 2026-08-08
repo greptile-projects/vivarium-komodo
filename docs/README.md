@@ -135,6 +135,26 @@ the same resource uses that ID to revoke it. Missing or stale tokens and
 simultaneous claims return conflicts, and accepted assignment, reassignment,
 and revocation transitions retain stable actor attribution in plan history.
 
+An agent assignment starts without manufacturing a pull request through `POST
+.../plan/tasks/{task}/change-sessions`, using `expected_assignment_id` as the
+start concurrency token. The API creates a unique `codex/task-*` branch that
+points exactly at the assignment's base revision, captures the proposal title
+and description, task outcome, mandate, completed dependency snapshots, and
+repository metadata in a durable session, and immediately queues the Codex
+run. Its one-time credential lasts at most 24 hours and can write only the
+assigned repository and exact working branch. The task becomes `in_progress`
+and retains the session and branch identities; a repeated or stale start is a
+conflict.
+
+The task's `/change-sessions` collection, session detail, and `/events`
+resources provide the same reconnectable public timeline available during
+pull-request work. Repository participants guide, answer, pause, resume, and
+cancel through `/runs/{run}/interventions`; workers read `/control` and append
+typed progress through `/events` using their branch credential. Cancel and
+failure revoke that credential immediately. These sessions deliberately do not
+create a pull request: connecting their eventual candidate commits to review
+is the subsequent publication transition.
+
 ## Web pull request workflow
 
 The repository Pull requests tab turns published candidate branches into

@@ -237,6 +237,14 @@ whenever dependencies change or the web job fails before it starts.
   reassignment and revocation; stale or simultaneous claims must return a
   conflict and every accepted transition remains actor-attributed in plan
   history.
+  Starting a ready `codex` assignment uses that same assignment ID as a
+  concurrency token and creates a proposal-task-scoped change session plus a
+  unique `codex/task-*` branch at the assigned commit. The session immutably
+  captures proposal, task, dependency, mandate, and repository context and
+  immediately queues a run with a 24-hour Git credential limited to that exact
+  repository and branch. These pre-pull-request sessions use the task's
+  `/change-sessions` public read, event, control, and intervention resources;
+  publication into ordinary pull-request review is a separate transition.
   Pull requests are durable records beneath `$PULL_REQUEST_ROOT` (default
   `apps/api/data/pull-requests`) owned by the `pullrequests.Store` boundary.
   Creation resolves existing source and target branches through storage and
