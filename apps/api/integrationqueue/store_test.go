@@ -61,3 +61,34 @@ func TestCandidateReplacementAndTerminalTransitionAreDurable(t *testing.T) {
 		t.Fatalf("retained = %#v, %v", retained, err)
 	}
 }
+
+func TestMaintainerOperationsPreserveOrderAttributionAndHistory(t *testing.T) {
+	store, _ := New(t.TempDir())
+	first, _ := store.Enqueue("repo", "pull-1", "main", "source-1", "base", "candidate-1", "tree-1", "owner", nil)
+	second, _ := store.Enqueue("repo", "pull-2", "main", "source-2", "base", "candidate-2", "tree-2", "owner", nil)
+
+	moved, err := store.Operate(second.ID, "reprioritize", "maintainer", 1)
+	if err != nil || moved.Position != 1 || moved.Events[len(moved.Events)-1].ActorID != "maintainer" {
+		t.Fatalf("reprioritized = %#v, %v", moved, err)
+	}
+	ordered, _ := store.List("repo", "main")
+	if len(ordered) != 2 || ordered[0].ID != second.ID || ordered[1].ID != first.ID || ordered[1].Position != 2 {
+		t.Fatalf("order = %#v", ordered)
+	}
+	paused, _ := store.Operate(second.ID, "pause", "maintainer", 0)
+	if paused.State != "paused" || paused.Reason != "paused_by_maintainer" {
+		t.Fatalf("paused = %#v", paused)
+	}
+	resumed, _ := store.Operate(second.ID, "resume", "maintainer", 0)
+	if resumed.State != "verifying" || resumed.Reason != "" {
+		t.Fatalf("resumed = %#v", resumed)
+	}
+	removed, _ := store.Operate(second.ID, "remove", "maintainer", 0)
+	if removed.CompletedAt == nil || removed.State != "removed" {
+		t.Fatalf("removed = %#v", removed)
+	}
+	history, _ := store.History("repo", "main")
+	if len(history) != 2 || history[1].ID != second.ID || len(history[1].Candidates) != 1 {
+		t.Fatalf("history = %#v", history)
+	}
+}

@@ -93,9 +93,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	queueCoordinator := &integrationQueueCoordinator{queue: integrationQueueStore, pulls: pullRequestStore, repositories: repositoryCatalog, checks: checkRunStore, starter: checkRunner}
-	checkRunner.SetCompletionHook(func(checkruns.Run) { go queueCoordinator.reconcileAll(context.Background()) })
-	go queueCoordinator.run(context.Background())
 	activityRoot := os.Getenv("ACTIVITY_ROOT")
 	if activityRoot == "" {
 		activityRoot = "data/activities"
@@ -104,6 +101,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	queueCoordinator := &integrationQueueCoordinator{queue: integrationQueueStore, pulls: pullRequestStore, repositories: repositoryCatalog, checks: checkRunStore, starter: checkRunner, activity: activityStore}
+	checkRunner.SetCompletionHook(func(checkruns.Run) { go queueCoordinator.reconcileAll(context.Background()) })
+	go queueCoordinator.run(context.Background())
 	inboxRoot := os.Getenv("INBOX_ROOT")
 	if inboxRoot == "" {
 		inboxRoot = "data/inbox"

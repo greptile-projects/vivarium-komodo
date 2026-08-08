@@ -57,6 +57,9 @@ type readinessCheckStore interface {
 type integrationQueueStore interface {
 	Enqueue(string, string, string, string, string, string, string, string, []string) (integrationqueue.Entry, error)
 	List(string, string) ([]integrationqueue.Entry, error)
+	History(string, string) ([]integrationqueue.Entry, error)
+	Get(string) (integrationqueue.Entry, error)
+	Operate(string, string, string, int) (integrationqueue.Entry, error)
 }
 
 func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, extras ...any) {
@@ -89,14 +92,15 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequest(store, proposalStore, repositories, credentials, activity, checkResults))
-	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/queue", enqueuePullRequest(store, repositories, credentials, checkResults, checks, queue))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/queue", enqueuePullRequest(store, repositories, credentials, activity, checkResults, checks, queue))
 	mux.HandleFunc("GET /repositories/{repository}/integration-queue/entries", listIntegrationQueueEntries(repositories, credentials, checkResults, queue))
+	mux.HandleFunc("PATCH /repositories/{repository}/integration-queue/entries/{entry}", operateIntegrationQueueEntry(repositories, credentials, activity, checks, queue))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/close", closePullRequest(store, repositories, credentials, activity))
 	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/maintainer-modification", setMaintainerModification(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/source-credential", issuePullRequestSourceCredential(store, repositories, credentials))
 }
 
-func enqueuePullRequest(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, checkResults readinessCheckStore, starter checkRunStarter, queue integrationQueueStore) http.HandlerFunc {
+func enqueuePullRequest(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, checkResults readinessCheckStore, starter checkRunStarter, queue integrationQueueStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -184,6 +188,7 @@ func enqueuePullRequest(store pullRequestStore, repositories pullRequestReposito
 		if starter != nil {
 			_ = starter.Start(string(repository.ID), string(repository.ID), item.ID, string(candidate))
 		}
+		_ = recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "integration_queue.enqueued", Resource: activities.Resource{Type: "pull_request", ID: item.ID}, Metadata: map[string]string{"entry_id": entry.ID, "branch": entry.TargetBranch, "position": strconv.Itoa(entry.Position)}})
 		w.Header().Set("Location", "/repositories/"+string(repository.ID)+"/integration-queue/entries")
 		writeJSON(w, 201, queueEntryResponse(entry, nil))
 	}
@@ -203,7 +208,7 @@ func listIntegrationQueueEntries(repositories pullRequestRepositoryStore, creden
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
-		items, err := queue.List(string(repository.ID), branch)
+		items, err := queue.History(string(repository.ID), branch)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
@@ -227,9 +232,58 @@ func listIntegrationQueueEntries(repositories pullRequestRepositoryStore, creden
 	}
 }
 
+func operateIntegrationQueueEntry(repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, starter checkRunStarter, queue integrationQueueStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if actor.UserID != repository.OwnerID {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		entry, err := queue.Get(r.PathValue("entry"))
+		if err != nil || entry.RepositoryID != string(repository.ID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var input struct {
+			Action   string `json:"action"`
+			Position int    `json:"position"`
+		}
+		if !readJSON(w, r, &input, 1024) {
+			return
+		}
+		if input.Action != "pause" && input.Action != "resume" && input.Action != "retry" && input.Action != "remove" && input.Action != "reprioritize" {
+			writeJSON(w, 422, map[string]string{"error": "invalid_queue_action"})
+			return
+		}
+		updated, err := queue.Operate(entry.ID, input.Action, actor.UserID, input.Position)
+		if err != nil {
+			writeJSON(w, 409, map[string]string{"error": "queue_entry_not_active"})
+			return
+		}
+		if input.Action == "retry" && starter != nil {
+			_ = starter.Start(updated.RepositoryID, updated.RepositoryID, updated.PullRequestID, updated.CandidateCommitID)
+		}
+		_ = recordActivity(activity, activities.Input{RepositoryID: updated.RepositoryID, ActorID: actor.UserID, Type: "integration_queue." + input.Action, Resource: activities.Resource{Type: "pull_request", ID: updated.PullRequestID}, Metadata: map[string]string{"entry_id": updated.ID, "branch": updated.TargetBranch, "position": strconv.Itoa(updated.Position)}})
+		writeJSON(w, 200, queueEntryResponse(updated, nil))
+	}
+}
+
 type integrationQueueEntryResponse struct {
 	integrationqueue.Entry
-	Checks readinessChecks `json:"checks"`
+	Checks     readinessChecks          `json:"checks"`
+	History    []queueCandidateResponse `json:"attempt_history"`
+	Blocker    string                   `json:"blocker,omitempty"`
+	NextAction string                   `json:"next_action"`
+}
+type queueCandidateResponse struct {
+	Generation        int             `json:"generation"`
+	TargetCommitID    string          `json:"target_commit_id"`
+	CandidateCommitID string          `json:"candidate_commit_id"`
+	CreatedAt         time.Time       `json:"created_at"`
+	Checks            readinessChecks `json:"checks"`
 }
 
 func queueEntryResponse(entry integrationqueue.Entry, runs []checkruns.Run) integrationQueueEntryResponse {
@@ -241,8 +295,36 @@ func queueEntryResponse(entry integrationqueue.Entry, runs []checkruns.Run) inte
 	}
 	checks := evaluateRequiredChecks(entry.RequiredChecks, entry.CandidateCommitID, matching)
 	checks.TargetBranch = entry.TargetBranch
+	history := make([]queueCandidateResponse, 0, len(entry.Candidates))
+	for _, candidate := range entry.Candidates {
+		candidateRuns := make([]checkruns.Run, 0)
+		for _, run := range runs {
+			if run.PullRequestID == entry.PullRequestID && run.CommitID == candidate.CandidateCommitID {
+				candidateRuns = append(candidateRuns, run)
+			}
+		}
+		evaluated := evaluateRequiredChecks(entry.RequiredChecks, candidate.CandidateCommitID, candidateRuns)
+		evaluated.TargetBranch = entry.TargetBranch
+		history = append(history, queueCandidateResponse{Generation: candidate.Generation, TargetCommitID: candidate.TargetCommitID, CandidateCommitID: candidate.CandidateCommitID, CreatedAt: candidate.CreatedAt, Checks: evaluated})
+	}
+	next := "Waiting for earlier entries to finish."
+	if entry.CompletedAt != nil {
+		next = "No further automation is scheduled for this entry."
+	} else if entry.State == "paused" {
+		next = "A maintainer can resume or remove this entry."
+	} else if entry.State == "blocked" {
+		next = "A maintainer can retry or remove this entry."
+	} else if entry.Position == 1 && checks.Satisfied {
+		next = "The coordinator will atomically advance the target branch."
+	} else if entry.Position == 1 {
+		next = "Candidate checks must finish before publication."
+	}
+	response := integrationQueueEntryResponse{Entry: entry, Checks: checks, History: history, Blocker: entry.Reason, NextAction: next}
 	if runs == nil {
-		return integrationQueueEntryResponse{Entry: entry, Checks: checks}
+		return response
+	}
+	if entry.CompletedAt != nil || entry.State == "paused" {
+		return response
 	}
 	state := "passed"
 	if !checks.Satisfied {
@@ -255,7 +337,8 @@ func queueEntryResponse(entry integrationqueue.Entry, runs []checkruns.Run) inte
 		}
 	}
 	entry.State = state
-	return integrationQueueEntryResponse{Entry: entry, Checks: checks}
+	response.Entry = entry
+	return response
 }
 
 type repositoryGitIssuer interface {
