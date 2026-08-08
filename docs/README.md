@@ -186,9 +186,14 @@ and an open pull request. `POST .../change-sessions/{session}/runs` accepts a
 mandate, the explicitly selected captured source revision, optional relevant
 repository paths, an agent identity (default `codex`), and a working branch. It
 creates a durable queued run and returns its worker Git secret exactly once.
-The grant expires after 24 hours and Git transport enforces both its repository
-ID and exact `refs/heads/...` branch, even when the initiating user owns the
-repository. `DELETE .../runs/{run}/credential` lets that initiator revoke it
+The grant expires after 24 hours and Git transport enforces the pull request's
+source repository ID and exact `refs/heads/...` source branch, even when the
+session itself is stored beneath a different upstream target repository.
+Cross-repository delegation by an upstream maintainer or participant requires
+the fork owner's active maintainer-modification opt-in; turning that policy off
+or closing the pull request revokes agent and human delegated-write grants for
+the contribution branch. The pull request author may delegate directly against
+their own fork. `DELETE .../runs/{run}/credential` lets that initiator revoke it
 immediately. Workers publish progress with their one-time run credential at
 `POST .../change-sessions/{session}/runs/{run}/events`. Accepted ordered record
 types cover run status, agent messages, tool actions, artifacts, failures, and
@@ -214,9 +219,10 @@ cancellation, workers use their exact-run credential at
 intervention sequence. The session page exposes follow-up, answer, pause,
 resume, and cancel controls and preserves each action in the shared timeline.
 
-Delegated runs write directly to the pull request source branch; the run Git
-grant cannot publish another branch. After committing and pushing a descendant
-of the session's captured revision, a running worker completes the review
+Delegated runs write directly to the pull request source branch in its source
+repository; the run Git grant cannot publish another branch or write to the
+upstream target. After committing and pushing a descendant of the session's
+captured revision, a running worker completes the review
 handoff with `POST .../runs/{run}/publication`. The request supplies an outcome,
 checks performed, and unresolved concerns. The API verifies the branch tip,
 derives exact new commits and changed paths from repository storage, persists a

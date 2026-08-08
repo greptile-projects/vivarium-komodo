@@ -44,8 +44,8 @@ func registerChangeSessionsHTTP(mux *http.ServeMux, sessions changeSessionStore,
 	mux.HandleFunc("GET "+base+"/{session}/events", listChangeSessionEvents(sessions, pulls, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{session}/runs", delegateChangeSession(sessions, pulls, repositories, credentials))
 	mux.HandleFunc("DELETE "+base+"/{session}/runs/{run}/credential", revokeRunCredential(sessions, pulls, repositories, credentials))
-	mux.HandleFunc("POST "+base+"/{session}/runs/{run}/events", appendRunEvent(sessions, credentials))
-	mux.HandleFunc("GET "+base+"/{session}/runs/{run}/control", getRunControl(sessions, credentials))
+	mux.HandleFunc("POST "+base+"/{session}/runs/{run}/events", appendRunEvent(sessions, pulls, credentials))
+	mux.HandleFunc("GET "+base+"/{session}/runs/{run}/control", getRunControl(sessions, pulls, credentials))
 	mux.HandleFunc("POST "+base+"/{session}/runs/{run}/publication", publishRun(sessions, pulls, repositories, credentials, activity, checks))
 	mux.HandleFunc("POST "+base+"/{session}/runs/{run}/interventions", interveneRun(sessions, pulls, repositories, credentials))
 }
@@ -70,7 +70,7 @@ func publishRun(store changeSessionStore, pulls pullRequestStore, repositories p
 			}
 		}
 		pull, err := pulls.Get(repositoryID, pullID)
-		if run == nil || err != nil || grant.ID != run.CredentialGrantID || grant.RepositoryID != repositoryID || grant.Branch != "refs/heads/"+run.WorkingBranch || run.WorkingBranch != pull.SourceBranch {
+		if run == nil || err != nil || grant.ID != run.CredentialGrantID || grant.RepositoryID != pull.SourceRepositoryID || grant.Branch != "refs/heads/"+run.WorkingBranch || run.WorkingBranch != pull.SourceBranch {
 			writeJSON(w, 404, map[string]string{"error": "not_found"})
 			return
 		}
@@ -86,7 +86,7 @@ func publishRun(store changeSessionStore, pulls pullRequestStore, repositories p
 		if !readJSON(w, r, &input, 128<<10) {
 			return
 		}
-		opened, err := repositories.Open(storage.ID(repositoryID))
+		opened, err := repositories.Open(storage.ID(pull.SourceRepositoryID))
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
@@ -145,7 +145,7 @@ func publishRun(store changeSessionStore, pulls pullRequestStore, repositories p
 	}
 }
 
-func getRunControl(store changeSessionStore, credentials changeSessionCredentialStore) http.HandlerFunc {
+func getRunControl(store changeSessionStore, pulls pullRequestStore, credentials changeSessionCredentialStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		grant, ok := authenticateRequest(w, r, credentials, auth.GitWrite)
 		if !ok {
@@ -164,7 +164,8 @@ func getRunControl(store changeSessionStore, credentials changeSessionCredential
 				break
 			}
 		}
-		if run == nil || grant.ID != run.CredentialGrantID || grant.RepositoryID != repositoryID || grant.Branch != "refs/heads/"+run.WorkingBranch {
+		pull, pullErr := pulls.Get(repositoryID, pullID)
+		if run == nil || pullErr != nil || grant.ID != run.CredentialGrantID || grant.RepositoryID != pull.SourceRepositoryID || grant.Branch != "refs/heads/"+run.WorkingBranch {
 			writeJSON(w, 404, map[string]string{"error": "not_found"})
 			return
 		}
@@ -215,7 +216,7 @@ func interveneRun(store changeSessionStore, pulls pullRequestStore, repositories
 	}
 }
 
-func appendRunEvent(store changeSessionStore, credentials changeSessionCredentialStore) http.HandlerFunc {
+func appendRunEvent(store changeSessionStore, pulls pullRequestStore, credentials changeSessionCredentialStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		grant, ok := authenticateRequest(w, r, credentials, auth.GitWrite)
 		if !ok {
@@ -234,7 +235,8 @@ func appendRunEvent(store changeSessionStore, credentials changeSessionCredentia
 				break
 			}
 		}
-		if run == nil || grant.ID != run.CredentialGrantID || grant.RepositoryID != repositoryID || grant.Branch != "refs/heads/"+run.WorkingBranch {
+		pull, pullErr := pulls.Get(repositoryID, pullID)
+		if run == nil || pullErr != nil || grant.ID != run.CredentialGrantID || grant.RepositoryID != pull.SourceRepositoryID || grant.Branch != "refs/heads/"+run.WorkingBranch {
 			writeJSON(w, 404, map[string]string{"error": "not_found"})
 			return
 		}
@@ -305,7 +307,23 @@ func delegateChangeSession(store changeSessionStore, pulls pullRequestStore, rep
 				return
 			}
 		}
-		issued, err := credentials.IssueRepositoryGit(actorID, "Agent run "+session.ID, pull.RepositoryID, "refs/heads/"+input.WorkingBranch, 24*time.Hour)
+		if pull.SourceRepositoryID != pull.RepositoryID && actorID != pull.AuthorID {
+			if !pull.MaintainerCanModify || !pullRequestParticipant(pulls, pull, repositories, actorID) {
+				writeJSON(w, 404, map[string]string{"error": "not_found"})
+				return
+			}
+		}
+		if _, err := repositories.Inspect(storage.ID(pull.SourceRepositoryID)); err != nil {
+			writeJSON(w, 409, map[string]string{"error": "source_repository_unavailable"})
+			return
+		}
+		grantName := "Agent run " + session.ID
+		if pull.SourceRepositoryID != pull.RepositoryID {
+			// Share the pull-request grant name so disabling maintainer modification
+			// or closing the request revokes human and agent branch access together.
+			grantName = "pull request " + pull.ID
+		}
+		issued, err := credentials.IssueRepositoryGit(actorID, grantName, pull.SourceRepositoryID, "refs/heads/"+input.WorkingBranch, 24*time.Hour)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
@@ -316,8 +334,31 @@ func delegateChangeSession(store changeSessionStore, pulls pullRequestStore, rep
 			writeJSON(w, 422, map[string]string{"error": "invalid_delegation"})
 			return
 		}
-		writeJSON(w, 201, map[string]any{"run": run, "credential": map[string]any{"token": issued.Token, "username": "agent", "expires_at": issued.ExpiresAt, "repository_id": pull.RepositoryID, "branch": "refs/heads/" + input.WorkingBranch}})
+		writeJSON(w, 201, map[string]any{"run": run, "credential": map[string]any{"token": issued.Token, "username": "agent", "expires_at": issued.ExpiresAt, "repository_id": pull.SourceRepositoryID, "branch": "refs/heads/" + input.WorkingBranch}})
 	}
+}
+
+// pullRequestParticipant applies the established cross-repository delegated-write
+// policy: the target owner or a collaborator already present in review/discussion.
+func pullRequestParticipant(pulls pullRequestStore, pull pullrequests.PullRequest, repositories pullRequestRepositoryStore, actorID string) bool {
+	repository, err := repositories.Inspect(storage.ID(pull.RepositoryID))
+	if err != nil {
+		return false
+	}
+	participant := actorID == repository.OwnerID
+	if !participant {
+		if reviews, err := pulls.ListReviews(pull.RepositoryID, pull.ID); err == nil {
+			for _, review := range reviews {
+				participant = participant || review.ReviewerID == actorID
+			}
+		}
+		if comments, err := pulls.ListComments(pull.RepositoryID, pull.ID); err == nil {
+			for _, comment := range comments {
+				participant = participant || comment.AuthorID == actorID
+			}
+		}
+	}
+	return participant
 }
 
 func revokeRunCredential(store changeSessionStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials changeSessionCredentialStore) http.HandlerFunc {
