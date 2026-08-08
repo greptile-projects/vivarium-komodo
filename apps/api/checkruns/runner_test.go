@@ -133,6 +133,54 @@ func TestRunnerRejectsUnsupportedManifestBeforeQueuing(t *testing.T) {
 	}
 }
 
+func TestReleaseManifestRetainsOrderedDependencies(t *testing.T) {
+	gitStore, _ := storage.New(t.TempDir())
+	repository, _ := gitStore.Create()
+	manifest, _ := repository.WriteObject(storage.BlobObject, []byte(`{"version":1,"builds":[{"name":"compile","command":"true"},{"name":"package","command":"true","dependencies":["compile"],"artifacts":["dist/app"]}]}`))
+	configTree, _ := repository.WriteObject(storage.TreeObject, tree(t, map[string]treeItem{"releases.json": {manifest, 0o100644}}))
+	rootTree, _ := repository.WriteObject(storage.TreeObject, tree(t, map[string]treeItem{".komodo": {configTree, 0o40000}}))
+	commit, _ := repository.WriteObject(storage.CommitObject, []byte("tree "+string(rootTree)+"\nauthor A <a@example.com> 1 +0000\ncommitter A <a@example.com> 1 +0000\n\nrelease\n"))
+	definitions, err := readReleaseManifest(repository, commit)
+	if err != nil || len(definitions) != 2 || !slices.Equal(definitions[1].Dependencies, []string{"compile"}) {
+		t.Fatalf("definitions = %#v, %v", definitions, err)
+	}
+}
+
+func TestFailedReleaseBuildRerunRetainsEarlierEvidence(t *testing.T) {
+	gitStore, _ := storage.New(t.TempDir())
+	repository, _ := gitStore.Create()
+	manifest, _ := repository.WriteObject(storage.BlobObject, []byte(`{"version":1,"builds":[{"name":"package","command":"echo diagnostic >&2; false","timeout_seconds":5}]}`))
+	configTree, _ := repository.WriteObject(storage.TreeObject, tree(t, map[string]treeItem{"releases.json": {manifest, 0o100644}}))
+	rootTree, _ := repository.WriteObject(storage.TreeObject, tree(t, map[string]treeItem{".komodo": {configTree, 0o40000}}))
+	commit, _ := repository.WriteObject(storage.CommitObject, []byte("tree "+string(rootTree)+"\nauthor A <a@example.com> 1 +0000\ncommitter A <a@example.com> 1 +0000\n\nrelease\n"))
+	store, _ := New(t.TempDir())
+	runner := NewRunner(store, testRepositories{repository})
+	runs, err := runner.StartRelease(string(repository.ID()), "release-1", string(commit), "maintainer")
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("start = %#v, %v", runs, err)
+	}
+	waitTerminal := func(want int) []Run {
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			items, _ := store.List(string(repository.ID()), "release:release-1")
+			if len(items) == want && items[0].State == Failed {
+				return items
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatal("release attempt did not fail")
+		return nil
+	}
+	first := waitTerminal(1)[0]
+	if _, err := runner.Rerun(string(repository.ID()), "release:release-1", first.ID, "maintainer"); err != nil {
+		t.Fatal(err)
+	}
+	attempts := waitTerminal(2)
+	if attempts[0].RetryOfID != first.ID || attempts[1].ID != first.ID || len(attempts[1].Events) == 0 {
+		t.Fatalf("retained attempts = %#v", attempts)
+	}
+}
+
 type treeItem struct {
 	id   storage.ObjectID
 	mode uint32

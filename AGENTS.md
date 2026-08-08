@@ -385,7 +385,15 @@ whenever dependencies change or the web job fails before it starts.
   proposals, tasks, and stable contributor IDs; clients must not supply this
   attribution. Reads follow repository visibility, while later build and
   promotion workflows should evolve the candidate lifecycle without replacing
-  its captured source or inclusion definition. The web surface is the
+  its captured source or inclusion definition. A candidate requires the exact
+  revision's `.komodo/releases.json` manifest (schema version `1`). Its ordered
+  build definitions declare a name, command, optional working directory,
+  timeout, environment, artifact paths, and dependencies on earlier steps.
+  Builds execute sequentially in the same Bubblewrap isolation contract as
+  checks but retain release-scoped attempts, logs, outcomes, SHA-256 artifact
+  metadata, source revision, initiating actor, and commands as a public
+  attestation. Failed or successful steps may be rerun against their original
+  immutable definition and commit without replacing earlier evidence. The web surface is the
   shareable `view=releases&release={id}` repository tab.
   Meaningful collaboration transitions are appended through the
   `activities.Store` boundary beneath `$ACTIVITY_ROOT` (default

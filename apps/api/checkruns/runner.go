@@ -18,6 +18,7 @@ import (
 )
 
 const ManifestPath = ".komodo/checks.json"
+const ReleaseManifestPath = ".komodo/releases.json"
 
 type repositoryOpener interface {
 	Open(storage.ID) (*storage.Repository, error)
@@ -94,12 +95,99 @@ func (r *Runner) Start(repositoryID, sourceRepositoryID, pullRequestID, commitID
 	return nil
 }
 
+// StartRelease queues the repository-defined release build steps captured at
+// the release's exact source revision. The release ID is used as the durable
+// execution namespace, so its evidence cannot be confused with PR checks.
+func (r *Runner) StartRelease(repositoryID, releaseID, commitID, actorID string) ([]Run, error) {
+	repository, err := r.repositories.Open(storage.ID(repositoryID))
+	if err != nil {
+		return nil, err
+	}
+	definitions, err := readReleaseManifest(repository, storage.ObjectID(commitID))
+	if err != nil {
+		return nil, err
+	}
+	runs := make([]Run, 0, len(definitions))
+	for _, definition := range definitions {
+		run, err := r.store.createAttempt(repositoryID, repositoryID, "release:"+releaseID, commitID, definition, actorID, "")
+		if err != nil {
+			return runs, err
+		}
+		runs = append(runs, run)
+	}
+	go r.executeRelease(runs)
+	return runs, nil
+}
+
+func (r *Runner) ValidateRelease(repositoryID, commitID string) error {
+	repository, err := r.repositories.Open(storage.ID(repositoryID))
+	if err != nil {
+		return err
+	}
+	_, err = readReleaseManifest(repository, storage.ObjectID(commitID))
+	return err
+}
+
+func (r *Runner) executeRelease(runs []Run) {
+	states := map[string]State{}
+	for _, run := range runs {
+		blocked := false
+		for _, dependency := range run.Definition.Dependencies {
+			if states[dependency] != Succeeded {
+				blocked = true
+				break
+			}
+		}
+		if blocked {
+			started, err := r.store.Start(run.ID)
+			if err == nil {
+				_, _ = r.store.Complete(started.ID, -1, false, "dependency failed")
+			}
+			states[run.Definition.Name] = Failed
+			continue
+		}
+		r.execute(run.ID)
+		completed, err := r.store.Get(run.RepositoryID, run.PullRequestID, run.ID)
+		if err != nil {
+			states[run.Definition.Name] = Failed
+		} else {
+			states[run.Definition.Name] = completed.State
+		}
+	}
+}
+
 func readManifest(repository *storage.Repository, commitID storage.ObjectID) ([]Definition, error) {
+	return readDefinitions(repository, commitID, ManifestPath, "checks")
+}
+
+func readReleaseManifest(repository *storage.Repository, commitID storage.ObjectID) ([]Definition, error) {
+	definitions, err := readDefinitions(repository, commitID, ReleaseManifestPath, "builds")
+	if err != nil {
+		return nil, err
+	}
+	if len(definitions) == 0 {
+		return nil, errors.New("release manifest is required")
+	}
+	known := map[string]bool{}
+	for i := range definitions {
+		seen := map[string]bool{}
+		for _, dependency := range definitions[i].Dependencies {
+			if !known[dependency] || seen[dependency] {
+				return nil, errors.New("invalid release manifest dependencies")
+			}
+			seen[dependency] = true
+		}
+		known[definitions[i].Name] = true
+	}
+	return definitions, nil
+}
+
+func readDefinitions(repository *storage.Repository, commitID storage.ObjectID, manifestPath, field string) ([]Definition, error) {
 	commit, err := repository.ReadCommit(commitID)
 	if err != nil {
 		return nil, err
 	}
-	entry, found, err := findEntry(repository, commit.Tree, strings.Split(ManifestPath, "/"))
+	entry, found, err := findEntry(repository, commit.Tree, strings.Split(manifestPath, "/"))
 	if err != nil || !found {
 		return nil, err
 	}
@@ -107,18 +195,26 @@ func readManifest(repository *storage.Repository, commitID storage.ObjectID) ([]
 	if err != nil {
 		return nil, err
 	}
-	var manifest struct {
+	var raw struct {
 		Version int          `json:"version"`
 		Checks  []Definition `json:"checks"`
+		Builds  []Definition `json:"builds"`
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(object.Content)))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&manifest); err != nil || manifest.Version != 1 || len(manifest.Checks) == 0 || len(manifest.Checks) > 20 {
+	if err := decoder.Decode(&raw); err != nil || raw.Version != 1 {
+		return nil, errors.New("invalid execution manifest")
+	}
+	definitions := raw.Checks
+	if field == "builds" {
+		definitions = raw.Builds
+	}
+	if len(definitions) == 0 || len(definitions) > 20 || (field == "checks" && len(raw.Builds) != 0) || (field == "builds" && len(raw.Checks) != 0) {
 		return nil, errors.New("invalid check manifest")
 	}
 	names := map[string]bool{}
-	for i := range manifest.Checks {
-		d := &manifest.Checks[i]
+	for i := range definitions {
+		d := &definitions[i]
 		d.Name, d.Command, d.WorkingDirectory = strings.TrimSpace(d.Name), strings.TrimSpace(d.Command), strings.TrimSpace(d.WorkingDirectory)
 		if d.TimeoutSeconds == 0 {
 			d.TimeoutSeconds = 600
@@ -128,6 +224,18 @@ func readManifest(repository *storage.Repository, commitID storage.ObjectID) ([]
 		}
 		if len(d.Artifacts) > 20 {
 			return nil, errors.New("invalid check manifest")
+		}
+		if len(d.Dependencies) > 20 {
+			return nil, errors.New("invalid execution manifest")
+		}
+		if field == "checks" && len(d.Dependencies) != 0 {
+			return nil, errors.New("check dependencies are unsupported")
+		}
+		for j := range d.Dependencies {
+			d.Dependencies[j] = strings.TrimSpace(d.Dependencies[j])
+			if d.Dependencies[j] == "" {
+				return nil, errors.New("invalid execution manifest")
+			}
 		}
 		seenArtifacts := map[string]bool{}
 		for j, path := range d.Artifacts {
@@ -144,7 +252,7 @@ func readManifest(repository *storage.Repository, commitID storage.ObjectID) ([]
 			}
 		}
 	}
-	return manifest.Checks, nil
+	return definitions, nil
 }
 
 func findEntry(repository *storage.Repository, treeID storage.ObjectID, parts []string) (storage.TreeEntry, bool, error) {
