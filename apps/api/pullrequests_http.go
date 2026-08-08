@@ -34,11 +34,14 @@ type pullRequestStore interface {
 	DeleteReview(string, string, string) error
 	ListReviews(string, string) ([]pullrequests.Review, error)
 	MarkMerged(string, string, string, string) (pullrequests.PullRequest, error)
+	Close(string, string, string) (pullrequests.PullRequest, error)
+	SetMaintainerCanModify(string, string, bool) (pullrequests.PullRequest, error)
 }
 
 type pullRequestRepositoryStore interface {
 	proposalRepositoryStore
 	Open(storage.ID) (*storage.Repository, error)
+	LinkObjects(storage.ID, storage.ID) error
 }
 
 type checkRunStarter interface {
@@ -76,6 +79,128 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequest(store, proposalStore, repositories, credentials, activity, checkResults))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/close", closePullRequest(store, repositories, credentials, activity))
+	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/maintainer-modification", setMaintainerModification(store, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/source-credential", issuePullRequestSourceCredential(store, repositories, credentials))
+}
+
+type repositoryGitIssuer interface {
+	IssueRepositoryGit(string, string, string, string, time.Duration) (auth.IssuedGrant, error)
+	RevokeRepositoryGit(string, string, string) error
+}
+
+func setMaintainerModification(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		item, ok := readPullRequest(w, store, string(repository.ID), r.PathValue("pull_request"))
+		if !ok {
+			return
+		}
+		if actor.UserID != item.AuthorID {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var input struct {
+			Allowed bool `json:"allowed"`
+		}
+		if !readJSON(w, r, &input, 1024) {
+			return
+		}
+		updated, err := store.SetMaintainerCanModify(string(repository.ID), item.ID, input.Allowed)
+		if err != nil {
+			writePullRequestError(w, err)
+			return
+		}
+		if !input.Allowed {
+			if issuer, ok := credentials.(repositoryGitIssuer); ok {
+				_ = issuer.RevokeRepositoryGit(item.SourceRepositoryID, "refs/heads/"+item.SourceBranch, "pull request "+item.ID)
+			}
+		}
+		writeJSON(w, 200, updated)
+	}
+}
+
+func issuePullRequestSourceCredential(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		item, ok := readPullRequest(w, store, string(repository.ID), r.PathValue("pull_request"))
+		if !ok {
+			return
+		}
+		if item.Status != pullrequests.Open || !item.MaintainerCanModify || actor.UserID == item.AuthorID {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		participant := actor.UserID == repository.OwnerID
+		if !participant {
+			if reviews, err := store.ListReviews(string(repository.ID), item.ID); err == nil {
+				for _, review := range reviews {
+					participant = participant || review.ReviewerID == actor.UserID
+				}
+			}
+			if comments, err := store.ListComments(string(repository.ID), item.ID); err == nil {
+				for _, comment := range comments {
+					participant = participant || comment.AuthorID == actor.UserID
+				}
+			}
+		}
+		if !participant {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		issuer, ok := credentials.(repositoryGitIssuer)
+		if !ok {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		if _, err := repositories.Inspect(storage.ID(item.SourceRepositoryID)); err != nil {
+			writeJSON(w, 409, map[string]string{"error": "source_repository_unavailable"})
+			return
+		}
+		issued, err := issuer.IssueRepositoryGit(actor.UserID, "pull request "+item.ID, item.SourceRepositoryID, "refs/heads/"+item.SourceBranch, 24*time.Hour)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, 201, issued)
+	}
+}
+
+func closePullRequest(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		item, ok := readPullRequest(w, store, string(repository.ID), r.PathValue("pull_request"))
+		if !ok {
+			return
+		}
+		if actor.UserID != item.AuthorID && actor.UserID != repository.OwnerID {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		closed, err := store.Close(string(repository.ID), item.ID, actor.UserID)
+		if errors.Is(err, pullrequests.ErrInvalid) {
+			writeJSON(w, 409, map[string]string{"error": "pull_request_not_open"})
+			return
+		}
+		if err != nil {
+			writePullRequestError(w, err)
+			return
+		}
+		if issuer, ok := credentials.(repositoryGitIssuer); ok {
+			_ = issuer.RevokeRepositoryGit(item.SourceRepositoryID, "refs/heads/"+item.SourceBranch, "pull request "+item.ID)
+		}
+		_ = recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "pull_request.closed", Resource: activities.Resource{Type: "pull_request", ID: item.ID}})
+		writeJSON(w, 200, closed)
+	}
 }
 
 func synchronizePullRequest(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, checks checkRunStarter) http.HandlerFunc {
@@ -189,7 +314,7 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 		}
 		sourceOpened, err := repositories.Open(storage.ID(item.SourceRepositoryID))
 		if err != nil {
-			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			writeJSON(w, 200, readinessResponse{CanMerge: actor.UserID != "" && actor.UserID == repository.OwnerID, SourceBranch: readinessBranch{Name: item.SourceBranch, SnapshotCommitID: item.SourceCommitID}, TargetBranch: readinessBranch{Name: item.TargetBranch, SnapshotCommitID: item.TargetCommitID}, Reviews: readinessReviews{RequiredOwnerApprovals: 1}, Checks: readinessChecks{TargetBranch: item.TargetBranch, CommitID: item.SourceCommitID, Requirements: []readinessCheck{}, Satisfied: false}, Blockers: []readinessBlocker{{Code: "source_repository_unavailable", Message: "The source repository is no longer available."}}})
 			return
 		}
 		targetOpened, err := repositories.Open(repository.ID)
@@ -262,8 +387,8 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 			}
 		}
 
-		if item.SourceRepositoryID == item.RepositoryID && response.SourceBranch.Exists && response.SourceBranch.MatchesPullRequest && response.TargetBranch.Exists {
-			hasConflicts, err := mergeHasConflicts(r.Context(), targetOpened, storage.ObjectID(response.TargetBranch.CommitID), storage.ObjectID(response.SourceBranch.CommitID))
+		if response.SourceBranch.Exists && response.SourceBranch.MatchesPullRequest && response.TargetBranch.Exists {
+			hasConflicts, err := mergeHasConflictsAcross(r.Context(), targetOpened, sourceOpened, storage.ObjectID(response.TargetBranch.CommitID), storage.ObjectID(response.SourceBranch.CommitID))
 			if err != nil {
 				writeJSON(w, 500, map[string]string{"error": "internal_error"})
 				return
@@ -279,6 +404,27 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 		response.Ready = len(response.Blockers) == 0
 		writeJSON(w, 200, response)
 	}
+}
+
+func mergeHasConflictsAcross(ctx context.Context, targetRepository, sourceRepository *storage.Repository, target, source storage.ObjectID) (bool, error) {
+	if targetRepository.ID() == sourceRepository.ID() {
+		return mergeHasConflicts(ctx, targetRepository, target, source)
+	}
+	dir, err := os.MkdirTemp("", "pull-request-cross-readiness-")
+	if err != nil {
+		return false, err
+	}
+	defer os.RemoveAll(dir)
+	command := exec.CommandContext(ctx, "git", "--git-dir="+dir, "merge-tree", "--write-tree", "--quiet", "--allow-unrelated-histories", string(target), string(source))
+	command.Env = append(os.Environ(), "GIT_ALTERNATE_OBJECT_DIRECTORIES="+filepath.Join(targetRepository.GitDir(), "objects")+string(os.PathListSeparator)+filepath.Join(sourceRepository.GitDir(), "objects"))
+	output, err := command.CombinedOutput()
+	if err == nil {
+		return false, nil
+	}
+	if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == 1 {
+		return true, nil
+	}
+	return false, fmt.Errorf("inspect cross-repository merge conflicts: %w: %s", err, strings.TrimSpace(string(output)))
 }
 
 func evaluateRequiredChecks(required []string, commitID string, runs []checkruns.Run) readinessChecks {
@@ -345,11 +491,22 @@ func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repos
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
-		source, _, sourceOK := branchTip(opened, item.SourceBranch)
+		sourceOpened, err := repositories.Open(storage.ID(item.SourceRepositoryID))
+		if err != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "source_repository_unavailable"})
+			return
+		}
+		source, _, sourceOK := branchTip(sourceOpened, item.SourceBranch)
 		target, _, targetOK := branchTip(opened, item.TargetBranch)
 		if !sourceOK || !targetOK || string(source) != item.SourceCommitID {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "pull_request_not_ready"})
 			return
+		}
+		if item.SourceRepositoryID != item.RepositoryID {
+			if err := repositories.LinkObjects(storage.ID(item.SourceRepositoryID), repository.ID); err != nil {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "source_repository_unavailable"})
+				return
+			}
 		}
 		reviews, err := store.ListReviews(string(repository.ID), item.ID)
 		if err != nil {
@@ -431,6 +588,9 @@ func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repos
 		if err != nil {
 			writePullRequestError(w, err)
 			return
+		}
+		if issuer, ok := credentials.(repositoryGitIssuer); ok {
+			_ = issuer.RevokeRepositoryGit(item.SourceRepositoryID, "refs/heads/"+item.SourceBranch, "pull request "+item.ID)
 		}
 		if _, err := store.AddComment(string(repository.ID), item.ID, actor.UserID, "Merged into "+item.TargetBranch+" as "+string(mergeCommit)+"."); err != nil {
 			writePullRequestError(w, err)

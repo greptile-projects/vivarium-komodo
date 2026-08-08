@@ -387,6 +387,16 @@ func (s *Store) Open(id storage.ID) (*storage.Repository, error) {
 	return s.storage.Open(id)
 }
 
+func (s *Store) LinkObjects(source, target storage.ID) error {
+	if _, err := s.Inspect(source); err != nil {
+		return err
+	}
+	if _, err := s.Inspect(target); err != nil {
+		return err
+	}
+	return s.storage.LinkObjects(source, target)
+}
+
 func (s *Store) SetVisibility(ownerID string, id storage.ID, visibility Visibility) (Repository, error) {
 	if visibility != Private && visibility != Public {
 		return Repository{}, errors.New("invalid repository visibility")

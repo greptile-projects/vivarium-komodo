@@ -29,26 +29,30 @@ type Status string
 const (
 	Open   Status = "open"
 	Merged Status = "merged"
+	Closed Status = "closed"
 )
 
 type PullRequest struct {
-	ID                 string     `json:"id"`
-	RepositoryID       string     `json:"repository_id"`
-	SourceRepositoryID string     `json:"source_repository_id"`
-	ProposalID         string     `json:"proposal_id,omitempty"`
-	AuthorID           string     `json:"author_id"`
-	Title              string     `json:"title"`
-	Body               string     `json:"body"`
-	SourceBranch       string     `json:"source_branch"`
-	TargetBranch       string     `json:"target_branch"`
-	SourceCommitID     string     `json:"source_commit_id"`
-	TargetCommitID     string     `json:"target_commit_id"`
-	Status             Status     `json:"status"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
-	MergedAt           *time.Time `json:"merged_at,omitempty"`
-	MergedByID         string     `json:"merged_by_id,omitempty"`
-	MergeCommitID      string     `json:"merge_commit_id,omitempty"`
+	ID                  string     `json:"id"`
+	RepositoryID        string     `json:"repository_id"`
+	SourceRepositoryID  string     `json:"source_repository_id"`
+	ProposalID          string     `json:"proposal_id,omitempty"`
+	AuthorID            string     `json:"author_id"`
+	Title               string     `json:"title"`
+	Body                string     `json:"body"`
+	SourceBranch        string     `json:"source_branch"`
+	TargetBranch        string     `json:"target_branch"`
+	SourceCommitID      string     `json:"source_commit_id"`
+	TargetCommitID      string     `json:"target_commit_id"`
+	Status              Status     `json:"status"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+	MergedAt            *time.Time `json:"merged_at,omitempty"`
+	MergedByID          string     `json:"merged_by_id,omitempty"`
+	MergeCommitID       string     `json:"merge_commit_id,omitempty"`
+	ClosedAt            *time.Time `json:"closed_at,omitempty"`
+	ClosedByID          string     `json:"closed_by_id,omitempty"`
+	MaintainerCanModify bool       `json:"maintainer_can_modify"`
 }
 
 type CreateParams struct {
@@ -189,6 +193,44 @@ func (s *Store) SynchronizeSource(repositoryID, id, commitID string) (PullReques
 	}
 	item.SourceCommitID = commitID
 	item.UpdatedAt = s.now().UTC()
+	if err := s.write(item); err != nil {
+		return PullRequest{}, err
+	}
+	return item, nil
+}
+
+func (s *Store) SetMaintainerCanModify(repositoryID, id string, allowed bool) (PullRequest, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(repositoryID, id)
+	if err != nil {
+		return PullRequest{}, err
+	}
+	if item.Status != Open {
+		return PullRequest{}, ErrInvalid
+	}
+	item.MaintainerCanModify, item.UpdatedAt = allowed, s.now().UTC()
+	if err := s.write(item); err != nil {
+		return PullRequest{}, err
+	}
+	return item, nil
+}
+
+func (s *Store) Close(repositoryID, id, actorID string) (PullRequest, error) {
+	if actorID == "" {
+		return PullRequest{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(repositoryID, id)
+	if err != nil {
+		return PullRequest{}, err
+	}
+	if item.Status != Open {
+		return PullRequest{}, ErrInvalid
+	}
+	now := s.now().UTC()
+	item.Status, item.ClosedAt, item.ClosedByID, item.UpdatedAt = Closed, &now, actorID, now
 	if err := s.write(item); err != nil {
 		return PullRequest{}, err
 	}
@@ -381,7 +423,7 @@ func (s *Store) read(repositoryID, id string) (PullRequest, error) {
 	if item.SourceRepositoryID == "" {
 		item.SourceRepositoryID = item.RepositoryID
 	}
-	if item.ID != id || item.RepositoryID != repositoryID || item.AuthorID == "" || item.Title == "" || item.SourceBranch == "" || item.TargetBranch == "" || item.SourceCommitID == "" || item.TargetCommitID == "" || (item.Status != Open && item.Status != Merged) || item.CreatedAt.IsZero() || item.UpdatedAt.IsZero() || (item.Status == Merged && (item.MergedAt == nil || item.MergedByID == "" || item.MergeCommitID == "")) {
+	if item.ID != id || item.RepositoryID != repositoryID || item.AuthorID == "" || item.Title == "" || item.SourceBranch == "" || item.TargetBranch == "" || item.SourceCommitID == "" || item.TargetCommitID == "" || (item.Status != Open && item.Status != Merged && item.Status != Closed) || item.CreatedAt.IsZero() || item.UpdatedAt.IsZero() || (item.Status == Merged && (item.MergedAt == nil || item.MergedByID == "" || item.MergeCommitID == "")) || (item.Status == Closed && (item.ClosedAt == nil || item.ClosedByID == "")) {
 		return PullRequest{}, errors.New("invalid stored pull request")
 	}
 	return item, nil

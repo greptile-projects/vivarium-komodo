@@ -137,6 +137,17 @@ for review. The author can explicitly synchronize the request after an
 authorized push advances the fork branch; the source repository and lineage
 are revalidated before the captured source revision changes.
 
+Ownership remains split across that boundary. The fork owner may explicitly
+enable maintainer modification for an open request. An upstream owner or a
+collaborator who has already reviewed or discussed that request can then issue
+a 24-hour Git credential scoped to only the fork repository and contribution
+branch; this neither creates fork membership nor permits another branch update.
+Turning the option off or closing the request revokes all such credentials.
+The author or upstream owner may close an open request. Readiness reports a
+missing source branch or unavailable source repository as a safe blocker.
+Merge remains upstream-owner-only and links the fork's immutable objects into
+upstream storage before creating the two-parent merge, without sharing refs.
+
 ### Agent change sessions
 
 The pull request's Agent sessions section is the durable entry point for agent

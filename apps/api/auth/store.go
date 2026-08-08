@@ -245,6 +245,33 @@ func (s *Store) Revoke(userID, id string) (Grant, error) {
 	return grant, nil
 }
 
+func (s *Store) RevokeRepositoryGit(repositoryID, branch, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := os.ReadDir(filepath.Join(s.root, "grants"))
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		grant, err := s.read(strings.TrimSuffix(entry.Name(), ".json"))
+		if err != nil {
+			return err
+		}
+		if grant.RepositoryID != repositoryID || grant.Branch != branch || grant.Name != name || grant.RevokedAt != nil {
+			continue
+		}
+		now := s.now().UTC()
+		grant.RevokedAt = &now
+		if err := s.write(grant); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type storedGrant struct {
 	Grant
 	Digest string `json:"digest"`
