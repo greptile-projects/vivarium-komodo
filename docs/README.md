@@ -125,6 +125,16 @@ conversation: immediately startable work is called out, expected outcomes and
 prerequisites stay visible, collaborators can reorder or update work, and a
 history disclosure explains who changed each task and when.
 
+A ready task can have exactly one pre-work assignment. `PUT
+.../plan/tasks/{task}/assignment` claims or assigns it to a repository human or
+the available `codex` agent with an explicit mandate, repository, and exact
+base commit. The response previews only `contents:read` and
+`candidate_branch:write`; it does not create a credential or begin execution.
+Reassignment supplies the current `expected_assignment_id`, while `DELETE` on
+the same resource uses that ID to revoke it. Missing or stale tokens and
+simultaneous claims return conflicts, and accepted assignment, reassignment,
+and revocation transitions retain stable actor attribution in plan history.
+
 ## Web pull request workflow
 
 The repository Pull requests tab turns published candidate branches into

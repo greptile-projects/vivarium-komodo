@@ -229,6 +229,14 @@ whenever dependencies change or the web job fails before it starts.
   `ready` only for planned tasks whose dependencies are completed. Task creates,
   edits, reordering, and status decisions retain immutable actor-attributed
   snapshots in the plan history.
+  Ready plan tasks may carry one durable assignment contract naming a human
+  repository participant or the available `codex` agent, an exact commit in
+  that repository, a mandate, and the future `contents:read` plus
+  `candidate_branch:write` scope. Assignment does not issue a credential or
+  start work. Use the assignment ID as the concurrency token for explicit
+  reassignment and revocation; stale or simultaneous claims must return a
+  conflict and every accepted transition remains actor-attributed in plan
+  history.
   Pull requests are durable records beneath `$PULL_REQUEST_ROOT` (default
   `apps/api/data/pull-requests`) owned by the `pullrequests.Store` boundary.
   Creation resolves existing source and target branches through storage and
