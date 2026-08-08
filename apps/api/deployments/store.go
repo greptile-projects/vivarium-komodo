@@ -102,8 +102,10 @@ type Deployment struct {
 	CurrentStage   string     `json:"current_stage,omitempty"`
 	DecisionByID   string     `json:"decision_by_id,omitempty"`
 	DecisionReason string     `json:"decision_reason,omitempty"`
+	RecoveryOfID   string     `json:"recovery_of_id,omitempty"`
+	RecoveryAction string     `json:"recovery_action,omitempty"`
 }
-type CreateDeployment struct{ RepositoryID, EnvironmentID, ReleaseID, BuildRunID, ArtifactID, ArtifactPath, ArtifactSHA256, SourceCommitID, ActorID string }
+type CreateDeployment struct{ RepositoryID, EnvironmentID, ReleaseID, BuildRunID, ArtifactID, ArtifactPath, ArtifactSHA256, SourceCommitID, ActorID, RecoveryOfID, RecoveryAction string }
 
 type Store struct {
 	root string
@@ -239,7 +241,7 @@ func (s *Store) Create(p CreateDeployment) (Deployment, error) {
 	if env.RequiredApprovals > 0 {
 		state = "pending"
 	}
-	d := Deployment{ID: id, RepositoryID: p.RepositoryID, EnvironmentID: p.EnvironmentID, ReleaseID: p.ReleaseID, BuildRunID: p.BuildRunID, ArtifactID: p.ArtifactID, ArtifactPath: p.ArtifactPath, ArtifactSHA256: p.ArtifactSHA256, SourceCommitID: p.SourceCommitID, State: state, InitiatedByID: p.ActorID, Approvals: []Approval{}, CreatedAt: now}
+	d := Deployment{ID: id, RepositoryID: p.RepositoryID, EnvironmentID: p.EnvironmentID, ReleaseID: p.ReleaseID, BuildRunID: p.BuildRunID, ArtifactID: p.ArtifactID, ArtifactPath: p.ArtifactPath, ArtifactSHA256: p.ArtifactSHA256, SourceCommitID: p.SourceCommitID, State: state, InitiatedByID: p.ActorID, RecoveryOfID: p.RecoveryOfID, RecoveryAction: p.RecoveryAction, Approvals: []Approval{}, CreatedAt: now}
 	d.append(Event{Type: "initiated", State: state, ActorID: p.ActorID, CreatedAt: now})
 	return d, s.writeDeployment(d)
 }

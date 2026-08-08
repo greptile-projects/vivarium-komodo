@@ -411,6 +411,15 @@ whenever dependencies change or the web job fails before it starts.
   attributed pause, resume, cancel, or manual-failure decisions. Paused
   deployments retain their concurrency slot; participant controls use the
   deployment `/control` resource and create deployment-linked inbox activity.
+  Failed deployments recover through their `/recovery` resource. A rollback
+  selects the newest earlier successful deployment in the same environment and
+  creates a new governed deployment of that exact artifact, preserving
+  approvals, concurrency, health evidence, and attribution. An agent repair
+  creates a draft pull request and branch at the failed release commit,
+  snapshots only redacted deployment evidence into its change session, and
+  issues an ordinary 24-hour branch credential. It receives no environment
+  credentials or deployment authority; publication must proceed through
+  checks, review, integration, and a separately defined release.
   Meaningful collaboration transitions are appended through the
   `activities.Store` boundary beneath `$ACTIVITY_ROOT` (default
   `apps/api/data/activities`). Repository activity retains stable actor and

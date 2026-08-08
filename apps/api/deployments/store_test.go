@@ -48,6 +48,19 @@ func TestGovernedEnvironmentKeepsSecretsProtectedAndAttributesPromotion(t *testi
 	}
 }
 
+func TestRecoveryDeploymentRetainsFailedDeploymentLink(t *testing.T) {
+	store, _ := New(t.TempDir())
+	environment, _ := store.PutEnvironment("repo", "", "owner", EnvironmentInput{Name: "production", Position: 1, Command: "deploy", Concurrency: 2})
+	item, err := store.Create(CreateDeployment{RepositoryID: "repo", EnvironmentID: environment.ID, ReleaseID: "known-good", BuildRunID: "run", ArtifactID: "artifact", ArtifactSHA256: "sha", SourceCommitID: "commit", ActorID: "collaborator", RecoveryOfID: "failed-deployment", RecoveryAction: "rollback"})
+	if err != nil || item.RecoveryOfID != "failed-deployment" || item.RecoveryAction != "rollback" {
+		t.Fatalf("recovery deployment = %#v, %v", item, err)
+	}
+	restored, _ := store.GetDeployment("repo", item.ID)
+	if restored.RecoveryOfID != "failed-deployment" || restored.ReleaseID != "known-good" {
+		t.Fatalf("restored recovery = %#v", restored)
+	}
+}
+
 func TestRolloutManifestAndAttributedControlsRetainEvidence(t *testing.T) {
 	stages, err := ParseManifest([]byte(`{"version":1,"environments":[{"name":"Production","stages":[{"name":"canary","command":"rollout 10","health":[{"name":"error-rate","command":"check-errors"}]},{"name":"complete","health":[{"name":"availability","command":"check-up","timeout_seconds":30}]}]}]}`), "production")
 	if err != nil || len(stages) != 2 || stages[0].Health[0].TimeoutSeconds != 60 {

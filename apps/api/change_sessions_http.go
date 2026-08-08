@@ -17,6 +17,7 @@ import (
 type changeSessionStore interface {
 	Create(string, string, string, string) (changesessions.Session, error)
 	CreateWithCheckFailure(string, string, string, string, *changesessions.CheckFailure) (changesessions.Session, error)
+	CreateWithDeploymentFailure(string, string, string, string, *changesessions.DeploymentFailure) (changesessions.Session, error)
 	CreateForTask(string, string, string, string, changesessions.TaskContext) (changesessions.Session, error)
 	Get(string, string, string) (changesessions.Session, error)
 	List(string, string) ([]changesessions.Session, error)
