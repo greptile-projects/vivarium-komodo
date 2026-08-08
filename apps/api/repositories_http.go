@@ -23,6 +23,7 @@ type ownedRepositoryStore interface {
 	Delete(string, storage.ID) error
 	IsCollaborator(storage.ID, string) (bool, error)
 	SetRequiredChecks(string, storage.ID, string, []string) (repositories.Repository, error)
+	SetIntegrationQueue(string, storage.ID, string, repositories.IntegrationQueuePolicy) (repositories.Repository, error)
 }
 
 func registerRepositoriesHTTP(mux *http.ServeMux, store ownedRepositoryStore, credentials authStore) {
@@ -36,6 +37,54 @@ func registerRepositoriesHTTP(mux *http.ServeMux, store ownedRepositoryStore, cr
 	mux.HandleFunc("DELETE /repositories/{repository}", deleteRepository(store, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/required-checks", getRequiredChecks(store, credentials))
 	mux.HandleFunc("PUT /repositories/{repository}/required-checks", putRequiredChecks(store, credentials))
+	mux.HandleFunc("GET /repositories/{repository}/integration-queue", getIntegrationQueue(store, credentials))
+	mux.HandleFunc("PUT /repositories/{repository}/integration-queue", putIntegrationQueue(store, credentials))
+}
+
+func integrationPolicyResponse(item repositories.Repository, branch string) map[string]any {
+	policy, enabled := item.IntegrationQueue[branch]
+	if !enabled {
+		policy = repositories.IntegrationQueuePolicy{Concurrency: 1, FailureBehavior: "pause"}
+	}
+	return map[string]any{"branch": branch, "enabled": enabled, "concurrency": policy.Concurrency, "failure_behavior": policy.FailureBehavior, "required_checks": item.RequiredChecks[branch], "required_owner_approvals": 1}
+}
+
+func getIntegrationQueue(store ownedRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		item, _, ok := proposalRepositoryAccess(w, r, store, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		writeJSON(w, 200, integrationPolicyResponse(item, strings.TrimSpace(r.URL.Query().Get("branch"))))
+	}
+}
+
+func putIntegrationQueue(store ownedRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var input struct {
+			Branch          string `json:"branch"`
+			Enabled         bool   `json:"enabled"`
+			Concurrency     int    `json:"concurrency"`
+			FailureBehavior string `json:"failure_behavior"`
+		}
+		if !readJSON(w, r, &input, 2048) {
+			return
+		}
+		item, err := store.SetIntegrationQueue(actor.UserID, storage.ID(r.PathValue("repository")), input.Branch, repositories.IntegrationQueuePolicy{Enabled: input.Enabled, Concurrency: input.Concurrency, FailureBehavior: input.FailureBehavior})
+		if errors.Is(err, repositories.ErrInvalidRepository) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_integration_queue_policy"})
+			return
+		}
+		if err != nil {
+			writeRepositoryError(w, err)
+			return
+		}
+		writeJSON(w, 200, integrationPolicyResponse(item, strings.TrimSpace(input.Branch)))
+	}
 }
 
 func listPublicRepositories(store ownedRepositoryStore) http.HandlerFunc {

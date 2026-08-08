@@ -278,6 +278,14 @@ whenever dependencies change or the web job fails before it starts.
   failed, canceled, or stale requirements block publication. Preserve the
   readiness response's target branch, evaluated commit, requirement names,
   attempt identities, and attempt commits so clients can explain the decision.
+  Repository owners may additionally protect a target branch with its durable
+  integration-queue policy. The policy declares bounded concurrency and whether
+  a future failed candidate pauses the queue or is removed. Protected branches
+  reject direct merge; only pull requests that satisfy the ordinary current
+  readiness report may be admitted, in order, with exact source and target
+  revisions captured beneath `$INTEGRATION_QUEUE_ROOT` (default
+  `apps/api/data/integration-queue`). Queue admission does not weaken or replace
+  review, permission, conflict, or required-check policy.
   Pull-request change sessions live beneath `$CHANGE_SESSION_ROOT` (default
   `apps/api/data/change-sessions`) behind the `changesessions.Store` boundary.
   Any authenticated repository participant may start one on an open pull
