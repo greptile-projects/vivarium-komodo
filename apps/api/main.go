@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -92,6 +93,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	queueCoordinator := &integrationQueueCoordinator{queue: integrationQueueStore, pulls: pullRequestStore, repositories: repositoryCatalog, checks: checkRunStore, starter: checkRunner}
+	checkRunner.SetCompletionHook(func(checkruns.Run) { go queueCoordinator.reconcileAll(context.Background()) })
+	go queueCoordinator.run(context.Background())
 	activityRoot := os.Getenv("ACTIVITY_ROOT")
 	if activityRoot == "" {
 		activityRoot = "data/activities"

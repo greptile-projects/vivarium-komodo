@@ -34,3 +34,30 @@ func TestQueuePreservesAdmissionOrderAndSnapshots(t *testing.T) {
 		t.Fatalf("reopened items = %#v, %v", items, err)
 	}
 }
+
+func TestCandidateReplacementAndTerminalTransitionAreDurable(t *testing.T) {
+	store, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, err := store.Enqueue("repo", "pull", "main", "source", "base-1", "candidate-1", "tree-1", "owner", []string{"unit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaced, err := store.ReplaceCandidate(entry.ID, "base-2", "candidate-2", "tree-2", []string{"unit"})
+	if err != nil || replaced.Generation != 2 || replaced.CandidateCommitID != "candidate-2" || replaced.TargetCommitID != "base-2" {
+		t.Fatalf("replacement = %#v, %v", replaced, err)
+	}
+	terminal, err := store.Transition(entry.ID, "removed", "source_updated", true)
+	if err != nil || terminal.CompletedAt == nil || terminal.Reason != "source_updated" {
+		t.Fatalf("terminal = %#v, %v", terminal, err)
+	}
+	if active, err := store.List("repo", "main"); err != nil || len(active) != 0 {
+		t.Fatalf("active = %#v, %v", active, err)
+	}
+	reopened, _ := New(store.root)
+	retained, err := reopened.Get(entry.ID)
+	if err != nil || retained.Generation != 2 || retained.State != "removed" {
+		t.Fatalf("retained = %#v, %v", retained, err)
+	}
+}

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -79,6 +81,74 @@ func TestQueueAdmissionCreatesProspectiveMergeCandidate(t *testing.T) {
 	}
 	if len(starter.starts) != 1 || starter.starts[0].sourceRepositoryID != string(repository.ID) || starter.starts[0].commitID != entry.CandidateCommitID {
 		t.Fatalf("candidate check start = %#v", starter.starts)
+	}
+}
+
+func TestQueueCoordinatorRebuildsLaterCandidateBeforeAtomicMerge(t *testing.T) {
+	gitStorage, _ := storage.New(t.TempDir())
+	catalog, _ := repositories.New(t.TempDir(), gitStorage)
+	pulls, _ := pullrequests.New(t.TempDir())
+	queue, _ := integrationqueue.New(t.TempDir())
+	checks, _ := checkruns.New(t.TempDir())
+	repository, _ := catalog.Create("owner", repositories.Metadata{Name: "project", Visibility: repositories.Public})
+	_, _ = catalog.SetRequiredChecks("owner", repository.ID, "main", []string{"unit"})
+	_, _ = catalog.SetIntegrationQueue("owner", repository.ID, "main", repositories.IntegrationQueuePolicy{Enabled: true, Concurrency: 2, FailureBehavior: "pause"})
+	opened, _ := catalog.Open(repository.ID)
+	baseTree, _ := opened.WriteObject(storage.TreeObject, nil)
+	base, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(baseTree)+"\nauthor Owner <o@example.test> 1 +0000\ncommitter Owner <o@example.test> 1 +0000\n\nbase\n"))
+	_ = opened.CreateReference(storage.Reference{Name: "refs/heads/main", ObjectID: base})
+
+	makePull := func(name string, timestamp int) pullrequests.PullRequest {
+		blob, _ := opened.WriteObject(storage.BlobObject, []byte(name+"\n"))
+		tree, _ := opened.WriteObject(storage.TreeObject, testTree(t, map[string]storage.ObjectID{name + ".txt": blob}))
+		commit, _ := opened.WriteObject(storage.CommitObject, []byte(fmt.Sprintf("tree %s\nparent %s\nauthor Contributor <c@example.test> %d +0000\ncommitter Contributor <c@example.test> %d +0000\n\n%s\n", tree, base, timestamp, timestamp, name)))
+		_ = opened.CreateReference(storage.Reference{Name: storage.ReferenceName("refs/heads/" + name), ObjectID: commit})
+		pull, _ := pulls.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), AuthorID: "contributor", Title: name, SourceBranch: name, TargetBranch: "main", SourceCommitID: string(commit), TargetCommitID: string(base)})
+		_, _ = pulls.PutReview(string(repository.ID), pull.ID, "owner", pullrequests.Approve, string(commit))
+		run, _ := checks.Create(string(repository.ID), pull.ID, string(commit), checkruns.Definition{Name: "unit", Command: "true", TimeoutSeconds: 1})
+		_, _ = checks.Start(run.ID)
+		_, _ = checks.Complete(run.ID, 0, false, "")
+		return pull
+	}
+	first, second := makePull("first", 2), makePull("second", 3)
+	credentials, _ := auth.New(t.TempDir())
+	token := issueAccess(t, credentials, "owner", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
+	starter := &recordingCheckStarter{}
+	mux := http.NewServeMux()
+	registerPullRequestsHTTP(mux, pulls, nil, catalog, credentials, starter, checks, queue)
+	for _, pull := range []pullrequests.PullRequest{first, second} {
+		request := httptest.NewRequest(http.MethodPost, "/repositories/"+string(repository.ID)+"/pull-requests/"+pull.ID+"/queue", nil)
+		request.Header.Set("Authorization", "Bearer "+token)
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, request)
+		if response.Code != http.StatusCreated {
+			t.Fatalf("enqueue %s: %d %s", pull.ID, response.Code, response.Body.String())
+		}
+	}
+	entries, _ := queue.List(string(repository.ID), "main")
+	for _, entry := range entries {
+		run, _ := checks.Create(string(repository.ID), entry.PullRequestID, entry.CandidateCommitID, checkruns.Definition{Name: "unit", Command: "true", TimeoutSeconds: 1})
+		_, _ = checks.Start(run.ID)
+		_, _ = checks.Complete(run.ID, 0, false, "")
+	}
+	coordinator := &integrationQueueCoordinator{queue: queue, pulls: pulls, repositories: catalog, checks: checks, starter: starter}
+	coordinator.reconcileAll(context.Background())
+	firstAfter, _ := pulls.Get(string(repository.ID), first.ID)
+	secondAfter, _ := pulls.Get(string(repository.ID), second.ID)
+	remaining, _ := queue.List(string(repository.ID), "main")
+	if firstAfter.Status != pullrequests.Merged || secondAfter.Status != pullrequests.Open || len(remaining) != 1 || remaining[0].Generation != 2 || remaining[0].TargetCommitID != firstAfter.MergeCommitID {
+		t.Fatalf("after first advancement: first=%#v second=%#v queue=%#v", firstAfter, secondAfter, remaining)
+	}
+	// Success attached to the superseded generation above cannot land the
+	// rebuilt entry. Only evidence for generation two may advance it.
+	run, _ := checks.Create(string(repository.ID), second.ID, remaining[0].CandidateCommitID, checkruns.Definition{Name: "unit", Command: "true", TimeoutSeconds: 1})
+	_, _ = checks.Start(run.ID)
+	_, _ = checks.Complete(run.ID, 0, false, "")
+	coordinator.reconcileAll(context.Background())
+	secondAfter, _ = pulls.Get(string(repository.ID), second.ID)
+	tip, _ := opened.ReadReference("refs/heads/main")
+	if secondAfter.Status != pullrequests.Merged || secondAfter.MergeCommitID != string(tip.ObjectID) || tip.ObjectID != storage.ObjectID(remaining[0].CandidateCommitID) {
+		t.Fatalf("second advancement: pull=%#v tip=%s", secondAfter, tip.ObjectID)
 	}
 }
 

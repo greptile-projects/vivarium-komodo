@@ -28,7 +28,12 @@ type Runner struct {
 	repositories repositoryOpener
 	mu           sync.Mutex
 	cancels      map[string]context.CancelFunc
+	onComplete   func(Run)
 }
+
+// SetCompletionHook connects terminal check evidence to workflow coordination.
+// The hook runs after the terminal state is durable and must return quickly.
+func (r *Runner) SetCompletionHook(hook func(Run)) { r.onComplete = hook }
 
 func NewRunner(store *Store, repositories repositoryOpener) *Runner {
 	return &Runner{store: store, repositories: repositories, cancels: map[string]context.CancelFunc{}}
@@ -258,7 +263,10 @@ func (r *Runner) execute(id string) {
 			_, _ = r.store.AddArtifact(id, artifactPath, mediaType, content)
 		}
 	}
-	_, _ = r.store.Complete(id, exitCode, errors.Is(ctx.Err(), context.DeadlineExceeded), message)
+	completed, completeErr := r.store.Complete(id, exitCode, errors.Is(ctx.Err(), context.DeadlineExceeded), message)
+	if completeErr == nil && r.onComplete != nil {
+		r.onComplete(completed)
+	}
 }
 
 func (r *Runner) capture(id, stream string, reader io.Reader, done chan<- struct{}) {
