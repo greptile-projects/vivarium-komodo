@@ -245,6 +245,16 @@ whenever dependencies change or the web job fails before it starts.
   repository and branch. These pre-pull-request sessions use the task's
   `/change-sessions` public read, event, control, and intervention resources;
   publication into ordinary pull-request review is a separate transition.
+  Publish completed proposal-task work through the task's `/contributions`
+  resource. It creates an ordinary commit-bound pull request and links its
+  proposal, task, optional pre-review session, checks, and exact source/target
+  revisions in both directions. Human assignees publish a candidate branch
+  with repository-write authority; agents publish their captured task-session
+  branch with the run's branch-only credential. Contribution state remains
+  `draft` or `review` until the linked request is merged, closed, or superseded;
+  only `merged` satisfies dependencies. Preserve these links and the task and
+  session merge trailers rather than treating a successful run as completed
+  work.
   Pull requests are durable records beneath `$PULL_REQUEST_ROOT` (default
   `apps/api/data/pull-requests`) owned by the `pullrequests.Store` boundary.
   Creation resolves existing source and target branches through storage and

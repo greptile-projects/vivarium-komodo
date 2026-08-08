@@ -26,6 +26,7 @@ type changeSessionStore interface {
 	AppendRunEvent(string, string, string, string, string, map[string]string) (changesessions.Event, error)
 	Intervene(string, string, string, string, string, string, string) (changesessions.Event, changesessions.Run, error)
 	Publish(string, string, string, string, changesessions.Publication) (changesessions.Event, changesessions.Run, error)
+	LinkTaskContribution(string, string, string, string) (changesessions.Session, error)
 }
 
 type changeSessionCredentialStore interface {

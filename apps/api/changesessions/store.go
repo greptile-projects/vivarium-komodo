@@ -233,18 +233,41 @@ func validSummaries(items []string, maximum int) bool {
 }
 
 type Session struct {
-	ID             string        `json:"id"`
-	RepositoryID   string        `json:"repository_id"`
-	PullRequestID  string        `json:"pull_request_id"`
-	InitiatorID    string        `json:"initiator_id"`
-	SourceCommitID string        `json:"source_commit_id"`
-	CheckFailure   *CheckFailure `json:"check_failure,omitempty"`
-	TaskContext    *TaskContext  `json:"task_context,omitempty"`
-	State          State         `json:"state"`
-	CreatedAt      time.Time     `json:"created_at"`
-	UpdatedAt      time.Time     `json:"updated_at"`
-	Events         []Event       `json:"events,omitempty"`
-	Runs           []Run         `json:"runs,omitempty"`
+	ID                        string        `json:"id"`
+	RepositoryID              string        `json:"repository_id"`
+	PullRequestID             string        `json:"pull_request_id"`
+	InitiatorID               string        `json:"initiator_id"`
+	SourceCommitID            string        `json:"source_commit_id"`
+	CheckFailure              *CheckFailure `json:"check_failure,omitempty"`
+	TaskContext               *TaskContext  `json:"task_context,omitempty"`
+	ContributionPullRequestID string        `json:"contribution_pull_request_id,omitempty"`
+	State                     State         `json:"state"`
+	CreatedAt                 time.Time     `json:"created_at"`
+	UpdatedAt                 time.Time     `json:"updated_at"`
+	Events                    []Event       `json:"events,omitempty"`
+	Runs                      []Run         `json:"runs,omitempty"`
+}
+
+// LinkTaskContribution gives pre-review execution evidence a durable backlink
+// to the ordinary pull request created from it.
+func (s *Store) LinkTaskContribution(repositoryID, scopeID, sessionID, pullRequestID string) (Session, error) {
+	if pullRequestID == "" {
+		return Session{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(repositoryID, scopeID, sessionID)
+	if err != nil {
+		return Session{}, err
+	}
+	if item.TaskContext == nil || (item.ContributionPullRequestID != "" && item.ContributionPullRequestID != pullRequestID) {
+		return Session{}, ErrInvalid
+	}
+	item.ContributionPullRequestID, item.UpdatedAt = pullRequestID, s.now().UTC()
+	if err := s.write(item); err != nil {
+		return Session{}, err
+	}
+	return item, nil
 }
 
 // TaskContext is the immutable shared intent captured when an assigned plan

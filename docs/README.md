@@ -798,6 +798,24 @@ address a change request, synchronize the follow-up commit, earn approval, and
 merge. A fresh anonymous clone and the closed proposal verify the resulting
 code and collaboration state without inspecting application storage.
 
+Proposal-plan work enters this review contract through the task's
+`/contributions` resource. A human assignee supplies a candidate branch; an
+agent may use the exact branch and branch-only credential captured by its task
+session. Publication resolves immutable source and target commits, rejects an
+unchanged base, creates the ordinary pull request, and starts its commit-bound
+checks. The pull request links back through `proposal_id`, `task_id`, and
+`change_session_id`, while the task contribution and pre-review session link
+forward to the pull request. Reviewers can therefore move from agreed intent
+through execution events and check evidence to the exact review snapshot.
+
+Publication does not complete planned work. A contribution begins in `draft`
+or `review`; a later attempt marks the prior active contribution `superseded`,
+closing records `closed`, and merge records `merged`. Only a merged task
+contribution satisfies dependent-task readiness. Draft requests remain
+readable but are blocked by pull-request readiness. Merge commits retain
+`Proposal-Task` and `Change-Session` trailers with the existing collaboration
+and source provenance.
+
 ## Git repository storage
 
 `apps/api/storage` is the repository lifecycle boundary. A store owns one root

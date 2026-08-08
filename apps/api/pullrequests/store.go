@@ -37,6 +37,8 @@ type PullRequest struct {
 	RepositoryID        string     `json:"repository_id"`
 	SourceRepositoryID  string     `json:"source_repository_id"`
 	ProposalID          string     `json:"proposal_id,omitempty"`
+	TaskID              string     `json:"task_id,omitempty"`
+	ChangeSessionID     string     `json:"change_session_id,omitempty"`
 	AuthorID            string     `json:"author_id"`
 	Title               string     `json:"title"`
 	Body                string     `json:"body"`
@@ -44,6 +46,7 @@ type PullRequest struct {
 	TargetBranch        string     `json:"target_branch"`
 	SourceCommitID      string     `json:"source_commit_id"`
 	TargetCommitID      string     `json:"target_commit_id"`
+	Draft               bool       `json:"draft"`
 	Status              Status     `json:"status"`
 	CreatedAt           time.Time  `json:"created_at"`
 	UpdatedAt           time.Time  `json:"updated_at"`
@@ -59,6 +62,8 @@ type CreateParams struct {
 	RepositoryID       string
 	SourceRepositoryID string
 	ProposalID         string
+	TaskID             string
+	ChangeSessionID    string
 	AuthorID           string
 	Title              string
 	Body               string
@@ -66,6 +71,7 @@ type CreateParams struct {
 	TargetBranch       string
 	SourceCommitID     string
 	TargetCommitID     string
+	Draft              bool
 }
 
 type Comment struct {
@@ -129,7 +135,7 @@ func (s *Store) Create(params CreateParams) (PullRequest, error) {
 		return PullRequest{}, err
 	}
 	now := s.now().UTC()
-	item := PullRequest{ID: id, RepositoryID: params.RepositoryID, SourceRepositoryID: params.SourceRepositoryID, ProposalID: params.ProposalID, AuthorID: params.AuthorID, Title: params.Title, Body: params.Body, SourceBranch: params.SourceBranch, TargetBranch: params.TargetBranch, SourceCommitID: params.SourceCommitID, TargetCommitID: params.TargetCommitID, Status: Open, CreatedAt: now, UpdatedAt: now}
+	item := PullRequest{ID: id, RepositoryID: params.RepositoryID, SourceRepositoryID: params.SourceRepositoryID, ProposalID: params.ProposalID, TaskID: params.TaskID, ChangeSessionID: params.ChangeSessionID, AuthorID: params.AuthorID, Title: params.Title, Body: params.Body, SourceBranch: params.SourceBranch, TargetBranch: params.TargetBranch, SourceCommitID: params.SourceCommitID, TargetCommitID: params.TargetCommitID, Draft: params.Draft, Status: Open, CreatedAt: now, UpdatedAt: now}
 	if err := s.write(item); err != nil {
 		return PullRequest{}, err
 	}

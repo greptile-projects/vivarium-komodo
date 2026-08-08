@@ -10,6 +10,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
@@ -19,8 +20,19 @@ type taskSessionRepositoryStore interface {
 	Open(storage.ID) (*storage.Repository, error)
 }
 
-func registerProposalTaskSessionsHTTP(mux *http.ServeMux, plans proposalStore, sessions changeSessionStore, repositories taskSessionRepositoryStore, credentials changeSessionCredentialStore, activity activityStore) {
+func registerProposalTaskSessionsHTTP(mux *http.ServeMux, plans proposalStore, sessions changeSessionStore, repositories taskSessionRepositoryStore, credentials changeSessionCredentialStore, activity activityStore, extras ...any) {
+	var pulls pullRequestStore
+	var checks checkRunStarter
+	for _, extra := range extras {
+		switch value := extra.(type) {
+		case pullRequestStore:
+			pulls = value
+		case checkRunStarter:
+			checks = value
+		}
+	}
 	base := "/repositories/{repository}/proposals/{proposal}/plan/tasks/{task}/change-sessions"
+	mux.HandleFunc("POST /repositories/{repository}/proposals/{proposal}/plan/tasks/{task}/contributions", publishProposalTaskContribution(plans, sessions, pulls, repositories, credentials, activity, checks))
 	mux.HandleFunc("POST "+base, startProposalTask(plans, sessions, repositories, credentials, activity))
 	mux.HandleFunc("GET "+base, listProposalTaskSessions(plans, sessions, repositories, credentials))
 	mux.HandleFunc("GET "+base+"/{session}", getProposalTaskSession(plans, sessions, repositories, credentials))
@@ -28,6 +40,169 @@ func registerProposalTaskSessionsHTTP(mux *http.ServeMux, plans proposalStore, s
 	mux.HandleFunc("POST "+base+"/{session}/runs/{run}/interventions", interveneProposalTaskRun(plans, sessions, repositories, credentials))
 	mux.HandleFunc("GET "+base+"/{session}/runs/{run}/control", controlProposalTaskRun(sessions, credentials))
 	mux.HandleFunc("POST "+base+"/{session}/runs/{run}/events", appendProposalTaskRunEvent(sessions, credentials))
+}
+
+func publishProposalTaskContribution(plans proposalStore, sessions changeSessionStore, pulls pullRequestStore, repositoryStore taskSessionRepositoryStore, credentials changeSessionCredentialStore, activity activityStore, checks checkRunStarter) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if pulls == nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if token == "" {
+			if cookie, err := r.Cookie(sessionCookie); err == nil {
+				token = cookie.Value
+			}
+		}
+		grant, workerErr := credentials.Authenticate(token, auth.GitWrite)
+		worker := workerErr == nil
+		var repository repositories.Repository
+		var proposal proposals.Proposal
+		var task proposals.Task
+		actorID := ""
+		if worker {
+			if grant.RepositoryID != r.PathValue("repository") {
+				writeJSON(w, 404, map[string]string{"error": "not_found"})
+				return
+			}
+			var err error
+			repository, err = repositoryStore.Inspect(storage.ID(r.PathValue("repository")))
+			if err != nil {
+				writeJSON(w, 404, map[string]string{"error": "not_found"})
+				return
+			}
+			proposal, err = plans.Get(string(repository.ID), r.PathValue("proposal"))
+			if err != nil {
+				writeProposalError(w, err)
+				return
+			}
+			plan, err := plans.GetPlan(string(repository.ID), proposal.ID)
+			if err != nil {
+				writeProposalError(w, err)
+				return
+			}
+			for _, candidate := range plan.Tasks {
+				if candidate.ID == r.PathValue("task") {
+					task = candidate
+				}
+			}
+			if task.ID == "" {
+				writeJSON(w, 404, map[string]string{"error": "not_found"})
+				return
+			}
+			actorID = grant.UserID
+		} else {
+			var ok bool
+			repository, proposal, task, actorID, ok = proposalTaskContext(w, r, plans, repositoryStore, credentials, auth.RepositoryRead, false)
+			if !ok {
+				return
+			}
+		}
+		var input struct {
+			Title                string `json:"title"`
+			Body                 string `json:"body"`
+			SourceBranch         string `json:"source_branch"`
+			TargetBranch         string `json:"target_branch"`
+			SessionID            string `json:"session_id"`
+			Draft                bool   `json:"draft"`
+			ExpectedAssignmentID string `json:"expected_assignment_id"`
+		}
+		if !readJSON(w, r, &input, 70<<10) {
+			return
+		}
+		if task.Assignment == nil || task.Assignment.ID != input.ExpectedAssignmentID {
+			writeJSON(w, 409, map[string]string{"error": "assignment_changed"})
+			return
+		}
+		if !worker {
+			var authErr error
+			grant, authErr = credentials.Authenticate(token, auth.RepositoryWrite)
+			if authErr != nil {
+				writeUnauthenticated(w, "Bearer", "komodo")
+				return
+			}
+			actorID = grant.UserID
+		}
+		if !worker && actorID != task.Assignment.AssigneeID && actorID != repository.OwnerID {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		sourceBranch := strings.TrimSpace(input.SourceBranch)
+		sessionID := strings.TrimSpace(input.SessionID)
+		if sessionID != "" {
+			session, err := sessions.Get(string(repository.ID), taskSessionScope(task.ID), sessionID)
+			if err != nil || session.TaskContext == nil || session.TaskContext.TaskID != task.ID {
+				writeJSON(w, 422, map[string]string{"error": "invalid_session"})
+				return
+			}
+			sourceBranch = session.TaskContext.Repository.WorkingBranch
+			if worker {
+				matched := false
+				for _, run := range session.Runs {
+					if run.CredentialGrantID == grant.ID && run.WorkingBranch == sourceBranch && (run.State == changesessions.Running || run.State == changesessions.Succeeded) {
+						matched = true
+					}
+				}
+				if !matched {
+					writeJSON(w, 404, map[string]string{"error": "not_found"})
+					return
+				}
+			}
+		} else if worker {
+			writeJSON(w, 422, map[string]string{"error": "session_required"})
+			return
+		}
+		if input.TargetBranch == "" {
+			input.TargetBranch = "main"
+		}
+		opened, err := repositoryStore.Open(repository.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		source, sourceName, sourceOK := branchTip(opened, sourceBranch)
+		target, targetName, targetOK := branchTip(opened, input.TargetBranch)
+		if !sourceOK || !targetOK || sourceName == targetName || string(source) == task.Assignment.BaseRevision {
+			writeJSON(w, 422, map[string]string{"error": "invalid_branches"})
+			return
+		}
+		item, err := pulls.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), SourceRepositoryID: string(repository.ID), ProposalID: proposal.ID, TaskID: task.ID, ChangeSessionID: sessionID, AuthorID: actorID, Title: input.Title, Body: input.Body, SourceBranch: sourceName, TargetBranch: targetName, SourceCommitID: string(source), TargetCommitID: string(target), Draft: input.Draft})
+		if err != nil {
+			writePullRequestError(w, err)
+			return
+		}
+		status := proposals.ContributionReview
+		if input.Draft {
+			status = proposals.ContributionDraft
+		}
+		updated, err := plans.PublishTaskContribution(string(repository.ID), proposal.ID, task.ID, actorID, proposals.TaskContribution{PullRequestID: item.ID, SessionID: sessionID, AssignmentID: task.Assignment.ID, SourceCommitID: item.SourceCommitID, TargetCommitID: item.TargetCommitID, Status: status})
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		if checks != nil {
+			_ = checks.Start(item.RepositoryID, item.SourceRepositoryID, item.ID, item.SourceCommitID)
+		}
+		if sessionID != "" {
+			_, _ = sessions.LinkTaskContribution(item.RepositoryID, taskSessionScope(task.ID), sessionID, item.ID)
+		}
+		if worker {
+			_, _ = credentials.Revoke(grant.UserID, grant.ID)
+			for _, run := range mustTaskSession(sessions, item.RepositoryID, task.ID, sessionID).Runs {
+				if run.CredentialGrantID == grant.ID {
+					_, _ = sessions.RevokeRunCredential(item.RepositoryID, taskSessionScope(task.ID), sessionID, run.ID, time.Now())
+				}
+			}
+		}
+		_ = recordActivity(activity, activities.Input{RepositoryID: item.RepositoryID, ActorID: actorID, Type: "proposal.task.contribution_published", Resource: activities.Resource{Type: "pull_request", ID: item.ID}, Metadata: map[string]string{"proposal_id": proposal.ID, "task_id": task.ID, "session_id": sessionID, "source_commit_id": item.SourceCommitID}})
+		w.Header().Set("Location", "/repositories/"+item.RepositoryID+"/pull-requests/"+item.ID)
+		writeJSON(w, http.StatusCreated, map[string]any{"task": updated, "pull_request": item})
+	}
+}
+
+func mustTaskSession(sessions changeSessionStore, repositoryID, taskID, sessionID string) changesessions.Session {
+	item, _ := sessions.Get(repositoryID, taskSessionScope(taskID), sessionID)
+	return item
 }
 
 func taskSessionScope(taskID string) string { return "task-" + taskID }

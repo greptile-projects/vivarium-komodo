@@ -27,23 +27,137 @@ const (
 	TaskInProgress TaskStatus = "in_progress"
 	TaskCompleted  TaskStatus = "completed"
 	TaskCanceled   TaskStatus = "canceled"
+	TaskDraft      TaskStatus = "draft"
+	TaskReview     TaskStatus = "review"
+	TaskMerged     TaskStatus = "merged"
+	TaskClosed     TaskStatus = "closed"
+	TaskSuperseded TaskStatus = "superseded"
 )
 
+type ContributionStatus string
+
+const (
+	ContributionDraft      ContributionStatus = "draft"
+	ContributionReview     ContributionStatus = "review"
+	ContributionMerged     ContributionStatus = "merged"
+	ContributionClosed     ContributionStatus = "closed"
+	ContributionSuperseded ContributionStatus = "superseded"
+)
+
+type TaskContribution struct {
+	PullRequestID  string             `json:"pull_request_id"`
+	SessionID      string             `json:"session_id,omitempty"`
+	AssignmentID   string             `json:"assignment_id,omitempty"`
+	SourceCommitID string             `json:"source_commit_id"`
+	TargetCommitID string             `json:"target_commit_id"`
+	Status         ContributionStatus `json:"status"`
+	PublishedByID  string             `json:"published_by_id"`
+	PublishedAt    time.Time          `json:"published_at"`
+	UpdatedAt      time.Time          `json:"updated_at"`
+}
+
 type Task struct {
-	ID                   string          `json:"id"`
-	ProposalID           string          `json:"proposal_id"`
-	Title                string          `json:"title"`
-	Outcome              string          `json:"outcome"`
-	Position             int             `json:"position"`
-	Status               TaskStatus      `json:"status"`
-	DependsOn            []string        `json:"depends_on"`
-	DiscussionCommentIDs []string        `json:"discussion_comment_ids"`
-	CreatedByID          string          `json:"created_by_id"`
-	UpdatedByID          string          `json:"updated_by_id"`
-	CreatedAt            time.Time       `json:"created_at"`
-	UpdatedAt            time.Time       `json:"updated_at"`
-	Ready                bool            `json:"ready"`
-	Assignment           *TaskAssignment `json:"assignment,omitempty"`
+	ID                   string             `json:"id"`
+	ProposalID           string             `json:"proposal_id"`
+	Title                string             `json:"title"`
+	Outcome              string             `json:"outcome"`
+	Position             int                `json:"position"`
+	Status               TaskStatus         `json:"status"`
+	DependsOn            []string           `json:"depends_on"`
+	DiscussionCommentIDs []string           `json:"discussion_comment_ids"`
+	CreatedByID          string             `json:"created_by_id"`
+	UpdatedByID          string             `json:"updated_by_id"`
+	CreatedAt            time.Time          `json:"created_at"`
+	UpdatedAt            time.Time          `json:"updated_at"`
+	Ready                bool               `json:"ready"`
+	Assignment           *TaskAssignment    `json:"assignment,omitempty"`
+	Contributions        []TaskContribution `json:"contributions,omitempty"`
+}
+
+func (s *Store) PublishTaskContribution(repositoryID, proposalID, taskID, actorID string, contribution TaskContribution) (Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tasks, err := s.readTasks(repositoryID, proposalID)
+	if err != nil {
+		return Task{}, err
+	}
+	index := taskIndex(tasks, taskID)
+	if index < 0 {
+		return Task{}, ErrNotFound
+	}
+	current := tasks[index]
+	if contribution.PullRequestID == "" || contribution.SourceCommitID == "" || contribution.TargetCommitID == "" || (contribution.Status != ContributionDraft && contribution.Status != ContributionReview) {
+		return Task{}, ErrInvalidTask
+	}
+	now := s.now().UTC()
+	for i := range current.Contributions {
+		if current.Contributions[i].Status == ContributionDraft || current.Contributions[i].Status == ContributionReview {
+			current.Contributions[i].Status = ContributionSuperseded
+			current.Contributions[i].UpdatedAt = now
+		}
+	}
+	contribution.PublishedByID, contribution.PublishedAt, contribution.UpdatedAt = actorID, now, now
+	current.Contributions = append(current.Contributions, contribution)
+	if contribution.Status == ContributionDraft {
+		current.Status = TaskDraft
+	} else {
+		current.Status = TaskReview
+	}
+	current.Ready, current.UpdatedByID, current.UpdatedAt = false, actorID, now
+	tasks[index] = current
+	if err := s.writeTasks(repositoryID, proposalID, tasks); err != nil {
+		return Task{}, err
+	}
+	if err := s.appendPlanEvent(repositoryID, proposalID, actorID, "task.contribution_published", current); err != nil {
+		return Task{}, err
+	}
+	return current, nil
+}
+
+func (s *Store) UpdateTaskContribution(repositoryID, proposalID, taskID, pullRequestID, actorID string, status ContributionStatus) (Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tasks, err := s.readTasks(repositoryID, proposalID)
+	if err != nil {
+		return Task{}, err
+	}
+	index := taskIndex(tasks, taskID)
+	if index < 0 {
+		return Task{}, ErrNotFound
+	}
+	current, found := tasks[index], false
+	now := s.now().UTC()
+	for i := range current.Contributions {
+		if current.Contributions[i].PullRequestID == pullRequestID {
+			current.Contributions[i].Status, current.Contributions[i].UpdatedAt, found = status, now, true
+		}
+	}
+	if !found {
+		return Task{}, ErrNotFound
+	}
+	switch status {
+	case ContributionMerged:
+		current.Status = TaskMerged
+	case ContributionClosed:
+		current.Status = TaskClosed
+	case ContributionSuperseded:
+		current.Status = TaskSuperseded
+	case ContributionDraft:
+		current.Status = TaskDraft
+	case ContributionReview:
+		current.Status = TaskReview
+	default:
+		return Task{}, ErrInvalidTask
+	}
+	current.UpdatedByID, current.UpdatedAt, current.Ready = actorID, now, false
+	tasks[index] = current
+	if err := s.writeTasks(repositoryID, proposalID, tasks); err != nil {
+		return Task{}, err
+	}
+	if err := s.appendPlanEvent(repositoryID, proposalID, actorID, "task.contribution_"+string(status), current); err != nil {
+		return Task{}, err
+	}
+	return current, nil
 }
 
 type AssigneeKind string
@@ -223,6 +337,9 @@ func (s *Store) UpdateTask(repositoryID, proposalID, taskID, actorID string, inp
 	if err := validateTaskInput(input, len(tasks)); err != nil {
 		return Task{}, err
 	}
+	if workflowTaskStatus(input.Status) && input.Status != tasks[index].Status || workflowTaskStatus(tasks[index].Status) && input.Status != tasks[index].Status {
+		return Task{}, ErrInvalidTask
+	}
 	if err := validateDependencies(taskID, input.DependsOn, tasks); err != nil {
 		return Task{}, err
 	}
@@ -355,7 +472,11 @@ func validateTaskInput(input TaskInput, maximumPosition int) error {
 }
 
 func validTaskStatus(status TaskStatus) bool {
-	return status == TaskPlanned || status == TaskInProgress || status == TaskCompleted || status == TaskCanceled
+	return status == TaskPlanned || status == TaskInProgress || status == TaskCompleted || status == TaskCanceled || status == TaskDraft || status == TaskReview || status == TaskMerged || status == TaskClosed || status == TaskSuperseded
+}
+
+func workflowTaskStatus(status TaskStatus) bool {
+	return status == TaskDraft || status == TaskReview || status == TaskMerged || status == TaskClosed || status == TaskSuperseded
 }
 
 func validateDependencies(taskID string, dependencies []string, tasks []Task) error {
@@ -421,7 +542,7 @@ func insertTask(tasks []Task, task Task, position int) []Task {
 func deriveReadiness(tasks []Task) {
 	completed := map[string]bool{}
 	for _, task := range tasks {
-		completed[task.ID] = task.Status == TaskCompleted
+		completed[task.ID] = task.Status == TaskCompleted || task.Status == TaskMerged
 	}
 	for i := range tasks {
 		ready := tasks[i].Status == TaskPlanned
