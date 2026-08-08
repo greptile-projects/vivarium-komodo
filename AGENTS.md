@@ -222,6 +222,13 @@ whenever dependencies change or the web job fails before it starts.
   or discuss a proposal, while
   only its author or the repository owner may edit or close it. Stable user IDs
   preserve authorship and closing attribution as profiles change.
+  Proposal delivery plans are repository-policy readable and participant
+  editable beneath each proposal's `/plan` resource. Ordered tasks require an
+  observable outcome, may depend only on tasks in the same plan, and may link
+  back to proposal comment IDs. The API rejects dependency cycles and derives
+  `ready` only for planned tasks whose dependencies are completed. Task creates,
+  edits, reordering, and status decisions retain immutable actor-attributed
+  snapshots in the plan history.
   Pull requests are durable records beneath `$PULL_REQUEST_ROOT` (default
   `apps/api/data/pull-requests`) owned by the `pullrequests.Store` boundary.
   Creation resolves existing source and target branches through storage and

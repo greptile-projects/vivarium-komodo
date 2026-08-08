@@ -107,6 +107,24 @@ filter and exact inspected record in a shareable URL. Browser mutations call
 the existing repository-scoped proposal endpoints through the same-origin web
 proxy, so the API remains the authority for visibility and mutation policy.
 
+Each proposal also owns a shared delivery plan at `GET
+/repositories/{id}/proposals/{proposal}/plan`. The response combines ordered
+tasks with their append-only change history. Tasks name an observable outcome,
+carry a `planned`, `in_progress`, `completed`, or `canceled` status, reference
+same-plan dependencies, and may link to exact proposal comment IDs that
+motivated the work. `ready` is derived for planned tasks only when every
+dependency is completed; canceled prerequisites continue to block dependents
+until collaborators revise the plan. Authenticated repository participants add
+tasks through `POST .../plan/tasks` and replace task details, order, status,
+dependencies, or discussion links through `PATCH .../plan/tasks/{task}`. The
+store rejects unknown, self, and cyclic dependencies and retains a full task
+snapshot, stable actor ID, action, and timestamp for every accepted change.
+
+The proposal detail page renders this contract as an executable plan above the
+conversation: immediately startable work is called out, expected outcomes and
+prerequisites stay visible, collaborators can reorder or update work, and a
+history disclosure explains who changed each task and when.
+
 ## Web pull request workflow
 
 The repository Pull requests tab turns published candidate branches into

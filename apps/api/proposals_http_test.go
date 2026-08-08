@@ -134,3 +134,68 @@ func TestPrivateProposalAccessFollowsRepositoryMembership(t *testing.T) {
 		t.Fatalf("outsider private list = %d", w.Code)
 	}
 }
+
+func TestCollaboratorsExecuteAttributedProposalPlanThroughAPI(t *testing.T) {
+	gitStorage, _ := storage.New(t.TempDir())
+	catalog, _ := repositories.New(t.TempDir(), gitStorage)
+	proposalStore, _ := proposals.New(t.TempDir())
+	userStore, _ := users.New(t.TempDir())
+	credentials, _ := auth.New(t.TempDir())
+	owner, _ := userStore.Create(users.Profile{Handle: "plan-owner", DisplayName: "Plan Owner"})
+	collaborator, _ := userStore.Create(users.Profile{Handle: "planner", DisplayName: "Planner"})
+	repository, _ := catalog.Create(string(owner.ID), repositories.Metadata{Name: "planned-project", Visibility: repositories.Public})
+	_, _ = catalog.AddCollaborator(string(owner.ID), repository.ID, string(collaborator.ID))
+	ownerToken := issueAccess(t, credentials, string(owner.ID), auth.API, auth.RepositoryRead, auth.RepositoryWrite)
+	collaboratorToken := issueAccess(t, credentials, string(collaborator.ID), auth.API, auth.RepositoryRead, auth.RepositoryWrite)
+	proposal, _ := proposalStore.Create(string(repository.ID), string(owner.ID), "Make onboarding executable", "The discussion agreed on measurable setup work.")
+	comment, _ := proposalStore.AddComment(string(repository.ID), proposal.ID, string(owner.ID), "First define the supported environment.")
+	mux := http.NewServeMux()
+	registerProposalsHTTP(mux, proposalStore, catalog, credentials)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	base := server.URL + "/repositories/" + string(repository.ID) + "/proposals/" + proposal.ID + "/plan"
+
+	request, _ := http.NewRequest(http.MethodPost, base+"/tasks", strings.NewReader(`{"title":"Define environment","outcome":"Supported tools and versions are documented.","discussion_comment_ids":["`+comment.ID+`"]}`))
+	request.Header.Set("Authorization", "Bearer "+collaboratorToken)
+	response, _ := http.DefaultClient.Do(request)
+	var first proposals.Task
+	json.NewDecoder(response.Body).Decode(&first)
+	response.Body.Close()
+	if response.StatusCode != http.StatusCreated || !first.Ready || first.CreatedByID != string(collaborator.ID) {
+		t.Fatalf("first task = %#v status %d", first, response.StatusCode)
+	}
+
+	request, _ = http.NewRequest(http.MethodPost, base+"/tasks", strings.NewReader(`{"title":"Verify setup","outcome":"A newcomer completes setup from a clean machine.","depends_on":["`+first.ID+`"]}`))
+	request.Header.Set("Authorization", "Bearer "+ownerToken)
+	response, _ = http.DefaultClient.Do(request)
+	var second proposals.Task
+	json.NewDecoder(response.Body).Decode(&second)
+	response.Body.Close()
+	if response.StatusCode != http.StatusCreated || second.Ready || second.CreatedByID != string(owner.ID) {
+		t.Fatalf("second task = %#v status %d", second, response.StatusCode)
+	}
+
+	request, _ = http.NewRequest(http.MethodPatch, base+"/tasks/"+first.ID, strings.NewReader(`{"title":"Define environment","outcome":"Supported tools and versions are documented.","position":1,"status":"completed","discussion_comment_ids":["`+comment.ID+`"]}`))
+	request.Header.Set("Authorization", "Bearer "+ownerToken)
+	response, _ = http.DefaultClient.Do(request)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("complete status = %d", response.StatusCode)
+	}
+
+	response, _ = http.Get(base)
+	var plan proposals.Plan
+	json.NewDecoder(response.Body).Decode(&plan)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || len(plan.Tasks) != 2 || !plan.Tasks[1].Ready || len(plan.History) != 3 || plan.History[2].ActorID != string(owner.ID) {
+		t.Fatalf("plan = %#v status %d", plan, response.StatusCode)
+	}
+
+	request, _ = http.NewRequest(http.MethodPost, base+"/tasks", strings.NewReader(`{"title":"Bad link","outcome":"Should not persist.","discussion_comment_ids":["missing"]}`))
+	request.Header.Set("Authorization", "Bearer "+ownerToken)
+	response, _ = http.DefaultClient.Do(request)
+	response.Body.Close()
+	if response.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid discussion link = %d", response.StatusCode)
+	}
+}

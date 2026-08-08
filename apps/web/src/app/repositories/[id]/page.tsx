@@ -98,6 +98,33 @@ type ProposalComment = {
 };
 type ProposalList = { items: Proposal[]; total_count: number };
 type CommentList = { items: ProposalComment[]; total_count: number };
+type ProposalTask = {
+  id: string;
+  proposal_id: string;
+  title: string;
+  outcome: string;
+  position: number;
+  status: "planned" | "in_progress" | "completed" | "canceled";
+  depends_on: string[];
+  discussion_comment_ids: string[];
+  created_by_id: string;
+  updated_by_id: string;
+  created_at: string;
+  updated_at: string;
+  ready: boolean;
+};
+type ProposalPlanEvent = {
+  id: string;
+  actor_id: string;
+  action: string;
+  task: ProposalTask;
+  created_at: string;
+};
+type ProposalPlan = {
+  proposal_id: string;
+  tasks: ProposalTask[];
+  history: ProposalPlanEvent[];
+};
 type PullRequest = {
   id: string;
   repository_id: string;
@@ -1183,6 +1210,7 @@ function ProposalWorkspace({
   const [items, setItems] = useState<Proposal[]>([]);
   const [proposal, setProposal] = useState<Proposal>();
   const [comments, setComments] = useState<ProposalComment[]>([]);
+  const [plan, setPlan] = useState<ProposalPlan>();
   const [actor, setActor] = useState("");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -1200,15 +1228,19 @@ function ProposalWorkspace({
         )
         .catch(() => "");
       if (selected) {
-        const [item, conversation, user] = await Promise.all([
+        const [item, conversation, proposalPlan, user] = await Promise.all([
           get<Proposal>(`/repositories/${repository}/proposals/${selected}`),
           get<CommentList>(
             `/repositories/${repository}/proposals/${selected}/comments?per_page=100`,
+          ),
+          get<ProposalPlan>(
+            `/repositories/${repository}/proposals/${selected}/plan`,
           ),
           session,
         ]);
         setProposal(item);
         setComments(conversation.items);
+        setPlan(proposalPlan);
         setActor(user);
       } else {
         const suffix = state === "all" ? "" : `&state=${state}`;
@@ -1267,8 +1299,10 @@ function ProposalWorkspace({
       <ProposalDetail
         item={proposal}
         comments={comments}
+        plan={plan ?? { proposal_id: proposal.id, tasks: [], history: [] }}
         repository={repository}
         canDiscuss={Boolean(actor)}
+        canPlan={Boolean(actor)}
         canEdit={actor === proposal.author_id || actor === owner}
         onBack={() => go({ state })}
         onChanged={() => void load()}
@@ -1438,8 +1472,10 @@ function ProposalForm({
 function ProposalDetail({
   item,
   comments,
+  plan,
   repository,
   canDiscuss,
+  canPlan,
   canEdit,
   onBack,
   onChanged,
@@ -1448,8 +1484,10 @@ function ProposalDetail({
 }: {
   item: Proposal;
   comments: ProposalComment[];
+  plan: ProposalPlan;
   repository: string;
   canDiscuss: boolean;
+  canPlan: boolean;
   canEdit: boolean;
   onBack: () => void;
   onChanged: () => void;
@@ -1550,6 +1588,14 @@ function ProposalDetail({
           </div>
         </article>
       )}
+      <ProposalPlanView
+        repository={repository}
+        proposal={item.id}
+        plan={plan}
+        comments={comments}
+        canEdit={canPlan}
+        onChanged={onChanged}
+      />
       <div className="conversation-heading">
         <MessageCircle size={16} />
         <h3>Conversation</h3>
@@ -1639,6 +1685,124 @@ function ProposalDetail({
       )}
     </section>
   );
+}
+
+function ProposalPlanView({
+  repository,
+  proposal,
+  plan,
+  comments,
+  canEdit,
+  onChanged,
+}: {
+  repository: string;
+  proposal: string;
+  plan: ProposalPlan;
+  comments: ProposalComment[];
+  canEdit: boolean;
+  onChanged: () => void;
+}) {
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<string>();
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [error, setError] = useState("");
+  const completed = plan.tasks.filter((task) => task.status === "completed").length;
+  async function update(task: ProposalTask, changes: Partial<ProposalTask>) {
+    setError("");
+    try {
+      await send(
+        `/repositories/${repository}/proposals/${proposal}/plan/tasks/${task.id}`,
+        "PATCH",
+        {
+          title: changes.title ?? task.title,
+          outcome: changes.outcome ?? task.outcome,
+          position: changes.position ?? task.position,
+          status: changes.status ?? task.status,
+          depends_on: changes.depends_on ?? task.depends_on,
+          discussion_comment_ids:
+            changes.discussion_comment_ids ?? task.discussion_comment_ids,
+        },
+      );
+      setEditing(undefined);
+      onChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to update task.");
+    }
+  }
+  return (
+    <section className="proposal-plan">
+      <header className="plan-heading">
+        <div>
+          <p className="eyebrow"><Check size={14} />Executable plan</p>
+          <h3>Delivery tasks</h3>
+          <p>{plan.tasks.length ? `${completed} of ${plan.tasks.length} outcomes completed` : "Turn the agreed idea into work collaborators can start."}</p>
+        </div>
+        <div>
+          <Button variant="secondary" size="sm" onClick={() => setHistoryOpen(!historyOpen)}>
+            <Clock size={13} /> History ({plan.history.length})
+          </Button>
+          {canEdit && <Button size="sm" onClick={() => setCreating(!creating)}><Plus size={13} /> Add task</Button>}
+        </div>
+      </header>
+      {error && <p className="form-error">{error}</p>}
+      {creating && (
+        <TaskForm
+          tasks={plan.tasks}
+          comments={comments}
+          submit="Add task"
+          onCancel={() => setCreating(false)}
+          onSubmit={async (input) => {
+            await send(`/repositories/${repository}/proposals/${proposal}/plan/tasks`, "POST", input);
+            setCreating(false);
+            onChanged();
+          }}
+        />
+      )}
+      <div className="plan-tasks">
+        {plan.tasks.map((task) => editing === task.id ? (
+          <TaskForm key={task.id} task={task} tasks={plan.tasks} comments={comments} submit="Save task" onCancel={() => setEditing(undefined)} onSubmit={(input) => update(task, input as Partial<ProposalTask>)} />
+        ) : (
+          <article className={`plan-task panel ${task.ready ? "ready" : ""}`} key={task.id}>
+            <span className="task-position">{task.position}</span>
+            <div className="task-content">
+              <div className="task-title"><strong>{task.title}</strong><span className={`task-status ${task.status}`}>{task.status.replace("_", " ")}</span>{task.ready && <span className="ready-label">Can start now</span>}</div>
+              <p><b>Expected outcome</b>{task.outcome}</p>
+              {task.depends_on.length > 0 && <small>After {task.depends_on.map((id) => plan.tasks.find((candidate) => candidate.id === id)?.title ?? id).join(", ")}</small>}
+              {task.discussion_comment_ids.length > 0 && <small><MessageCircle size={11} /> Linked to {task.discussion_comment_ids.length} discussion {task.discussion_comment_ids.length === 1 ? "decision" : "decisions"}</small>}
+              <small>Last changed by <Actor id={task.updated_by_id} /> · {new Date(task.updated_at).toLocaleString()}</small>
+            </div>
+            {canEdit && <div className="task-actions">
+              <select aria-label={`Status for ${task.title}`} value={task.status} onChange={(event) => void update(task, {status: event.target.value as ProposalTask["status"]})}>
+                <option value="planned">Planned</option><option value="in_progress">In progress</option><option value="completed">Completed</option><option value="canceled">Canceled</option>
+              </select>
+              <button aria-label={`Edit ${task.title}`} onClick={() => setEditing(task.id)}><Edit size={13} /></button>
+              <button aria-label={`Move ${task.title} up`} disabled={task.position === 1} onClick={() => void update(task, {position: task.position - 1})}>↑</button>
+              <button aria-label={`Move ${task.title} down`} disabled={task.position === plan.tasks.length} onClick={() => void update(task, {position: task.position + 1})}>↓</button>
+            </div>}
+          </article>
+        ))}
+        {!plan.tasks.length && <div className="plan-empty panel"><Check /><h4>No delivery tasks yet</h4><p>Add outcomes in dependency order so the next collaborator knows where to begin.</p></div>}
+      </div>
+      {historyOpen && <div className="plan-history panel"><h4>Plan history</h4>{[...plan.history].reverse().map((event) => <div key={event.id}><span className="avatar sm"><User size={12} /></span><p><strong><Actor id={event.actor_id} /></strong> {event.action === "task.created" ? "created" : "updated"} <b>{event.task.title}</b><small>{event.task.status.replace("_", " ")} · {new Date(event.created_at).toLocaleString()}</small></p></div>)}</div>}
+    </section>
+  );
+}
+
+function TaskForm({ task, tasks, comments, submit, onCancel, onSubmit }: { task?: ProposalTask; tasks: ProposalTask[]; comments: ProposalComment[]; submit: string; onCancel: () => void; onSubmit: (input: Record<string, unknown>) => Promise<void> }) {
+  const [title, setTitle] = useState(task?.title ?? "");
+  const [outcome, setOutcome] = useState(task?.outcome ?? "");
+  const [dependencies, setDependencies] = useState(task?.depends_on ?? []);
+  const [links, setLinks] = useState(task?.discussion_comment_ids ?? []);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const choices = tasks.filter((candidate) => candidate.id !== task?.id);
+  return <form className="task-form panel" onSubmit={async (event) => { event.preventDefault(); setBusy(true); setError(""); try { await onSubmit({title, outcome, position: task?.position ?? tasks.length + 1, status: task?.status ?? "planned", depends_on: dependencies, discussion_comment_ids: links}); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save task."); setBusy(false); } }}>
+    <label>Task<input required maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="What work should happen?" /></label>
+    <label>Expected outcome<textarea required maxLength={4096} value={outcome} onChange={(event) => setOutcome(event.target.value)} placeholder="Describe the observable result, not just the activity." /></label>
+    {choices.length > 0 && <fieldset><legend>Depends on</legend>{choices.map((candidate) => <label key={candidate.id}><input type="checkbox" checked={dependencies.includes(candidate.id)} onChange={() => setDependencies((current) => current.includes(candidate.id) ? current.filter((id) => id !== candidate.id) : [...current, candidate.id])} />{candidate.position}. {candidate.title}</label>)}</fieldset>}
+    {comments.length > 0 && <fieldset><legend>Motivating discussion</legend>{comments.map((comment, index) => <label key={comment.id}><input type="checkbox" checked={links.includes(comment.id)} onChange={() => setLinks((current) => current.includes(comment.id) ? current.filter((id) => id !== comment.id) : [...current, comment.id])} />Reply {index + 1} by <Actor id={comment.author_id} /></label>)}</fieldset>}
+    {error && <p className="form-error">{error}</p>}<div className="form-actions"><Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Saving…" : submit}</Button></div>
+  </form>;
 }
 
 function PullRequestWorkspace({

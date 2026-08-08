@@ -19,6 +19,9 @@ type proposalStore interface {
 	Close(string, string, string) (proposals.Proposal, error)
 	AddComment(string, string, string, string) (proposals.Comment, error)
 	ListComments(string, string) ([]proposals.Comment, error)
+	GetPlan(string, string) (proposals.Plan, error)
+	CreateTask(string, string, string, proposals.TaskInput) (proposals.Task, error)
+	UpdateTask(string, string, string, string, proposals.TaskInput) (proposals.Task, error)
 }
 
 type proposalRepositoryStore interface {
@@ -37,6 +40,125 @@ func registerProposalsHTTP(mux *http.ServeMux, store proposalStore, repositories
 	mux.HandleFunc("PATCH /repositories/{repository}/proposals/{proposal}", updateProposal(store, repositories, credentials, activity))
 	mux.HandleFunc("POST /repositories/{repository}/proposals/{proposal}/comments", createProposalComment(store, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/proposals/{proposal}/comments", listProposalComments(store, repositories, credentials))
+	mux.HandleFunc("GET /repositories/{repository}/proposals/{proposal}/plan", getProposalPlan(store, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/proposals/{proposal}/plan/tasks", createProposalTask(store, repositories, credentials, activity))
+	mux.HandleFunc("PATCH /repositories/{repository}/proposals/{proposal}/plan/tasks/{task}", updateProposalTask(store, repositories, credentials, activity))
+}
+
+type proposalTaskInput struct {
+	Title                string               `json:"title"`
+	Outcome              string               `json:"outcome"`
+	Position             int                  `json:"position"`
+	Status               proposals.TaskStatus `json:"status"`
+	DependsOn            []string             `json:"depends_on"`
+	DiscussionCommentIDs []string             `json:"discussion_comment_ids"`
+}
+
+func (input proposalTaskInput) storeInput() proposals.TaskInput {
+	return proposals.TaskInput{Title: input.Title, Outcome: input.Outcome, Position: input.Position, Status: input.Status, DependsOn: input.DependsOn, DiscussionCommentIDs: input.DiscussionCommentIDs}
+}
+
+func getProposalPlan(store proposalStore, repositories proposalRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, _, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		plan, err := store.GetPlan(string(repository.ID), r.PathValue("proposal"))
+		if err != nil {
+			writeProposalError(w, err)
+			return
+		}
+		writeJSON(w, 200, plan)
+	}
+}
+
+func createProposalTask(store proposalStore, repositories proposalRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var input proposalTaskInput
+		if !readJSON(w, r, &input, 16<<10) {
+			return
+		}
+		if !validDiscussionLinks(store, string(repository.ID), r.PathValue("proposal"), input.DiscussionCommentIDs) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_discussion_link"})
+			return
+		}
+		task, err := store.CreateTask(string(repository.ID), r.PathValue("proposal"), actor.UserID, input.storeInput())
+		if writeProposalTaskError(w, err) {
+			return
+		}
+		if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "proposal.task.created", Resource: activities.Resource{Type: "proposal", ID: task.ProposalID}, Metadata: map[string]string{"task_id": task.ID, "title": task.Title}}); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, http.StatusCreated, task)
+	}
+}
+
+func updateProposalTask(store proposalStore, repositories proposalRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var input proposalTaskInput
+		if !readJSON(w, r, &input, 16<<10) {
+			return
+		}
+		if !validDiscussionLinks(store, string(repository.ID), r.PathValue("proposal"), input.DiscussionCommentIDs) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_discussion_link"})
+			return
+		}
+		task, err := store.UpdateTask(string(repository.ID), r.PathValue("proposal"), r.PathValue("task"), actor.UserID, input.storeInput())
+		if writeProposalTaskError(w, err) {
+			return
+		}
+		if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "proposal.task.updated", Resource: activities.Resource{Type: "proposal", ID: task.ProposalID}, Metadata: map[string]string{"task_id": task.ID, "title": task.Title, "status": string(task.Status)}}); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, 200, task)
+	}
+}
+
+func validDiscussionLinks(store proposalStore, repositoryID, proposalID string, ids []string) bool {
+	if len(ids) == 0 {
+		return true
+	}
+	comments, err := store.ListComments(repositoryID, proposalID)
+	if err != nil {
+		return false
+	}
+	known := map[string]bool{}
+	for _, comment := range comments {
+		known[comment.ID] = true
+	}
+	for _, id := range ids {
+		if !known[id] {
+			return false
+		}
+	}
+	return true
+}
+
+func writeProposalTaskError(w http.ResponseWriter, err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, proposals.ErrNotFound) {
+		writeJSON(w, 404, map[string]string{"error": "not_found"})
+	} else if errors.Is(err, proposals.ErrInvalidDependency) {
+		writeJSON(w, 422, map[string]string{"error": "invalid_dependency"})
+	} else if errors.Is(err, proposals.ErrInvalidTask) {
+		writeJSON(w, 422, map[string]string{"error": "invalid_task"})
+	} else {
+		writeJSON(w, 500, map[string]string{"error": "internal_error"})
+	}
+	return true
 }
 
 func proposalRepositoryAccess(w http.ResponseWriter, r *http.Request, store proposalRepositoryStore, credentials authStore, scope auth.Scope, requireAuthentication bool) (repositories.Repository, auth.Grant, bool) {
