@@ -458,6 +458,15 @@ whenever dependencies change or the web job fails before it starts.
   resume, or cancel; paused publication is rejected and cancellation revokes
   the credential. Never expose the persisted credential digest, and keep
   delegated sessions out of anonymous public incident views.
+  Incident mitigations turn evidence into an explicit responder decision.
+  Proposals name an affected environment, exact evidence IDs, an intervention
+  type (`pause_rollout`, `restore_release`, or `emergency_repair`), and exact
+  deployment health events that define recovery. Keep discussion, independent
+  approval or commander-attributed overrides, rejection, every execution
+  attempt, governed deployment or pull-request links, and verification actors
+  durable in the incident. Incident execution must reuse deployment controls,
+  governed rollback, and ordinary draft repair/review workflows; it never
+  grants broader environment, secret, repository, or Git authority.
   Meaningful collaboration transitions are appended through the
   `activities.Store` boundary beneath `$ACTIVITY_ROOT` (default
   `apps/api/data/activities`). Repository activity retains stable actor and

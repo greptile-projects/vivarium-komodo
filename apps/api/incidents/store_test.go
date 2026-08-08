@@ -25,6 +25,50 @@ func TestIncidentRetainsCoordinationTimelineAndAcknowledgements(t *testing.T) {
 	}
 }
 
+func TestMitigationDecisionExecutionAndRecoveryEvidence(t *testing.T) {
+	store, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := store.Create(CreateInput{RepositoryID: "repo", ActorID: "commander", Title: "outage", Summary: "service unavailable", Severity: "critical", Roles: map[string]string{"commander": "commander", "operations": "operator"}, Affected: []AffectedEnvironment{{RepositoryID: "repo", EnvironmentID: "prod"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err = store.AddEvidence("repo", item.ID, "operator", Evidence{Kind: "health_signal", RepositoryID: "repo", ResourceID: "failed", EventSequence: 4, Title: "availability failed", Audience: "participants"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err = store.ProposeMitigation("repo", item.ID, MitigationInput{ActorID: "operator", Kind: "restore_release", Title: "Restore v1", Description: "Return to the last attested artifact", RepositoryID: "repo", EnvironmentID: "prod", DeploymentID: "failed", EvidenceIDs: []string{item.Evidence[0].ID}, RecoveryCriteria: []RecoveryCriterion{{Name: "availability", DeploymentID: "rollback", EventSequence: 8}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mitigation := item.Mitigations[0]
+	item, err = store.CommentMitigation("repo", item.ID, mitigation.ID, "commander", "Artifact checksum and prior success verified")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err = store.DecideMitigation("repo", item.ID, mitigation.ID, "commander", "approve", "Impact justifies rollback", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err = store.RecordMitigationAttempt("repo", item.ID, mitigation.ID, "operator", "started", "deployment", "rollback", "Governed rollback created")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err = store.RecordMitigationAttempt("repo", item.ID, mitigation.ID, "operator", "succeeded", "deployment", "rollback", "Rollback rollout completed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err = store.VerifyMitigation("repo", item.ID, mitigation.ID, "commander", []RecoveryCriterion{{Name: "availability", DeploymentID: "rollback", EventSequence: 8, Outcome: "healthy"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := item.Mitigations[0]
+	if got.State != "recovered" || len(got.Decisions) != 1 || len(got.Attempts) != 2 || got.RecoveryCriteria[0].VerifiedByID != "commander" {
+		t.Fatalf("mitigation provenance incomplete: %#v", got)
+	}
+}
+
 func TestInvestigationConnectsFindingsToTimeBoundedEvidence(t *testing.T) {
 	store, _ := New(t.TempDir())
 	item, _ := store.Create(CreateInput{RepositoryID: "repo", ActorID: "alice", Title: "Degraded", Summary: "Impact", Severity: "high", Roles: map[string]string{"commander": "alice"}, Affected: []AffectedEnvironment{{RepositoryID: "repo"}}})

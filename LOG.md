@@ -6,6 +6,8 @@ Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 
 2026-08-08T21:56:27Z: Added bounded incident-agent investigations with responder-validated evidence and exact revisions, allowlisted read-only deployment context, attributable findings/tool/questions/uncertainty, and guide/pause/resume/cancel controls. Worker credentials expire after 24 hours, revoke on cancellation, and cannot authorize Git, repository writes, deployment controls, or secret management.
 
+2026-08-08T22:54:44Z: Added evidence-backed incident mitigations with discussion, independent approval/rejection, commander overrides, governed pause/rollback/repair execution links, retained failed attempts, and exact deployment health-event recovery verification. The incident web workspace now exposes proposal, authorization, action progress, and recovery state without expanding environment authority.
+
 2026-08-08T21:07:59Z: Added collaborative incident diagnosis with policy-validated pointers to time-bounded logs, health signals, delivery and code resources plus attributable observations, hypotheses, queries, and conclusions citing exact evidence. Public incident reads now redact participant-only investigation and coordination state; the shareable incident workspace exposes live source links and retained historical context.
 
 2026-07-26T22:57:40Z: Created this repository log; future agents should append concise context for whoever works here next.
