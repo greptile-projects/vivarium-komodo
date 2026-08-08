@@ -24,6 +24,11 @@ type incidentStore interface {
 	InvestigationContext(string) (incidents.Incident, incidents.Investigation, error)
 	AddInvestigationRecord(string, string, string, string, []string) (incidents.Incident, incidents.Investigation, error)
 	ControlInvestigation(string, string, string, string, string, string) (incidents.Incident, error)
+	ProposeMitigation(string, string, incidents.MitigationInput) (incidents.Incident, error)
+	CommentMitigation(string, string, string, string, string) (incidents.Incident, error)
+	DecideMitigation(string, string, string, string, string, string, bool) (incidents.Incident, error)
+	RecordMitigationAttempt(string, string, string, string, string, string, string, string) (incidents.Incident, error)
+	VerifyMitigation(string, string, string, string, []incidents.RecoveryCriterion) (incidents.Incident, error)
 }
 
 func registerIncidentsHTTP(mux *http.ServeMux, store incidentStore, deployments deploymentStore, releases releaseStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) {
@@ -39,9 +44,218 @@ func registerIncidentsHTTP(mux *http.ServeMux, store incidentStore, deployments 
 	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/findings", addIncidentFinding(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/investigations", startIncidentInvestigation(store, deployments, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/investigations/{session}/control", controlIncidentInvestigation(store, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/mitigations", proposeIncidentMitigation(store, deployments, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/mitigations/{mitigation}/comments", commentIncidentMitigation(store, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/mitigations/{mitigation}/decision", decideIncidentMitigation(store, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/mitigations/{mitigation}/execution", executeIncidentMitigation(store, deployments, pulls, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/mitigations/{mitigation}/verification", verifyIncidentMitigation(store, deployments, repositories, credentials))
 	mux.HandleFunc("GET /incident-investigations/context", incidentInvestigationContext(store))
 	mux.HandleFunc("GET /incident-investigations/operational/{resource}", incidentInvestigationOperational(store, deployments))
 	mux.HandleFunc("POST /incident-investigations/records", addIncidentInvestigationRecord(store))
+}
+func proposeIncidentMitigation(store incidentStore, deployments deploymentStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := incidentAccess(w, r, repositories, credentials, true)
+		if !ok {
+			return
+		}
+		current, err := store.Get(repo, r.PathValue("incident"))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if !incidentResponder(current, actor) {
+			writeJSON(w, 403, map[string]string{"error": "responder_required"})
+			return
+		}
+		var in struct {
+			Kind             string                        `json:"kind"`
+			Title            string                        `json:"title"`
+			Description      string                        `json:"description"`
+			RepositoryID     string                        `json:"repository_id"`
+			EnvironmentID    string                        `json:"environment_id"`
+			DeploymentID     string                        `json:"deployment_id"`
+			EvidenceIDs      []string                      `json:"evidence_ids"`
+			RecoveryCriteria []incidents.RecoveryCriterion `json:"recovery_criteria"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		if in.RepositoryID == "" {
+			in.RepositoryID = repo
+		}
+		affected := false
+		for _, a := range current.Affected {
+			if a.RepositoryID == in.RepositoryID && a.EnvironmentID == in.EnvironmentID {
+				affected = true
+			}
+		}
+		if !affected {
+			writeJSON(w, 422, map[string]string{"error": "invalid_mitigation_scope"})
+			return
+		}
+		if in.DeploymentID != "" {
+			d, e := deployments.GetDeployment(in.RepositoryID, in.DeploymentID)
+			if e != nil || d.EnvironmentID != in.EnvironmentID {
+				writeJSON(w, 422, map[string]string{"error": "invalid_mitigation_target"})
+				return
+			}
+		}
+		item, e := store.ProposeMitigation(repo, current.ID, incidents.MitigationInput{ActorID: actor, Kind: in.Kind, Title: in.Title, Description: in.Description, RepositoryID: in.RepositoryID, EnvironmentID: in.EnvironmentID, DeploymentID: in.DeploymentID, EvidenceIDs: in.EvidenceIDs, RecoveryCriteria: in.RecoveryCriteria})
+		writeIncidentResult(w, item, e, 201)
+	}
+}
+func commentIncidentMitigation(store incidentStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := incidentAccess(w, r, repositories, credentials, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Body string `json:"body"`
+		}
+		if !readJSON(w, r, &in, 70<<10) {
+			return
+		}
+		item, e := store.CommentMitigation(repo, r.PathValue("incident"), r.PathValue("mitigation"), actor, in.Body)
+		writeIncidentResult(w, item, e, 201)
+	}
+}
+func decideIncidentMitigation(store incidentStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := incidentAccess(w, r, repositories, credentials, true)
+		if !ok {
+			return
+		}
+		current, e := store.Get(repo, r.PathValue("incident"))
+		if e != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if !incidentResponder(current, actor) {
+			writeJSON(w, 403, map[string]string{"error": "responder_required"})
+			return
+		}
+		var in struct {
+			Decision string `json:"decision"`
+			Reason   string `json:"reason"`
+			Override bool   `json:"override"`
+		}
+		if !readJSON(w, r, &in, 70<<10) {
+			return
+		}
+		for _, m := range current.Mitigations {
+			if m.ID == r.PathValue("mitigation") && m.ProposedByID == actor && !in.Override {
+				writeJSON(w, 409, map[string]string{"error": "independent_authorization_required"})
+				return
+			}
+		}
+		if in.Override && current.Roles["commander"] != actor {
+			writeJSON(w, 403, map[string]string{"error": "commander_override_required"})
+			return
+		}
+		item, e := store.DecideMitigation(repo, current.ID, r.PathValue("mitigation"), actor, in.Decision, in.Reason, in.Override)
+		writeIncidentResult(w, item, e, 200)
+	}
+}
+func executeIncidentMitigation(store incidentStore, deployments deploymentStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := incidentAccess(w, r, repositories, credentials, true)
+		if !ok {
+			return
+		}
+		current, e := store.Get(repo, r.PathValue("incident"))
+		if e != nil || !incidentResponder(current, actor) {
+			writeJSON(w, 403, map[string]string{"error": "responder_required"})
+			return
+		}
+		var in struct {
+			Outcome      string `json:"outcome"`
+			ResourceType string `json:"resource_type"`
+			ResourceID   string `json:"resource_id"`
+			Message      string `json:"message"`
+		}
+		if !readJSON(w, r, &in, 70<<10) {
+			return
+		}
+		var target *incidents.Mitigation
+		for x := range current.Mitigations {
+			if current.Mitigations[x].ID == r.PathValue("mitigation") {
+				target = &current.Mitigations[x]
+			}
+		}
+		if target == nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if in.Outcome == "started" && target.Kind == "pause_rollout" {
+			d, er := deployments.Control(target.RepositoryID, target.DeploymentID, actor, "pause", in.Message)
+			if er != nil {
+				item, _ := store.RecordMitigationAttempt(repo, current.ID, target.ID, actor, "failed", "deployment", target.DeploymentID, "Deployment pause was rejected: "+er.Error())
+				writeJSON(w, 409, item)
+				return
+			}
+			in.ResourceType, in.ResourceID = "deployment", d.ID
+		}
+		if in.ResourceType == "deployment" {
+			d, er := deployments.GetDeployment(target.RepositoryID, in.ResourceID)
+			if er != nil || (target.Kind == "restore_release" && (d.RecoveryOfID != target.DeploymentID || d.RecoveryAction != "rollback")) {
+				writeJSON(w, 422, map[string]string{"error": "invalid_execution_resource"})
+				return
+			}
+		} else if in.ResourceType == "pull_request" {
+			p, er := pulls.Get(target.RepositoryID, in.ResourceID)
+			if er != nil || target.Kind != "emergency_repair" || !p.Draft || p.SourceCommitID == "" {
+				writeJSON(w, 422, map[string]string{"error": "invalid_execution_resource"})
+				return
+			}
+		} else {
+			writeJSON(w, 422, map[string]string{"error": "invalid_execution_resource"})
+			return
+		}
+		item, e := store.RecordMitigationAttempt(repo, current.ID, target.ID, actor, in.Outcome, in.ResourceType, in.ResourceID, in.Message)
+		writeIncidentResult(w, item, e, 200)
+	}
+}
+func verifyIncidentMitigation(store incidentStore, deployments deploymentStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := incidentAccess(w, r, repositories, credentials, true)
+		if !ok {
+			return
+		}
+		current, e := store.Get(repo, r.PathValue("incident"))
+		if e != nil || !incidentResponder(current, actor) {
+			writeJSON(w, 403, map[string]string{"error": "responder_required"})
+			return
+		}
+		var in struct {
+			Results []incidents.RecoveryCriterion `json:"results"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		for x := range in.Results {
+			result := &in.Results[x]
+			d, er := deployments.GetDeployment(repo, result.DeploymentID)
+			if er != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_recovery_evidence"})
+				return
+			}
+			found := false
+			for _, event := range d.Events {
+				if event.Sequence == result.EventSequence && event.Signal != "" {
+					result.Outcome = event.Outcome
+					found = true
+				}
+			}
+			if !found {
+				writeJSON(w, 422, map[string]string{"error": "invalid_recovery_evidence"})
+				return
+			}
+		}
+		item, e := store.VerifyMitigation(repo, current.ID, r.PathValue("mitigation"), actor, in.Results)
+		writeIncidentResult(w, item, e, 200)
+	}
 }
 func incidentAccess(w http.ResponseWriter, r *http.Request, repositories pullRequestRepositoryStore, credentials authStore, write bool) (string, string, bool) {
 	scope := auth.RepositoryRead

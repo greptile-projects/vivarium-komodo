@@ -69,6 +69,59 @@ type Finding struct {
 	AuthorID    string    `json:"author_id"`
 	CreatedAt   time.Time `json:"created_at"`
 }
+type MitigationComment struct {
+	ID        string    `json:"id"`
+	ActorID   string    `json:"actor_id"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type MitigationDecision struct {
+	Decision  string    `json:"decision"`
+	ActorID   string    `json:"actor_id"`
+	Reason    string    `json:"reason"`
+	Override  bool      `json:"override"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type RecoveryCriterion struct {
+	Name          string     `json:"name"`
+	DeploymentID  string     `json:"deployment_id"`
+	EventSequence int64      `json:"event_sequence"`
+	Outcome       string     `json:"outcome"`
+	VerifiedByID  string     `json:"verified_by_id"`
+	VerifiedAt    *time.Time `json:"verified_at,omitempty"`
+}
+type MitigationAttempt struct {
+	Sequence     int64     `json:"sequence"`
+	ActorID      string    `json:"actor_id"`
+	Outcome      string    `json:"outcome"`
+	ResourceType string    `json:"resource_type,omitempty"`
+	ResourceID   string    `json:"resource_id,omitempty"`
+	Message      string    `json:"message"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+type Mitigation struct {
+	ID               string               `json:"id"`
+	Kind             string               `json:"kind"`
+	Title            string               `json:"title"`
+	Description      string               `json:"description"`
+	RepositoryID     string               `json:"repository_id"`
+	EnvironmentID    string               `json:"environment_id"`
+	DeploymentID     string               `json:"deployment_id,omitempty"`
+	EvidenceIDs      []string             `json:"evidence_ids"`
+	ProposedByID     string               `json:"proposed_by_id"`
+	State            string               `json:"state"`
+	Comments         []MitigationComment  `json:"comments"`
+	Decisions        []MitigationDecision `json:"decisions"`
+	Attempts         []MitigationAttempt  `json:"attempts"`
+	RecoveryCriteria []RecoveryCriterion  `json:"recovery_criteria"`
+	CreatedAt        time.Time            `json:"created_at"`
+	UpdatedAt        time.Time            `json:"updated_at"`
+}
+type MitigationInput struct {
+	ActorID, Kind, Title, Description, RepositoryID, EnvironmentID, DeploymentID string
+	EvidenceIDs                                                                  []string
+	RecoveryCriteria                                                             []RecoveryCriterion
+}
 type Revision struct {
 	RepositoryID string `json:"repository_id"`
 	CommitID     string `json:"commit_id"`
@@ -141,6 +194,7 @@ type Incident struct {
 	Evidence         []Evidence            `json:"evidence"`
 	Findings         []Finding             `json:"findings"`
 	Investigations   []Investigation       `json:"investigations"`
+	Mitigations      []Mitigation          `json:"mitigations"`
 	Timeline         []Event               `json:"timeline"`
 	CreatedAt        time.Time             `json:"created_at"`
 	UpdatedAt        time.Time             `json:"updated_at"`
@@ -186,7 +240,7 @@ func (s *Store) Create(in CreateInput) (Incident, error) {
 		return Incident{}, err
 	}
 	now := s.now().UTC()
-	i := Incident{ID: id, RepositoryID: in.RepositoryID, Title: in.Title, Summary: in.Summary, Severity: in.Severity, Status: "declared", DeclaredByID: in.ActorID, Roles: copyRoles(in.Roles), Affected: copyAffected(in.Affected), SourceSignal: in.SourceSignal, Followers: []string{in.ActorID}, Acknowledgements: []Acknowledgement{}, Evidence: []Evidence{}, Findings: []Finding{}, Investigations: []Investigation{}, Timeline: []Event{}, CreatedAt: now, UpdatedAt: now}
+	i := Incident{ID: id, RepositoryID: in.RepositoryID, Title: in.Title, Summary: in.Summary, Severity: in.Severity, Status: "declared", DeclaredByID: in.ActorID, Roles: copyRoles(in.Roles), Affected: copyAffected(in.Affected), SourceSignal: in.SourceSignal, Followers: []string{in.ActorID}, Acknowledgements: []Acknowledgement{}, Evidence: []Evidence{}, Findings: []Finding{}, Investigations: []Investigation{}, Mitigations: []Mitigation{}, Timeline: []Event{}, CreatedAt: now, UpdatedAt: now}
 	i.append(Event{Type: "declared", ActorID: in.ActorID, Status: i.Status, Severity: i.Severity, Message: i.Summary, Roles: copyRoles(i.Roles), Affected: copyAffected(i.Affected), CreatedAt: now})
 	return i, s.write(i)
 }
@@ -418,6 +472,184 @@ func (s *Store) AddFinding(repositoryID, id, actor string, finding Finding) (Inc
 	i.UpdatedAt = finding.CreatedAt
 	i.append(Event{Type: "investigation." + finding.Kind, ActorID: actor, Audience: finding.Audience, Message: finding.Body, CreatedAt: finding.CreatedAt})
 	return i, s.write(i)
+}
+func (s *Store) ProposeMitigation(repositoryID, id string, in MitigationInput) (Incident, error) {
+	in.Kind, in.Title, in.Description = strings.ToLower(strings.TrimSpace(in.Kind)), strings.TrimSpace(in.Title), strings.TrimSpace(in.Description)
+	if in.ActorID == "" || (in.Kind != "pause_rollout" && in.Kind != "restore_release" && in.Kind != "emergency_repair") || in.Title == "" || len(in.Title) > 300 || in.Description == "" || len(in.Description) > 10000 || in.RepositoryID == "" || in.EnvironmentID == "" || len(in.EvidenceIDs) == 0 || len(in.RecoveryCriteria) == 0 {
+		return Incident{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i, err := s.read(repositoryID, id)
+	if err != nil {
+		return i, err
+	}
+	if i.Status == "resolved" {
+		return i, ErrTransition
+	}
+	evidence := map[string]bool{}
+	for _, e := range i.Evidence {
+		evidence[e.ID] = true
+	}
+	for _, eid := range in.EvidenceIDs {
+		if !evidence[eid] {
+			return i, ErrInvalid
+		}
+	}
+	for x := range in.RecoveryCriteria {
+		c := &in.RecoveryCriteria[x]
+		c.Name = strings.TrimSpace(c.Name)
+		if c.Name == "" {
+			return i, ErrInvalid
+		}
+		c.Outcome = "pending"
+	}
+	mid, err := newID()
+	if err != nil {
+		return i, err
+	}
+	now := s.now().UTC()
+	m := Mitigation{ID: mid, Kind: in.Kind, Title: in.Title, Description: in.Description, RepositoryID: in.RepositoryID, EnvironmentID: in.EnvironmentID, DeploymentID: in.DeploymentID, EvidenceIDs: append([]string{}, in.EvidenceIDs...), ProposedByID: in.ActorID, State: "proposed", Comments: []MitigationComment{}, Decisions: []MitigationDecision{}, Attempts: []MitigationAttempt{}, RecoveryCriteria: append([]RecoveryCriterion{}, in.RecoveryCriteria...), CreatedAt: now, UpdatedAt: now}
+	i.Mitigations = append(i.Mitigations, m)
+	i.Status = "mitigating"
+	i.UpdatedAt = now
+	i.append(Event{Type: "mitigation.proposed", ActorID: in.ActorID, Audience: "participants", Message: in.Title, CreatedAt: now})
+	return i, s.write(i)
+}
+func (s *Store) CommentMitigation(repositoryID, id, mitigation, actor, body string) (Incident, error) {
+	body = strings.TrimSpace(body)
+	if actor == "" || body == "" || len(body) > 10000 {
+		return Incident{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i, err := s.read(repositoryID, id)
+	if err != nil {
+		return i, err
+	}
+	now := s.now().UTC()
+	for x := range i.Mitigations {
+		m := &i.Mitigations[x]
+		if m.ID == mitigation {
+			cid, e := newID()
+			if e != nil {
+				return i, e
+			}
+			m.Comments = append(m.Comments, MitigationComment{cid, actor, body, now})
+			m.UpdatedAt = now
+			i.UpdatedAt = now
+			i.append(Event{Type: "mitigation.discussed", ActorID: actor, Audience: "participants", Message: body, CreatedAt: now})
+			return i, s.write(i)
+		}
+	}
+	return i, ErrNotFound
+}
+func (s *Store) DecideMitigation(repositoryID, id, mitigation, actor, decision, reason string, override bool) (Incident, error) {
+	decision, reason = strings.ToLower(strings.TrimSpace(decision)), strings.TrimSpace(reason)
+	if actor == "" || (decision != "approve" && decision != "reject") || reason == "" || len(reason) > 10000 {
+		return Incident{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i, err := s.read(repositoryID, id)
+	if err != nil {
+		return i, err
+	}
+	now := s.now().UTC()
+	for x := range i.Mitigations {
+		m := &i.Mitigations[x]
+		if m.ID == mitigation {
+			if m.State != "proposed" && m.State != "approved" {
+				return i, ErrTransition
+			}
+			m.Decisions = append(m.Decisions, MitigationDecision{decision, actor, reason, override, now})
+			m.State = map[bool]string{true: "approved", false: "rejected"}[decision == "approve"]
+			m.UpdatedAt = now
+			i.UpdatedAt = now
+			i.append(Event{Type: "mitigation." + decision + map[bool]string{true: ".override", false: ""}[override], ActorID: actor, Audience: "participants", Message: reason, CreatedAt: now})
+			return i, s.write(i)
+		}
+	}
+	return i, ErrNotFound
+}
+func (s *Store) RecordMitigationAttempt(repositoryID, id, mitigation, actor, outcome, resourceType, resourceID, message string) (Incident, error) {
+	outcome = strings.ToLower(strings.TrimSpace(outcome))
+	message = strings.TrimSpace(message)
+	if actor == "" || (outcome != "started" && outcome != "succeeded" && outcome != "failed") || message == "" {
+		return Incident{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i, err := s.read(repositoryID, id)
+	if err != nil {
+		return i, err
+	}
+	now := s.now().UTC()
+	for x := range i.Mitigations {
+		m := &i.Mitigations[x]
+		if m.ID == mitigation {
+			if m.State != "approved" && m.State != "executing" {
+				return i, ErrTransition
+			}
+			m.Attempts = append(m.Attempts, MitigationAttempt{int64(len(m.Attempts) + 1), actor, outcome, resourceType, resourceID, message, now})
+			m.State = map[string]string{"started": "executing", "succeeded": "verifying", "failed": "failed"}[outcome]
+			m.UpdatedAt = now
+			i.UpdatedAt = now
+			i.append(Event{Type: "mitigation.execution." + outcome, ActorID: actor, Audience: "participants", Message: message, CreatedAt: now})
+			return i, s.write(i)
+		}
+	}
+	return i, ErrNotFound
+}
+func (s *Store) VerifyMitigation(repositoryID, id, mitigation, actor string, results []RecoveryCriterion) (Incident, error) {
+	if actor == "" || len(results) == 0 {
+		return Incident{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i, err := s.read(repositoryID, id)
+	if err != nil {
+		return i, err
+	}
+	now := s.now().UTC()
+	for x := range i.Mitigations {
+		m := &i.Mitigations[x]
+		if m.ID == mitigation {
+			if m.State != "executing" && m.State != "verifying" && m.State != "failed" {
+				return i, ErrTransition
+			}
+			byKey := map[string]RecoveryCriterion{}
+			for _, r := range results {
+				byKey[r.Name] = r
+			}
+			all := true
+			for y := range m.RecoveryCriteria {
+				c := &m.RecoveryCriteria[y]
+				r, ok := byKey[c.Name]
+				if !ok {
+					return i, ErrInvalid
+				}
+				c.Outcome = r.Outcome
+				c.DeploymentID = r.DeploymentID
+				c.EventSequence = r.EventSequence
+				c.VerifiedByID = actor
+				c.VerifiedAt = &now
+				if r.Outcome != "healthy" && r.Outcome != "passed" {
+					all = false
+				}
+			}
+			if all {
+				m.State = "recovered"
+			} else {
+				m.State = "failed"
+			}
+			m.UpdatedAt = now
+			i.UpdatedAt = now
+			i.append(Event{Type: "mitigation.recovery." + m.State, ActorID: actor, Audience: "participants", Message: m.Title, CreatedAt: now})
+			return i, s.write(i)
+		}
+	}
+	return i, ErrNotFound
 }
 func (s *Store) StartInvestigation(repositoryID, id string, in InvestigationInput) (Incident, string, error) {
 	in.Agent, in.Mandate = strings.TrimSpace(in.Agent), strings.TrimSpace(in.Mandate)

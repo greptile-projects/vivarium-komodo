@@ -141,6 +141,21 @@ the credential. The public incident representation omits delegated sessions,
 and persisted credential digests are never returned through incident or worker
 responses.
 
+Mitigation is an incident-owned decision record layered over delivery
+authority, not a new production authority. A responder proposal cites exact
+incident evidence, the affected environment and deployment, the intended
+pause, attested restore, or emergency repair, and concrete recovery criteria
+identified by deployment health-event sequence. Participants can discuss the
+proposal; a responder other than the proposer approves or rejects it, while an
+incident commander may make an explicitly recorded override. Execution
+attempts retain actor, outcome, explanation, and the governed deployment or
+pull-request resource they changed. Recovery is complete only when a responder
+submits existing deployment health-signal events matching every declared
+criterion; unhealthy results and failed attempts remain visible. Deployment
+pause still uses deployment control permissions, restores remain ordinary
+governed rollback deployments, and emergency repairs remain draft pull
+requests that pass checks, review, integration, release, and promotion.
+
 ## Entrypoints
 
 - `apps/web` — Next.js frontend. Starts at `src/app/page.tsx`; routes are
