@@ -47,3 +47,30 @@ func TestGovernedEnvironmentKeepsSecretsProtectedAndAttributesPromotion(t *testi
 		t.Fatalf("timeline = %#v", d)
 	}
 }
+
+func TestRolloutManifestAndAttributedControlsRetainEvidence(t *testing.T) {
+	stages, err := ParseManifest([]byte(`{"version":1,"environments":[{"name":"Production","stages":[{"name":"canary","command":"rollout 10","health":[{"name":"error-rate","command":"check-errors"}]},{"name":"complete","health":[{"name":"availability","command":"check-up","timeout_seconds":30}]}]}]}`), "production")
+	if err != nil || len(stages) != 2 || stages[0].Health[0].TimeoutSeconds != 60 {
+		t.Fatalf("parsed stages = %#v, %v", stages, err)
+	}
+	if _, err = ParseManifest([]byte(`{"version":1,"environments":[{"name":"Production","stages":[{"name":"canary","health":[]}]}]}`), "Production"); err != ErrInvalid {
+		t.Fatalf("empty health policy error = %v", err)
+	}
+	store, _ := New(t.TempDir())
+	environment, _ := store.PutEnvironment("repo", "", "owner", EnvironmentInput{Name: "Production", Position: 1, Command: "deploy", Concurrency: 1})
+	deployment, _ := store.Create(CreateDeployment{RepositoryID: "repo", EnvironmentID: environment.ID, ReleaseID: "release", ActorID: "alice"})
+	deployment, _ = store.Start("repo", deployment.ID)
+	deployment, _ = store.Stage("repo", deployment.ID, "canary", "health.completed", "error-rate", "passed", "within threshold")
+	deployment, _ = store.Control("repo", deployment.ID, "bob", "pause", "Investigating elevated latency")
+	if deployment.State != "paused" || deployment.DecisionByID != "bob" || deployment.Events[len(deployment.Events)-1].Message == "" {
+		t.Fatalf("paused deployment = %#v", deployment)
+	}
+	if _, err = store.Create(CreateDeployment{RepositoryID: "repo", EnvironmentID: environment.ID, ReleaseID: "other", ActorID: "carol"}); err != ErrConflict {
+		t.Fatalf("paused rollout must retain concurrency slot: %v", err)
+	}
+	deployment, _ = store.Control("repo", deployment.ID, "carol", "resume", "Signal recovered")
+	deployment, _ = store.Control("repo", deployment.ID, "carol", "fail", "Manual verification still failed")
+	if deployment.State != "failed" || deployment.CompletedAt == nil || deployment.DecisionReason != "Manual verification still failed" {
+		t.Fatalf("failed deployment = %#v", deployment)
+	}
+}

@@ -41,6 +41,25 @@ records retain ordered initiation, approval, state, and redacted log events;
 the Releases web view polls that contract for live status. `$DEPLOYMENT_ROOT`
 defaults to `apps/api/data/deployments` in the root development command.
 
+The deployed release also owns its rollout policy. Its exact source commit must
+contain `.komodo/deployments.json` with schema version `1` and an
+`environments` array keyed by configured environment name. Every environment
+declares ordered `stages`; each stage may run a rollout command and must declare
+one or more health signals with a name, shell command, and optional timeout (60
+seconds by default, 600 maximum). Commands receive the scoped deployment
+variables and credentials plus `KOMODO_ROLLOUT_STAGE`; health probes also
+receive `KOMODO_HEALTH_SIGNAL`.
+
+Promotion validates this policy against the immutable release revision before
+reserving environment concurrency. The deployment timeline retains stage and
+signal outcomes alongside redacted output, artifact checksum, and affected
+commit. Repository participants can pause or resume between rollout operations,
+cancel active or waiting delivery, or explicitly mark a running rollout
+unsuccessful through the deployment `/control` resource. Decisions record the
+actor, reason, current stage, resulting state, and time; unhealthy outcomes and
+interventions become deployment-linked inbox activity. Paused rollouts retain
+their environment concurrency slot.
+
 ## Entrypoints
 
 - `apps/web` — Next.js frontend. Starts at `src/app/page.tsx`; routes are

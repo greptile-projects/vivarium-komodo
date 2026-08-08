@@ -12,9 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
 
 type deploymentStore interface {
@@ -27,18 +29,21 @@ type deploymentStore interface {
 	Start(string, string) (deployments.Deployment, error)
 	Log(string, string, string, string) error
 	Complete(string, string, bool, string) (deployments.Deployment, error)
+	Stage(string, string, string, string, string, string, string) (deployments.Deployment, error)
+	Control(string, string, string, string, string) (deployments.Deployment, error)
 	GetDeployment(string, string) (deployments.Deployment, error)
 	ListDeployments(string) ([]deployments.Deployment, error)
 }
 
-func registerDeploymentsHTTP(mux *http.ServeMux, store deploymentStore, releaseStore releaseStore, builds releaseBuildStore, repositories pullRequestRepositoryStore, credentials authStore) {
+func registerDeploymentsHTTP(mux *http.ServeMux, store deploymentStore, releaseStore releaseStore, builds releaseBuildStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) {
 	mux.HandleFunc("GET /repositories/{repository}/environments", listEnvironments(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/environments", putEnvironment(store, repositories, credentials, false))
 	mux.HandleFunc("PUT /repositories/{repository}/environments/{environment}", putEnvironment(store, repositories, credentials, true))
 	mux.HandleFunc("GET /repositories/{repository}/deployments", listDeployments(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/deployments/{deployment}", getDeployment(store, repositories, credentials))
-	mux.HandleFunc("POST /repositories/{repository}/deployments", createDeployment(store, releaseStore, builds, repositories, credentials))
-	mux.HandleFunc("POST /repositories/{repository}/deployments/{deployment}/approvals", approveDeployment(store, repositories, credentials, builds))
+	mux.HandleFunc("POST /repositories/{repository}/deployments", createDeployment(store, releaseStore, builds, repositories, credentials, activity))
+	mux.HandleFunc("POST /repositories/{repository}/deployments/{deployment}/approvals", approveDeployment(store, repositories, credentials, builds, activity))
+	mux.HandleFunc("POST /repositories/{repository}/deployments/{deployment}/control", controlDeployment(store, repositories, credentials, activity))
 }
 
 func listEnvironments(store deploymentStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
@@ -135,7 +140,7 @@ func getDeployment(store deploymentStore, repositories pullRequestRepositoryStor
 	}
 }
 
-func createDeployment(store deploymentStore, releaseStore releaseStore, builds releaseBuildStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+func createDeployment(store deploymentStore, releaseStore releaseStore, builds releaseBuildStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repo, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -193,6 +198,15 @@ func createDeployment(store deploymentStore, releaseStore releaseStore, builds r
 			return
 		}
 		file.Close()
+		environment, e := store.GetEnvironment(string(repo.ID), in.EnvironmentID)
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_environment"})
+			return
+		}
+		if _, e = deploymentStages(repositories, string(repo.ID), release.CommitID, environment.Name); e != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_deployment_manifest"})
+			return
+		}
 		item, e := store.Create(deployments.CreateDeployment{RepositoryID: string(repo.ID), EnvironmentID: in.EnvironmentID, ReleaseID: release.ID, BuildRunID: run.ID, ArtifactID: artifact.ID, ArtifactPath: artifact.Path, ArtifactSHA256: artifact.SHA256, SourceCommitID: release.CommitID, ActorID: actor.UserID})
 		if errors.Is(e, deployments.ErrConflict) {
 			writeJSON(w, 409, map[string]string{"error": "environment_concurrency_reached"})
@@ -203,12 +217,12 @@ func createDeployment(store deploymentStore, releaseStore releaseStore, builds r
 			return
 		}
 		if item.State == "queued" {
-			go runDeployment(store, builds, item)
+			go runDeployment(store, builds, repositories, activity, item)
 		}
 		writeJSON(w, 201, item)
 	}
 }
-func approveDeployment(store deploymentStore, repositories pullRequestRepositoryStore, credentials authStore, builds releaseBuildStore) http.HandlerFunc {
+func approveDeployment(store deploymentStore, repositories pullRequestRepositoryStore, credentials authStore, builds releaseBuildStore, activity activityStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repo, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -237,19 +251,64 @@ func approveDeployment(store deploymentStore, repositories pullRequestRepository
 			return
 		}
 		if item.State == "queued" {
-			go runDeployment(store, builds, item)
+			go runDeployment(store, builds, repositories, activity, item)
 		}
 		writeJSON(w, 200, item)
 	}
 }
 
-func runDeployment(store deploymentStore, builds releaseBuildStore, item deployments.Deployment) {
+func controlDeployment(store deploymentStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		participant := actor.UserID == repo.OwnerID
+		if !participant {
+			participant, _ = repositories.IsCollaborator(repo.ID, actor.UserID)
+		}
+		if !participant {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var input struct {
+			Action string `json:"action"`
+			Reason string `json:"reason"`
+		}
+		if !readJSON(w, r, &input, 8192) {
+			return
+		}
+		item, err := store.Control(string(repo.ID), r.PathValue("deployment"), actor.UserID, input.Action, input.Reason)
+		if errors.Is(err, deployments.ErrInvalid) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_control"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 409, map[string]string{"error": "control_not_accepted"})
+			return
+		}
+		eventType := "deployment." + input.Action
+		target := item.InitiatedByID
+		if target == actor.UserID {
+			target = string(repo.OwnerID)
+		}
+		_ = recordActivity(activity, activities.Input{RepositoryID: string(repo.ID), ActorID: actor.UserID, Type: eventType, Resource: activities.Resource{Type: "deployment", ID: item.ID}, TargetUserID: target, Metadata: map[string]string{"state": item.State, "environment_id": item.EnvironmentID, "release_id": item.ReleaseID, "source_commit_id": item.SourceCommitID, "reason": input.Reason}})
+		writeJSON(w, 200, item)
+	}
+}
+
+func runDeployment(store deploymentStore, builds releaseBuildStore, repositories pullRequestRepositoryStore, activity activityStore, item deployments.Deployment) {
 	if _, e := store.Start(item.RepositoryID, item.ID); e != nil {
 		return
 	}
 	env, e := store.GetEnvironment(item.RepositoryID, item.EnvironmentID)
 	if e != nil {
 		store.Complete(item.RepositoryID, item.ID, false, "environment unavailable")
+		return
+	}
+	stages, e := deploymentStages(repositories, item.RepositoryID, item.SourceCommitID, env.Name)
+	if e != nil {
+		store.Complete(item.RepositoryID, item.ID, false, "invalid or missing .komodo/deployments.json rollout policy")
 		return
 	}
 	secrets, e := store.Secrets(item.RepositoryID, item.EnvironmentID)
@@ -279,23 +338,83 @@ func runDeployment(store deploymentStore, builds releaseBuildStore, item deploym
 		store.Complete(item.RepositoryID, item.ID, false, "artifact materialization failed")
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", env.Command)
-	cmd.Dir = dir
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "TMPDIR=" + dir, "KOMODO_ARTIFACT_PATH=" + artifactPath, "KOMODO_ARTIFACT_SHA256=" + item.ArtifactSHA256, "KOMODO_RELEASE_ID=" + item.ReleaseID, "KOMODO_SOURCE_COMMIT=" + item.SourceCommitID}
+	baseEnv := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "TMPDIR=" + dir, "KOMODO_ARTIFACT_PATH=" + artifactPath, "KOMODO_ARTIFACT_SHA256=" + item.ArtifactSHA256, "KOMODO_RELEASE_ID=" + item.ReleaseID, "KOMODO_SOURCE_COMMIT=" + item.SourceCommitID}
 	for k, v := range env.Configuration {
-		cmd.Env = append(cmd.Env, k+"="+v)
+		baseEnv = append(baseEnv, k+"="+v)
 	}
 	for k, v := range secrets {
-		cmd.Env = append(cmd.Env, k+"="+v)
+		baseEnv = append(baseEnv, k+"="+v)
 	}
-	stdout, _ := cmd.StdoutPipe()
-	stderr, _ := cmd.StderrPipe()
-	if e = cmd.Start(); e != nil {
-		store.Complete(item.RepositoryID, item.ID, false, "deployment command failed to start")
+	if !runDeploymentCommand(store, item, dir, env.Command, baseEnv, secrets, 30*time.Minute) {
+		completeDeploymentFailure(store, activity, item, "deployment command failed", "deployment.failed")
 		return
 	}
+	for _, stage := range stages {
+		if !waitForRollout(store, item) {
+			return
+		}
+		store.Stage(item.RepositoryID, item.ID, stage.Name, "stage.started", "", "", "")
+		stageEnv := append(baseEnv, "KOMODO_ROLLOUT_STAGE="+stage.Name)
+		if stage.Command != "" && !runDeploymentCommand(store, item, dir, stage.Command, stageEnv, secrets, 10*time.Minute) {
+			completeDeploymentFailure(store, activity, item, "rollout stage failed: "+stage.Name, "deployment.failed")
+			return
+		}
+		healthy := true
+		for _, signal := range stage.Health {
+			if !waitForRollout(store, item) {
+				return
+			}
+			store.Stage(item.RepositoryID, item.ID, stage.Name, "health.started", signal.Name, "", "")
+			passed := runDeploymentCommand(store, item, dir, signal.Command, append(stageEnv, "KOMODO_HEALTH_SIGNAL="+signal.Name), secrets, time.Duration(signal.TimeoutSeconds)*time.Second)
+			outcome := "passed"
+			if !passed {
+				outcome = "failed"
+				healthy = false
+			}
+			store.Stage(item.RepositoryID, item.ID, stage.Name, "health.completed", signal.Name, outcome, "")
+			if !healthy {
+				break
+			}
+		}
+		if !healthy {
+			completeDeploymentFailure(store, activity, item, "health signal failed during "+stage.Name, "deployment.unhealthy")
+			return
+		}
+		store.Stage(item.RepositoryID, item.ID, stage.Name, "stage.completed", "", "passed", "")
+	}
+	completed, _ := store.Complete(item.RepositoryID, item.ID, true, "rollout completed with healthy signals")
+	recordDeploymentOutcome(activity, completed, "deployment.succeeded")
+}
+
+func runDeploymentCommand(store deploymentStore, item deployments.Deployment, dir, command string, environment []string, secrets map[string]string, timeout time.Duration) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	cmd.Dir = dir
+	cmd.Env = environment
+	stdout, _ := cmd.StdoutPipe()
+	stderr, _ := cmd.StderrPipe()
+	if e := cmd.Start(); e != nil {
+		store.Complete(item.RepositoryID, item.ID, false, "deployment command failed to start")
+		return false
+	}
+	monitorDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-monitorDone:
+				return
+			case <-ticker.C:
+				current, getErr := store.GetDeployment(item.RepositoryID, item.ID)
+				if getErr != nil || current.State == "canceled" || current.State == "failed" {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 	done := make(chan struct{}, 2)
 	capture := func(stream string, reader io.Reader) {
 		scanner := bufio.NewScanner(reader)
@@ -312,14 +431,84 @@ func runDeployment(store deploymentStore, builds releaseBuildStore, item deploym
 	}
 	go capture("stdout", stdout)
 	go capture("stderr", stderr)
-	e = cmd.Wait()
+	err := cmd.Wait()
+	close(monitorDone)
 	<-done
 	<-done
-	message := "deployment completed"
-	if ctx.Err() != nil {
-		message = "deployment timed out"
-	} else if e != nil {
-		message = "deployment command failed"
+	return err == nil && ctx.Err() == nil
+}
+
+func waitForRollout(store deploymentStore, item deployments.Deployment) bool {
+	for {
+		current, err := store.GetDeployment(item.RepositoryID, item.ID)
+		if err != nil {
+			return false
+		}
+		switch current.State {
+		case "running":
+			return true
+		case "paused":
+			time.Sleep(200 * time.Millisecond)
+		default:
+			return false
+		}
 	}
-	store.Complete(item.RepositoryID, item.ID, e == nil && ctx.Err() == nil, message)
+}
+
+func deploymentStages(repositories pullRequestRepositoryStore, repositoryID, commitID, environmentName string) ([]deployments.RolloutStage, error) {
+	repository, err := repositories.Open(storage.ID(repositoryID))
+	if err != nil {
+		return nil, err
+	}
+	commit, err := repository.ReadCommit(storage.ObjectID(commitID))
+	if err != nil {
+		return nil, err
+	}
+	entry, found, err := deploymentManifestEntry(repository, commit.Tree, []string{".komodo", "deployments.json"})
+	if err != nil || !found || entry.Type != storage.BlobObject {
+		return nil, deployments.ErrInvalid
+	}
+	object, err := repository.ReadObject(entry.ObjectID)
+	if err != nil {
+		return nil, err
+	}
+	return deployments.ParseManifest(object.Content, environmentName)
+}
+
+func deploymentManifestEntry(repository *storage.Repository, treeID storage.ObjectID, parts []string) (storage.TreeEntry, bool, error) {
+	entries, err := repository.ReadTree(treeID)
+	if err != nil {
+		return storage.TreeEntry{}, false, err
+	}
+	for _, entry := range entries.Entries {
+		if entry.Name != parts[0] {
+			continue
+		}
+		if len(parts) == 1 {
+			return entry, true, nil
+		}
+		if entry.Type != storage.TreeObject {
+			return storage.TreeEntry{}, false, nil
+		}
+		return deploymentManifestEntry(repository, entry.ObjectID, parts[1:])
+	}
+	return storage.TreeEntry{}, false, nil
+}
+
+func recordDeploymentOutcome(activity activityStore, item deployments.Deployment, eventType string) {
+	if activity == nil {
+		return
+	}
+	_ = recordActivity(activity, activities.Input{RepositoryID: item.RepositoryID, ActorID: item.InitiatedByID, Type: eventType, Resource: activities.Resource{Type: "deployment", ID: item.ID}, Metadata: map[string]string{"state": item.State, "environment_id": item.EnvironmentID, "release_id": item.ReleaseID, "source_commit_id": item.SourceCommitID, "stage": item.CurrentStage}})
+}
+
+func completeDeploymentFailure(store deploymentStore, activity activityStore, item deployments.Deployment, message, eventType string) {
+	current, err := store.GetDeployment(item.RepositoryID, item.ID)
+	if err != nil || (current.State != "running" && current.State != "paused") {
+		return
+	}
+	failed, err := store.Complete(item.RepositoryID, item.ID, false, message)
+	if err == nil {
+		recordDeploymentOutcome(activity, failed, eventType)
+	}
 }

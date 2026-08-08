@@ -155,6 +155,16 @@ func registerInboxHTTP(mux *http.ServeMux, activity inboxActivityStore, state in
 				if event.TargetUserID == userID {
 					classification, title, summary = "awareness", "Assigned task is obsolete", "The plan no longer expects this work to continue."
 				}
+			case "deployment.unhealthy", "deployment.failed":
+				classification, title, summary = "response", "Deployment needs intervention", "Inspect retained health evidence and pause, cancel, or mark the rollout unsuccessful."
+			case "deployment.pause", "deployment.cancel", "deployment.fail":
+				if event.TargetUserID == userID {
+					classification, title, summary = "response", "Deployment rollout changed", "Review the attributed rollout decision and coordinate the next action."
+				}
+			case "deployment.resume", "deployment.succeeded":
+				if event.TargetUserID == "" || event.TargetUserID == userID {
+					classification, title, summary = "awareness", "Deployment rollout updated", "Review the latest environment and health evidence."
+				}
 			}
 			if classification == "" {
 				continue
@@ -167,6 +177,9 @@ func registerInboxHTTP(mux *http.ServeMux, activity inboxActivityStore, state in
 			}
 			if event.Resource.Type == "repository" {
 				href = "/repositories/" + event.RepositoryID
+			}
+			if event.Resource.Type == "deployment" {
+				href = "/repositories/" + event.RepositoryID + "?view=releases&release=" + event.Metadata["release_id"] + "#deployment-" + event.Resource.ID
 			}
 			actorHandle := event.ActorID
 			if actor, getErr := userStore.Get(users.ID(event.ActorID)); getErr == nil {
