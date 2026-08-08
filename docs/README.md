@@ -3,6 +3,25 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Release builds and attestations
+
+A release candidate is an immutable source and collaboration snapshot. Its
+exact commit must contain `.komodo/releases.json` with schema version `1` and
+an ordered `builds` array. Each build names its shell command and may declare a
+working directory, timeout, environment, artifact paths, and dependencies on
+steps declared earlier in the array. Dependencies make execution order and
+blocked follow-on work explicit.
+
+Release builds use the same Bubblewrap boundary as commit checks: only the
+materialized source snapshot and bounded system runtime are visible, with no
+Git metadata, host credentials, host filesystem, or network namespace. Public
+release attestation resources retain every attempt's exact source commit,
+definition, initiating actor, status/outcome events, stdout/stderr, and
+checksum-addressed artifacts. Artifact downloads remain governed by repository
+read policy. A terminal attempt can be rerun from its captured commit and
+command; the prior logs, outcome, and artifacts remain available, and the
+attestation derives verification from the newest attempt for every named build.
+
 ## Entrypoints
 
 - `apps/web` — Next.js frontend. Starts at `src/app/page.tsx`; routes are

@@ -373,6 +373,13 @@ type ReleaseCandidate = {
   proposal_ids: string[]; task_ids: string[]; contributor_ids: string[];
 };
 type ReleaseList = { items: ReleaseCandidate[]; total_count: number };
+type ReleaseBuild = {
+  id: string; commit_id: string; state: "queued" | "running" | "succeeded" | "failed" | "canceled";
+  triggered_by_id?: string; retry_of_id?: string; created_at: string; completed_at?: string;
+  definition: { name: string; command: string; working_directory?: string; dependencies?: string[] };
+  events: Array<{ sequence: number; type: string; stream?: string; message?: string; artifact?: { id: string; path: string; size: number; sha256: string; media_type: string } }>;
+};
+type ReleaseAttestation = { release_id: string; repository_id: string; source_commit_id: string; created_by_id: string; verified: boolean; attempts: ReleaseBuild[] };
 type UserRecord = { id: string; handle: string; display_name: string };
 type Collaborator = {
   user_id: string;
@@ -1188,6 +1195,8 @@ function ReleaseWorkspace({ repository, branches, actor, selected }: { repositor
   const [creating, setCreating] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [attestation, setAttestation] = useState<ReleaseAttestation>();
+  const [rerunning, setRerunning] = useState("");
   const authorized = actor === repository.owner_id || repository.collaborator_ids?.includes(actor);
   const load = useCallback(async () => {
     try {
@@ -1201,6 +1210,24 @@ function ReleaseWorkspace({ repository, branches, actor, selected }: { repositor
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
+  const loadAttestation = useCallback(async () => {
+    if (!current) { setAttestation(undefined); return; }
+    try { setAttestation(await get<ReleaseAttestation>(`/repositories/${repository.id}/releases/${current.id}/attestation`)); } catch { setError("Build attestation unavailable."); }
+  }, [current, repository.id]);
+  useEffect(() => {
+    // Build attempts are durable server state; poll only while work is active.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadAttestation();
+    if (!attestation?.attempts.some((run) => run.state === "queued" || run.state === "running")) return;
+    const timer = window.setInterval(() => void loadAttestation(), 1500);
+    return () => window.clearInterval(timer);
+  }, [loadAttestation, attestation?.attempts]);
+  async function rerun(run: ReleaseBuild) {
+    setRerunning(run.id); setError("");
+    try { await send(`/repositories/${repository.id}/releases/${current?.id}/builds/${run.id}/rerun`, "POST", {}); await loadAttestation(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not rerun build."); }
+    finally { setRerunning(""); }
+  }
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setPending(true); setError("");
     const data = new FormData(event.currentTarget);
@@ -1223,6 +1250,8 @@ function ReleaseWorkspace({ repository, branches, actor, selected }: { repositor
       <aside className="panel release-list">{items.map((item) => <Link className={current?.id === item.id ? "active" : ""} href={`/repositories/${repository.id}?view=releases&release=${item.id}`} key={item.id}><span><strong>{item.version}</strong><small>{new Date(item.created_at).toLocaleString()}</small></span><Badge tone="accent">{item.status}</Badge><code>{short(item.commit_id)}</code></Link>)}</aside>
       {current && <section className="panel release-detail"><header><div><p className="eyebrow">Release candidate</p><h2>{current.version}</h2></div><Badge tone="accent">{current.status}</Badge></header><div className="release-source"><span><small>Exact source commit</small><code>{current.commit_id}</code></span><span><small>Defined by</small><strong><Actor id={current.created_by_id}/></strong></span><span><small>Captured</small><strong>{new Date(current.created_at).toLocaleString()}</strong></span>{current.prior_release_id && <span><small>Changes since</small><Link href={`/repositories/${repository.id}?view=releases&release=${current.prior_release_id}`}>{items.find((item) => item.id === current.prior_release_id)?.version ?? short(current.prior_release_id)}</Link></span>}</div>
       <article className="release-copy"><h3>Release notes</h3><p>{current.notes || "No release notes were supplied."}</p></article>
+      <article className="release-inclusions release-attestation"><header><div><h3>Build attestation</h3><p>Repository-defined commands executed against <code>{short(current.commit_id)}</code> in an isolated workspace.</p></div><Badge tone={attestation?.verified ? "accent" : "neutral"}>{attestation?.verified ? "verified" : "not verified"}</Badge></header>
+      {!attestation ? <p>Loading retained build evidence…</p> : attestation.attempts.map((run) => { const artifacts = run.events.flatMap((event) => event.artifact ? [event.artifact] : []); const logs = run.events.filter((event) => event.type === "log"); return <details className={`release-build ${run.state}`} key={run.id} open={run.state === "failed"}><summary><span><strong>{run.definition.name}</strong><small>{run.retry_of_id ? "Rerun" : "Initial attempt"} · by <Actor id={run.triggered_by_id || attestation.created_by_id}/></small></span><Badge tone={run.state === "succeeded" ? "accent" : "neutral"}>{run.state}</Badge></summary><div className="release-build-body"><dl><div><dt>Command</dt><dd><code>{run.definition.command}</code></dd></div><div><dt>Dependencies</dt><dd>{run.definition.dependencies?.join(", ") || "None"}</dd></div><div><dt>Source</dt><dd><code>{run.commit_id}</code></dd></div></dl>{logs.length > 0 && <pre aria-label={`${run.definition.name} build logs`}>{logs.map((event) => event.message).join("")}</pre>}{artifacts.map((artifact) => <a className="release-artifact" href={`/api/repositories/${repository.id}/releases/${current.id}/builds/${run.id}/artifacts/${artifact.id}`} key={artifact.id}><span><strong>{artifact.path}</strong><small>{artifact.size} bytes · SHA-256</small></span><code>{artifact.sha256}</code></a>)}{authorized && (run.state === "failed" || run.state === "canceled" || run.state === "succeeded") && <Button variant="secondary" disabled={rerunning === run.id} onClick={() => void rerun(run)}>{rerunning === run.id ? "Queuing…" : "Rerun exact attempt"}</Button>}</div></details>; })}</article>
       <article className="release-inclusions"><h3>Included collaboration</h3><div className="release-counts"><span><strong>{current.pull_requests.length}</strong> pull requests</span><span><strong>{current.proposal_ids.length}</strong> proposals</span><span><strong>{current.task_ids.length}</strong> tasks</span><span><strong>{current.contributor_ids.length}</strong> contributors</span></div>{current.pull_requests.length > 0 ? current.pull_requests.map((pull) => <div className="release-pull" key={pull.id}><GitPullRequest size={15}/><span><Link href={`/repositories/${repository.id}?view=pulls&pull=${pull.id}`}>{pull.title}</Link><small>by <Actor id={pull.author_id}/> · merge <code>{short(pull.merge_commit_id)}</code></small></span></div>) : <p>No merged pull requests fall within this history range.</p>}
       {(current.proposal_ids.length > 0 || current.task_ids.length > 0) && <small className="release-links">Proposal links: {current.proposal_ids.map((id, index) => <span key={id}>{index > 0 ? ", " : ""}<Link href={`/repositories/${repository.id}?view=proposals&proposal=${id}`}>{short(id)}</Link></span>)}{current.task_ids.length > 0 && ` · ${current.task_ids.length} linked delivery ${current.task_ids.length === 1 ? "task" : "tasks"}`}</small>}</article></section>}
     </div>}

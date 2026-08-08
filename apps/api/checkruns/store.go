@@ -33,6 +33,7 @@ type Definition struct {
 	TimeoutSeconds   int               `json:"timeout_seconds"`
 	Environment      map[string]string `json:"environment,omitempty"`
 	Artifacts        []string          `json:"artifacts,omitempty"`
+	Dependencies     []string          `json:"dependencies,omitempty"`
 }
 
 type Event struct {
