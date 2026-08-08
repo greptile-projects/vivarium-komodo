@@ -44,7 +44,7 @@ func (r *Runner) Rerun(repositoryID, pullRequestID, runID, actorID string) (Run,
 	if previous.State == Queued || previous.State == Running {
 		return Run{}, ErrInvalidTransition
 	}
-	run, err := r.store.CreateAttempt(repositoryID, pullRequestID, previous.CommitID, previous.Definition, actorID, previous.ID)
+	run, err := r.store.createAttempt(repositoryID, previous.SourceRepositoryID, pullRequestID, previous.CommitID, previous.Definition, actorID, previous.ID)
 	if err == nil {
 		go r.execute(run.ID)
 	}
@@ -70,8 +70,8 @@ func (r *Runner) Cancel(repositoryID, pullRequestID, runID, actorID string) (Run
 
 // Start discovers the manifest from the exact candidate commit and durably queues
 // every declared check before executing it asynchronously.
-func (r *Runner) Start(repositoryID, pullRequestID, commitID string) error {
-	repository, err := r.repositories.Open(storage.ID(repositoryID))
+func (r *Runner) Start(repositoryID, sourceRepositoryID, pullRequestID, commitID string) error {
+	repository, err := r.repositories.Open(storage.ID(sourceRepositoryID))
 	if err != nil {
 		return err
 	}
@@ -80,7 +80,7 @@ func (r *Runner) Start(repositoryID, pullRequestID, commitID string) error {
 		return err
 	}
 	for _, definition := range definitions {
-		run, err := r.store.Create(repositoryID, pullRequestID, commitID, definition)
+		run, err := r.store.CreateForSource(repositoryID, sourceRepositoryID, pullRequestID, commitID, definition)
 		if err != nil {
 			return err
 		}
@@ -177,7 +177,7 @@ func (r *Runner) execute(id string) {
 	if err != nil {
 		return
 	}
-	repository, err := r.repositories.Open(storage.ID(run.RepositoryID))
+	repository, err := r.repositories.Open(storage.ID(run.SourceRepositoryID))
 	if err != nil {
 		_, _ = r.store.Complete(id, -1, false, "repository unavailable")
 		return

@@ -45,7 +45,7 @@ type pullRequestRepositoryStore interface {
 }
 
 type checkRunStarter interface {
-	Start(string, string, string) error
+	Start(string, string, string, string) error
 }
 
 type readinessCheckStore interface {
@@ -251,7 +251,7 @@ func synchronizePullRequest(store pullRequestStore, repositories pullRequestRepo
 				return
 			}
 			if checks != nil {
-				_ = checks.Start(string(repository.ID), item.ID, updated.SourceCommitID)
+				_ = checks.Start(string(repository.ID), updated.SourceRepositoryID, item.ID, updated.SourceCommitID)
 			}
 		}
 		writeJSON(w, http.StatusOK, updated)
@@ -410,13 +410,16 @@ func mergeHasConflictsAcross(ctx context.Context, targetRepository, sourceReposi
 	if targetRepository.ID() == sourceRepository.ID() {
 		return mergeHasConflicts(ctx, targetRepository, target, source)
 	}
-	dir, err := os.MkdirTemp("", "pull-request-cross-readiness-")
+	objectDirectory, err := os.MkdirTemp("", "pull-request-cross-readiness-objects-")
 	if err != nil {
 		return false, err
 	}
-	defer os.RemoveAll(dir)
-	command := exec.CommandContext(ctx, "git", "--git-dir="+dir, "merge-tree", "--write-tree", "--quiet", "--allow-unrelated-histories", string(target), string(source))
-	command.Env = append(os.Environ(), "GIT_ALTERNATE_OBJECT_DIRECTORIES="+filepath.Join(targetRepository.GitDir(), "objects")+string(os.PathListSeparator)+filepath.Join(sourceRepository.GitDir(), "objects"))
+	defer os.RemoveAll(objectDirectory)
+	if err := os.MkdirAll(filepath.Join(objectDirectory, "pack"), 0o750); err != nil {
+		return false, err
+	}
+	command := exec.CommandContext(ctx, "git", "--git-dir="+targetRepository.GitDir(), "merge-tree", "--write-tree", "--quiet", "--allow-unrelated-histories", string(target), string(source))
+	command.Env = append(os.Environ(), "GIT_OBJECT_DIRECTORY="+objectDirectory, "GIT_ALTERNATE_OBJECT_DIRECTORIES="+filepath.Join(targetRepository.GitDir(), "objects")+string(os.PathListSeparator)+filepath.Join(sourceRepository.GitDir(), "objects"))
 	output, err := command.CombinedOutput()
 	if err == nil {
 		return false, nil
@@ -562,7 +565,7 @@ func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repos
 		if item.Body != "" {
 			message += "\n\n" + item.Body
 		}
-		message += "\n\nPull-Request: " + item.ID + "\nAuthor-ID: " + item.AuthorID + "\nMerged-By: " + actor.UserID
+		message += "\n\nPull-Request: " + item.ID + "\nAuthor-ID: " + item.AuthorID + "\nSource-Repository: " + item.SourceRepositoryID + "\nSource-Branch: " + item.SourceBranch + "\nSource-Commit: " + item.SourceCommitID + "\nMerged-By: " + actor.UserID
 		if item.ProposalID != "" {
 			message += "\nProposal: " + item.ProposalID
 		}
@@ -910,7 +913,7 @@ func createPullRequest(store pullRequestStore, proposalStore proposalStore, repo
 			return
 		}
 		if checks != nil {
-			_ = checks.Start(string(repository.ID), item.ID, item.SourceCommitID)
+			_ = checks.Start(string(repository.ID), item.SourceRepositoryID, item.ID, item.SourceCommitID)
 		}
 		location := "/repositories/" + string(repository.ID) + "/pull-requests/" + item.ID
 		w.Header().Set("Location", location)

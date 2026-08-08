@@ -139,7 +139,7 @@ func publishRun(store changeSessionStore, pulls pullRequestStore, repositories p
 		}
 		_ = recordActivity(activity, activities.Input{RepositoryID: repositoryID, ActorID: run.InitiatorID, Type: "pull_request.synchronized", Resource: activities.Resource{Type: "pull_request", ID: pullID}, Metadata: map[string]string{"previous_commit_id": pull.SourceCommitID, "commit_id": string(tip), "session_id": sessionID, "run_id": runID, "agent": run.Agent}})
 		if checks != nil {
-			_ = checks.Start(repositoryID, pullID, string(tip))
+			_ = checks.Start(repositoryID, pull.SourceRepositoryID, pullID, string(tip))
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"event": event, "run": publishedRun, "pull_request": updated})
 	}

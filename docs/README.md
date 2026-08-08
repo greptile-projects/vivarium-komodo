@@ -147,6 +147,14 @@ The author or upstream owner may close an open request. Readiness reports a
 missing source branch or unavailable source repository as a safe blocker.
 Merge remains upstream-owner-only and links the fork's immutable objects into
 upstream storage before creating the two-parent merge, without sharing refs.
+Repository-defined checks remain governed and discoverable beneath the upstream
+pull request while retaining the fork repository as the immutable snapshot
+source used for manifest discovery, isolated execution, and reruns. Required
+checks therefore evaluate the same exact proposed revision reviewed by the
+maintainer. The merge commit records `Source-Repository`, `Source-Branch`, and
+`Source-Commit` trailers alongside contributor and maintainer IDs; the pull
+request record and linked commit parent keep that attribution and provenance
+readable after the fork or contribution branch is removed.
 
 ### Agent change sessions
 
