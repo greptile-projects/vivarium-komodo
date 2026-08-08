@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
@@ -11,6 +12,8 @@ import (
 
 type ownedRepositoryStore interface {
 	Create(string, repositories.Metadata) (repositories.Repository, error)
+	Fork(string, storage.ID, repositories.Metadata) (repositories.Repository, error)
+	SyncForkBranch(string, storage.ID, string) (repositories.SyncResult, error)
 	Get(string, storage.ID) (repositories.Repository, error)
 	Inspect(storage.ID) (repositories.Repository, error)
 	List(string) ([]repositories.Repository, error)
@@ -23,12 +26,95 @@ type ownedRepositoryStore interface {
 
 func registerRepositoriesHTTP(mux *http.ServeMux, store ownedRepositoryStore, credentials authStore) {
 	mux.HandleFunc("POST /repositories", createRepository(store, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/forks", forkRepository(store, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/sync", syncForkBranch(store, credentials))
 	mux.HandleFunc("GET /repositories", listRepositories(store, credentials))
 	mux.HandleFunc("GET /repositories/{repository}", getRepository(store, credentials))
 	mux.HandleFunc("PATCH /repositories/{repository}", updateRepository(store, credentials))
 	mux.HandleFunc("DELETE /repositories/{repository}", deleteRepository(store, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/required-checks", getRequiredChecks(store, credentials))
 	mux.HandleFunc("PUT /repositories/{repository}/required-checks", putRequiredChecks(store, credentials))
+}
+
+func forkRepository(store ownedRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		upstreamID := storage.ID(r.PathValue("repository"))
+		upstream, reader, ok := proposalRepositoryAccess(w, r, store, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		if reader.UserID != actor.UserID {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var input struct {
+			Name        string                  `json:"name"`
+			Description string                  `json:"description"`
+			Visibility  repositories.Visibility `json:"visibility"`
+		}
+		if !readJSON(w, r, &input, 4096) {
+			return
+		}
+		if strings.TrimSpace(input.Name) == "" {
+			input.Name = upstream.Name
+		}
+		if strings.TrimSpace(input.Description) == "" {
+			input.Description = upstream.Description
+		}
+		if input.Visibility == "" {
+			input.Visibility = repositories.Private
+		}
+		item, err := store.Fork(actor.UserID, upstreamID, repositories.Metadata{Name: input.Name, Description: input.Description, Visibility: input.Visibility})
+		if errors.Is(err, repositories.ErrInvalidRepository) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_repository"})
+			return
+		}
+		if errors.Is(err, repositories.ErrNameTaken) {
+			writeJSON(w, 409, map[string]string{"error": "name_taken"})
+			return
+		}
+		if err != nil {
+			writeRepositoryError(w, err)
+			return
+		}
+		w.Header().Set("Location", "/repositories/"+string(item.ID))
+		writeJSON(w, http.StatusCreated, repositoryResponse(item))
+	}
+}
+
+func syncForkBranch(store ownedRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var input struct {
+			Branch string `json:"branch"`
+		}
+		if !readJSON(w, r, &input, 1024) {
+			return
+		}
+		result, err := store.SyncForkBranch(actor.UserID, storage.ID(r.PathValue("repository")), strings.TrimSpace(input.Branch))
+		switch {
+		case errors.Is(err, repositories.ErrNotFork):
+			writeJSON(w, 422, map[string]string{"error": "not_a_fork"})
+			return
+		case errors.Is(err, repositories.ErrUpstreamBranch):
+			writeJSON(w, 422, map[string]string{"error": "upstream_branch_not_found"})
+			return
+		case errors.Is(err, repositories.ErrForkConflict):
+			writeJSON(w, 409, map[string]string{"error": "fork_branch_diverged"})
+			return
+		case err != nil:
+			writeRepositoryError(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"repository": repositoryResponse(result.Repository), "branch": result.Branch, "before_commit_id": result.Before, "after_commit_id": result.After, "updated": result.Updated})
+	}
 }
 
 func getRequiredChecks(store ownedRepositoryStore, credentials authStore) http.HandlerFunc {
@@ -226,7 +312,12 @@ func deleteRepository(store ownedRepositoryStore, credentials authStore) http.Ha
 }
 
 func repositoryResponse(item repositories.Repository) map[string]any {
-	return map[string]any{"id": item.ID, "owner_id": item.OwnerID, "name": item.Name, "description": item.Description, "visibility": item.Visibility, "empty": item.Empty, "created_at": item.CreatedAt, "updated_at": item.UpdatedAt, "api_url": "/repositories/" + string(item.ID), "git_url": "/repositories/" + string(item.ID)}
+	response := map[string]any{"id": item.ID, "owner_id": item.OwnerID, "name": item.Name, "description": item.Description, "visibility": item.Visibility, "empty": item.Empty, "created_at": item.CreatedAt, "updated_at": item.UpdatedAt, "api_url": "/repositories/" + string(item.ID), "git_url": "/repositories/" + string(item.ID)}
+	if item.UpstreamID != "" {
+		response["upstream_repository_id"] = item.UpstreamID
+		response["upstream_api_url"] = "/repositories/" + string(item.UpstreamID)
+	}
+	return response
 }
 
 func writeRepositoryError(w http.ResponseWriter, err error) {

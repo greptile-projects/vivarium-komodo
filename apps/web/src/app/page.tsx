@@ -8,7 +8,7 @@ import { WorkspaceShell } from "@/components/app-shell";
 
 type UserRecord = { id: string; handle: string; display_name: string };
 type Grant = { id: string; name: string; kind: "web" | "api" | "git"; scopes: string[]; created_at: string; expires_at: string; last_used_at?: string; revoked_at?: string };
-type Repository = { id: string; owner_id: string; name: string; description: string; visibility: "private" | "public"; empty: boolean; git_url: string; updated_at: string };
+type Repository = { id: string; owner_id: string; name: string; description: string; visibility: "private" | "public"; empty: boolean; git_url: string; updated_at: string; upstream_repository_id?: string };
 type Session = { user: UserRecord; access: Grant };
 type Envelope<T> = { items: T[]; total_count: number };
 type InboxItem = { id: string; classification: "review"|"response"|"awareness"; repository_name: string; actor_handle: string; title: string; summary: string; href: string; created_at: string };
@@ -136,7 +136,7 @@ function CreateRepository({ close, refresh }: { close: () => void; refresh: () =
 function RepositoryTile({ repository, actor }: { repository: Repository; actor: string }) {
   const [copied, setCopied] = useState(false); const clone = `${process.env.NEXT_PUBLIC_GIT_ORIGIN ?? "http://localhost:8080"}${repository.git_url}`;
   async function copy() { await navigator.clipboard.writeText(clone); setCopied(true); setTimeout(() => setCopied(false), 1800); }
-  return <article className="repo-card panel"><div className="repo-card-top"><span className="repo-icon"><Book size={18}/></span><span className="repo-badges"><Badge>{repository.visibility === "private" ? "Private" : "Public"}</Badge>{repository.owner_id !== actor && <Badge tone="accent">Contributing</Badge>}</span></div><Link href={`/repositories/${repository.id}`}><h3>{repository.name}</h3></Link><p>{repository.description || "No description yet."}</p><div className="clone-row"><code>{clone}</code><button onClick={copy} aria-label={`Copy clone URL for ${repository.name}`}>{copied ? <Check size={15}/> : <Copy size={15}/>}</button></div><div className="repo-meta"><span><Branch size={13}/>main</span><span>{repository.empty ? "Ready for first push" : "Active"}</span></div></article>;
+  return <article className="repo-card panel"><div className="repo-card-top"><span className="repo-icon"><Book size={18}/></span><span className="repo-badges"><Badge>{repository.visibility === "private" ? "Private" : "Public"}</Badge>{repository.upstream_repository_id && <Badge tone="accent">Fork</Badge>}{repository.owner_id !== actor && <Badge tone="accent">Contributing</Badge>}</span></div><Link href={`/repositories/${repository.id}`}><h3>{repository.name}</h3></Link><p>{repository.description || "No description yet."}</p><div className="clone-row"><code>{clone}</code><button onClick={copy} aria-label={`Copy clone URL for ${repository.name}`}>{copied ? <Check size={15}/> : <Copy size={15}/>}</button></div><div className="repo-meta"><span><Branch size={13}/>main</span><span>{repository.empty ? "Ready for first push" : "Active"}</span></div></article>;
 }
 
 function Access({ grants, refresh }: { grants: Grant[]; refresh: () => Promise<void> }) {

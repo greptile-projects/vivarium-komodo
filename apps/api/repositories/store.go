@@ -22,6 +22,9 @@ var ErrNotFound = errors.New("owned repository not found")
 var (
 	ErrInvalidRepository = errors.New("invalid repository metadata")
 	ErrNameTaken         = errors.New("repository name is already taken")
+	ErrNotFork           = errors.New("repository is not a fork")
+	ErrForkConflict      = errors.New("fork branch has diverged from upstream")
+	ErrUpstreamBranch    = errors.New("upstream branch not found")
 )
 
 var namePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$`)
@@ -44,6 +47,7 @@ type Repository struct {
 	UpdatedAt       time.Time           `json:"updated_at"`
 	CollaboratorIDs []string            `json:"collaborator_ids,omitempty"`
 	RequiredChecks  map[string][]string `json:"required_checks,omitempty"`
+	UpstreamID      storage.ID          `json:"upstream_repository_id,omitempty"`
 }
 
 func (s *Store) SetRequiredChecks(ownerID string, id storage.ID, branch string, checks []string) (Repository, error) {
@@ -145,6 +149,8 @@ type Metadata struct {
 
 type repositoryStorage interface {
 	Create() (*storage.Repository, error)
+	Fork(storage.ID) (*storage.Repository, error)
+	LinkObjects(storage.ID, storage.ID) error
 	Open(storage.ID) (*storage.Repository, error)
 	Delete(storage.ID) error
 }
@@ -191,6 +197,134 @@ func (s *Store) Create(ownerID string, metadata Metadata) (Repository, error) {
 		return Repository{}, err
 	}
 	return item, nil
+}
+
+// Fork creates an independently owned repository while retaining the source
+// repository as durable lineage metadata.
+func (s *Store) Fork(ownerID string, upstreamID storage.ID, metadata Metadata) (Repository, error) {
+	metadata, err := validateMetadata(metadata)
+	if err != nil {
+		return Repository{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.read(upstreamID); err != nil {
+		return Repository{}, ErrNotFound
+	}
+	if err := s.ensureNameAvailable(ownerID, metadata.Name, ""); err != nil {
+		return Repository{}, err
+	}
+	repository, err := s.storage.Fork(upstreamID)
+	if err != nil {
+		return Repository{}, err
+	}
+	now := s.now().UTC()
+	item := Repository{ID: repository.ID(), OwnerID: ownerID, Name: metadata.Name, Description: metadata.Description, Visibility: metadata.Visibility, UpstreamID: upstreamID, CreatedAt: now, UpdatedAt: now}
+	info, err := repository.Inspect()
+	if err != nil {
+		_ = s.storage.Delete(repository.ID())
+		return Repository{}, err
+	}
+	item.Empty = info.Empty
+	if err := s.write(item); err != nil {
+		_ = s.storage.Delete(repository.ID())
+		return Repository{}, err
+	}
+	return item, nil
+}
+
+type SyncResult struct {
+	Repository Repository
+	Branch     string
+	Before     storage.ObjectID
+	After      storage.ObjectID
+	Updated    bool
+}
+
+// SyncForkBranch fast-forwards one fork branch to the identically named
+// upstream branch. Diverged fork work is never overwritten.
+func (s *Store) SyncForkBranch(ownerID string, id storage.ID, branch string) (SyncResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(id)
+	if err != nil || item.OwnerID != ownerID {
+		return SyncResult{}, ErrNotFound
+	}
+	if item.UpstreamID == "" {
+		return SyncResult{}, ErrNotFork
+	}
+	name := storage.ReferenceName("refs/heads/" + branch)
+	upstream, err := s.storage.Open(item.UpstreamID)
+	if err != nil {
+		return SyncResult{}, ErrNotFound
+	}
+	fork, err := s.storage.Open(item.ID)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	upstreamRef, err := upstream.ReadReference(name)
+	if errors.Is(err, storage.ErrReferenceNotFound) || errors.Is(err, storage.ErrInvalidRefName) {
+		return SyncResult{}, ErrUpstreamBranch
+	}
+	if err != nil || upstreamRef.ObjectID == "" {
+		return SyncResult{}, err
+	}
+	if err := s.storage.LinkObjects(item.UpstreamID, item.ID); err != nil {
+		return SyncResult{}, err
+	}
+	result := SyncResult{Repository: item, Branch: branch, After: upstreamRef.ObjectID}
+	forkRef, err := fork.ReadReference(name)
+	if errors.Is(err, storage.ErrReferenceNotFound) {
+		if err := fork.CreateReference(storage.Reference{Name: name, ObjectID: upstreamRef.ObjectID}); err != nil {
+			return SyncResult{}, err
+		}
+		result.Updated = true
+	} else if err != nil {
+		return SyncResult{}, err
+	} else {
+		result.Before = forkRef.ObjectID
+		if forkRef.ObjectID == upstreamRef.ObjectID {
+			return result, nil
+		}
+		ancestor, err := isAncestor(fork, forkRef.ObjectID, upstreamRef.ObjectID)
+		if err != nil {
+			return SyncResult{}, err
+		}
+		if !ancestor {
+			return SyncResult{}, ErrForkConflict
+		}
+		if err := fork.UpdateReference(storage.Reference{Name: name, ObjectID: upstreamRef.ObjectID}); err != nil {
+			return SyncResult{}, err
+		}
+		result.Updated = true
+	}
+	item.UpdatedAt = s.now().UTC()
+	if err := s.write(item); err != nil {
+		return SyncResult{}, err
+	}
+	result.Repository = item
+	return result, nil
+}
+
+func isAncestor(repository storage.RepositoryStorage, ancestor, descendant storage.ObjectID) (bool, error) {
+	pending, seen := []storage.ObjectID{descendant}, map[storage.ObjectID]bool{}
+	for len(pending) > 0 {
+		current := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if current == ancestor {
+			return true, nil
+		}
+		if seen[current] {
+			continue
+		}
+		seen[current] = true
+		commit, err := repository.ReadCommit(current)
+		if err != nil {
+			return false, err
+		}
+		pending = append(pending, commit.Parents...)
+	}
+	return false, nil
 }
 
 func validateMetadata(metadata Metadata) (Metadata, error) {
