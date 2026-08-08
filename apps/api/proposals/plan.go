@@ -18,6 +18,7 @@ var (
 	ErrTaskNotReady       = errors.New("proposal task is not ready")
 	ErrTaskAssigned       = errors.New("proposal task is already assigned")
 	ErrAssignmentConflict = errors.New("proposal task assignment changed")
+	ErrActiveTaskConflict = errors.New("proposal task has active work")
 )
 
 type TaskStatus string
@@ -70,6 +71,7 @@ type Task struct {
 	CreatedAt            time.Time          `json:"created_at"`
 	UpdatedAt            time.Time          `json:"updated_at"`
 	Ready                bool               `json:"ready"`
+	BlockedBy            []string           `json:"blocked_by,omitempty"`
 	Assignment           *TaskAssignment    `json:"assignment,omitempty"`
 	Contributions        []TaskContribution `json:"contributions,omitempty"`
 }
@@ -151,6 +153,7 @@ func (s *Store) UpdateTaskContribution(repositoryID, proposalID, taskID, pullReq
 	}
 	current.UpdatedByID, current.UpdatedAt, current.Ready = actorID, now, false
 	tasks[index] = current
+	deriveReadiness(tasks)
 	if err := s.writeTasks(repositoryID, proposalID, tasks); err != nil {
 		return Task{}, err
 	}
@@ -344,6 +347,9 @@ func (s *Store) UpdateTask(repositoryID, proposalID, taskID, actorID string, inp
 		return Task{}, err
 	}
 	current := tasks[index]
+	if hasActiveWork(current) && (current.Outcome != input.Outcome || current.Status != input.Status || !sameStrings(current.DependsOn, input.DependsOn)) {
+		return Task{}, ErrActiveTaskConflict
+	}
 	current.Title, current.Outcome, current.Status = input.Title, input.Outcome, input.Status
 	current.DependsOn, current.DiscussionCommentIDs = input.DependsOn, input.DiscussionCommentIDs
 	current.UpdatedByID, current.UpdatedAt = actorID, s.now().UTC()
@@ -361,6 +367,45 @@ func (s *Store) UpdateTask(repositoryID, proposalID, taskID, actorID string, inp
 		return Task{}, err
 	}
 	return taskByID(tasks, taskID), nil
+}
+
+// RebaseTaskAssignment revises unstarted work to an explicit new commit. Once
+// a session or contribution exists its immutable context remains reviewable;
+// callers must publish or close that work instead of silently moving it.
+func (s *Store) RebaseTaskAssignment(repositoryID, proposalID, taskID, actorID, expectedAssignmentID, baseRevision string) (Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tasks, err := s.readTasks(repositoryID, proposalID)
+	if err != nil {
+		return Task{}, err
+	}
+	index := taskIndex(tasks, taskID)
+	if index < 0 {
+		return Task{}, ErrNotFound
+	}
+	current := tasks[index]
+	if current.Assignment == nil || current.Assignment.ID != expectedAssignmentID {
+		return Task{}, ErrAssignmentConflict
+	}
+	baseRevision = strings.TrimSpace(baseRevision)
+	if baseRevision == "" {
+		return Task{}, ErrInvalidTask
+	}
+	if hasActiveWork(current) {
+		return Task{}, ErrActiveTaskConflict
+	}
+	now := s.now().UTC()
+	current.Assignment.BaseRevision = baseRevision
+	current.UpdatedByID, current.UpdatedAt = actorID, now
+	tasks[index] = current
+	deriveReadiness(tasks)
+	if err := s.writeTasks(repositoryID, proposalID, tasks); err != nil {
+		return Task{}, err
+	}
+	if err := s.appendPlanEvent(repositoryID, proposalID, actorID, "task.base_rebased", current); err != nil {
+		return Task{}, err
+	}
+	return current, nil
 }
 
 func (s *Store) AssignTask(repositoryID, proposalID, taskID, actorID, expectedAssignmentID string, input AssignmentInput) (Task, error) {
@@ -546,11 +591,32 @@ func deriveReadiness(tasks []Task) {
 	}
 	for i := range tasks {
 		ready := tasks[i].Status == TaskPlanned
+		blockedBy := []string{}
 		for _, dependency := range tasks[i].DependsOn {
 			ready = ready && completed[dependency]
+			if !completed[dependency] {
+				blockedBy = append(blockedBy, dependency)
+			}
 		}
 		tasks[i].Ready = ready
+		tasks[i].BlockedBy = blockedBy
 	}
+}
+
+func hasActiveWork(task Task) bool {
+	return task.Assignment != nil && task.Assignment.SessionID != "" || len(task.Contributions) > 0
+}
+
+func sameStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func taskByID(tasks []Task, id string) Task {

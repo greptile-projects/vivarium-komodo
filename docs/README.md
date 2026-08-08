@@ -135,6 +135,19 @@ the same resource uses that ID to revoke it. Missing or stale tokens and
 simultaneous claims return conflicts, and accepted assignment, reassignment,
 and revocation transitions retain stable actor attribution in plan history.
 
+Readiness is continuously derived from task state and linked contribution
+outcomes: only a completed task or merged contribution satisfies a dependency,
+and each response includes `blocked_by` task IDs when it does not. Plan edits
+and pull-request merge or closure reconcile every dependent assignment and add
+targeted ready, blocked, changed, or obsolete activity to its human assignee's
+inbox. An authorized participant can move an unstarted assignment to a verified
+commit with `PATCH .../plan/tasks/{task}/assignment/base`, supplying the current
+`expected_assignment_id`. The transition is retained as `task.base_rebased` in
+plan history. Once a session or contribution exists, changing its outcome,
+dependencies, or assigned base returns `409 task_has_active_work`; the captured
+session and pull-request context therefore remains explicit instead of being
+silently rewritten by a later plan revision.
+
 An agent assignment starts without manufacturing a pull request through `POST
 .../plan/tasks/{task}/change-sessions`, using `expected_assignment_id` as the
 start concurrency token. The API creates a unique `codex/task-*` branch that
