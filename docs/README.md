@@ -185,6 +185,17 @@ erasure. Automatic blocked, removed, and merged outcomes also enter the
 activity ledger and produce pull-request links in the affected contributor's
 inbox, so required intervention remains connected to the shared change.
 
+`integration_queue_workflow_test.go` is the black-box regression boundary for
+this complete capability. It uses stock Git, public repository policy, pull
+request review, agent delegation/publication, queue, and check-evidence
+surfaces to admit three independently valid changes concurrently. The fixture
+proves that the first human change lands in policy order, a second candidate
+is rebuilt and isolated when it fails only against that evolved target, and a
+later agent-published change is rebuilt, freshly verified, and merged while
+the failed pull request stays open. It also asserts that enqueue, rebuild,
+failure, and merge attribution plus every superseded and current candidate
+attempt remain readable after the queue drains.
+
 Pull request navigation uses the repository route with `view=pulls`. The
 `pull` query parameter identifies the durable request and `section` preserves
 the overview, commits, files, or discussion view in a shareable URL. Browser
