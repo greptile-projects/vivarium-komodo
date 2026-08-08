@@ -101,7 +101,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	queueCoordinator := &integrationQueueCoordinator{queue: integrationQueueStore, pulls: pullRequestStore, repositories: repositoryCatalog, checks: checkRunStore, starter: checkRunner, activity: activityStore}
+	queueCoordinator := &integrationQueueCoordinator{queue: integrationQueueStore, pulls: pullRequestStore, repositories: repositoryCatalog, checks: checkRunStore, starter: checkRunner, activity: activityStore, proposals: proposalStore}
 	checkRunner.SetCompletionHook(func(checkruns.Run) { go queueCoordinator.reconcileAll(context.Background()) })
 	go queueCoordinator.run(context.Background())
 	inboxRoot := os.Getenv("INBOX_ROOT")

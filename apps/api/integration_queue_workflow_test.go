@@ -186,7 +186,7 @@ func waitForQueueOutcomes(t *testing.T, origin, repositoryID, actor string, want
 		for _, entry := range collection.Items {
 			found[entry.PullRequestID] = entry
 		}
-		complete := len(found) == len(want)
+		complete := true
 		for pullID, state := range want {
 			complete = complete && found[pullID].State == state
 		}

@@ -262,6 +262,11 @@ whenever dependencies change or the web job fails before it starts.
   Once a task has a session or contribution, reject outcome, dependency, and
   base-revision changes so its captured execution and review context cannot be
   silently invalidated.
+  `orchestration_workflow_test.go` is the black-box regression boundary for the
+  complete proposal-to-integration lifecycle. It proves that a queued task
+  contribution reconciles the proposal plan before dependent human or agent
+  work can start, and retains discussion, assignment, session, review, check,
+  queue, and Git attribution through both merges.
   Pull requests are durable records beneath `$PULL_REQUEST_ROOT` (default
   `apps/api/data/pull-requests`) owned by the `pullrequests.Store` boundary.
   Creation resolves existing source and target branches through storage and
