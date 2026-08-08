@@ -136,3 +136,53 @@ func TestProposalTaskAssignmentRequiresReadyTask(t *testing.T) {
 		t.Fatalf("blocked assignment error = %v", err)
 	}
 }
+
+func TestDependentReadinessFollowsMergedContributionAndPersists(t *testing.T) {
+	root := t.TempDir()
+	store, _ := New(root)
+	proposal, _ := store.Create("repository", "author", "Plan", "")
+	first, _ := store.CreateTask("repository", proposal.ID, "author", TaskInput{Title: "First", Outcome: "First lands."})
+	second, _ := store.CreateTask("repository", proposal.ID, "author", TaskInput{Title: "Second", Outcome: "Second lands.", DependsOn: []string{first.ID}})
+	first, _ = store.PublishTaskContribution("repository", proposal.ID, first.ID, "author", TaskContribution{PullRequestID: "pull", SourceCommitID: "source", TargetCommitID: "target", Status: ContributionReview})
+	if first.Status != TaskReview {
+		t.Fatalf("review contribution = %#v", first)
+	}
+	_, _ = store.UpdateTaskContribution("repository", proposal.ID, first.ID, "pull", "maintainer", ContributionMerged)
+	plan, _ := store.GetPlan("repository", proposal.ID)
+	if !taskByID(plan.Tasks, second.ID).Ready || len(taskByID(plan.Tasks, second.ID).BlockedBy) != 0 {
+		t.Fatalf("ready dependent = %#v", plan.Tasks)
+	}
+	_, _ = store.UpdateTaskContribution("repository", proposal.ID, first.ID, "pull", "maintainer", ContributionClosed)
+	plan, _ = store.GetPlan("repository", proposal.ID)
+	dependent := taskByID(plan.Tasks, second.ID)
+	if dependent.Ready || len(dependent.BlockedBy) != 1 || dependent.BlockedBy[0] != first.ID {
+		t.Fatalf("blocked dependent = %#v", dependent)
+	}
+	reopened, _ := New(root)
+	plan, _ = reopened.GetPlan("repository", proposal.ID)
+	if taskByID(plan.Tasks, second.ID).Ready {
+		t.Fatal("reopened dependent unexpectedly ready")
+	}
+}
+
+func TestAssignmentRebaseRejectsActiveWorkAndRetainsHistory(t *testing.T) {
+	store, _ := New(t.TempDir())
+	proposal, _ := store.Create("repository", "author", "Plan", "")
+	task, _ := store.CreateTask("repository", proposal.ID, "author", TaskInput{Title: "Implement", Outcome: "Work lands."})
+	task, _ = store.AssignTask("repository", proposal.ID, task.ID, "planner", "", AssignmentInput{Kind: AgentAssignee, AssigneeID: "codex", Mandate: "Implement", RepositoryID: "repository", BaseRevision: "old"})
+	rebased, err := store.RebaseTaskAssignment("repository", proposal.ID, task.ID, "planner", task.Assignment.ID, "new")
+	if err != nil || rebased.Assignment.BaseRevision != "new" {
+		t.Fatalf("rebased = %#v, %v", rebased, err)
+	}
+	started, _ := store.StartAssignedTask("repository", proposal.ID, task.ID, "planner", task.Assignment.ID, "session", "codex/task")
+	if _, err := store.RebaseTaskAssignment("repository", proposal.ID, task.ID, "planner", task.Assignment.ID, "later"); !errors.Is(err, ErrActiveTaskConflict) {
+		t.Fatalf("active rebase error = %v", err)
+	}
+	if _, err := store.UpdateTask("repository", proposal.ID, task.ID, "planner", TaskInput{Title: started.Title, Outcome: "Different", Status: started.Status}); !errors.Is(err, ErrActiveTaskConflict) {
+		t.Fatalf("active plan edit error = %v", err)
+	}
+	plan, _ := store.GetPlan("repository", proposal.ID)
+	if plan.History[2].Action != "task.base_rebased" {
+		t.Fatalf("history = %#v", plan.History)
+	}
+}

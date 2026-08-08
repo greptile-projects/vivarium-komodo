@@ -139,6 +139,22 @@ func registerInboxHTTP(mux *http.ServeMux, activity inboxActivityStore, state in
 				if proposal, getErr := proposalStore.Get(event.RepositoryID, event.Resource.ID); getErr == nil && proposal.AuthorID == userID {
 					classification, title, summary = "awareness", "Proposal closed", "Review the recorded outcome."
 				}
+			case "proposal.task.ready":
+				if event.TargetUserID == userID {
+					classification, title, summary = "response", "Assigned task is ready", "Its dependencies are complete; begin from the assigned revision."
+				}
+			case "proposal.task.blocked":
+				if event.TargetUserID == userID {
+					classification, title, summary = "response", "Assigned task is blocked", "A dependency changed; pause work and inspect the plan."
+				}
+			case "proposal.task.changed", "proposal.task.context_changed":
+				if event.TargetUserID == userID {
+					classification, title, summary = "response", "Assigned task changed", "Review the revised outcome, dependencies, or starting revision."
+				}
+			case "proposal.task.obsolete":
+				if event.TargetUserID == userID {
+					classification, title, summary = "awareness", "Assigned task is obsolete", "The plan no longer expects this work to continue."
+				}
 			}
 			if classification == "" {
 				continue

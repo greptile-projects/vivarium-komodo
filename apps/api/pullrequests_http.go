@@ -457,7 +457,10 @@ func closePullRequest(store pullRequestStore, proposalsStore proposalStore, repo
 		}
 		_ = recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "pull_request.closed", Resource: activities.Resource{Type: "pull_request", ID: item.ID}})
 		if item.ProposalID != "" && item.TaskID != "" && proposalsStore != nil {
+			before, _ := proposalsStore.GetPlan(item.RepositoryID, item.ProposalID)
 			_, _ = proposalsStore.UpdateTaskContribution(item.RepositoryID, item.ProposalID, item.TaskID, item.ID, actor.UserID, proposals.ContributionClosed)
+			after, _ := proposalsStore.GetPlan(item.RepositoryID, item.ProposalID)
+			recordTaskCoordinationChanges(activity, item.RepositoryID, actor.UserID, item.ProposalID, before, after)
 		}
 		writeJSON(w, 200, closed)
 	}
@@ -874,7 +877,10 @@ func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repos
 		}
 		if item.ProposalID != "" {
 			if item.TaskID != "" {
+				before, _ := proposalStore.GetPlan(item.RepositoryID, item.ProposalID)
 				_, _ = proposalStore.UpdateTaskContribution(item.RepositoryID, item.ProposalID, item.TaskID, item.ID, actor.UserID, proposals.ContributionMerged)
+				after, _ := proposalStore.GetPlan(item.RepositoryID, item.ProposalID)
+				recordTaskCoordinationChanges(activity, item.RepositoryID, actor.UserID, item.ProposalID, before, after)
 			} else if _, err := proposalStore.Close(string(repository.ID), item.ProposalID, actor.UserID); err != nil {
 				writeJSON(w, 500, map[string]string{"error": "internal_error"})
 				return

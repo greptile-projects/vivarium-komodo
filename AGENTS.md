@@ -255,6 +255,13 @@ whenever dependencies change or the web job fails before it starts.
   only `merged` satisfies dependencies. Preserve these links and the task and
   session merge trailers rather than treating a successful run as completed
   work.
+  Recompute every dependent task after contribution and plan transitions;
+  expose the exact blocking task IDs and notify assigned humans when work
+  becomes ready, blocked, changed, or obsolete. Unstarted assignments may move
+  to a verified commit through the concurrency-checked assignment base resource.
+  Once a task has a session or contribution, reject outcome, dependency, and
+  base-revision changes so its captured execution and review context cannot be
+  silently invalidated.
   Pull requests are durable records beneath `$PULL_REQUEST_ROOT` (default
   `apps/api/data/pull-requests`) owned by the `pullrequests.Store` boundary.
   Creation resolves existing source and target branches through storage and

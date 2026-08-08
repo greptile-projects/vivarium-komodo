@@ -27,6 +27,7 @@ type proposalStore interface {
 	StartAssignedTask(string, string, string, string, string, string, string) (proposals.Task, error)
 	PublishTaskContribution(string, string, string, string, proposals.TaskContribution) (proposals.Task, error)
 	UpdateTaskContribution(string, string, string, string, string, proposals.ContributionStatus) (proposals.Task, error)
+	RebaseTaskAssignment(string, string, string, string, string, string) (proposals.Task, error)
 }
 
 type proposalRepositoryStore interface {
@@ -50,6 +51,48 @@ func registerProposalsHTTP(mux *http.ServeMux, store proposalStore, repositories
 	mux.HandleFunc("PATCH /repositories/{repository}/proposals/{proposal}/plan/tasks/{task}", updateProposalTask(store, repositories, credentials, activity))
 	mux.HandleFunc("PUT /repositories/{repository}/proposals/{proposal}/plan/tasks/{task}/assignment", assignProposalTask(store, repositories, credentials, activity))
 	mux.HandleFunc("DELETE /repositories/{repository}/proposals/{proposal}/plan/tasks/{task}/assignment", revokeProposalTaskAssignment(store, repositories, credentials, activity))
+	mux.HandleFunc("PATCH /repositories/{repository}/proposals/{proposal}/plan/tasks/{task}/assignment/base", rebaseProposalTaskAssignment(store, repositories, credentials, activity))
+}
+
+func rebaseProposalTaskAssignment(store proposalStore, repositoryStore proposalRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositoryStore, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var input struct {
+			ExpectedAssignmentID string `json:"expected_assignment_id"`
+			BaseRevision         string `json:"base_revision"`
+		}
+		if !readJSON(w, r, &input, 4<<10) {
+			return
+		}
+		opener, ok := repositoryStore.(interface {
+			Open(storage.ID) (*storage.Repository, error)
+		})
+		if !ok {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		opened, err := opener.Open(repository.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		if _, err = opened.ReadCommit(storage.ObjectID(input.BaseRevision)); err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_base_revision"})
+			return
+		}
+		task, err := store.RebaseTaskAssignment(string(repository.ID), r.PathValue("proposal"), r.PathValue("task"), actor.UserID, input.ExpectedAssignmentID, input.BaseRevision)
+		if writeProposalTaskError(w, err) {
+			return
+		}
+		if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "proposal.task.context_changed", Resource: activities.Resource{Type: "proposal", ID: task.ProposalID}, TargetUserID: task.Assignment.AssigneeID, Metadata: map[string]string{"task_id": task.ID, "base_revision": task.Assignment.BaseRevision}}); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, 200, task)
+	}
 }
 
 var availableTaskAgents = map[string]bool{"codex": true}
@@ -207,6 +250,7 @@ func updateProposalTask(store proposalStore, repositories proposalRepositoryStor
 			writeJSON(w, 422, map[string]string{"error": "invalid_discussion_link"})
 			return
 		}
+		before, _ := store.GetPlan(string(repository.ID), r.PathValue("proposal"))
 		task, err := store.UpdateTask(string(repository.ID), r.PathValue("proposal"), r.PathValue("task"), actor.UserID, input.storeInput())
 		if writeProposalTaskError(w, err) {
 			return
@@ -215,8 +259,54 @@ func updateProposalTask(store proposalStore, repositories proposalRepositoryStor
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
+		after, _ := store.GetPlan(string(repository.ID), task.ProposalID)
+		recordTaskCoordinationChanges(activity, string(repository.ID), actor.UserID, task.ProposalID, before, after)
 		writeJSON(w, 200, task)
 	}
+}
+
+func recordTaskCoordinationChanges(activity activityStore, repositoryID, actorID, proposalID string, before, after proposals.Plan) {
+	if activity == nil {
+		return
+	}
+	previous := map[string]proposals.Task{}
+	for _, task := range before.Tasks {
+		previous[task.ID] = task
+	}
+	for _, task := range after.Tasks {
+		if task.Assignment == nil || task.Assignment.AssigneeID == actorID {
+			continue
+		}
+		old, exists := previous[task.ID]
+		typeName := ""
+		if exists && !old.Ready && task.Ready {
+			typeName = "proposal.task.ready"
+		}
+		if exists && old.Ready && !task.Ready {
+			typeName = "proposal.task.blocked"
+		}
+		if exists && (old.Outcome != task.Outcome || !sameTaskDependencies(old.DependsOn, task.DependsOn)) {
+			typeName = "proposal.task.changed"
+		}
+		if task.Status == proposals.TaskCanceled || task.Status == proposals.TaskSuperseded {
+			typeName = "proposal.task.obsolete"
+		}
+		if typeName != "" {
+			_, _ = activity.Record(activities.Input{RepositoryID: repositoryID, ActorID: actorID, Type: typeName, Resource: activities.Resource{Type: "proposal", ID: proposalID}, TargetUserID: task.Assignment.AssigneeID, Metadata: map[string]string{"task_id": task.ID}})
+		}
+	}
+}
+
+func sameTaskDependencies(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func validDiscussionLinks(store proposalStore, repositoryID, proposalID string, ids []string) bool {
@@ -255,6 +345,8 @@ func writeProposalTaskError(w http.ResponseWriter, err error) bool {
 		writeJSON(w, 409, map[string]string{"error": "task_already_assigned"})
 	} else if errors.Is(err, proposals.ErrAssignmentConflict) {
 		writeJSON(w, 409, map[string]string{"error": "assignment_changed"})
+	} else if errors.Is(err, proposals.ErrActiveTaskConflict) {
+		writeJSON(w, 409, map[string]string{"error": "task_has_active_work"})
 	} else {
 		writeJSON(w, 500, map[string]string{"error": "internal_error"})
 	}
