@@ -256,6 +256,11 @@ whenever dependencies change or the web job fails before it starts.
   copied check definition, ordered logs, outcome, and artifact identities;
   preserve this evidence link when evolving agent delegation. Artifact bytes
   remain owned by the originating check run and its repository read policy.
+  `verification_workflow_test.go` is the black-box regression boundary for the
+  complete verify-repair-merge loop. It uses stock Git, public check evidence,
+  evidence-backed delegation, agent publication, required-check readiness,
+  review, and merge, and proves that failed and successful attempt evidence
+  remains available after publication.
   Meaningful collaboration transitions are appended through the
   `activities.Store` boundary beneath `$ACTIVITY_ROOT` (default
   `apps/api/data/activities`). Repository activity retains stable actor and
