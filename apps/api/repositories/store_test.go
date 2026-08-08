@@ -71,6 +71,10 @@ func TestOwnedRepositoryLifecycle(t *testing.T) {
 	if len(accessible) != 2 || accessible[0].ID != first.ID || accessible[1].ID != second.ID {
 		t.Fatalf("accessible list = %#v", accessible)
 	}
+	public, err := store.ListPublic("second")
+	if err != nil || len(public) != 1 || public[0].ID != second.ID {
+		t.Fatalf("public discovery = %#v, %v", public, err)
+	}
 	if _, err := store.Get("owner-two", first.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("cross-owner get error = %v", err)
 	}

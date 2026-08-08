@@ -18,6 +18,7 @@ type ownedRepositoryStore interface {
 	Inspect(storage.ID) (repositories.Repository, error)
 	List(string) ([]repositories.Repository, error)
 	ListAccessible(string) ([]repositories.Repository, error)
+	ListPublic(string) ([]repositories.Repository, error)
 	Update(string, storage.ID, repositories.Metadata) (repositories.Repository, error)
 	Delete(string, storage.ID) error
 	IsCollaborator(storage.ID, string) (bool, error)
@@ -29,11 +30,33 @@ func registerRepositoriesHTTP(mux *http.ServeMux, store ownedRepositoryStore, cr
 	mux.HandleFunc("POST /repositories/{repository}/forks", forkRepository(store, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/sync", syncForkBranch(store, credentials))
 	mux.HandleFunc("GET /repositories", listRepositories(store, credentials))
+	mux.HandleFunc("GET /repositories/public", listPublicRepositories(store))
 	mux.HandleFunc("GET /repositories/{repository}", getRepository(store, credentials))
 	mux.HandleFunc("PATCH /repositories/{repository}", updateRepository(store, credentials))
 	mux.HandleFunc("DELETE /repositories/{repository}", deleteRepository(store, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/required-checks", getRequiredChecks(store, credentials))
 	mux.HandleFunc("PUT /repositories/{repository}/required-checks", putRequiredChecks(store, credentials))
+}
+
+func listPublicRepositories(store ownedRepositoryStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		items, err := store.ListPublic(r.URL.Query().Get("q"))
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		page, perPage, ok := readPagination(w, r)
+		if !ok {
+			return
+		}
+		total := len(items)
+		items = paginate(items, page, perPage)
+		output := make([]map[string]any, len(items))
+		for i, item := range items {
+			output[i] = repositoryResponse(item)
+		}
+		writeJSON(w, 200, map[string]any{"items": output, "page": page, "per_page": perPage, "total_count": total})
+	}
 }
 
 func forkRepository(store ownedRepositoryStore, credentials authStore) http.HandlerFunc {

@@ -198,6 +198,10 @@ whenever dependencies change or the web job fails before it starts.
   The default repository collection remains owner-only; the
   `affiliation=all` collection returns the actor's owned and contributed
   repositories for durable workspace discovery, not public search.
+  Anonymous public project discovery uses the separately paginated
+  `/repositories/public` collection and its `q` name/description search; the
+  web workspace excludes projects the actor has already joined and leads
+  unknown contributors from those results into the repository fork workflow.
   Route Git through the catalog as well as storage so transport access cannot
   bypass ownership, collaborator, and visibility policy.
   Read-only browser endpoints for branches, commits, trees, and blobs are

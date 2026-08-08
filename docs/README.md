@@ -47,6 +47,13 @@ they have been invited to contribute to. Shared projects are marked as
 contributing work, so membership remains discoverable after signing out or
 switching devices instead of depending on an out-of-band repository URL.
 
+Public projects are discoverable independently of membership through the
+anonymous `GET /repositories/public` collection. Its optional `q` parameter
+searches normalized repository names and descriptions, and it uses the shared
+pagination envelope. The authenticated workspace shows matching public
+projects the actor has not already joined; opening one exposes the existing
+fork action, so first contact does not depend on an owner invitation.
+
 Client code calls the same-origin `/api/*` boundary implemented by the Next.js
 catch-all route handler. It forwards requests and the API's `komodo_session`
 cookie to the Go service, avoiding cross-origin exposure of the HttpOnly
@@ -155,6 +162,15 @@ maintainer. The merge commit records `Source-Repository`, `Source-Branch`, and
 `Source-Commit` trailers alongside contributor and maintainer IDs; the pull
 request record and linked commit parent keep that attribution and provenance
 readable after the fork or contribution branch is removed.
+
+The complete open-contribution regression begins with anonymous public search
+and proves a previously unknown user can fork, explicitly synchronize a newer
+upstream revision, publish through stock Git, open a cross-repository pull
+request, accept maintainer guidance through a fork-scoped agent run, satisfy a
+required exact-revision check, and be merged. It also asserts that no step
+silently creates upstream membership and that the durable pull request and
+merge trailers retain contributor, maintainer, fork, branch, and commit
+provenance.
 
 ### Agent change sessions
 

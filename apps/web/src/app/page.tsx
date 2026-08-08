@@ -33,6 +33,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export default function Home() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [repositories, setRepositories] = useState<Repository[]>([]);
+  const [publicRepositories, setPublicRepositories] = useState<Repository[]>([]);
   const [grants, setGrants] = useState<Grant[]>([]);
   const [inbox, setInbox] = useState<InboxItem[]>([]);
   const [view, setView] = useState<"workspace" | "repositories" | "inbox" | "access">("workspace");
@@ -41,9 +42,9 @@ export default function Home() {
     try {
       const current = await api<Session>("/session");
       setSession(current);
-      const [repoData, grantData, inboxData] = await Promise.all([api<Envelope<Repository>>("/repositories?affiliation=all&per_page=100"), api<Envelope<Grant>>("/access-grants?per_page=100"), api<Envelope<InboxItem>>("/inbox?per_page=100")]);
-      setRepositories(repoData.items); setGrants(grantData.items); setInbox(inboxData.items);
-    } catch { setSession(null); setRepositories([]); setGrants([]); setInbox([]); }
+      const [repoData, publicData, grantData, inboxData] = await Promise.all([api<Envelope<Repository>>("/repositories?affiliation=all&per_page=100"), api<Envelope<Repository>>("/repositories/public?per_page=100"), api<Envelope<Grant>>("/access-grants?per_page=100"), api<Envelope<InboxItem>>("/inbox?per_page=100")]);
+      setRepositories(repoData.items); setPublicRepositories(publicData.items); setGrants(grantData.items); setInbox(inboxData.items);
+    } catch { setSession(null); setRepositories([]); setPublicRepositories([]); setGrants([]); setInbox([]); }
   }, []);
 
   useEffect(() => {
@@ -55,7 +56,7 @@ export default function Home() {
   if (session === undefined) return <div className="splash"><span className="brand-mark">K</span><p>Opening your workspace…</p></div>;
   if (!session) return <Onboarding onAuthenticated={loadWorkspace} />;
 
-  return <Dashboard session={session} repositories={repositories} grants={grants} inbox={inbox} view={view} setView={setView}
+  return <Dashboard session={session} repositories={repositories} publicRepositories={publicRepositories} grants={grants} inbox={inbox} view={view} setView={setView}
     refresh={loadWorkspace} onSignedOut={() => { setSession(null); setRepositories([]); setGrants([]); setInbox([]); }} />;
 }
 
@@ -97,14 +98,15 @@ function Onboarding({ onAuthenticated }: { onAuthenticated: () => Promise<void> 
   </main>;
 }
 
-function Dashboard({ session, repositories, grants, inbox, view, setView, refresh, onSignedOut }: { session: Session; repositories: Repository[]; grants: Grant[]; inbox: InboxItem[]; view: "workspace"|"repositories"|"inbox"|"access"; setView: (view: "workspace"|"repositories"|"inbox"|"access") => void; refresh: () => Promise<void>; onSignedOut: () => void }) {
+function Dashboard({ session, repositories, publicRepositories, grants, inbox, view, setView, refresh, onSignedOut }: { session: Session; repositories: Repository[]; publicRepositories: Repository[]; grants: Grant[]; inbox: InboxItem[]; view: "workspace"|"repositories"|"inbox"|"access"; setView: (view: "workspace"|"repositories"|"inbox"|"access") => void; refresh: () => Promise<void>; onSignedOut: () => void }) {
   const [showCreate, setShowCreate] = useState(false); const [query, setQuery] = useState("");
   const initials = session.user.display_name.split(/\s+/).map(part => part[0]).join("").slice(0, 2).toUpperCase();
   const filtered = useMemo(() => repositories.filter(repo => `${repo.name} ${repo.description}`.toLowerCase().includes(query.toLowerCase())), [repositories, query]);
+  const discoverable = useMemo(() => { const joined = new Set(repositories.map(repo => repo.id)); return publicRepositories.filter(repo => !joined.has(repo.id) && `${repo.name} ${repo.description}`.toLowerCase().includes(query.toLowerCase())); }, [publicRepositories, repositories, query]);
   async function signOut() { await api("/session", { method: "DELETE" }).catch(() => undefined); onSignedOut(); }
 
   return <WorkspaceShell displayName={session.user.display_name} handle={session.user.handle} initials={initials} repositoryCount={repositories.length} inboxCount={inbox.length} view={view} query={query} onQuery={setQuery} onView={setView} onCreate={() => setShowCreate(true)} onSignOut={signOut}>
-    {view === "access" ? <Access grants={grants} refresh={refresh}/> : view === "inbox" ? <Inbox items={inbox} refresh={refresh}/> : <Repositories user={session.user} repositories={filtered} total={repositories.length} searching={Boolean(query)} showCreate={showCreate} setShowCreate={setShowCreate} refresh={refresh} full={view === "repositories"}/>}
+    {view === "access" ? <Access grants={grants} refresh={refresh}/> : view === "inbox" ? <Inbox items={inbox} refresh={refresh}/> : <Repositories user={session.user} repositories={filtered} discoverable={discoverable} total={repositories.length} searching={Boolean(query)} showCreate={showCreate} setShowCreate={setShowCreate} refresh={refresh} full={view === "repositories"}/>}
   </WorkspaceShell>;
 }
 
@@ -118,10 +120,10 @@ function Inbox({ items, refresh }: { items: InboxItem[]; refresh: () => Promise<
   </>;
 }
 
-function Repositories({ user, repositories, total, searching, showCreate, setShowCreate, refresh, full }: { user: UserRecord; repositories: Repository[]; total: number; searching: boolean; showCreate: boolean; setShowCreate: (show: boolean) => void; refresh: () => Promise<void>; full: boolean }) {
+function Repositories({ user, repositories, discoverable, total, searching, showCreate, setShowCreate, refresh, full }: { user: UserRecord; repositories: Repository[]; discoverable: Repository[]; total: number; searching: boolean; showCreate: boolean; setShowCreate: (show: boolean) => void; refresh: () => Promise<void>; full: boolean }) {
   return <><div className="eyebrow"><Sparkles size={14}/>{total ? "Your workspace" : "One step from collaboration"}</div><div className="page-heading"><div><h1>{total ? `${full ? "Repositories" : "Welcome back"}, ${user.display_name.split(" ")[0]}.` : `Welcome, ${user.display_name.split(" ")[0]}.`}</h1><p>{total ? "Find a project or make room for the next idea." : "Create your first repository to give your work a home."}</p></div><Button onClick={() => setShowCreate(true)}><Plus size={16}/>New repository</Button></div>
     {showCreate && <CreateRepository close={() => setShowCreate(false)} refresh={refresh}/>}
-    {repositories.length ? <section aria-labelledby="repository-heading"><div className="section-heading"><div><h2 id="repository-heading">{searching ? "Matching repositories" : "Your repositories"}</h2><p>{repositories.length} owned or shared {repositories.length === 1 ? "project" : "projects"} ready for collaboration</p></div></div><div className="repo-grid">{repositories.map(repo => <RepositoryTile key={repo.id} repository={repo} actor={user.id}/>)}</div></section> : total ? <EmptySearch/> : <FirstRepository onCreate={() => setShowCreate(true)}/>}</>;
+    {repositories.length ? <section aria-labelledby="repository-heading"><div className="section-heading"><div><h2 id="repository-heading">{searching ? "Matching repositories" : "Your repositories"}</h2><p>{repositories.length} owned or shared {repositories.length === 1 ? "project" : "projects"} ready for collaboration</p></div></div><div className="repo-grid">{repositories.map(repo => <RepositoryTile key={repo.id} repository={repo} actor={user.id}/>)}</div></section> : total ? <EmptySearch/> : <FirstRepository onCreate={() => setShowCreate(true)}/>} {discoverable.length > 0 && <section className="discovery-section" aria-labelledby="discovery-heading"><div className="section-heading"><div><h2 id="discovery-heading">Discover public projects</h2><p>Explore a project, fork it, and propose a change without waiting for an invitation.</p></div></div><div className="repo-grid">{discoverable.map(repo => <RepositoryTile key={repo.id} repository={repo} actor={user.id}/>)}</div></section>}</>;
 }
 
 function FirstRepository({ onCreate }: { onCreate: () => void }) { return <section className="first-step panel"><span className="empty-icon"><Branch size={22}/></span><Badge tone="accent">Next step</Badge><h2>Start something worth sharing</h2><p>A repository holds your code, decisions, and the conversation around both. Create one now; it starts private.</p><Button onClick={onCreate}><Plus size={16}/>Create your first repository</Button><div className="next-up"><Check size={16}/><span><strong>After that</strong> Clone it with Git, publish a branch, and invite a contributor.</span></div></section>; }
