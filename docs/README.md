@@ -148,6 +148,15 @@ dependencies, or assigned base returns `409 task_has_active_work`; the captured
 session and pull-request context therefore remains explicit instead of being
 silently rewritten by a later plan revision.
 
+Integration-queue publication reconciles a linked proposal-task contribution
+as `merged` at the same time it records the pull request outcome. Dependents
+therefore become ready from the durable queued result just as they do after a
+direct merge; retained queue evidence and the plan history identify the owner
+who authorized publication. `orchestration_workflow_test.go` exercises this
+complete idea-to-integrated-change contract across proposal discussion,
+dependent human and agent assignments, guided execution, connected pull
+requests, checks, reviews, the queue, and stock Git.
+
 An agent assignment starts without manufacturing a pull request through `POST
 .../plan/tasks/{task}/change-sessions`, using `expected_assignment_id` as the
 start concurrency token. The API creates a unique `codex/task-*` branch that

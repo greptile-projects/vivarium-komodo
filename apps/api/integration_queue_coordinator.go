@@ -9,6 +9,7 @@ import (
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/integrationqueue"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -30,6 +31,7 @@ type integrationQueueCoordinator struct {
 	checks       readinessCheckStore
 	starter      checkRunStarter
 	activity     activityStore
+	proposals    proposalStore
 	mu           sync.Mutex
 }
 
@@ -223,6 +225,14 @@ func (c *integrationQueueCoordinator) finishMerged(repository repositories.Repos
 		_, _ = c.pulls.AddComment(string(repository.ID), pull.ID, repository.OwnerID, "Merged from the integration queue as "+entry.CandidateCommitID+".")
 	} else if pull.Status != pullrequests.Merged || pull.MergeCommitID != entry.CandidateCommitID {
 		return false
+	}
+	if c.proposals != nil && pull.ProposalID != "" && pull.TaskID != "" {
+		before, _ := c.proposals.GetPlan(pull.RepositoryID, pull.ProposalID)
+		if _, err := c.proposals.UpdateTaskContribution(pull.RepositoryID, pull.ProposalID, pull.TaskID, pull.ID, repository.OwnerID, proposals.ContributionMerged); err != nil {
+			return false
+		}
+		after, _ := c.proposals.GetPlan(pull.RepositoryID, pull.ProposalID)
+		recordTaskCoordinationChanges(c.activity, pull.RepositoryID, repository.OwnerID, pull.ProposalID, before, after)
 	}
 	_, err := c.queue.Transition(entry.ID, "merged", "", true)
 	if err == nil && c.activity != nil {
