@@ -86,6 +86,27 @@ complete public merge-to-release path, a health-signal failure, known-good
 rollback, evidence-backed agent repair, maintainer review, and corrected
 promotion.
 
+## Incident coordination
+
+Repository participants coordinate service risk through repository-scoped
+incidents. Declaration captures severity, current impact, affected repository
+and environment pairs, and an incident commander with optional operations and
+communications leads. It may be manual or reference an exact failed health
+signal in a retained deployment timeline; the API validates every affected
+environment, role holder, and signal through the existing repository and
+deployment boundaries.
+
+Every accepted status, scope, role, follow, acknowledgement, and update action
+is appended to the incident timeline with its stable actor and time. Updates
+declare either a participant or public audience so responders can maintain one
+operating picture without publishing internal coordination accidentally.
+Followers and per-update acknowledgements make receipt explicit. Resolved
+incidents retain their full record and reject later coordination updates.
+Storage is rooted at `$INCIDENT_ROOT`, defaulting to
+`apps/api/data/incidents`; reads follow the anchor repository's visibility and
+writes require participant repository access. The web workspace uses the
+shareable `view=incidents&incident={id}` repository context.
+
 ## Entrypoints
 
 - `apps/web` — Next.js frontend. Starts at `src/app/page.tsx`; routes are

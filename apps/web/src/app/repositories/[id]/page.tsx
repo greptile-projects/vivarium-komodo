@@ -385,6 +385,9 @@ type DeliveryEnvironment = { id: string; name: string; position: number; command
 type Deployment = { id: string; environment_id: string; release_id: string; build_run_id: string; artifact_id: string; artifact_path: string; artifact_sha256: string; source_commit_id: string; state: "pending"|"queued"|"running"|"paused"|"succeeded"|"failed"|"canceled"; initiated_by_id: string; approvals: Array<{actor_id:string;created_at:string}>; events: Array<{sequence:number;type:string;state?:string;actor_id?:string;stream?:string;message?:string;stage?:string;signal?:string;outcome?:string;created_at:string}>; current_stage?:string; decision_by_id?:string; decision_reason?:string; recovery_of_id?:string; recovery_action?:string; created_at:string };
 type EnvironmentList = { items: DeliveryEnvironment[]; total_count: number };
 type DeploymentList = { items: Deployment[]; total_count: number };
+type IncidentEvent = { sequence:number; type:string; actor_id:string; status?:string; severity?:string; audience?:"participants"|"public"; message?:string; roles?:Record<string,string>; update_sequence?:number; created_at:string };
+type Incident = { id:string; repository_id:string; title:string; summary:string; severity:"critical"|"high"|"medium"|"low"; status:"declared"|"investigating"|"mitigating"|"monitoring"|"resolved"; declared_by_id:string; roles:Record<string,string>; affected:Array<{repository_id:string;environment_id:string}>; source_signal?:{deployment_id:string;event_sequence:number;stage?:string;signal?:string;outcome?:string}; followers:string[]; acknowledgements:Array<{actor_id:string;update_sequence:number;created_at:string}>; timeline:IncidentEvent[]; created_at:string; updated_at:string };
+type IncidentList = { items:Incident[]; total_count:number };
 type UserRecord = { id: string; handle: string; display_name: string };
 type Collaborator = {
   user_id: string;
@@ -499,6 +502,7 @@ export default function RepositoryPage({
     pull?: string;
     section?: string;
     release?: string;
+    incident?: string;
   }>;
 }) {
   const { id } = use(params);
@@ -517,6 +521,8 @@ export default function RepositoryPage({
             ? "queue"
           : query.view === "releases"
             ? "releases"
+          : query.view === "incidents"
+            ? "incidents"
           : query.view === "people"
             ? "people"
             : "code";
@@ -559,6 +565,7 @@ export default function RepositoryPage({
         view === "pulls" ||
         view === "queue" ||
         view === "releases" ||
+        view === "incidents" ||
         view === "people" ||
         repo.empty ||
         !selected
@@ -712,6 +719,13 @@ export default function RepositoryPage({
       {actionError && <p className="form-error fork-action-error" role="alert">{actionError}</p>}
       <nav className="repository-tabs" aria-label="Repository">
         <button
+          className={view === "incidents" ? "active" : ""}
+          onClick={() => navigate({ view: "incidents", path: "" })}
+        >
+          <MessageCircle size={15} />
+          Incidents
+        </button>
+        <button
           className={view === "code" ? "active" : ""}
           onClick={() => navigate({ view: "code", path: "" })}
         >
@@ -783,6 +797,8 @@ export default function RepositoryPage({
         <IntegrationQueueWorkspace repository={repository} branches={branches.items} initialBranch={revision || branches.default_branch} actor={actor} onBranch={(branch) => navigate({ view: "queue", ref: branch, path: "" })} />
       ) : view === "releases" ? (
         <ReleaseWorkspace repository={repository} branches={branches.items} actor={actor} selected={query.release} />
+      ) : view === "incidents" ? (
+        <IncidentWorkspace repository={repository} actor={actor} selected={query.incident} />
       ) : view === "people" && actor === repository.owner_id ? (
         <CollaboratorWorkspace repository={id} />
       ) : repository.empty ? (
@@ -1282,6 +1298,30 @@ function ReleaseWorkspace({ repository, branches, actor, selected }: { repositor
       {(current.proposal_ids.length > 0 || current.task_ids.length > 0) && <small className="release-links">Proposal links: {current.proposal_ids.map((id, index) => <span key={id}>{index > 0 ? ", " : ""}<Link href={`/repositories/${repository.id}?view=proposals&proposal=${id}`}>{short(id)}</Link></span>)}{current.task_ids.length > 0 && ` · ${current.task_ids.length} linked delivery ${current.task_ids.length === 1 ? "task" : "tasks"}`}</small>}</article></section>}
     </div>}
   </div>;
+}
+
+function IncidentWorkspace({repository,actor,selected}:{repository:Repository;actor:string;selected?:string}) {
+  const [items,setItems]=useState<Incident[]>([]); const [environments,setEnvironments]=useState<DeliveryEnvironment[]>([]); const [deployments,setDeployments]=useState<Deployment[]>([]); const [creating,setCreating]=useState(false); const [busy,setBusy]=useState(""); const [error,setError]=useState("");
+  const current=items.find((item)=>item.id===selected)??items[0]; const authorized=Boolean(actor&&(actor===repository.owner_id||repository.collaborator_ids?.includes(actor))); const responders=[repository.owner_id,...(repository.collaborator_ids??[])];
+  const load=useCallback(async()=>{try{const [incidentData,environmentData,deploymentData]=await Promise.all([get<IncidentList>(`/repositories/${repository.id}/incidents`),get<EnvironmentList>(`/repositories/${repository.id}/environments`),get<DeploymentList>(`/repositories/${repository.id}/deployments`)]);setItems(incidentData.items);setEnvironments(environmentData.items);setDeployments(deploymentData.items);}catch{setError("Incident state unavailable.");}},[repository.id]);
+  useEffect(()=>{
+    // Incident state follows the shareable selected-incident URL.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  },[load]);
+  async function declare(event:React.FormEvent<HTMLFormElement>){event.preventDefault();setBusy("create");setError("");const data=new FormData(event.currentTarget);const environment=String(data.get("environment"));const deploymentID=String(data.get("deployment"));const deployment=deployments.find((item)=>item.id===deploymentID);const signal=deployment?.events.findLast((item)=>item.signal&&["failed","unhealthy"].includes(item.outcome??""));const additional=String(data.get("affected")??"").split("\n").map((line)=>line.trim()).filter(Boolean).map((line)=>{const [repository_id,environment_id=""]=line.split(":");return {repository_id,environment_id};});try{const item=await send<Incident>(`/repositories/${repository.id}/incidents`,"POST",{title:data.get("title"),summary:data.get("summary"),severity:data.get("severity"),roles:{commander:data.get("commander"),operations:data.get("operations")||undefined,communications:data.get("communications")||undefined},affected:[{repository_id:repository.id,environment_id:environment},...additional],source_signal:deployment&&signal?{repository_id:repository.id,deployment_id:deployment.id,event_sequence:signal.sequence}:undefined});window.location.assign(`/repositories/${repository.id}?view=incidents&incident=${item.id}`);}catch(cause){setError(cause instanceof Error?cause.message:"Incident could not be declared.");}finally{setBusy("");}}
+  async function mutate(path:string,method:string,body?:unknown){if(!current)return;setBusy(path);setError("");try{await send(`/repositories/${repository.id}/incidents/${current.id}${path}`,method,body);await load();}catch(cause){setError(cause instanceof Error?cause.message:"Incident change was not accepted.");}finally{setBusy("");}}
+  const latestUpdate=current?.timeline.filter((event)=>event.type==="update").at(-1); const acknowledged=latestUpdate&&current?.acknowledgements.some((item)=>item.actor_id===actor&&item.update_sequence===latestUpdate.sequence);
+  return <div className="incident-workspace">
+    <header className="release-heading"><div><p className="eyebrow">Shared operating picture</p><h2>Incidents</h2><p>Establish response ownership, affected scope, and one attributable source of truth while service is at risk.</p></div>{authorized&&<Button onClick={()=>setCreating((value)=>!value)}><Plus size={14}/>Declare incident</Button>}</header>
+    {error&&<p className="form-error" role="alert">{error}</p>}
+    {creating&&<form className="panel incident-form" onSubmit={declare}><label>Incident title<input name="title" required maxLength={200}/></label><label>Severity<select name="severity" defaultValue="high"><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label><label>Affected environment<select name="environment" required><option value="">Choose environment</option>{environments.map((item)=><option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>Deployment health signal (optional)<select name="deployment"><option value="">Manual declaration</option>{deployments.filter((item)=>item.events.some((event)=>event.signal&&["failed","unhealthy"].includes(event.outcome??""))).map((item)=><option value={item.id} key={item.id}>{environments.find((environment)=>environment.id===item.environment_id)?.name} · {short(item.id)}</option>)}</select></label><label>Incident commander<select name="commander" defaultValue={actor}>{responders.map((id)=><option value={id} key={id}>{id===actor?"Me":short(id)}</option>)}</select></label><label>Operations lead<select name="operations" defaultValue={actor}><option value="">Unassigned</option>{responders.map((id)=><option value={id} key={id}>{id===actor?"Me":short(id)}</option>)}</select></label><label>Communications lead<select name="communications"><option value="">Unassigned</option>{responders.map((id)=><option value={id} key={id}>{id===actor?"Me":short(id)}</option>)}</select></label><label className="incident-summary">Additional affected scopes <small>One authorized repository ID and environment ID per line: repository:environment</small><textarea name="affected" rows={2}/></label><label className="incident-summary">Current impact and known facts<textarea name="summary" required rows={4}/></label><div className="release-form-actions"><Button variant="secondary" type="button" onClick={()=>setCreating(false)}>Cancel</Button><Button disabled={busy==="create"} type="submit">Declare and notify responders</Button></div></form>}
+    <div className="incident-layout"><aside className="panel incident-list">{items.map((item)=><Link className={current?.id===item.id?"active":""} href={`/repositories/${repository.id}?view=incidents&incident=${item.id}`} key={item.id}><span><strong>{item.title}</strong><small>{new Date(item.updated_at).toLocaleString()}</small></span><Badge tone={item.status==="resolved"?"neutral":"accent"}>{item.severity} · {item.status}</Badge></Link>)}{!items.length&&<p>No incidents have been declared.</p>}</aside>
+    {current&&<article className="panel incident-detail"><header><div><p className="eyebrow">{current.severity} severity</p><h2>{current.title}</h2></div><Badge tone={current.status==="resolved"?"neutral":"accent"}>{current.status}</Badge></header><section className="incident-picture"><p>{current.summary}</p><dl><div><dt>Commander</dt><dd><Actor id={current.roles.commander}/></dd></div>{Object.entries(current.roles).filter(([role])=>role!=="commander").map(([role,id])=><div key={role}><dt>{role}</dt><dd><Actor id={id}/></dd></div>)}<div><dt>Affected</dt><dd>{current.affected.map((scope)=><span key={`${scope.repository_id}:${scope.environment_id}`}>{repository.name} · {environments.find((item)=>item.id===scope.environment_id)?.name??"repository"}</span>)}</dd></div>{current.source_signal&&<div><dt>Declared from</dt><dd>Health signal {current.source_signal.signal} · {current.source_signal.outcome} in {current.source_signal.stage}</dd></div>}</dl></section>
+    {authorized&&current.status!=="resolved"&&<section className="incident-controls"><label>Current status<select value={current.status} onChange={(event)=>void mutate("","PATCH",{status:event.target.value})}><option value="declared">Declared</option><option value="investigating">Investigating</option><option value="mitigating">Mitigating</option><option value="monitoring">Monitoring</option><option value="resolved">Resolved</option></select></label><Button variant="secondary" disabled={Boolean(busy)} onClick={()=>void mutate("/follow",current.followers.includes(actor)?"DELETE":"PUT")}>{current.followers.includes(actor)?"Unfollow":"Follow updates"}</Button>{latestUpdate&&!acknowledged&&<Button variant="secondary" disabled={Boolean(busy)} onClick={()=>void mutate("/acknowledgements","POST",{update_sequence:latestUpdate.sequence})}>Acknowledge latest</Button>}</section>}
+    {authorized&&current.status!=="resolved"&&<form className="incident-update" onSubmit={(event)=>{event.preventDefault();const form=event.currentTarget;const data=new FormData(form);void mutate("/updates","POST",{audience:data.get("audience"),message:data.get("message")}).then(()=>form.reset());}}><label>Audience<select name="audience"><option value="participants">Responders and participants</option><option value="public">Audience-safe update</option></select></label><label>Timeline update<textarea name="message" required rows={3} placeholder="What changed, what responders know, and what happens next"/></label><Button disabled={Boolean(busy)} type="submit">Publish update</Button></form>}
+    <ol className="incident-timeline">{[...current.timeline].reverse().map((event)=><li key={event.sequence}><span><strong>{event.type.replaceAll("."," ")}</strong>{event.audience&&<Badge tone={event.audience==="public"?"accent":"neutral"}>{event.audience}</Badge>}</span>{event.actor_id&&<small><Actor id={event.actor_id}/> · {new Date(event.created_at).toLocaleString()}</small>}{event.message&&<p>{event.message}</p>}{event.status&&<p>Status: <b>{event.status}</b></p>}{event.type==="update"&&<small>{current.acknowledgements.filter((item)=>item.update_sequence===event.sequence).length} acknowledged</small>}</li>)}</ol></article>}</div>
+  </div>
 }
 
 function IntegrationQueueWorkspace({ repository, branches, initialBranch, actor, onBranch }: { repository: Repository; branches: BranchRecord[]; initialBranch: string; actor: string; onBranch: (branch: string) => void }) {

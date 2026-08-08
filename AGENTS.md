@@ -426,6 +426,18 @@ whenever dependencies change or the web job fails before it starts.
   `release_delivery_workflow_test.go` is the black-box regression boundary for
   the complete merge-to-recovery loop, including governed rollback and a
   reviewed agent repair delivered as a corrected release.
+  Incidents are durable coordination records beneath `$INCIDENT_ROOT` (default
+  `apps/api/data/incidents`) owned by the `incidents.Store` boundary. An
+  authenticated repository participant may declare one manually or from an
+  exact failed deployment health-signal event. Incidents retain severity,
+  current lifecycle status, affected repository/environment pairs, commander,
+  operations, and communications roles, followers, acknowledgements, and an
+  immutable actor-attributed timeline. Role holders and the declaring actor
+  must be participants in the affected scope; affected environments and source
+  signals are resolved through repository and deployment stores. Updates are
+  explicitly audience-labelled `participants` or `public`, while incident
+  reads continue to follow the anchor repository's ordinary visibility policy.
+  The shareable web surface is `view=incidents&incident={id}`.
   Meaningful collaboration transitions are appended through the
   `activities.Store` boundary beneath `$ACTIVITY_ROOT` (default
   `apps/api/data/activities`). Repository activity retains stable actor and
