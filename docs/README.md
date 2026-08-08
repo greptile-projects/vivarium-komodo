@@ -150,8 +150,25 @@ queue success describes the repository state that would actually be merged.
 `GET /repositories/{id}/integration-queue/entries?branch=...` is
 repository-policy readable and returns those ordered candidates plus their
 governing policy. Queue data lives beneath `$INTEGRATION_QUEUE_ROOT`, defaulting
-to `apps/api/data/integration-queue`. Automatic candidate advancement remains a
-later workflow stage.
+to `apps/api/data/integration-queue`.
+
+The oldest eligible entry advances automatically when every required check for
+its current candidate succeeds. Publication uses an atomic compare-and-swap:
+the target must still name the candidate's exact first parent, so neither an
+HTTP push nor another coordinator can make passing but stale evidence land.
+After each merge, later entries are rebuilt in order against the new branch tip
+and receive a new candidate generation and new checks. Attempts for superseded
+generations remain available as evidence but are never considered current.
+This same recovery loop handles target updates made outside the queue and
+resumes durable work after process restarts.
+
+A queued source-branch update removes only the obsolete queue entry; the pull
+request remains open for synchronization, review, and readmission. A merge
+conflict blocks the head under `pause` policy or removes it under `remove`
+policy. Failed and canceled candidate checks follow the same configured
+behavior with distinct durable reasons. Removing a queue entry never closes or
+rewrites its pull request, while a successful candidate records that pull
+request as merged at the exact candidate commit.
 
 Pull request navigation uses the repository route with `view=pulls`. The
 `pull` query parameter identifies the durable request and `section` preserves

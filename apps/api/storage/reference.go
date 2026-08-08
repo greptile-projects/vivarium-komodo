@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,6 +16,7 @@ var (
 	ErrReferenceExists   = errors.New("reference already exists")
 	ErrInvalidReference  = errors.New("invalid reference")
 	ErrInvalidRefName    = errors.New("invalid reference name")
+	ErrReferenceChanged  = errors.New("reference changed")
 )
 
 // ReferenceName is a full Git reference name, or the special symbolic HEAD.
@@ -32,10 +34,31 @@ type ReferenceStore interface {
 	CreateReference(Reference) error
 	ReadReference(ReferenceName) (Reference, error)
 	UpdateReference(Reference) error
+	CompareAndSwapReference(ReferenceName, ObjectID, ObjectID) error
 	ListReferences() ([]Reference, error)
 	DeleteReference(ReferenceName) error
 	DefaultBranch() (ReferenceName, error)
 	SetDefaultBranch(ReferenceName) error
+}
+
+// CompareAndSwapReference advances a direct reference only when it still names
+// oldID. Git's lock-file transaction makes the comparison and publication one
+// atomic operation across HTTP pushes and application writers.
+func (r *Repository) CompareAndSwapReference(name ReferenceName, oldID, newID ObjectID) error {
+	if !validReferenceName(name, false) || !validObjectID(oldID) || !validObjectID(newID) {
+		return ErrInvalidReference
+	}
+	if _, err := r.ReadObject(newID); err != nil {
+		return err
+	}
+	command := exec.Command("git", "--git-dir="+r.gitDir, "update-ref", string(name), string(newID), string(oldID))
+	if output, err := command.CombinedOutput(); err != nil {
+		if current, readErr := r.ReadReference(name); readErr == nil && current.ObjectID != oldID {
+			return ErrReferenceChanged
+		}
+		return fmt.Errorf("compare and swap reference: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }
 
 // CreateReference creates a direct or symbolic reference without replacing one.

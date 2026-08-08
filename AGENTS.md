@@ -294,7 +294,14 @@ whenever dependencies change or the web job fails before it starts.
   commit, not the source snapshot. Queue entry reads derive `verifying`,
   `blocked`, or `passed` lifecycle state from candidate-bound attempts and
   expose the candidate/base/source IDs plus the same run IDs used by public
-  check logs and artifacts.
+  check logs and artifacts. The FIFO head advances the target with an atomic
+  compare-and-swap only after its current candidate passes. Remaining
+  candidates whose base is displaced are rebuilt and rechecked; superseded
+  attempts stay readable but cannot authorize publication. Live source
+  movement removes only that queued snapshot. Target movement rebuilds clean
+  candidates, while conflicts and failed or canceled checks block or remove
+  entries according to branch policy. Reconciliation is completion-driven and
+  periodically recovered after restarts.
   Pull-request change sessions live beneath `$CHANGE_SESSION_ROOT` (default
   `apps/api/data/change-sessions`) behind the `changesessions.Store` boundary.
   Any authenticated repository participant may start one on an open pull
