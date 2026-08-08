@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 )
 
@@ -23,7 +25,7 @@ type checkRunController interface {
 	Cancel(string, string, string, string) (checkruns.Run, error)
 }
 
-func registerCheckRunsHTTP(mux *http.ServeMux, runs checkRunStore, controller checkRunController, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) {
+func registerCheckRunsHTTP(mux *http.ServeMux, runs checkRunStore, controller checkRunController, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, sessions changeSessionStore, activity activityStore) {
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/check-runs", func(w http.ResponseWriter, r *http.Request) {
 		repository, _, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
 		if !ok {
@@ -164,4 +166,59 @@ func registerCheckRunsHTTP(mux *http.ServeMux, runs checkRunStore, controller ch
 	}
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/check-runs/{run}/rerun", func(w http.ResponseWriter, r *http.Request) { control(w, r, true) })
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/check-runs/{run}/cancel", func(w http.ResponseWriter, r *http.Request) { control(w, r, false) })
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/check-runs/{run}/change-session", func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		pullID := r.PathValue("pull_request")
+		pull, ok := readPullRequest(w, pulls, string(repository.ID), pullID)
+		if !ok {
+			return
+		}
+		if pull.Status != "open" {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "pull_request_not_open"})
+			return
+		}
+		run, err := runs.Get(string(repository.ID), pullID, r.PathValue("run"))
+		if errors.Is(err, os.ErrNotExist) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		if run.State != checkruns.Failed {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "check_not_failed"})
+			return
+		}
+		if run.CommitID != pull.SourceCommitID {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "check_revision_not_current"})
+			return
+		}
+		failure := changesessions.CheckFailure{RunID: run.ID, CommitID: run.CommitID, Name: run.Definition.Name, Command: run.Definition.Command, WorkingDirectory: run.Definition.WorkingDirectory, TimeoutSeconds: run.Definition.TimeoutSeconds, Environment: run.Definition.Environment, DeclaredArtifacts: run.Definition.Artifacts, Error: run.Error}
+		for _, event := range run.Events {
+			if event.Type == "log" {
+				failure.Logs = append(failure.Logs, changesessions.CheckLog{Sequence: event.Sequence, Stream: event.Stream, Message: event.Message})
+			}
+			if event.Artifact != nil {
+				failure.Artifacts = append(failure.Artifacts, changesessions.CheckArtifact{ID: event.Artifact.ID, Path: event.Artifact.Path, Size: event.Artifact.Size, SHA256: event.Artifact.SHA256, MediaType: event.Artifact.MediaType})
+			}
+			if event.Outcome != nil {
+				failure.ExitCode, failure.TimedOut = event.Outcome.ExitCode, event.Outcome.TimedOut
+			}
+		}
+		item, err := sessions.CreateWithCheckFailure(string(repository.ID), pullID, actor.UserID, run.CommitID, &failure)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		if err := recordActivity(activity, activities.Input{RepositoryID: string(repository.ID), ActorID: actor.UserID, Type: "change_session.started", Resource: activities.Resource{Type: "pull_request", ID: pullID}, Metadata: map[string]string{"session_id": item.ID, "source_commit_id": item.SourceCommitID, "check_run_id": run.ID}}); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		w.Header().Set("Location", "/repositories/"+string(repository.ID)+"/pull-requests/"+pullID+"/change-sessions/"+item.ID)
+		writeJSON(w, http.StatusCreated, item)
+	})
 }

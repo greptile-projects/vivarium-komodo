@@ -204,6 +204,21 @@ type ChangeSession = {
   pull_request_id: string;
   initiator_id: string;
   source_commit_id: string;
+  check_failure?: {
+    run_id: string;
+    commit_id: string;
+    name: string;
+    command: string;
+    working_directory?: string;
+    timeout_seconds: number;
+    environment?: Record<string, string>;
+    declared_artifacts?: string[];
+    logs: { sequence: number; stream: "stdout" | "stderr"; message: string }[];
+    artifacts: CheckArtifact[];
+    exit_code: number;
+    timed_out: boolean;
+    error?: string;
+  };
   state: "awaiting_instructions" | "delegated";
   created_at: string;
   updated_at: string;
@@ -2067,6 +2082,10 @@ function PullRequestDetail({
           runs={checks}
           readiness={readiness}
           onChanged={() => void load()}
+          onRepair={() => {
+            void load();
+            onSection("sessions");
+          }}
         />
       ) : (
         <PullDiscussion
@@ -2088,6 +2107,7 @@ function PullChecks({
   runs,
   readiness,
   onChanged,
+  onRepair,
 }: {
   repository: string;
   pull: PullRequest;
@@ -2095,6 +2115,7 @@ function PullChecks({
   runs: CheckRun[];
   readiness?: PullRequestReadiness;
   onChanged: () => void;
+  onRepair: () => void;
 }) {
   const [selected, setSelected] = useState(runs[0]?.id ?? "");
   const [detail, setDetail] = useState<CheckRun | undefined>(runs[0]);
@@ -2144,6 +2165,24 @@ function PullChecks({
       onChanged();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Check control failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startRepair = async () => {
+    if (!current) return;
+    setBusy(true);
+    setError("");
+    try {
+      await send<ChangeSession>(
+        `/repositories/${repository}/pull-requests/${pull.id}/check-runs/${current.id}/change-session`,
+        "POST",
+        {},
+      );
+      onRepair();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Repair session could not be started.");
     } finally {
       setBusy(false);
     }
@@ -2217,6 +2256,7 @@ function PullChecks({
         <div className="check-controls">
           {actor && active && <Button variant="secondary" disabled={busy} onClick={() => void control("cancel")}>Cancel check</Button>}
           {actor && !active && <Button variant="secondary" disabled={busy} onClick={() => void control("rerun")}>Rerun check</Button>}
+          {actor && shown.state === "failed" && shown.commit_id === pull.source_commit_id && pull.status === "open" && <Button disabled={busy} onClick={() => void startRepair()}><Sparkles size={14} />Start agent repair</Button>}
           {active && <span className="live-indicator">Live · refreshing output</span>}
         </div>
         {error && <p className="form-error" role="alert">{error}</p>}
@@ -2420,6 +2460,18 @@ function ChangeSessions({
                   {short(current.source_commit_id)}
                 </code>
               </header>
+              {current.check_failure && (
+                <section className="check-failure-context">
+                  <div>
+                    <p className="eyebrow">Repair context</p>
+                    <h4>Failed check · {current.check_failure.name}</h4>
+                    <p>Evidence captured from revision <code>{short(current.check_failure.commit_id)}</code>, exit {current.check_failure.exit_code}{current.check_failure.timed_out ? " (timed out)" : ""}.</p>
+                    <code>{current.check_failure.working_directory ? `${current.check_failure.working_directory} · ` : ""}{current.check_failure.command}</code>
+                  </div>
+                  <pre className="check-log">{current.check_failure.logs.length ? current.check_failure.logs.map((log) => <span className={log.stream} key={log.sequence}>{log.message}</span>) : <span className="quiet">No output captured.</span>}</pre>
+                  {current.check_failure.artifacts.length > 0 && <div className="check-artifacts"><h4>Captured artifacts</h4>{current.check_failure.artifacts.map((artifact) => <a className="artifact-row" key={artifact.id} href={`/api/repositories/${repository}/pull-requests/${pull.id}/check-runs/${current.check_failure!.run_id}/artifacts/${artifact.id}`}><File size={15}/><span><strong>{artifact.path}</strong><small>{formatSize(artifact.size)} · SHA-256 {short(artifact.sha256)}</small></span><span>Download</span></a>)}</div>}
+                </section>
+              )}
               {current.state === "awaiting_instructions" &&
               actor &&
               pull.status === "open" ? (

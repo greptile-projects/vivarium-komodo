@@ -233,16 +233,49 @@ func validSummaries(items []string, maximum int) bool {
 }
 
 type Session struct {
-	ID             string    `json:"id"`
-	RepositoryID   string    `json:"repository_id"`
-	PullRequestID  string    `json:"pull_request_id"`
-	InitiatorID    string    `json:"initiator_id"`
-	SourceCommitID string    `json:"source_commit_id"`
-	State          State     `json:"state"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	Events         []Event   `json:"events,omitempty"`
-	Runs           []Run     `json:"runs,omitempty"`
+	ID             string        `json:"id"`
+	RepositoryID   string        `json:"repository_id"`
+	PullRequestID  string        `json:"pull_request_id"`
+	InitiatorID    string        `json:"initiator_id"`
+	SourceCommitID string        `json:"source_commit_id"`
+	CheckFailure   *CheckFailure `json:"check_failure,omitempty"`
+	State          State         `json:"state"`
+	CreatedAt      time.Time     `json:"created_at"`
+	UpdatedAt      time.Time     `json:"updated_at"`
+	Events         []Event       `json:"events,omitempty"`
+	Runs           []Run         `json:"runs,omitempty"`
+}
+
+// CheckFailure is an immutable evidence snapshot used to start an informed
+// repair. Artifact bytes remain in check-run storage and are addressed by ID.
+type CheckFailure struct {
+	RunID             string            `json:"run_id"`
+	CommitID          string            `json:"commit_id"`
+	Name              string            `json:"name"`
+	Command           string            `json:"command"`
+	WorkingDirectory  string            `json:"working_directory,omitempty"`
+	TimeoutSeconds    int               `json:"timeout_seconds"`
+	Environment       map[string]string `json:"environment,omitempty"`
+	DeclaredArtifacts []string          `json:"declared_artifacts,omitempty"`
+	Logs              []CheckLog        `json:"logs"`
+	Artifacts         []CheckArtifact   `json:"artifacts"`
+	ExitCode          int               `json:"exit_code"`
+	TimedOut          bool              `json:"timed_out"`
+	Error             string            `json:"error,omitempty"`
+}
+
+type CheckLog struct {
+	Sequence int64  `json:"sequence"`
+	Stream   string `json:"stream"`
+	Message  string `json:"message"`
+}
+
+type CheckArtifact struct {
+	ID        string `json:"id"`
+	Path      string `json:"path"`
+	Size      int64  `json:"size"`
+	SHA256    string `json:"sha256"`
+	MediaType string `json:"media_type"`
 }
 
 type DelegateParams struct {
@@ -328,6 +361,10 @@ func New(root string) (*Store, error) {
 }
 
 func (s *Store) Create(repositoryID, pullRequestID, initiatorID, sourceCommitID string) (Session, error) {
+	return s.CreateWithCheckFailure(repositoryID, pullRequestID, initiatorID, sourceCommitID, nil)
+}
+
+func (s *Store) CreateWithCheckFailure(repositoryID, pullRequestID, initiatorID, sourceCommitID string, failure *CheckFailure) (Session, error) {
 	if repositoryID == "" || pullRequestID == "" || initiatorID == "" || sourceCommitID == "" {
 		return Session{}, ErrInvalid
 	}
@@ -342,7 +379,12 @@ func (s *Store) Create(repositoryID, pullRequestID, initiatorID, sourceCommitID 
 		return Session{}, err
 	}
 	now := s.now().UTC()
-	item := Session{ID: id, RepositoryID: repositoryID, PullRequestID: pullRequestID, InitiatorID: initiatorID, SourceCommitID: sourceCommitID, State: AwaitingInstructions, CreatedAt: now, UpdatedAt: now, Events: []Event{{ID: eventID, Type: "session.started", ActorID: initiatorID, Metadata: map[string]string{"source_commit_id": sourceCommitID}, CreatedAt: now}}}
+	metadata := map[string]string{"source_commit_id": sourceCommitID}
+	if failure != nil {
+		metadata["check_run_id"] = failure.RunID
+		metadata["check_name"] = failure.Name
+	}
+	item := Session{ID: id, RepositoryID: repositoryID, PullRequestID: pullRequestID, InitiatorID: initiatorID, SourceCommitID: sourceCommitID, CheckFailure: failure, State: AwaitingInstructions, CreatedAt: now, UpdatedAt: now, Events: []Event{{ID: eventID, Type: "session.started", ActorID: initiatorID, Metadata: metadata, CreatedAt: now}}}
 	if err := s.write(item); err != nil {
 		return Session{}, err
 	}

@@ -251,6 +251,11 @@ whenever dependencies change or the web job fails before it starts.
   request; reads follow ordinary repository visibility. Sessions snapshot the
   represented source commit, initiator, state, and ordered events so public API
   clients can reconnect without reading worker storage or execution logs.
+  A failed check on the pull request's current source revision may seed a
+  change session directly. That session immutably snapshots the failed commit,
+  copied check definition, ordered logs, outcome, and artifact identities;
+  preserve this evidence link when evolving agent delegation. Artifact bytes
+  remain owned by the originating check run and its repository read policy.
   Meaningful collaboration transitions are appended through the
   `activities.Store` boundary beneath `$ACTIVITY_ROOT` (default
   `apps/api/data/activities`). Repository activity retains stable actor and

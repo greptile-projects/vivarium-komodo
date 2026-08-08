@@ -254,6 +254,17 @@ The control resources are `POST .../check-runs/{run}/cancel` and `POST
 write participation; public and private read behavior for attempts, evidence,
 and artifacts remains unchanged.
 
+A failed attempt for the pull request's current source revision can become an
+agent repair workspace with `POST .../check-runs/{run}/change-session`. The
+new session captures that exact failed revision, the complete copied check
+definition, ordered stdout/stderr, command outcome, and retained artifact
+identities. Its artifacts continue to download from the originating run, so
+the check-run store and repository read policy remain authoritative. The web
+opens the resulting session beside its mandate form, letting a collaborator
+delegate without reconstructing the failure. A published descendant revision
+uses the existing agent publication path, which synchronizes the pull request
+and automatically queues the new revision's manifest-defined checks.
+
 Repository owners declare the quality bar for a target branch with `PUT
 /repositories/{repository}/required-checks`, supplying the branch and up to 20
 unique check names; `GET .../required-checks?branch={branch}` reads the policy
