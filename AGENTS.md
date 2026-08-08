@@ -286,6 +286,15 @@ whenever dependencies change or the web job fails before it starts.
   revisions captured beneath `$INTEGRATION_QUEUE_ROOT` (default
   `apps/api/data/integration-queue`). Queue admission does not weaken or replace
   review, permission, conflict, or required-check policy.
+  Admission materializes an immutable two-parent integration candidate in the
+  target repository without advancing a reference. Its first parent is the
+  latest eligible target commit and its second parent is the pull request's
+  exact reviewed source commit; cross-repository source objects are linked into
+  the target before construction. Required checks run against that candidate
+  commit, not the source snapshot. Queue entry reads derive `verifying`,
+  `blocked`, or `passed` lifecycle state from candidate-bound attempts and
+  expose the candidate/base/source IDs plus the same run IDs used by public
+  check logs and artifacts.
   Pull-request change sessions live beneath `$CHANGE_SESSION_ROOT` (default
   `apps/api/data/change-sessions`) behind the `changesessions.Store` boundary.
   Any authenticated repository participant may start one on an open pull

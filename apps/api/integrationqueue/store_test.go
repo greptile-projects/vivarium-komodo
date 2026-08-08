@@ -7,22 +7,22 @@ func TestQueuePreservesAdmissionOrderAndSnapshots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := store.Enqueue("repo", "pull-1", "main", "source-1", "target-1", "owner")
+	first, err := store.Enqueue("repo", "pull-1", "main", "source-1", "target-1", "candidate-1", "tree-1", "owner", []string{"unit"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := store.Enqueue("repo", "pull-2", "main", "source-2", "target-1", "owner")
+	second, err := store.Enqueue("repo", "pull-2", "main", "source-2", "target-1", "candidate-2", "tree-2", "owner", []string{"unit"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.Position != 1 || second.Position != 2 {
 		t.Fatalf("positions = %d, %d", first.Position, second.Position)
 	}
-	if _, err := store.Enqueue("repo", "pull-1", "main", "source-1", "target-1", "owner"); err != ErrConflict {
+	if _, err := store.Enqueue("repo", "pull-1", "main", "source-1", "target-1", "candidate-1", "tree-1", "owner", []string{"unit"}); err != ErrConflict {
 		t.Fatalf("duplicate error = %v", err)
 	}
 	items, err := store.List("repo", "main")
-	if err != nil || len(items) != 2 || items[0].PullRequestID != "pull-1" || items[1].SourceCommitID != "source-2" || items[1].TargetCommitID != "target-1" {
+	if err != nil || len(items) != 2 || items[0].PullRequestID != "pull-1" || items[0].CandidateCommitID != "candidate-1" || items[0].CandidateTreeID != "tree-1" || len(items[0].RequiredChecks) != 1 || items[1].SourceCommitID != "source-2" || items[1].TargetCommitID != "target-1" {
 		t.Fatalf("items = %#v, %v", items, err)
 	}
 	reopened, err := New(store.root)
