@@ -395,6 +395,14 @@ whenever dependencies change or the web job fails before it starts.
   attestation. Failed or successful steps may be rerun against their original
   immutable definition and commit without replacing earlier evidence. The web surface is the
   shareable `view=releases&release={id}` repository tab.
+  Governed delivery is stored beneath `$DEPLOYMENT_ROOT` (default
+  `apps/api/data/deployments`). Owners define ordered environments with
+  commands, scoped configuration, encrypted write-only credentials, required
+  independent approvals, and concurrency limits. Participants promote one
+  artifact from a currently verified release build; deployments retain the
+  exact release, source commit, build attempt, artifact checksum, initiator,
+  approvers, state transitions, and redacted logs. Never return environment
+  secret values or replace this evidence when adding health and rollback.
   Meaningful collaboration transitions are appended through the
   `activities.Store` boundary beneath `$ACTIVITY_ROOT` (default
   `apps/api/data/activities`). Repository activity retains stable actor and

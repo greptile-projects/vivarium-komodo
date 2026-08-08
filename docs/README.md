@@ -22,6 +22,25 @@ read policy. A terminal attempt can be rerun from its captured commit and
 command; the prior logs, outcome, and artifacts remain available, and the
 attestation derives verification from the newest attempt for every named build.
 
+## Governed release delivery
+
+Repository owners define an ordered environment chain through the environment
+API. Each environment captures its deployment command, scoped non-secret
+configuration, required independent approval count, and concurrency limit.
+Credential values are encrypted separately beneath `$DEPLOYMENT_ROOT`, are
+represented publicly only by their names, and are injected only into the
+deployment process. Output is redacted against all injected values.
+
+Repository participants may promote one retained artifact from a currently
+verified release. The promotion snapshots the release and source commit,
+successful build attempt, artifact identity, path, and SHA-256 digest. It stays
+pending until enough collaborators other than the initiator approve, then runs
+with `KOMODO_ARTIFACT_PATH`, `KOMODO_ARTIFACT_SHA256`, `KOMODO_RELEASE_ID`, and
+`KOMODO_SOURCE_COMMIT` available to the configured command. Public deployment
+records retain ordered initiation, approval, state, and redacted log events;
+the Releases web view polls that contract for live status. `$DEPLOYMENT_ROOT`
+defaults to `apps/api/data/deployments` in the root development command.
+
 ## Entrypoints
 
 - `apps/web` — Next.js frontend. Starts at `src/app/page.tsx`; routes are
