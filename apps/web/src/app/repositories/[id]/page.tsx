@@ -211,6 +211,38 @@ type ChangeSession = {
   runs?: AgentRun[];
 };
 type ChangeSessionList = { items: ChangeSession[]; total_count: number };
+type CheckArtifact = {
+  id: string;
+  path: string;
+  size: number;
+  sha256: string;
+  media_type: string;
+};
+type CheckEvent = {
+  sequence: number;
+  type: "status" | "log" | "command" | "artifact";
+  timestamp: string;
+  status?: CheckRun["state"];
+  stream?: "stdout" | "stderr";
+  message?: string;
+  actor_id?: string;
+  outcome?: { exit_code: number; timed_out: boolean };
+  artifact?: CheckArtifact;
+};
+type CheckRun = {
+  id: string;
+  commit_id: string;
+  definition: { name: string; command: string };
+  state: "queued" | "running" | "succeeded" | "failed" | "canceled";
+  triggered_by_id?: string;
+  retry_of_id?: string;
+  canceled_by_id?: string;
+  created_at: string;
+  started_at?: string;
+  completed_at?: string;
+  events: CheckEvent[];
+};
+type CheckRunList = { items: CheckRun[]; total_count: number };
 type ReadinessBranch = {
   name: string;
   exists: boolean;
@@ -1786,6 +1818,8 @@ function PullRequestDetail({
           ? "discussion"
           : section === "sessions"
             ? "sessions"
+            : section === "checks"
+              ? "checks"
             : "overview";
   const [item, setItem] = useState<PullRequest>();
   const [commits, setCommits] = useState<PullRequestCommit[]>([]);
@@ -1793,6 +1827,7 @@ function PullRequestDetail({
   const [comments, setComments] = useState<PullRequestComment[]>([]);
   const [reviews, setReviews] = useState<PullRequestReview[]>([]);
   const [sessions, setSessions] = useState<ChangeSession[]>([]);
+  const [checks, setChecks] = useState<CheckRun[]>([]);
   const [readiness, setReadiness] = useState<PullRequestReadiness>();
   const [proposal, setProposal] = useState<Proposal>();
   const [loading, setLoading] = useState(true);
@@ -1810,6 +1845,7 @@ function PullRequestDetail({
         commentData,
         reviewData,
         sessionData,
+        checkData,
         readyData,
         linked,
       ] = await Promise.all([
@@ -1828,6 +1864,9 @@ function PullRequestDetail({
         get<ChangeSessionList>(
           `/repositories/${repository}/pull-requests/${id}/change-sessions?per_page=100`,
         ),
+        get<CheckRunList>(
+          `/repositories/${repository}/pull-requests/${id}/check-runs?per_page=100`,
+        ),
         get<PullRequestReadiness>(
           `/repositories/${repository}/pull-requests/${id}/readiness`,
         ),
@@ -1843,6 +1882,7 @@ function PullRequestDetail({
       setComments(commentData.items);
       setReviews(reviewData.items);
       setSessions(sessionData.items);
+      setChecks(checkData.items);
       setReadiness(readyData);
       setProposal(linked);
     } catch (cause) {
@@ -1955,6 +1995,12 @@ function PullRequestDetail({
           Overview
         </button>
         <button
+          className={active === "checks" ? "active" : ""}
+          onClick={() => onSection("checks")}
+        >
+          Checks <span>{checks.length}</span>
+        </button>
+        <button
           className={active === "commits" ? "active" : ""}
           onClick={() => onSection("commits")}
         >
@@ -2002,6 +2048,14 @@ function PullRequestDetail({
           sessions={sessions}
           onChanged={() => void load()}
         />
+      ) : active === "checks" ? (
+        <PullChecks
+          repository={repository}
+          pull={item}
+          actor={actor}
+          runs={checks}
+          onChanged={() => void load()}
+        />
       ) : (
         <PullDiscussion
           repository={repository}
@@ -2011,6 +2065,118 @@ function PullRequestDetail({
           onChanged={() => void load()}
         />
       )}
+    </section>
+  );
+}
+
+function PullChecks({
+  repository,
+  pull,
+  actor,
+  runs,
+  onChanged,
+}: {
+  repository: string;
+  pull: PullRequest;
+  actor: string;
+  runs: CheckRun[];
+  onChanged: () => void;
+}) {
+  const [selected, setSelected] = useState(runs[0]?.id ?? "");
+  const [detail, setDetail] = useState<CheckRun | undefined>(runs[0]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const current = runs.find((run) => run.id === selected) ?? runs[0];
+
+  useEffect(() => {
+    if (!current) return;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const value = await get<CheckRun>(
+          `/repositories/${repository}/pull-requests/${pull.id}/check-runs/${current.id}`,
+        );
+        if (active) setDetail(value);
+      } catch {
+        // Keep the last durable snapshot visible during transient reconnects.
+      }
+    };
+    void refresh();
+    const timer =
+      current.state === "queued" || current.state === "running"
+        ? window.setInterval(refresh, 2000)
+        : undefined;
+    return () => {
+      active = false;
+      if (timer) window.clearInterval(timer);
+    };
+  }, [current, repository, pull.id]);
+
+  const control = async (action: "cancel" | "rerun") => {
+    if (!current) return;
+    setBusy(true);
+    setError("");
+    try {
+      const next = await send<CheckRun>(
+        `/repositories/${repository}/pull-requests/${pull.id}/check-runs/${current.id}/${action}`,
+        "POST",
+      );
+      setSelected(next.id);
+      setDetail(next);
+      onChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Check control failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!runs.length)
+    return (
+      <section className="checks-empty panel">
+        <Check size={20} />
+        <h3>No verification configured</h3>
+        <p>This revision does not declare checks in <code>.komodo/checks.json</code>.</p>
+      </section>
+    );
+
+  const shown = detail?.id === current?.id ? detail : current;
+  const logs = shown?.events.filter((event) => event.type === "log") ?? [];
+  const artifacts = shown?.events.flatMap((event) => event.artifact ? [event.artifact] : []) ?? [];
+  const active = shown?.state === "queued" || shown?.state === "running";
+  return (
+    <section className="checks-workspace">
+      <aside className="check-attempts panel" aria-label="Check attempts">
+        <header><div><h3>Verification attempts</h3><p>Live and historical runs for every revision.</p></div><Badge>{runs.length}</Badge></header>
+        {runs.map((run) => (
+          <button key={run.id} className={run.id === shown?.id ? "selected" : ""} onClick={() => { setSelected(run.id); setDetail(run); }}>
+            <span className={`check-state ${run.state}`}>{run.state === "succeeded" ? <Check size={14} /> : <Clock size={14} />}</span>
+            <span><strong>{run.definition.name}</strong><small>{short(run.commit_id)} · {new Date(run.created_at).toLocaleString()}</small></span>
+            <Badge tone={run.state === "succeeded" ? "accent" : "neutral"}>{run.state}</Badge>
+          </button>
+        ))}
+      </aside>
+      {shown && <article className="check-detail panel">
+        <header>
+          <div><p className="eyebrow">{shown.retry_of_id ? "Rerun attempt" : "Automatic attempt"}</p><h3>{shown.definition.name}</h3><code>{shown.definition.command}</code></div>
+          <span className={`check-status ${shown.state}`}>{shown.state}</span>
+        </header>
+        <dl className="check-meta">
+          <div><dt>Revision</dt><dd><code>{short(shown.commit_id)}</code></dd></div>
+          <div><dt>Started</dt><dd>{shown.started_at ? new Date(shown.started_at).toLocaleString() : "Waiting"}</dd></div>
+          <div><dt>Requested by</dt><dd>{shown.triggered_by_id ? <Actor id={shown.triggered_by_id} compact /> : "Automatic trigger"}</dd></div>
+          {shown.canceled_by_id && <div><dt>Canceled by</dt><dd><Actor id={shown.canceled_by_id} compact /></dd></div>}
+        </dl>
+        <div className="check-controls">
+          {actor && active && <Button variant="secondary" disabled={busy} onClick={() => void control("cancel")}>Cancel check</Button>}
+          {actor && !active && <Button variant="secondary" disabled={busy} onClick={() => void control("rerun")}>Rerun check</Button>}
+          {active && <span className="live-indicator">Live · refreshing output</span>}
+        </div>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="check-log-heading"><h4>Logs</h4><span>{logs.length} chunks</span></div>
+        <pre className="check-log" aria-live="polite">{logs.length ? logs.map((event) => <span className={event.stream} key={event.sequence}>{event.message}</span>) : <span className="quiet">No output captured.</span>}</pre>
+        <div className="check-artifacts"><h4>Artifacts</h4>{artifacts.length ? artifacts.map((artifact) => <a className="artifact-row" key={artifact.id} href={`/api/repositories/${repository}/pull-requests/${pull.id}/check-runs/${shown.id}/artifacts/${artifact.id}`}><File size={15}/><span><strong>{artifact.path}</strong><small>{formatSize(artifact.size)} · SHA-256 {short(artifact.sha256)}</small></span><span>Download</span></a>) : <p>No artifacts retained for this attempt.</p>}</div>
+      </article>}
     </section>
   );
 }
