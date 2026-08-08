@@ -288,6 +288,17 @@ materialized, the environment is cleared before declared values are installed,
 and every process is killed at its configured timeout. The API runtime therefore
 requires `bwrap` on `PATH` in addition to Git.
 
+The connected verification workflow is covered by a black-box test that opens
+a pull request through the public API, executes its repository-defined check in
+the real sandbox, inspects the failed logs and artifact, and starts an
+evidence-backed agent repair session. The worker publishes its descendant
+revision through stock Git and the credential-bound publication API; the test
+then observes the new check pass, verifies required-check readiness selects
+that exact commit and attempt, and reviews and merges through the ordinary pull
+request contract. Both the original failed evidence and repaired successful
+attempt remain readable after merge, so the safety decision does not depend on
+ephemeral runner state.
+
 ## Human identity
 
 The API exposes durable human accounts as JSON resources. Accounts live beneath
