@@ -238,6 +238,13 @@ whenever dependencies change or the web job fails before it starts.
   attempts and rerun terminal attempts. A rerun copies the original exact
   commit and check definition into a new durable attempt, while requester and
   canceler stable user IDs remain visible on the run and its evidence stream.
+  Repository owners select required check names per target branch through the
+  repository required-checks resource. Readiness and merge both evaluate the
+  newest attempt for each required name against the pull request's exact source
+  commit; a result for any other commit is stale, and missing, queued/running,
+  failed, canceled, or stale requirements block publication. Preserve the
+  readiness response's target branch, evaluated commit, requirement names,
+  attempt identities, and attempt commits so clients can explain the decision.
   Pull-request change sessions live beneath `$CHANGE_SESSION_ROOT` (default
   `apps/api/data/change-sessions`) behind the `changesessions.Store` boundary.
   Any authenticated repository participant may start one on an open pull

@@ -34,15 +34,51 @@ const (
 )
 
 type Repository struct {
-	ID              storage.ID `json:"id"`
-	OwnerID         string     `json:"owner_id"`
-	Name            string     `json:"name"`
-	Description     string     `json:"description"`
-	Visibility      Visibility `json:"visibility"`
-	Empty           bool       `json:"empty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	CollaboratorIDs []string   `json:"collaborator_ids,omitempty"`
+	ID              storage.ID          `json:"id"`
+	OwnerID         string              `json:"owner_id"`
+	Name            string              `json:"name"`
+	Description     string              `json:"description"`
+	Visibility      Visibility          `json:"visibility"`
+	Empty           bool                `json:"empty"`
+	CreatedAt       time.Time           `json:"created_at"`
+	UpdatedAt       time.Time           `json:"updated_at"`
+	CollaboratorIDs []string            `json:"collaborator_ids,omitempty"`
+	RequiredChecks  map[string][]string `json:"required_checks,omitempty"`
+}
+
+func (s *Store) SetRequiredChecks(ownerID string, id storage.ID, branch string, checks []string) (Repository, error) {
+	branch = strings.TrimSpace(branch)
+	if branch == "" || strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, "/") || strings.Contains(branch, "..") || strings.ContainsAny(branch, " ~^:?*[\\") || len(checks) > 20 {
+		return Repository{}, ErrInvalidRepository
+	}
+	seen := map[string]bool{}
+	for i := range checks {
+		checks[i] = strings.TrimSpace(checks[i])
+		if checks[i] == "" || len(checks[i]) > 100 || seen[checks[i]] {
+			return Repository{}, ErrInvalidRepository
+		}
+		seen[checks[i]] = true
+	}
+	sort.Strings(checks)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(id)
+	if err != nil || item.OwnerID != ownerID {
+		return Repository{}, ErrNotFound
+	}
+	if item.RequiredChecks == nil {
+		item.RequiredChecks = map[string][]string{}
+	}
+	if len(checks) == 0 {
+		delete(item.RequiredChecks, branch)
+	} else {
+		item.RequiredChecks[branch] = append([]string(nil), checks...)
+	}
+	item.UpdatedAt = s.now().UTC()
+	if err := s.write(item); err != nil {
+		return Repository{}, err
+	}
+	return item, nil
 }
 
 func (s *Store) AddCollaborator(ownerID string, id storage.ID, userID string) (Repository, error) {

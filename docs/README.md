@@ -254,6 +254,21 @@ The control resources are `POST .../check-runs/{run}/cancel` and `POST
 write participation; public and private read behavior for attempts, evidence,
 and artifacts remains unchanged.
 
+Repository owners declare the quality bar for a target branch with `PUT
+/repositories/{repository}/required-checks`, supplying the branch and up to 20
+unique check names; `GET .../required-checks?branch={branch}` reads the policy
+through ordinary repository visibility rules. The pull request Checks view
+lets maintainers select names observed in its repository-defined manifest.
+
+Readiness evaluates each required name against the pull request's exact source
+commit and reports the target branch, evaluated commit, requirement name,
+selected run and run commit, and one of `missing`, `pending`, `failed`,
+`canceled`, `stale`, or `succeeded`. Only `succeeded` satisfies a requirement;
+a successful run from a different revision is explicitly stale. The merge
+endpoint repeats this commit-bound evaluation independently, so bypassing the
+readiness UI cannot publish a revision that did not pass every target-branch
+requirement.
+
 Each command receives a newly materialized copy of its exact Git snapshot with
 no `.git` directory or credentials. Bubblewrap gives it a private process,
 mount, IPC, user, and network namespace; only the writable snapshot, disposable

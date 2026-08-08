@@ -17,6 +17,7 @@ import (
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -44,15 +45,22 @@ type checkRunStarter interface {
 	Start(string, string, string) error
 }
 
+type readinessCheckStore interface {
+	List(string, string) ([]checkruns.Run, error)
+}
+
 func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, extras ...any) {
 	var activity activityStore
 	var checks checkRunStarter
+	var checkResults readinessCheckStore
 	for _, extra := range extras {
 		switch value := extra.(type) {
 		case activityStore:
 			activity = value
 		case checkRunStarter:
 			checks = value
+		case readinessCheckStore:
+			checkResults = value
 		}
 	}
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests", createPullRequest(store, proposalStore, repositories, credentials, activity, checks))
@@ -66,8 +74,8 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/reviews/me", putPullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("DELETE /repositories/{repository}/pull-requests/{pull_request}/reviews/me", deletePullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
-	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials))
-	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequest(store, proposalStore, repositories, credentials, activity))
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequest(store, proposalStore, repositories, credentials, activity, checkResults))
 }
 
 func synchronizePullRequest(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, checks checkRunStarter) http.HandlerFunc {
@@ -143,10 +151,24 @@ type readinessResponse struct {
 	SourceBranch readinessBranch    `json:"source_branch"`
 	TargetBranch readinessBranch    `json:"target_branch"`
 	Reviews      readinessReviews   `json:"reviews"`
+	Checks       readinessChecks    `json:"checks"`
 	Blockers     []readinessBlocker `json:"blockers"`
 }
 
-func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+type readinessCheck struct {
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	RunID    string `json:"run_id,omitempty"`
+	CommitID string `json:"commit_id,omitempty"`
+}
+type readinessChecks struct {
+	TargetBranch string           `json:"target_branch"`
+	CommitID     string           `json:"commit_id"`
+	Requirements []readinessCheck `json:"requirements"`
+	Satisfied    bool             `json:"satisfied"`
+}
+
+func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, checkStore readinessCheckStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
 		if !ok {
@@ -168,6 +190,7 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 			SourceBranch: inspectReadinessBranch(opened, item.SourceBranch, item.SourceCommitID),
 			TargetBranch: inspectReadinessBranch(opened, item.TargetBranch, item.TargetCommitID),
 			Reviews:      readinessReviews{RequiredOwnerApprovals: 1},
+			Checks:       readinessChecks{TargetBranch: item.TargetBranch, CommitID: item.SourceCommitID, Requirements: []readinessCheck{}, Satisfied: true},
 			Blockers:     []readinessBlocker{},
 		}
 		addBlocker := func(code, message string) {
@@ -208,6 +231,22 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 		if response.Reviews.CurrentChangeRequests > 0 {
 			addBlocker("changes_requested", "A current review requests changes.")
 		}
+		runs := []checkruns.Run{}
+		if checkStore != nil {
+			var err error
+			runs, err = checkStore.List(string(repository.ID), item.ID)
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+		}
+		response.Checks = evaluateRequiredChecks(repository.RequiredChecks[item.TargetBranch], item.SourceCommitID, runs)
+		response.Checks.TargetBranch = item.TargetBranch
+		for _, requirement := range response.Checks.Requirements {
+			if requirement.Status != "succeeded" {
+				addBlocker("required_check_"+requirement.Status, "Required check ‘"+requirement.Name+"’ is "+requirement.Status+" for revision "+item.SourceCommitID+".")
+			}
+		}
 
 		if response.SourceBranch.Exists && response.SourceBranch.MatchesPullRequest && response.TargetBranch.Exists {
 			hasConflicts, err := mergeHasConflicts(r.Context(), opened, storage.ObjectID(response.TargetBranch.CommitID), storage.ObjectID(response.SourceBranch.CommitID))
@@ -228,6 +267,37 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 	}
 }
 
+func evaluateRequiredChecks(required []string, commitID string, runs []checkruns.Run) readinessChecks {
+	result := readinessChecks{CommitID: commitID, Requirements: []readinessCheck{}, Satisfied: true}
+	for _, name := range required {
+		entry := readinessCheck{Name: name, Status: "missing"}
+		var stale *checkruns.Run
+		for i := range runs {
+			if runs[i].Definition.Name != name {
+				continue
+			}
+			if stale == nil {
+				stale = &runs[i]
+			}
+			if runs[i].CommitID == commitID {
+				entry.RunID, entry.CommitID, entry.Status = runs[i].ID, runs[i].CommitID, string(runs[i].State)
+				break
+			}
+		}
+		if entry.Status == "missing" && stale != nil {
+			entry.RunID, entry.CommitID, entry.Status = stale.ID, stale.CommitID, "stale"
+		}
+		if entry.Status == string(checkruns.Queued) || entry.Status == string(checkruns.Running) {
+			entry.Status = "pending"
+		}
+		if entry.Status != "succeeded" {
+			result.Satisfied = false
+		}
+		result.Requirements = append(result.Requirements, entry)
+	}
+	return result
+}
+
 func inspectReadinessBranch(repository *storage.Repository, name, snapshotCommitID string) readinessBranch {
 	branch := readinessBranch{Name: name, SnapshotCommitID: snapshotCommitID}
 	if id, _, found := branchTip(repository, name); found {
@@ -238,7 +308,7 @@ func inspectReadinessBranch(repository *storage.Repository, name, snapshotCommit
 	return branch
 }
 
-func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
+func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, checkStore readinessCheckStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -286,6 +356,21 @@ func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repos
 		if !ownerApproved {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "pull_request_not_ready"})
 			return
+		}
+		if required := repository.RequiredChecks[item.TargetBranch]; len(required) > 0 {
+			if checkStore == nil {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "pull_request_not_ready"})
+				return
+			}
+			runs, err := checkStore.List(string(repository.ID), item.ID)
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			if !evaluateRequiredChecks(required, item.SourceCommitID, runs).Satisfied {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "pull_request_not_ready"})
+				return
+			}
 		}
 		hasConflicts, err := mergeHasConflicts(r.Context(), opened, target, source)
 		if err != nil {
