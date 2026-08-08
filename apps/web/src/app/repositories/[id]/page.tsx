@@ -366,6 +366,13 @@ type IntegrationQueueEntry = {
   checks: PullRequestReadiness["checks"];
 };
 type IntegrationQueueEntries = { items: IntegrationQueueEntry[]; total_count: number; policy: IntegrationQueuePolicy };
+type ReleaseCandidate = {
+  id: string; repository_id: string; version: string; notes: string; commit_id: string;
+  prior_release_id?: string; prior_commit_id?: string; status: "candidate"; created_by_id: string; created_at: string;
+  pull_requests: Array<{ id: string; title: string; author_id: string; merge_commit_id: string }>;
+  proposal_ids: string[]; task_ids: string[]; contributor_ids: string[];
+};
+type ReleaseList = { items: ReleaseCandidate[]; total_count: number };
 type UserRecord = { id: string; handle: string; display_name: string };
 type Collaborator = {
   user_id: string;
@@ -479,6 +486,7 @@ export default function RepositoryPage({
     q?: string;
     pull?: string;
     section?: string;
+    release?: string;
   }>;
 }) {
   const { id } = use(params);
@@ -495,6 +503,8 @@ export default function RepositoryPage({
           ? "pulls"
           : query.view === "queue"
             ? "queue"
+          : query.view === "releases"
+            ? "releases"
           : query.view === "people"
             ? "people"
             : "code";
@@ -536,6 +546,7 @@ export default function RepositoryPage({
         view === "proposals" ||
         view === "pulls" ||
         view === "queue" ||
+        view === "releases" ||
         view === "people" ||
         repo.empty ||
         !selected
@@ -598,6 +609,7 @@ export default function RepositoryPage({
       nextView !== "proposals" &&
       nextView !== "pulls" &&
       nextView !== "queue" &&
+      nextView !== "releases" &&
       nextView !== "people"
     ) {
       const nextRef = next.ref ?? ref;
@@ -702,6 +714,13 @@ export default function RepositoryPage({
           Integration queue
         </button>
         <button
+          className={view === "releases" ? "active" : ""}
+          onClick={() => navigate({ view: "releases", path: "" })}
+        >
+          <Sparkles size={15} />
+          Releases
+        </button>
+        <button
           className={view === "commits" ? "active" : ""}
           onClick={() => navigate({ view: "commits", path: "" })}
         >
@@ -750,6 +769,8 @@ export default function RepositoryPage({
         />
       ) : view === "queue" ? (
         <IntegrationQueueWorkspace repository={repository} branches={branches.items} initialBranch={revision || branches.default_branch} actor={actor} onBranch={(branch) => navigate({ view: "queue", ref: branch, path: "" })} />
+      ) : view === "releases" ? (
+        <ReleaseWorkspace repository={repository} branches={branches.items} actor={actor} selected={query.release} />
       ) : view === "people" && actor === repository.owner_id ? (
         <CollaboratorWorkspace repository={id} />
       ) : repository.empty ? (
@@ -1159,6 +1180,53 @@ function CollaboratorWorkspace({ repository }: { repository: string }) {
       </section>
     </section>
   );
+}
+
+function ReleaseWorkspace({ repository, branches, actor, selected }: { repository: Repository; branches: BranchRecord[]; actor: string; selected?: string }) {
+  const [items, setItems] = useState<ReleaseCandidate[]>([]);
+  const [current, setCurrent] = useState<ReleaseCandidate>();
+  const [creating, setCreating] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const authorized = actor === repository.owner_id || repository.collaborator_ids?.includes(actor);
+  const load = useCallback(async () => {
+    try {
+      const result = await get<ReleaseList>(`/repositories/${repository.id}/releases?per_page=100`);
+      setItems(result.items);
+      setCurrent(result.items.find((item) => item.id === selected) ?? result.items[0]);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Releases unavailable."); }
+  }, [repository.id, selected]);
+  useEffect(() => {
+    // Release state follows the shareable selected-release URL.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  }, [load]);
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setPending(true); setError("");
+    const data = new FormData(event.currentTarget);
+    try {
+      const item = await send<ReleaseCandidate>(`/repositories/${repository.id}/releases`, "POST", { version: data.get("version"), notes: data.get("notes"), commit_id: data.get("commit"), prior_release_id: data.get("prior") || "" });
+      setCreating(false); await load(); setCurrent(item);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not define release."); } finally { setPending(false); }
+  }
+  return <div className="release-workspace">
+    <header className="release-heading"><div><p className="eyebrow">Immutable delivery candidates</p><h2>Releases</h2><p>Capture exactly what will ship and the integrated work it contains before build or promotion begins.</p></div>{authorized && <Button onClick={() => setCreating((value) => !value)}><Plus size={14}/>Define release</Button>}</header>
+    {creating && <form className="panel release-form" onSubmit={submit}>
+      <label>Version<input name="version" required maxLength={100} placeholder="v1.0.0" /></label>
+      <label>Exact repository state<select name="commit" required defaultValue={branches.find((branch) => branch.is_default)?.commit_id ?? branches[0]?.commit_id}>{branches.map((branch) => <option value={branch.commit_id} key={branch.name}>{branch.name} · {short(branch.commit_id)}</option>)}</select></label>
+      <label>Compare since<select name="prior" defaultValue=""><option value="">Beginning of history</option>{items.map((item) => <option value={item.id} key={item.id}>{item.version} · {short(item.commit_id)}</option>)}</select></label>
+      <label className="release-notes">Release notes<textarea name="notes" rows={5} maxLength={65536} placeholder="Explain why this state is ready to deliver and what participants should know." /></label>
+      {error && <p className="form-error" role="alert">{error}</p>}<div className="release-form-actions"><Button variant="secondary" type="button" onClick={() => setCreating(false)}>Cancel</Button><Button disabled={pending}>{pending ? "Capturing…" : "Capture candidate"}</Button></div>
+    </form>}
+    {!creating && error && <p className="form-error" role="alert">{error}</p>}
+    {items.length === 0 && !creating ? <section className="panel release-empty"><Sparkles/><h3>No release candidates yet</h3><p>Select an exact branch tip and capture the work that led to it.</p></section> : <div className="release-layout">
+      <aside className="panel release-list">{items.map((item) => <Link className={current?.id === item.id ? "active" : ""} href={`/repositories/${repository.id}?view=releases&release=${item.id}`} key={item.id}><span><strong>{item.version}</strong><small>{new Date(item.created_at).toLocaleString()}</small></span><Badge tone="accent">{item.status}</Badge><code>{short(item.commit_id)}</code></Link>)}</aside>
+      {current && <section className="panel release-detail"><header><div><p className="eyebrow">Release candidate</p><h2>{current.version}</h2></div><Badge tone="accent">{current.status}</Badge></header><div className="release-source"><span><small>Exact source commit</small><code>{current.commit_id}</code></span><span><small>Defined by</small><strong><Actor id={current.created_by_id}/></strong></span><span><small>Captured</small><strong>{new Date(current.created_at).toLocaleString()}</strong></span>{current.prior_release_id && <span><small>Changes since</small><Link href={`/repositories/${repository.id}?view=releases&release=${current.prior_release_id}`}>{items.find((item) => item.id === current.prior_release_id)?.version ?? short(current.prior_release_id)}</Link></span>}</div>
+      <article className="release-copy"><h3>Release notes</h3><p>{current.notes || "No release notes were supplied."}</p></article>
+      <article className="release-inclusions"><h3>Included collaboration</h3><div className="release-counts"><span><strong>{current.pull_requests.length}</strong> pull requests</span><span><strong>{current.proposal_ids.length}</strong> proposals</span><span><strong>{current.task_ids.length}</strong> tasks</span><span><strong>{current.contributor_ids.length}</strong> contributors</span></div>{current.pull_requests.length > 0 ? current.pull_requests.map((pull) => <div className="release-pull" key={pull.id}><GitPullRequest size={15}/><span><Link href={`/repositories/${repository.id}?view=pulls&pull=${pull.id}`}>{pull.title}</Link><small>by <Actor id={pull.author_id}/> · merge <code>{short(pull.merge_commit_id)}</code></small></span></div>) : <p>No merged pull requests fall within this history range.</p>}
+      {(current.proposal_ids.length > 0 || current.task_ids.length > 0) && <small className="release-links">Proposal links: {current.proposal_ids.map((id, index) => <span key={id}>{index > 0 ? ", " : ""}<Link href={`/repositories/${repository.id}?view=proposals&proposal=${id}`}>{short(id)}</Link></span>)}{current.task_ids.length > 0 && ` · ${current.task_ids.length} linked delivery ${current.task_ids.length === 1 ? "task" : "tasks"}`}</small>}</article></section>}
+    </div>}
+  </div>;
 }
 
 function IntegrationQueueWorkspace({ repository, branches, initialBranch, actor, onBranch }: { repository: Repository; branches: BranchRecord[]; initialBranch: string; actor: string; onBranch: (branch: string) => void }) {

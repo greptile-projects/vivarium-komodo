@@ -906,6 +906,27 @@ repository passes `git fsck --full`, proving both reachable graph integrity and
 the validity of enumerated unreachable objects without writing storage files
 outside the package boundary.
 
+## Release definitions
+
+Repository participants define immutable delivery candidates through `POST
+/repositories/{id}/releases`; public or participant readers inspect the
+paginated collection and individual records through the corresponding `GET`
+resources. A definition captures a repository-unique version, release notes,
+an exact verified commit, stable creator and creation time, and the `candidate`
+lifecycle state. Data is owned by `releases.Store` beneath `$RELEASE_ROOT`,
+defaulting to `apps/api/data/releases`.
+
+An optional `prior_release_id` establishes the comparison boundary. The API
+requires its captured commit to be an ancestor of the new source commit, then
+walks repository history itself. It snapshots every merged pull request whose
+merge commit is reachable from the candidate but not the prior release, along
+with linked proposal and task IDs and deduplicated pull-request author IDs.
+Clients cannot submit inclusion or contributor claims, so later build,
+attestation, and promotion work can depend on one durable account of exactly
+what is being delivered and why. The repository Releases tab exposes this
+contract at `view=releases`; `release={id}` keeps the inspected candidate
+shareable.
+
 ## Git remote access
 
 A repository's authenticated smart-HTTP remote URL is
