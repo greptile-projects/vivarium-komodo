@@ -90,6 +90,13 @@ whenever dependencies change or the web job fails before it starts.
   both exact branch revisions. Resolve live source state, synchronization,
   commits, and the new side of file comparisons through the source repository;
   never assume the source branch or its pushed objects exist in the target.
+  Cross-repository source writes remain under fork-owner control while review,
+  checks, closure, and merge remain target policy. Authors may opt in to
+  maintainer modification; an upstream owner or existing pull-request
+  participant then receives a 24-hour Git credential limited to the fork and
+  exact contribution branch. Disabling the policy or closing the request
+  revokes those credentials. Merge links immutable source objects into the
+  target without sharing refs or granting general fork access.
   Agent collaboration begins in the pull request's `section=sessions` view.
   Change sessions retain their initiating user, captured pull request source
   commit, current state, and ordered public timeline; keep later worker

@@ -151,7 +151,10 @@ func authorizeGitRepository(w http.ResponseWriter, r *http.Request, store gitRep
 			return nil, false, auth.Grant{}, false
 		}
 	}
-	if authenticated && !owner && !collaborator && (!read || item.Visibility != repositories.Public) {
+	// A repository-and-branch scoped credential is an explicit, narrow write
+	// delegation. It does not make its holder a repository collaborator.
+	scopedWrite := authenticated && !read && actor.RepositoryID == string(item.ID) && actor.Branch != ""
+	if authenticated && !owner && !collaborator && !scopedWrite && (!read || item.Visibility != repositories.Public) {
 		http.NotFound(w, nil)
 		return nil, false, auth.Grant{}, false
 	}

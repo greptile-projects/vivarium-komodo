@@ -53,6 +53,24 @@ func TestOpenPullRequestSynchronizesPublishedSource(t *testing.T) {
 	}
 }
 
+func TestAuthorPolicyAndCloseAreDurable(t *testing.T) {
+	store, _ := New(t.TempDir())
+	item, _ := store.Create(CreateParams{RepositoryID: "target", SourceRepositoryID: "fork", AuthorID: "author", Title: "Change", SourceBranch: "topic", TargetBranch: "main", SourceCommitID: "source", TargetCommitID: "target"})
+	item, err := store.SetMaintainerCanModify("target", item.ID, true)
+	if err != nil || !item.MaintainerCanModify {
+		t.Fatalf("maintainer policy = %#v, %v", item, err)
+	}
+	closed, err := store.Close("target", item.ID, "maintainer")
+	if err != nil || closed.Status != Closed || closed.ClosedByID != "maintainer" || closed.ClosedAt == nil {
+		t.Fatalf("closed = %#v, %v", closed, err)
+	}
+	reopened, _ := New(store.root)
+	got, err := reopened.Get("target", item.ID)
+	if err != nil || got.Status != Closed || !got.MaintainerCanModify {
+		t.Fatalf("reopened = %#v, %v", got, err)
+	}
+}
+
 func TestPullRequestDiscussionSurvivesReopen(t *testing.T) {
 	root := t.TempDir()
 	store, _ := New(root)

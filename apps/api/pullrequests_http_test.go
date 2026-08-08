@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -44,6 +45,7 @@ func TestForkOwnerOpensAndSynchronizesUpstreamPullRequest(t *testing.T) {
 	change, _ := forkGit.WriteObject(storage.CommitObject, []byte("tree "+string(tree)+"\nparent "+string(base)+"\nauthor Contributor <c@example.test> 2 +0000\ncommitter Contributor <c@example.test> 2 +0000\n\ncontribute\n"))
 	forkGit.CreateReference(storage.Reference{Name: "refs/heads/contribution", ObjectID: change})
 	token := issueAccess(t, credentials, "contributor", auth.API, auth.RepositoryWrite)
+	maintainerToken := issueAccess(t, credentials, "maintainer", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	mux := http.NewServeMux()
 	registerPullRequestsHTTP(mux, pullStore, proposalStore, catalog, credentials)
 	server := httptest.NewServer(mux)
@@ -78,6 +80,45 @@ func TestForkOwnerOpensAndSynchronizesUpstreamPullRequest(t *testing.T) {
 	response.Body.Close()
 	if response.StatusCode != http.StatusOK || synchronized.SourceCommitID != string(followUp) {
 		t.Fatalf("synchronized = %#v, status %d", synchronized, response.StatusCode)
+	}
+
+	modifyURL := server.URL + "/repositories/" + string(upstream.ID) + "/pull-requests/" + created.ID + "/maintainer-modification"
+	request, _ = http.NewRequest(http.MethodPut, modifyURL, strings.NewReader(`{"allowed":true}`))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, _ = http.DefaultClient.Do(request)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("enable maintainer modification = %d", response.StatusCode)
+	}
+	request, _ = http.NewRequest(http.MethodPost, server.URL+"/repositories/"+string(upstream.ID)+"/pull-requests/"+created.ID+"/source-credential", nil)
+	request.Header.Set("Authorization", "Bearer "+maintainerToken)
+	response, _ = http.DefaultClient.Do(request)
+	var delegated auth.IssuedGrant
+	json.NewDecoder(response.Body).Decode(&delegated)
+	response.Body.Close()
+	if response.StatusCode != http.StatusCreated || delegated.RepositoryID != string(fork.ID) || delegated.Branch != "refs/heads/contribution" || delegated.Token == "" {
+		t.Fatalf("delegated credential = %#v status %d", delegated, response.StatusCode)
+	}
+	request, _ = http.NewRequest(http.MethodPut, modifyURL, strings.NewReader(`{"allowed":false}`))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, _ = http.DefaultClient.Do(request)
+	response.Body.Close()
+	if _, err := credentials.Authenticate(delegated.Token, auth.GitWrite); !errors.Is(err, auth.ErrUnauthenticated) {
+		t.Fatalf("revoked delegated credential error = %v", err)
+	}
+
+	request, _ = http.NewRequest(http.MethodPut, server.URL+"/repositories/"+string(upstream.ID)+"/pull-requests/"+created.ID+"/reviews/me", strings.NewReader(`{"decision":"approve"}`))
+	request.Header.Set("Authorization", "Bearer "+maintainerToken)
+	response, _ = http.DefaultClient.Do(request)
+	response.Body.Close()
+	request, _ = http.NewRequest(http.MethodPost, server.URL+"/repositories/"+string(upstream.ID)+"/pull-requests/"+created.ID+"/merge", nil)
+	request.Header.Set("Authorization", "Bearer "+maintainerToken)
+	response, _ = http.DefaultClient.Do(request)
+	var merged pullrequests.PullRequest
+	json.NewDecoder(response.Body).Decode(&merged)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || merged.Status != pullrequests.Merged {
+		t.Fatalf("cross-repository merge = %#v status %d", merged, response.StatusCode)
 	}
 }
 
