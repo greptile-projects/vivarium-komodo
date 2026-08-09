@@ -415,6 +415,17 @@ whenever dependencies change or the web job fails before it starts.
   metadata and artifact endpoints must never resolve unlisted private versions
   or confer publisher/repository authority. The release web view remains the
   publication surface.
+  Dependency inventories are immutable, actor-attributed snapshots beneath
+  `$DEPENDENCY_INVENTORY_ROOT` (default `apps/api/data/dependency-inventories`).
+  Derive them only from an exact visible commit's schema-version `1`
+  `.komodo/packages.json` direct manifest and `.komodo/packages.lock.json`
+  resolved graph. Optional release, successful release-build, and successful
+  deployment links must name that same commit. Preserve direct/transitive
+  classification, manifest and lock digests, unavailable or mismatched package
+  resolutions, and explicit provenance gaps. Repository inventory reads follow
+  repository policy; anonymous package consumer reads expose only public
+  consuming repositories. Published versions may retain immutable license and
+  support metadata beside their provenance.
   Versioned cross-repository relationships live beneath `$RELATIONSHIP_ROOT`
   (default `apps/api/data/relationships`). A repository participant publishes
   an interface only from an existing immutable release, which binds its name,
