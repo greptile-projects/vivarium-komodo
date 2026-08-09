@@ -1659,3 +1659,19 @@ repository ownership. Membership removal or repository transfer therefore
 turns affected work into an explicit `needs_reassignment` decision instead of
 silently deleting or orphaning it. The Organizations web workspace presents
 these blockers and links beside the portfolio's authoritative delivery state.
+
+Initiative accountability follows the same least-privilege boundary as work.
+An organization owner has portfolio controller authority; another human is
+actionable only while they inherit a current repository-scoped role through an
+accepted team, and an approved agent or team needs its own current scoped role.
+Team responsibility remains directory and routing evidence, not repository
+authority. Losing membership, an operator, or a grant changes the live item to
+`needs_reassignment` without removing its assignee, contribution, release,
+policy-exception, decision, or update attribution.
+
+`organizations.TestOrganizationGovernanceCollaborationLoop` composes the
+organization governance contract as one regression. It retains multi-team
+responsibility, developer and approved-agent grants, shared review/check/
+promotion/agent policy, an expiring exception, ordered cross-repository human
+and agent work, delivery resource identities, membership-change blockers, and
+the complete persisted evidence sequence.
