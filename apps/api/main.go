@@ -11,6 +11,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/dependencyinventory"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/dependencyupdates"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/inbox"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/incidents"
@@ -96,6 +97,14 @@ func main() {
 		dependencyInventoryRoot = "data/dependency-inventories"
 	}
 	dependencyInventoryStore, err := dependencyinventory.New(dependencyInventoryRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	dependencyUpdateRoot := os.Getenv("DEPENDENCY_UPDATE_ROOT")
+	if dependencyUpdateRoot == "" {
+		dependencyUpdateRoot = "data/dependency-updates"
+	}
+	dependencyUpdateStore, err := dependencyupdates.New(dependencyUpdateRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -191,6 +200,7 @@ func main() {
 	registerReleasesHTTP(mux, releaseStore, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials)
 	registerPackagesHTTP(mux, packageStore, releaseStore, checkRunStore, repositoryCatalog, credentials)
 	registerDependencyInventoryHTTP(mux, dependencyInventoryStore, packageStore, releaseStore, checkRunStore, deploymentStore, repositoryCatalog, credentials)
+	registerDependencyUpdateHTTP(mux, dependencyUpdateStore, dependencyInventoryStore, packageStore, releaseStore, proposalStore, repositoryCatalog, credentials, activityStore)
 	registerRelationshipsHTTP(mux, relationshipStore, releaseStore, deploymentStore, repositoryCatalog, proposalStore, pullRequestStore, credentials, changeSessionStore)
 	registerEvolutionVerificationHTTP(mux, relationshipStore, repositoryCatalog, pullRequestStore, credentials, checkRunner, checkRunStore)
 	registerEvolutionRolloutHTTP(mux, relationshipStore, repositoryCatalog, credentials, integrationQueueStore, releaseStore, deploymentStore, pullRequestStore, checkRunStore)
