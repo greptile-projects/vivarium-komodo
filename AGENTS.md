@@ -473,8 +473,16 @@ whenever dependencies change or the web job fails before it starts.
   accepted effective members, and the nested path explaining membership;
   authenticated members may also inspect internal entries and pending
   invitations. Removing an organization member removes their team memberships
-  and approved-agent operator links. Team structure does not yet replace the
-  portfolio's coarse repository collaborator propagation.
+  and approved-agent operator links. Owners assign viewer, contributor,
+  maintainer, or operator roles to a team or approved agent across explicit
+  repository, package, environment, and collaboration resource IDs for at most
+  30 days. Grants retain explicit denied-action exceptions and a reason;
+  members request elevation through an owner-approved, audited request. Effective
+  access is derived through accepted nested-team membership or approved-agent
+  operation. Contributor-or-higher repository grants may mint at most 24-hour
+  branch-only Git credentials; grant or membership revocation invalidates only
+  the credentials derived by the affected principal. These scoped roles do not
+  silently add repository collaborators or replace existing owner policy.
   Versioned cross-repository relationships live beneath `$RELATIONSHIP_ROOT`
   (default `apps/api/data/relationships`). A repository participant publishes
   an interface only from an existing immutable release, which binds its name,

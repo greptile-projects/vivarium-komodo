@@ -76,6 +76,47 @@ type Agent struct {
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
+
+// ResourceRef names one authority boundary without implying authority over the
+// rest of the organization portfolio. RepositoryID is retained for nested
+// resources so effective access can always explain its ownership boundary.
+type ResourceRef struct {
+	Kind         string `json:"kind"`
+	ID           string `json:"id"`
+	RepositoryID string `json:"repository_id,omitempty"`
+}
+type RoleGrant struct {
+	ID              string            `json:"id"`
+	PrincipalKind   string            `json:"principal_kind"`
+	PrincipalID     string            `json:"principal_id"`
+	Role            string            `json:"role"`
+	Resources       []ResourceRef     `json:"resources"`
+	Exceptions      []string          `json:"exceptions"`
+	Reason          string            `json:"reason"`
+	CreatedByID     string            `json:"created_by_id"`
+	CreatedAt       time.Time         `json:"created_at"`
+	ExpiresAt       time.Time         `json:"expires_at"`
+	RevokedAt       *time.Time        `json:"revoked_at,omitempty"`
+	RevokedByID     string            `json:"revoked_by_id,omitempty"`
+	CredentialIDs   []string          `json:"credential_ids,omitempty"`
+	CredentialUsers map[string]string `json:"credential_users,omitempty"`
+}
+type AccessRequest struct {
+	ID            string        `json:"id"`
+	RequestedByID string        `json:"requested_by_id"`
+	PrincipalKind string        `json:"principal_kind"`
+	PrincipalID   string        `json:"principal_id"`
+	Role          string        `json:"role"`
+	Resources     []ResourceRef `json:"resources"`
+	Exceptions    []string      `json:"exceptions"`
+	Reason        string        `json:"reason"`
+	ExpiresAt     time.Time     `json:"expires_at"`
+	State         string        `json:"state"`
+	CreatedAt     time.Time     `json:"created_at"`
+	ResolvedAt    *time.Time    `json:"resolved_at,omitempty"`
+	ResolvedByID  string        `json:"resolved_by_id,omitempty"`
+	GrantID       string        `json:"grant_id,omitempty"`
+}
 type Transfer struct {
 	ID            string     `json:"id"`
 	RepositoryID  string     `json:"repository_id"`
@@ -97,17 +138,19 @@ type Event struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 type Organization struct {
-	ID          string     `json:"id"`
-	Slug        string     `json:"slug"`
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	Members     []Member   `json:"members"`
-	Transfers   []Transfer `json:"transfers"`
-	Events      []Event    `json:"events"`
-	Teams       []Team     `json:"teams"`
-	Agents      []Agent    `json:"agents"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID             string          `json:"id"`
+	Slug           string          `json:"slug"`
+	Name           string          `json:"name"`
+	Description    string          `json:"description"`
+	Members        []Member        `json:"members"`
+	Transfers      []Transfer      `json:"transfers"`
+	Events         []Event         `json:"events"`
+	Teams          []Team          `json:"teams"`
+	Agents         []Agent         `json:"agents"`
+	RoleGrants     []RoleGrant     `json:"role_grants"`
+	AccessRequests []AccessRequest `json:"access_requests"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
 type Store struct {
@@ -151,7 +194,7 @@ func (s *Store) Create(actor, slug, name, description string) (Organization, err
 		return Organization{}, err
 	}
 	now := s.now().UTC()
-	o := Organization{ID: id, Slug: slug, Name: name, Description: description, Members: []Member{{UserID: actor, Role: "owner", AcceptedAt: now}}, Transfers: []Transfer{}, Teams: []Team{}, Agents: []Agent{}, Events: []Event{{Sequence: 1, Type: "organization.created", ActorID: actor, CreatedAt: now}}, CreatedAt: now, UpdatedAt: now}
+	o := Organization{ID: id, Slug: slug, Name: name, Description: description, Members: []Member{{UserID: actor, Role: "owner", AcceptedAt: now}}, Transfers: []Transfer{}, Teams: []Team{}, Agents: []Agent{}, RoleGrants: []RoleGrant{}, AccessRequests: []AccessRequest{}, Events: []Event{{Sequence: 1, Type: "organization.created", ActorID: actor, CreatedAt: now}}, CreatedAt: now, UpdatedAt: now}
 	return o, s.write(o)
 }
 func (s *Store) Get(id string) (Organization, error) {
@@ -473,6 +516,262 @@ func (s *Store) RegisterAgent(id, actor string, in Agent) (Organization, Agent, 
 		return nil
 	})
 	return o, made, e
+}
+
+func validRole(role string) bool {
+	return role == "viewer" || role == "contributor" || role == "maintainer" || role == "operator"
+}
+func validResources(resources []ResourceRef) bool {
+	if len(resources) == 0 || len(resources) > 100 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, r := range resources {
+		if r.ID == "" || (r.Kind != "repository" && r.Kind != "package" && r.Kind != "environment" && r.Kind != "collaboration") {
+			return false
+		}
+		if r.Kind != "repository" && r.RepositoryID == "" {
+			return false
+		}
+		key := r.Kind + "\x00" + r.ID
+		if seen[key] {
+			return false
+		}
+		seen[key] = true
+	}
+	return true
+}
+func validPrincipal(o Organization, kind, id string) bool {
+	if kind == "team" {
+		_, ok := teamByID(o, id)
+		return ok
+	}
+	if kind == "agent" {
+		for _, a := range o.Agents {
+			if a.ID == id {
+				return true
+			}
+		}
+	}
+	return false
+}
+func normalizeExceptions(in []string) ([]string, bool) {
+	if len(in) > 50 {
+		return nil, false
+	}
+	out, seen := []string{}, map[string]bool{}
+	for _, x := range in {
+		x = strings.TrimSpace(x)
+		if x == "" || len(x) > 100 || seen[x] {
+			return nil, false
+		}
+		seen[x] = true
+		out = append(out, x)
+	}
+	sort.Strings(out)
+	return out, true
+}
+func validateAuthority(o Organization, principalKind, principalID, role, reason string, resources []ResourceRef, exceptions []string, expires time.Time, now time.Time) ([]string, error) {
+	clean, ok := normalizeExceptions(exceptions)
+	if !validPrincipal(o, principalKind, principalID) || !validRole(role) || !validResources(resources) || strings.TrimSpace(reason) == "" || len(reason) > 1000 || !ok || !expires.After(now) || expires.After(now.Add(30*24*time.Hour)) {
+		return nil, ErrInvalid
+	}
+	return clean, nil
+}
+
+func (s *Store) GrantRole(id, actor string, in RoleGrant) (Organization, RoleGrant, error) {
+	var made RoleGrant
+	o, e := s.change(id, func(o *Organization) error {
+		if !owner(*o, actor) {
+			return ErrForbidden
+		}
+		now := s.now().UTC()
+		clean, err := validateAuthority(*o, in.PrincipalKind, in.PrincipalID, in.Role, in.Reason, in.Resources, in.Exceptions, in.ExpiresAt, now)
+		if err != nil {
+			return err
+		}
+		uid, err := newID()
+		if err != nil {
+			return err
+		}
+		in.ID, in.CreatedByID, in.CreatedAt, in.Exceptions, in.Reason = uid, actor, now, clean, strings.TrimSpace(in.Reason)
+		in.CredentialIDs, in.CredentialUsers = []string{}, map[string]string{}
+		o.RoleGrants = append(o.RoleGrants, in)
+		made = in
+		event(o, "access.granted", actor, uid, now)
+		return nil
+	})
+	return o, made, e
+}
+func (s *Store) RequestAccess(id, actor string, in AccessRequest) (Organization, AccessRequest, error) {
+	var made AccessRequest
+	o, e := s.change(id, func(o *Organization) error {
+		if _, ok := membership(*o, actor, true); !ok {
+			return ErrForbidden
+		}
+		now := s.now().UTC()
+		clean, err := validateAuthority(*o, in.PrincipalKind, in.PrincipalID, in.Role, in.Reason, in.Resources, in.Exceptions, in.ExpiresAt, now)
+		if err != nil {
+			return err
+		}
+		if in.PrincipalKind == "team" && !userInTeam(*o, in.PrincipalID, actor) {
+			return ErrForbidden
+		}
+		if in.PrincipalKind == "agent" && !agentOperator(*o, in.PrincipalID, actor) {
+			return ErrForbidden
+		}
+		uid, err := newID()
+		if err != nil {
+			return err
+		}
+		in.ID, in.RequestedByID, in.CreatedAt, in.State, in.Exceptions, in.Reason = uid, actor, now, "pending", clean, strings.TrimSpace(in.Reason)
+		o.AccessRequests = append(o.AccessRequests, in)
+		made = in
+		event(o, "access.requested", actor, uid, now)
+		return nil
+	})
+	return o, made, e
+}
+func (s *Store) ResolveAccessRequest(id, request, actor, decision string) (Organization, AccessRequest, RoleGrant, error) {
+	var resolved AccessRequest
+	var grant RoleGrant
+	o, e := s.change(id, func(o *Organization) error {
+		if !owner(*o, actor) {
+			return ErrForbidden
+		}
+		if decision != "approved" && decision != "denied" {
+			return ErrInvalid
+		}
+		for i := range o.AccessRequests {
+			x := &o.AccessRequests[i]
+			if x.ID != request {
+				continue
+			}
+			if x.State != "pending" {
+				return ErrConflict
+			}
+			now := s.now().UTC()
+			if !x.ExpiresAt.After(now) {
+				return ErrConflict
+			}
+			x.State, x.ResolvedByID, x.ResolvedAt = decision, actor, &now
+			if decision == "approved" {
+				uid, err := newID()
+				if err != nil {
+					return err
+				}
+				grant = RoleGrant{ID: uid, PrincipalKind: x.PrincipalKind, PrincipalID: x.PrincipalID, Role: x.Role, Resources: append([]ResourceRef(nil), x.Resources...), Exceptions: append([]string(nil), x.Exceptions...), Reason: x.Reason, CreatedByID: actor, CreatedAt: now, ExpiresAt: x.ExpiresAt, CredentialIDs: []string{}, CredentialUsers: map[string]string{}}
+				o.RoleGrants = append(o.RoleGrants, grant)
+				x.GrantID = uid
+			}
+			resolved = *x
+			event(o, "access.request_"+decision, actor, x.ID, now)
+			return nil
+		}
+		return ErrNotFound
+	})
+	return o, resolved, grant, e
+}
+func (s *Store) RevokeRole(id, grant, actor string) (Organization, RoleGrant, error) {
+	var revoked RoleGrant
+	o, e := s.change(id, func(o *Organization) error {
+		if !owner(*o, actor) {
+			return ErrForbidden
+		}
+		for i := range o.RoleGrants {
+			x := &o.RoleGrants[i]
+			if x.ID != grant {
+				continue
+			}
+			if x.RevokedAt == nil {
+				now := s.now().UTC()
+				x.RevokedAt, x.RevokedByID = &now, actor
+				event(o, "access.revoked", actor, x.ID, now)
+			}
+			revoked = *x
+			return nil
+		}
+		return ErrNotFound
+	})
+	return o, revoked, e
+}
+func (s *Store) AttachCredential(id, grant, actor, credential string) (Organization, RoleGrant, error) {
+	var updated RoleGrant
+	o, e := s.change(id, func(o *Organization) error {
+		for i := range o.RoleGrants {
+			x := &o.RoleGrants[i]
+			if x.ID != grant {
+				continue
+			}
+			if x.RevokedAt != nil || !s.now().Before(x.ExpiresAt) || !principalIncludes(*o, *x, actor) {
+				return ErrForbidden
+			}
+			for _, c := range x.CredentialIDs {
+				if c == credential {
+					return ErrConflict
+				}
+			}
+			x.CredentialIDs = append(x.CredentialIDs, credential)
+			if x.CredentialUsers == nil {
+				x.CredentialUsers = map[string]string{}
+			}
+			x.CredentialUsers[credential] = actor
+			updated = *x
+			event(o, "access.credential_issued", actor, credential, s.now().UTC())
+			return nil
+		}
+		return ErrNotFound
+	})
+	return o, updated, e
+}
+func userInTeam(o Organization, team, user string) bool {
+	t, ok := teamByID(o, team)
+	if !ok {
+		return false
+	}
+	if _, ok := teamMember(t, user, true); ok {
+		return true
+	}
+	for _, child := range o.Teams {
+		if child.ParentID == team && userInTeam(o, child.ID, user) {
+			return true
+		}
+	}
+	return false
+}
+func agentOperator(o Organization, agent, user string) bool {
+	for _, a := range o.Agents {
+		if a.ID == agent {
+			for _, u := range a.OperatorIDs {
+				if u == user {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+func principalIncludes(o Organization, grant RoleGrant, user string) bool {
+	if grant.PrincipalKind == "team" {
+		return userInTeam(o, grant.PrincipalID, user)
+	}
+	return agentOperator(o, grant.PrincipalID, user)
+}
+func (s *Store) EffectiveAccess(id, user string) ([]RoleGrant, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	o, e := s.read(id)
+	if e != nil {
+		return nil, e
+	}
+	now := s.now()
+	out := []RoleGrant{}
+	for _, g := range o.RoleGrants {
+		if g.RevokedAt == nil && now.Before(g.ExpiresAt) && principalIncludes(o, g, user) {
+			out = append(out, g)
+		}
+	}
+	return out, nil
 }
 
 type EffectiveMember struct {

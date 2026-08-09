@@ -307,6 +307,31 @@ func (s *Store) RevokeRepositoryGit(repositoryID, branch, name string) error {
 	return nil
 }
 
+// RevokeIDs invalidates system-derived credentials without requiring the
+// credential holder's identity. Organization policy uses this when the
+// authority that produced a narrow credential is withdrawn.
+func (s *Store) RevokeIDs(ids []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now().UTC()
+	for _, id := range ids {
+		grant, err := s.read(id)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if grant.RevokedAt == nil {
+			grant.RevokedAt = &now
+			if err := s.write(grant); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 type storedGrant struct {
 	Grant
 	Digest string `json:"digest"`
