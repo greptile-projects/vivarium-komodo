@@ -145,6 +145,7 @@ type EvolutionPlan struct {
 	Findings                []EvolutionFinding         `json:"findings"`
 	Analyses                []EvolutionAnalysis        `json:"analyses"`
 	Verifications           []EvolutionVerification    `json:"verifications"`
+	Rollout                 *EvolutionRollout          `json:"rollout,omitempty"`
 	CreatedByID             string                     `json:"created_by_id"`
 	CreatedAt               time.Time                  `json:"created_at"`
 	UpdatedAt               time.Time                  `json:"updated_at"`
