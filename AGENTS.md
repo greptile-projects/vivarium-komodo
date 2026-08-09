@@ -494,6 +494,18 @@ whenever dependencies change or the web job fails before it starts.
   item links to its repository resource. Per-user clearance state lives beneath
   `$INBOX_ROOT` (default `apps/api/data/inbox`) and is changed through
   `DELETE /inbox/{eventID}` without mutating the append-only activity ledger.
+  Private vulnerability reports are global security resources beneath
+  `$SECURITY_REPORT_ROOT` (default `apps/api/data/security-reports`), not
+  repository activity. Authenticated reporters may name public repositories or
+  private repositories they can read, affected versions, bounded evidence, and
+  a safe contact channel. The reporter and affected-repository owners receive
+  access automatically; those owners alone set severity and embargo state and
+  grant or revoke up to 20 responder seats. Every view, access change, triage
+  decision, and message appends to the report-private audit ledger. Keep only
+  titles, scope identities, and status in the caller-specific collection;
+  exact authorized reads own contact, summary, versions, evidence,
+  conversation, and audit detail. Never mirror pre-disclosure report data into
+  repository activity, search, inbox, incidents, or ordinary notifications.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 

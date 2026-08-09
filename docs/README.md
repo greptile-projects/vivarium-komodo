@@ -179,6 +179,34 @@ The regression also proves that an incident worker cannot control deployment
 state and that anonymous readers receive only explicitly public investigation
 context.
 
+## Private vulnerability intake
+
+Security reports are global private collaboration records rather than
+repository resources. An authenticated researcher creates one with `POST
+/security-reports`, naming one or more repositories they can already read,
+affected version expressions, structured evidence, and a safe contact channel.
+The reporter and every affected repository owner can inspect the exact report.
+The caller-specific `GET /security-reports` collection exposes only title,
+scope identities, severity, embargo state, and timestamps; it omits summary,
+versions, contact coordinates, evidence, messages, and audit detail.
+Unauthorized exact reads return `404`.
+
+Affected-repository owners triage through `PATCH
+/security-reports/{id}/triage` and may grant or revoke at most 20 registered
+responders through the report's `/team` resources. The reporter, owners, and
+current responders communicate through private `/messages`; revocation takes
+effect on the next request. Every exact-report view, triage change, invitation,
+removal, and message is appended to the report-private access audit with stable
+actor identity and time.
+
+Security intake has no integration with repository activity, public project
+search, ordinary inbox, or incident timelines, preventing embargoed details
+and responder identities from leaking through discovery or notifications.
+Storage is rooted at `$SECURITY_REPORT_ROOT`, defaulting to
+`apps/api/data/security-reports`. The workspace Security reports view provides
+submission, triage, invitation, conversation, evidence, and audit controls
+through the same-origin API proxy.
+
 ## Entrypoints
 
 - `apps/web` — Next.js frontend. Starts at `src/app/page.tsx`; routes are
