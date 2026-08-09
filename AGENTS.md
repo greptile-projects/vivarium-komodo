@@ -426,6 +426,13 @@ whenever dependencies change or the web job fails before it starts.
   repository policy; anonymous package consumer reads expose only public
   consuming repositories. Published versions may retain immutable license and
   support metadata beside their provenance.
+  Package safety is mutable policy layered over immutable publication evidence.
+  Publisher owners append deprecation or quarantine notices with a reason and
+  active same-package replacement. Quarantine blocks every new registry fetch;
+  deprecation follows the consuming repository's owner policy and time-bounded
+  exceptions. Preserve exact inventory/deployment exposure, targeted owner
+  activity, and consumer-controlled human or Codex proposal repair tasks.
+  Promotions from inventoried releases enforce the same policy.
   Consumer-owned dependency update policy and evaluation live beneath
   `$DEPENDENCY_UPDATE_ROOT` (default `apps/api/data/dependency-updates`). Owners
   bound each direct package to patch, minor, or major updates on a target branch;

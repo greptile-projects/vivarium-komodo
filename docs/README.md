@@ -115,6 +115,30 @@ can bypass consumer permissions. Policy and retained adoption work are readable
 at the corresponding `GET /dependency-update-policies` and
 `GET /dependency-updates` collections under repository visibility rules.
 
+### Unsafe package containment and repair
+
+Publisher owners append safety policy with `PUT
+/repositories/{repository}/packages/{version}/safety`. A notice marks the
+version `deprecated` or `quarantined`, records an attributable reason and an
+optional active replacement of the same identity, and preserves prior notices.
+Publication evidence and artifact bytes are not rewritten: repository evidence
+downloads, dependency inventories, and existing deployments retain the exact
+unsafe version for audit.
+
+Quarantine denies every new registry metadata and artifact request, including
+credentials issued before the transition. Deprecation is denied by default; a
+consumer owner may change its repository policy or record a reasoned,
+time-bounded exception for an inventoried exposure. Promotion checks an exact
+release-commit inventory against the same policy before creating a deployment.
+
+`GET /packages/{version}/exposure` exposes public consumers with exact commits,
+direct/transitive use, deployments, and open remediation. Affected repository
+owners receive targeted activity. Consumer writers use `POST
+/repositories/{repository}/package-repairs` to open urgent human- or
+Codex-owned proposal work at the captured revision. Ordinary checks, review,
+integration, release, and deployment remain consumer-controlled, so publisher
+coordination never grants authority over downstream code or environments.
+
 ## Embargoed security repairs
 
 Security repairs are advisory-owned workspaces, not private-flavored ordinary

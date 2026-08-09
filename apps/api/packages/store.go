@@ -24,6 +24,7 @@ var (
 	ErrNotFound        = errors.New("package version not found")
 	ErrInvalid         = errors.New("invalid package version")
 	ErrVersionConflict = errors.New("package version already exists")
+	ErrSafetyConflict  = errors.New("package safety transition conflict")
 )
 
 var (
@@ -67,9 +68,22 @@ type Version struct {
 	PublisherID         string            `json:"publisher_id"`
 	Visibility          string            `json:"visibility"`
 	Lifecycle           string            `json:"lifecycle"`
+	Safety              *SafetyNotice     `json:"safety,omitempty"`
+	SafetyHistory       []SafetyNotice    `json:"safety_history,omitempty"`
 	License             string            `json:"license,omitempty"`
 	SupportURL          string            `json:"support_url,omitempty"`
 	PublishedAt         time.Time         `json:"published_at"`
+}
+
+// SafetyNotice is mutable distribution policy layered over immutable package
+// evidence. History is append-only so a publisher cannot erase an earlier
+// warning by changing its current recommendation.
+type SafetyNotice struct {
+	State                string    `json:"state"`
+	Reason               string    `json:"reason"`
+	ReplacementVersionID string    `json:"replacement_version_id,omitempty"`
+	ActorID              string    `json:"actor_id"`
+	CreatedAt            time.Time `json:"created_at"`
 }
 
 type PublishParams struct {
@@ -176,6 +190,34 @@ func (s *Store) GetByID(id string) (Version, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.read(id)
+}
+
+// SetSafety changes only distribution policy; build, artifact, release, and
+// checksum evidence in the version record remains byte-for-byte represented.
+func (s *Store) SetSafety(repositoryID, id, state, reason, replacementID, actorID string) (Version, error) {
+	state, reason, replacementID = strings.ToLower(strings.TrimSpace(state)), strings.TrimSpace(reason), strings.TrimSpace(replacementID)
+	if repositoryID == "" || id == "" || actorID == "" || (state != "deprecated" && state != "quarantined") || reason == "" || len(reason) > 4096 || replacementID == id {
+		return Version{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(id)
+	if err != nil || item.RepositoryID != repositoryID {
+		return Version{}, ErrNotFound
+	}
+	if replacementID != "" {
+		replacement, replacementErr := s.read(replacementID)
+		if replacementErr != nil || replacement.Identity != item.Identity || replacement.Lifecycle != "active" {
+			return Version{}, ErrInvalid
+		}
+	}
+	if item.Safety != nil && item.Safety.State == state && item.Safety.Reason == reason && item.Safety.ReplacementVersionID == replacementID {
+		return Version{}, ErrSafetyConflict
+	}
+	notice := SafetyNotice{State: state, Reason: reason, ReplacementVersionID: replacementID, ActorID: actorID, CreatedAt: s.now().UTC()}
+	item.Lifecycle, item.Safety = state, &notice
+	item.SafetyHistory = append(item.SafetyHistory, notice)
+	return item, s.write(item)
 }
 
 // Search returns catalog records matching identity, version, or documentation.

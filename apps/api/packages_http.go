@@ -28,6 +28,13 @@ type packageStore interface {
 	OpenArtifact(string, string) (packagecatalog.Version, *os.File, error)
 	GetByID(string) (packagecatalog.Version, error)
 	Search(string) ([]packagecatalog.Version, error)
+	SetSafety(string, string, string, string, string, string) (packagecatalog.Version, error)
+	PutConsumerPolicy(string, string, bool) (packagecatalog.ConsumerPolicy, error)
+	GetConsumerPolicy(string) (packagecatalog.ConsumerPolicy, error)
+	CreateException(string, string, string, string, time.Time) (packagecatalog.Exception, error)
+	HasActiveException(string, string) bool
+	CreateRepair(packagecatalog.Repair) (packagecatalog.Repair, error)
+	ListRepairs(string) ([]packagecatalog.Repair, error)
 }
 
 type packageCredentialIssuer interface {
@@ -242,8 +249,13 @@ func packageGrant(r *http.Request, credentials authStore, versionID string) (aut
 }
 
 func registryAccess(r *http.Request, store packageStore, repositories pullRequestRepositoryStore, credentials authStore, item packagecatalog.Version) bool {
-	if item.Visibility == "public" {
-		return true
+	if item.Lifecycle == "quarantined" {
+		return false
+	}
+	if item.Visibility == "public" && item.Lifecycle == "active" {
+		// Anonymous registry requests have no consumer repository policy with
+		// which to authorize knowingly deprecated new exposure.
+		return item.Lifecycle == "active"
 	}
 	grant, ok := packageGrant(r, credentials, item.ID)
 	if !ok || grant.RepositoryID == "" {
@@ -255,6 +267,15 @@ func registryAccess(r *http.Request, store packageStore, repositories pullReques
 	}
 	if consumer.OwnerID != grant.UserID && !collaborator(repositories, consumer.ID, grant.UserID) {
 		return false
+	}
+	if item.Lifecycle == "deprecated" {
+		policy, policyErr := store.GetConsumerPolicy(grant.RepositoryID)
+		if policyErr != nil || (policy.BlockDeprecated && !store.HasActiveException(grant.RepositoryID, item.ID)) {
+			return false
+		}
+	}
+	if item.Visibility == "public" {
+		return true
 	}
 	publisher, err := repositories.Inspect(storage.ID(item.RepositoryID))
 	if err != nil {
