@@ -3,6 +3,26 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Attested packages
+
+A package version is a reusable view of bytes that already passed the release
+pipeline, not a separate upload that can claim its own provenance. Repository
+owners publish through `POST /repositories/{repository}/packages`, selecting an
+exact succeeded build attempt and artifact from an immutable release. The API
+requires the newest attempt for every release build definition to have passed
+at the release commit, derives the owner-scoped identity, and records the source
+commit, release, build command and attempt, SHA-256 checksum, platform,
+dependencies, publisher, visibility, and lifecycle.
+
+Artifact bytes are copied to `$PACKAGE_ROOT` and checked against the build
+evidence before the version metadata is renamed into the visible catalog. A
+conflicting identity/version, authorization failure, checksum mismatch, or I/O
+failure therefore leaves no partially available package. Public package
+versions can only originate in public repositories; private versions remain
+available to repository participants. The repository Releases tab publishes
+and displays this evidence, while later ecosystem work can build discovery and
+standard-client resolution on the same immutable records.
+
 ## Embargoed security repairs
 
 Security repairs are advisory-owned workspaces, not private-flavored ordinary

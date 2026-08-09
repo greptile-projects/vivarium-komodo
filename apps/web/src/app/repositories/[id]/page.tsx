@@ -422,6 +422,17 @@ type ReleaseCandidate = {
   contributor_ids: string[];
 };
 type ReleaseList = { items: ReleaseCandidate[]; total_count: number };
+type PackageVersion = {
+  id: string; identity: string; name: string; version: string;
+  repository_id: string; release_id: string; source_commit_id: string;
+  artifact_id: string; artifact_path: string; artifact_media_type: string;
+  artifact_size: number; sha256: string;
+  build_attestation: { run_id: string; build_name: string; command: string; completed_at: string };
+  platform: { os: string; arch: string; runtime?: string };
+  dependencies: Record<string, string>; publisher_id: string;
+  visibility: "public" | "private"; lifecycle: "active"; published_at: string;
+};
+type PackageList = { items: PackageVersion[]; total_count: number };
 type RelationshipGraph = {
   repository_id: string;
   can_write: boolean;
@@ -2791,6 +2802,8 @@ function ReleaseWorkspace({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [attestation, setAttestation] = useState<ReleaseAttestation>();
+  const [packages, setPackages] = useState<PackageVersion[]>([]);
+  const [publishingPackage, setPublishingPackage] = useState(false);
   const [rerunning, setRerunning] = useState("");
   const [environments, setEnvironments] = useState<DeliveryEnvironment[]>([]);
   const [deployments, setDeployments] = useState<Deployment[]>([]);
@@ -2846,6 +2859,21 @@ function ReleaseWorkspace({
     const timer = window.setInterval(() => void loadAttestation(), 1500);
     return () => window.clearInterval(timer);
   }, [loadAttestation, attestation?.attempts]);
+  const loadPackages = useCallback(async () => {
+    try {
+      const result = await get<PackageList>(
+        `/repositories/${repository.id}/packages?per_page=100`,
+      );
+      setPackages(result.items);
+    } catch {
+      setError("Published packages unavailable.");
+    }
+  }, [repository.id]);
+  useEffect(() => {
+    // Package versions are immutable durable records.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadPackages();
+  }, [loadPackages]);
   const loadDelivery = useCallback(async () => {
     try {
       const [environmentData, deploymentData] = await Promise.all([
@@ -2955,6 +2983,34 @@ function ReleaseWorkspace({
       );
     } finally {
       setDeliveryBusy("");
+    }
+  }
+  async function publishPackage(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!current) return;
+    setPublishingPackage(true);
+    setError("");
+    const data = new FormData(event.currentTarget);
+    const [buildRunID, artifactID] = String(data.get("artifact")).split(":");
+    const dependencies = Object.fromEntries(
+      String(data.get("dependencies") || "").split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
+        const at = line.lastIndexOf("@");
+        return at > 0 ? [line.slice(0, at), line.slice(at + 1)] : [line, "*"];
+      }),
+    );
+    try {
+      await send(`/repositories/${repository.id}/packages`, "POST", {
+        name: data.get("name"), version: data.get("version"), release_id: current.id,
+        build_run_id: buildRunID, artifact_id: artifactID,
+        platform: { os: data.get("os"), arch: data.get("arch"), runtime: data.get("runtime") },
+        dependencies, visibility: data.get("visibility"),
+      });
+      event.currentTarget.reset();
+      await loadPackages();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Package publication failed.");
+    } finally {
+      setPublishingPackage(false);
     }
   }
   async function promote(event: React.FormEvent<HTMLFormElement>) {
@@ -3323,6 +3379,61 @@ function ReleaseWorkspace({
                     );
                   })
                 )}
+              </article>
+              <article className="release-inclusions package-publication">
+                <header>
+                  <div>
+                    <h3>Reusable packages</h3>
+                    <p>Publish verified build bytes with immutable source, checksum, platform, dependency, and publisher provenance.</p>
+                  </div>
+                  <Badge tone="accent">{packages.filter((item) => item.release_id === current.id).length} published</Badge>
+                </header>
+                {repository.owner_id === actor && attestation?.verified && (
+                  <details>
+                    <summary>Publish verified artifact</summary>
+                    <form className="package-form" onSubmit={publishPackage}>
+                      <label>Package name<input name="name" required placeholder="sdk" pattern="[a-z0-9][a-z0-9._-]*" /></label>
+                      <label>Semantic version<input name="version" required placeholder="1.0.0" /></label>
+                      <label>
+                        Verified artifact
+                        <select name="artifact" required defaultValue="">
+                          <option value="" disabled>Select build artifact…</option>
+                          {attestation.attempts.flatMap((run) => run.state === "succeeded" ? run.events.flatMap((event) => event.artifact ? [
+                            <option value={`${run.id}:${event.artifact.id}`} key={`${run.id}:${event.artifact.id}`}>{run.definition.name} · {event.artifact.path}</option>,
+                          ] : []) : [])}
+                        </select>
+                      </label>
+                      <label>Operating system<input name="os" required placeholder="linux" /></label>
+                      <label>Architecture<input name="arch" required placeholder="amd64" /></label>
+                      <label>Runtime<input name="runtime" placeholder="go1.24" /></label>
+                      <label>
+                        Visibility
+                        <select name="visibility" defaultValue={repository.visibility}>
+                          <option value="private">Private</option>
+                          {repository.visibility === "public" && <option value="public">Public</option>}
+                        </select>
+                      </label>
+                      <label className="package-dependencies">Dependencies<textarea name="dependencies" rows={3} placeholder={"@owner/core@^1.0.0\n@owner/types@~2.1.0"} /></label>
+                      <div className="release-form-actions"><Button disabled={publishingPackage}>{publishingPackage ? "Publishing…" : "Publish immutable version"}</Button></div>
+                    </form>
+                  </details>
+                )}
+                <div className="package-versions">
+                  {packages.filter((item) => item.release_id === current.id).map((item) => (
+                    <article key={item.id}>
+                      <header><strong>{item.identity}@{item.version}</strong><Badge tone="accent">{item.lifecycle}</Badge></header>
+                      <dl>
+                        <div><dt>Artifact</dt><dd><a href={`/api/repositories/${repository.id}/packages/${item.id}/artifact`}>{item.artifact_path}</a></dd></div>
+                        <div><dt>SHA-256</dt><dd><code>{item.sha256}</code></dd></div>
+                        <div><dt>Source</dt><dd><code>{item.source_commit_id}</code></dd></div>
+                        <div><dt>Build</dt><dd>{item.build_attestation.build_name} · <code>{short(item.build_attestation.run_id)}</code></dd></div>
+                        <div><dt>Platform</dt><dd>{item.platform.os}/{item.platform.arch}{item.platform.runtime ? ` · ${item.platform.runtime}` : ""}</dd></div>
+                        <div><dt>Publisher</dt><dd><Actor id={item.publisher_id} /> · {item.visibility}</dd></div>
+                      </dl>
+                      {Object.keys(item.dependencies).length > 0 && <small>Depends on {Object.entries(item.dependencies).map(([name, constraint]) => `${name}@${constraint}`).join(", ")}</small>}
+                    </article>
+                  ))}
+                </div>
               </article>
               <article className="release-inclusions delivery">
                 <header>
