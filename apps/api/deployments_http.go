@@ -16,7 +16,9 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/dependencyinventory"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
+	packagecatalog "github.com/greptile-projects/vivarium-komodo/apps/api/packages"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
@@ -37,13 +39,24 @@ type deploymentStore interface {
 	ListDeployments(string) ([]deployments.Deployment, error)
 }
 
-func registerDeploymentsHTTP(mux *http.ServeMux, store deploymentStore, releaseStore releaseStore, builds releaseBuildStore, repositories pullRequestRepositoryStore, credentials changeSessionCredentialStore, activity activityStore, sessions changeSessionStore, pulls pullRequestStore) {
+type deploymentPackageSafety interface {
+	List(string) ([]dependencyinventory.Inventory, error)
+	GetByID(string) (packagecatalog.Version, error)
+	GetConsumerPolicy(string) (packagecatalog.ConsumerPolicy, error)
+	HasActiveException(string, string) bool
+}
+
+func registerDeploymentsHTTP(mux *http.ServeMux, store deploymentStore, releaseStore releaseStore, builds releaseBuildStore, repositories pullRequestRepositoryStore, credentials changeSessionCredentialStore, activity activityStore, sessions changeSessionStore, pulls pullRequestStore, safety ...deploymentPackageSafety) {
+	var packageSafety deploymentPackageSafety
+	if len(safety) > 0 {
+		packageSafety = safety[0]
+	}
 	mux.HandleFunc("GET /repositories/{repository}/environments", listEnvironments(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/environments", putEnvironment(store, repositories, credentials, false))
 	mux.HandleFunc("PUT /repositories/{repository}/environments/{environment}", putEnvironment(store, repositories, credentials, true))
 	mux.HandleFunc("GET /repositories/{repository}/deployments", listDeployments(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/deployments/{deployment}", getDeployment(store, repositories, credentials))
-	mux.HandleFunc("POST /repositories/{repository}/deployments", createDeployment(store, releaseStore, builds, repositories, credentials, activity))
+	mux.HandleFunc("POST /repositories/{repository}/deployments", createDeployment(store, releaseStore, builds, repositories, credentials, activity, packageSafety))
 	mux.HandleFunc("POST /repositories/{repository}/deployments/{deployment}/approvals", approveDeployment(store, repositories, credentials, builds, activity))
 	mux.HandleFunc("POST /repositories/{repository}/deployments/{deployment}/control", controlDeployment(store, repositories, credentials, activity))
 	mux.HandleFunc("POST /repositories/{repository}/deployments/{deployment}/recovery", recoverDeployment(store, builds, repositories, credentials, activity, sessions, pulls))
@@ -275,7 +288,7 @@ func getDeployment(store deploymentStore, repositories pullRequestRepositoryStor
 	}
 }
 
-func createDeployment(store deploymentStore, releaseStore releaseStore, builds releaseBuildStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
+func createDeployment(store deploymentStore, releaseStore releaseStore, builds releaseBuildStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, safety ...deploymentPackageSafety) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repo, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -302,6 +315,27 @@ func createDeployment(store deploymentStore, releaseStore releaseStore, builds r
 		if e != nil {
 			writeJSON(w, 404, map[string]string{"error": "release_not_found"})
 			return
+		}
+		if len(safety) > 0 && safety[0] != nil {
+			inventories, _ := safety[0].List(string(repo.ID))
+			policy, _ := safety[0].GetConsumerPolicy(string(repo.ID))
+			for _, inventory := range inventories {
+				if inventory.CommitID != release.CommitID {
+					continue
+				}
+				for _, resolution := range inventory.Resolutions {
+					version, versionErr := safety[0].GetByID(resolution.PackageVersionID)
+					if versionErr != nil {
+						continue
+					}
+					blocked := version.Lifecycle == "quarantined" || (version.Lifecycle == "deprecated" && policy.BlockDeprecated && !safety[0].HasActiveException(string(repo.ID), version.ID))
+					if blocked {
+						writeJSON(w, 409, map[string]string{"error": "unsafe_package_blocks_promotion", "package_version_id": version.ID, "lifecycle": version.Lifecycle})
+						return
+					}
+				}
+				break
+			}
 		}
 		attempts, e := builds.List(string(repo.ID), "release:"+release.ID)
 		if e != nil {

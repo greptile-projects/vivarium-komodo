@@ -43,3 +43,30 @@ func TestFailedUploadIsNotVisible(t *testing.T) {
 		t.Fatalf("partial items = %#v", items)
 	}
 }
+
+func TestSafetyNoticePreservesEvidenceAndHistory(t *testing.T) {
+	store, _ := New(t.TempDir())
+	publish := func(version string) Version {
+		content := []byte("package-" + version)
+		digest := sha256.Sum256(content)
+		item, err := store.Publish(PublishParams{OwnerID: "owner", Name: "sdk", Version: version, RepositoryID: "repo", ReleaseID: "release-" + version, SourceCommitID: "commit-" + version, ArtifactID: "artifact-" + version, ArtifactPath: "sdk.tgz", ArtifactSize: int64(len(content)), ExpectedSHA256: hex.EncodeToString(digest[:]), Build: BuildAttestation{RunID: "run-" + version, BuildName: "package"}, Platform: Platform{OS: "linux", Arch: "amd64"}, PublisherID: "owner", Visibility: "public"}, bytes.NewReader(content))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return item
+	}
+	unsafe, replacement := publish("1.0.0"), publish("1.0.1")
+	deprecated, err := store.SetSafety("repo", unsafe.ID, "deprecated", "upgrade promptly", replacement.ID, "owner")
+	if err != nil || deprecated.SHA256 != unsafe.SHA256 || deprecated.SourceCommitID != unsafe.SourceCommitID || len(deprecated.SafetyHistory) != 1 {
+		t.Fatalf("deprecated = %#v, %v", deprecated, err)
+	}
+	quarantined, err := store.SetSafety("repo", unsafe.ID, "quarantined", "confirmed compromise", replacement.ID, "owner")
+	if err != nil || quarantined.Lifecycle != "quarantined" || len(quarantined.SafetyHistory) != 2 || quarantined.SafetyHistory[0].Reason != "upgrade promptly" {
+		t.Fatalf("quarantined = %#v, %v", quarantined, err)
+	}
+	_, file, err := store.OpenArtifact("repo", unsafe.ID)
+	if err != nil {
+		t.Fatalf("historical artifact unavailable: %v", err)
+	}
+	file.Close()
+}
