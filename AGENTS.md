@@ -463,6 +463,18 @@ whenever dependencies change or the web job fails before it starts.
   copying lifecycle state into the organization record. The organization ID is
   the public repository owner identity; `administrator_id` identifies the human
   owner currently exercising repository-owner policy on the group's behalf.
+  Organization teams are nested durable resources on the organization record.
+  Owners create teams and approve agent identities; team maintainers manage
+  their team and descendants. Team invitations require acceptance, every
+  mutation appends actor-attributed organization evidence, and team versions are
+  optimistic-concurrency tokens. Responsibilities bind a team to one
+  organization repository plus a free-form area. The public organization
+  directory exposes only public teams, responsibilities, approved agents,
+  accepted effective members, and the nested path explaining membership;
+  authenticated members may also inspect internal entries and pending
+  invitations. Removing an organization member removes their team memberships
+  and approved-agent operator links. Team structure does not yet replace the
+  portfolio's coarse repository collaborator propagation.
   Versioned cross-repository relationships live beneath `$RELATIONSHIP_ROOT`
   (default `apps/api/data/relationships`). A repository participant publishes
   an interface only from an existing immutable release, which binds its name,

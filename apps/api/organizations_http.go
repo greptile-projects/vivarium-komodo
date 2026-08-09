@@ -40,6 +40,128 @@ type organizationIncidents interface {
 }
 
 func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, repos organizationRepositories, people organizationUsers, packages organizationPackages, releaseStore organizationReleases, pulls organizationPulls, incidentStore organizationIncidents, credentials authStore) {
+	mux.HandleFunc("GET /organizations/{organization}/directory", func(w http.ResponseWriter, r *http.Request) {
+		actor, authenticated, ok := authenticateOptionalRequest(w, r, credentials, auth.RepositoryRead)
+		if !ok {
+			return
+		}
+		o, e := orgs.Get(r.PathValue("organization"))
+		if organizationError(w, e) {
+			return
+		}
+		writeJSON(w, 200, organizations.DirectoryFor(o, authenticated && orgs.IsMember(o.ID, actor.UserID)))
+	})
+	mux.HandleFunc("POST /organizations/{organization}/teams", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in organizations.Team
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		_, made, e := orgs.CreateTeam(r.PathValue("organization"), actor.UserID, in)
+		if organizationError(w, e) {
+			return
+		}
+		w.Header().Set("Location", "/organizations/"+r.PathValue("organization")+"/teams/"+made.ID)
+		writeJSON(w, 201, made)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/teams/{team}/members", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in struct {
+			UserID          string `json:"user_id"`
+			Role            string `json:"role"`
+			ExpectedVersion int64  `json:"expected_version"`
+		}
+		if !readJSON(w, r, &in, 2048) {
+			return
+		}
+		o, e := orgs.InviteTeamMember(r.PathValue("organization"), r.PathValue("team"), actor.UserID, in.UserID, in.Role, in.ExpectedVersion)
+		if organizationError(w, e) {
+			return
+		}
+		writeJSON(w, 201, o)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/teams/{team}/members/accept", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64 `json:"expected_version"`
+		}
+		if !readJSON(w, r, &in, 1024) {
+			return
+		}
+		o, e := orgs.AcceptTeam(r.PathValue("organization"), r.PathValue("team"), actor.UserID, in.ExpectedVersion)
+		if organizationError(w, e) {
+			return
+		}
+		writeJSON(w, 200, o)
+	})
+	mux.HandleFunc("DELETE /organizations/{organization}/teams/{team}/members/{user}", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64 `json:"expected_version"`
+		}
+		if !readJSON(w, r, &in, 1024) {
+			return
+		}
+		o, e := orgs.RemoveTeamMember(r.PathValue("organization"), r.PathValue("team"), actor.UserID, r.PathValue("user"), in.ExpectedVersion)
+		if organizationError(w, e) {
+			return
+		}
+		writeJSON(w, 200, o)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/teams/{team}/responsibilities", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in struct {
+			RepositoryID    string `json:"repository_id"`
+			Area            string `json:"area"`
+			Description     string `json:"description"`
+			Visibility      string `json:"visibility"`
+			ExpectedVersion int64  `json:"expected_version"`
+		}
+		if !readJSON(w, r, &in, 4096) {
+			return
+		}
+		repo, e := repos.Inspect(storage.ID(in.RepositoryID))
+		if e != nil || repo.OrganizationID != r.PathValue("organization") {
+			writeJSON(w, 422, map[string]string{"error": "invalid_organization"})
+			return
+		}
+		_, made, e := orgs.AddResponsibility(r.PathValue("organization"), r.PathValue("team"), actor.UserID, organizations.Responsibility{RepositoryID: in.RepositoryID, Area: in.Area, Description: in.Description, Visibility: in.Visibility}, in.ExpectedVersion)
+		if organizationError(w, e) {
+			return
+		}
+		writeJSON(w, 201, made)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/agents", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in organizations.Agent
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		_, made, e := orgs.RegisterAgent(r.PathValue("organization"), actor.UserID, in)
+		if organizationError(w, e) {
+			return
+		}
+		w.Header().Set("Location", "/organizations/"+r.PathValue("organization")+"/agents/"+made.ID)
+		writeJSON(w, 201, made)
+	})
 	mux.HandleFunc("POST /organizations", func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
 		if !ok {
