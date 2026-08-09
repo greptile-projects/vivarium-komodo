@@ -374,6 +374,14 @@ type ReleaseCandidate = {
   proposal_ids: string[]; task_ids: string[]; contributor_ids: string[];
 };
 type ReleaseList = { items: ReleaseCandidate[]; total_count: number };
+type RelationshipGraph = {
+  repository_id:string;
+  can_write:boolean;
+  nodes:Array<{repository_id:string;name:string;owner_id:string;visibility:string}>;
+  interfaces:Array<{id:string;repository_id:string;name:string;version:string;commit_id:string;release_id:string;schema_path?:string;published_by_id:string;published_at:string}>;
+  edges:Array<{dependency:{id:string;repository_id:string;commit_id:string;release_id?:string;provider_repository_id:string;interface_name:string;constraint:string;declared_by_id:string;declared_at:string};provider?:RelationshipGraph["interfaces"][number];status:"resolved"|"stale"|"unresolved";reasons:string[];consumer_release?:ReleaseCandidate;provider_release?:ReleaseCandidate;consumer_environments:Array<{id:string;name:string;deployment_id:string;state:string;release_id:string;commit_id:string}>;provider_environments:Array<{id:string;name:string;deployment_id:string;state:string;release_id:string;commit_id:string}>}>;
+  summary:{repositories:number;relationships:number;resolved:number;stale:number;unresolved:number};
+};
 type ReleaseBuild = {
   id: string; commit_id: string; state: "queued" | "running" | "succeeded" | "failed" | "canceled";
   triggered_by_id?: string; retry_of_id?: string; created_at: string; completed_at?: string;
@@ -523,6 +531,8 @@ export default function RepositoryPage({
           ? "pulls"
           : query.view === "queue"
             ? "queue"
+          : query.view === "relationships"
+            ? "relationships"
           : query.view === "releases"
             ? "releases"
           : query.view === "incidents"
@@ -568,6 +578,7 @@ export default function RepositoryPage({
         view === "proposals" ||
         view === "pulls" ||
         view === "queue" ||
+        view === "relationships" ||
         view === "releases" ||
         view === "incidents" ||
         view === "people" ||
@@ -632,6 +643,7 @@ export default function RepositoryPage({
       nextView !== "proposals" &&
       nextView !== "pulls" &&
       nextView !== "queue" &&
+      nextView !== "relationships" &&
       nextView !== "releases" &&
       nextView !== "people"
     ) {
@@ -744,6 +756,13 @@ export default function RepositoryPage({
           Integration queue
         </button>
         <button
+          className={view === "relationships" ? "active" : ""}
+          onClick={() => navigate({ view: "relationships", path: "" })}
+        >
+          <Book size={15} />
+          Relationships
+        </button>
+        <button
           className={view === "releases" ? "active" : ""}
           onClick={() => navigate({ view: "releases", path: "" })}
         >
@@ -799,6 +818,8 @@ export default function RepositoryPage({
         />
       ) : view === "queue" ? (
         <IntegrationQueueWorkspace repository={repository} branches={branches.items} initialBranch={revision || branches.default_branch} actor={actor} onBranch={(branch) => navigate({ view: "queue", ref: branch, path: "" })} />
+      ) : view === "relationships" ? (
+        <RelationshipWorkspace repository={repository} actor={actor} />
       ) : view === "releases" ? (
         <ReleaseWorkspace repository={repository} branches={branches.items} actor={actor} selected={query.release} />
       ) : view === "incidents" ? (
@@ -1212,6 +1233,26 @@ function CollaboratorWorkspace({ repository }: { repository: string }) {
       </section>
     </section>
   );
+}
+
+function RelationshipWorkspace({repository,actor}:{repository:Repository;actor:string}) {
+  const [graph,setGraph]=useState<RelationshipGraph>();const [releases,setReleases]=useState<ReleaseCandidate[]>([]);const [creating,setCreating]=useState<"interface"|"dependency"|"">("");const [error,setError]=useState("");const [busy,setBusy]=useState(false);const authorized=Boolean(actor&&graph?.can_write);
+  const load=useCallback(async()=>{try{const [nextGraph,nextReleases]=await Promise.all([get<RelationshipGraph>(`/repositories/${repository.id}/relationships`),get<ReleaseList>(`/repositories/${repository.id}/releases?per_page=100`)]);setGraph(nextGraph);setReleases(nextReleases.items);}catch(cause){setError(cause instanceof Error?cause.message:"Relationship evidence is unavailable.");}},[repository.id]);
+  useEffect(()=>{
+    // Relationship state follows the selected repository.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  },[load]);
+  async function submitInterface(event:React.FormEvent<HTMLFormElement>){event.preventDefault();setBusy(true);setError("");const data=new FormData(event.currentTarget);try{await send(`/repositories/${repository.id}/interfaces`,"POST",{name:data.get("name"),version:data.get("version"),release_id:data.get("release"),schema_path:data.get("schema")});setCreating("");await load();}catch(cause){setError(cause instanceof Error?cause.message:"Interface could not be published.");}finally{setBusy(false)}}
+  async function submitDependency(event:React.FormEvent<HTMLFormElement>){event.preventDefault();setBusy(true);setError("");const data=new FormData(event.currentTarget);const release=String(data.get("release")||"");try{await send(`/repositories/${repository.id}/dependencies`,"POST",{provider_repository_id:data.get("provider"),interface_name:data.get("name"),constraint:data.get("constraint"),release_id:release||undefined,commit_id:release?undefined:data.get("commit")});setCreating("");await load();}catch(cause){setError(cause instanceof Error?cause.message:"Dependency could not be declared.");}finally{setBusy(false)}}
+  const names=new Map(graph?.nodes.map((node)=>[node.repository_id,node.name]));
+  return <section className="relationship-workspace">
+    <header className="release-heading"><div><p className="eyebrow">Cross-repository evidence</p><h2>Interface relationships</h2><p>Inspect which exact released contracts connect independently owned code, and where that evidence needs attention.</p></div>{authorized&&<div className="relationship-actions"><Button variant="secondary" onClick={()=>setCreating(creating==="dependency"?"":"dependency")}><Plus size={14}/>Declare dependency</Button><Button onClick={()=>setCreating(creating==="interface"?"":"interface")}><Plus size={14}/>Publish interface</Button></div>}</header>
+    {creating==="interface"&&<form className="panel relationship-form" onSubmit={submitInterface}><label>Interface name<input name="name" required placeholder="payments-api"/></label><label>Semantic version<input name="version" required placeholder="1.2.0" pattern="v?[0-9]+\.[0-9]+\.[0-9]+"/></label><label>Release<select name="release" required><option value="">Select exact release…</option>{releases.map((item)=><option value={item.id} key={item.id}>{item.version} · {short(item.commit_id)}</option>)}</select></label><label>Schema path (optional)<input name="schema" placeholder="api/openapi.yaml"/></label><div className="release-form-actions"><Button disabled={busy}>{busy?"Publishing…":"Publish version"}</Button></div></form>}
+    {creating==="dependency"&&<form className="panel relationship-form" onSubmit={submitDependency}><label>Provider repository ID<input name="provider" required/></label><label>Interface name<input name="name" required placeholder="payments-api"/></label><label>Compatibility constraint<input name="constraint" required placeholder="^1.2.0"/></label><label>Consumer release<select name="release"><option value="">Unreleased exact commit</option>{releases.map((item)=><option value={item.id} key={item.id}>{item.version} · {short(item.commit_id)}</option>)}</select></label><label>Exact commit when unreleased<input name="commit" placeholder="40-character object ID"/></label><div className="release-form-actions"><Button disabled={busy}>{busy?"Declaring…":"Declare dependency"}</Button></div></form>}
+    {error&&<p className="form-error" role="alert">{error}</p>}
+    {graph&&<><div className="relationship-summary">{(["repositories","relationships","resolved","stale","unresolved"] as const).map((key)=><article className="panel" key={key}><strong>{graph.summary[key]}</strong><span>{key}</span></article>)}</div><div className="relationship-graph">{graph.edges.map((edge)=><article className={`panel relationship-edge ${edge.status}`} key={edge.dependency.id}><header><Badge tone={edge.status==="resolved"?"accent":"neutral"}>{edge.status}</Badge><span><Link href={`/repositories/${edge.dependency.repository_id}?view=relationships`}>{names.get(edge.dependency.repository_id)??short(edge.dependency.repository_id)}</Link><small>owned by <Actor id={graph.nodes.find((node)=>node.repository_id===edge.dependency.repository_id)?.owner_id??""}/></small></span><ChevronRight/><span><Link href={`/repositories/${edge.dependency.provider_repository_id}?view=relationships`}>{names.get(edge.dependency.provider_repository_id)??short(edge.dependency.provider_repository_id)}</Link><small>owned by <Actor id={graph.nodes.find((node)=>node.repository_id===edge.dependency.provider_repository_id)?.owner_id??""}/></small></span></header><div className="relationship-contract"><strong>{edge.dependency.interface_name} <code>{edge.dependency.constraint}</code></strong><span>consumer <code>{short(edge.dependency.commit_id)}</code>{edge.consumer_release&&<> · release {edge.consumer_release.version}</>}</span><span>{edge.provider?<>resolved to <b>{edge.provider.version}</b> at <code>{short(edge.provider.commit_id)}</code></>:"No compatible published version"}</span></div>{edge.reasons.length>0&&<ul>{edge.reasons.map((reason)=><li key={reason}>{reason.replaceAll("_"," ")}</li>)}</ul>}<div className="relationship-environments"><span><b>Consumer environments</b>{edge.consumer_environments.length?edge.consumer_environments.map((env)=><small key={env.id}>{env.name||short(env.id)} · {env.state} · {short(env.commit_id)}</small>):<small>No deployment evidence</small>}</span><span><b>Provider environments</b>{edge.provider_environments.length?edge.provider_environments.map((env)=><small key={env.id}>{env.name||short(env.id)} · {env.state} · {short(env.commit_id)}</small>):<small>No deployment evidence</small>}</span></div><footer>Declared by <Actor id={edge.dependency.declared_by_id}/> · {new Date(edge.dependency.declared_at).toLocaleString()}</footer></article>)}{!graph.edges.length&&<article className="panel release-empty"><Book/><h3>No relationships declared</h3><p>Publish an interface from a release or declare this repository&apos;s dependency on another owner&apos;s contract.</p></article>}</div></>}
+  </section>
 }
 
 function ReleaseWorkspace({ repository, branches, actor, selected }: { repository: Repository; branches: BranchRecord[]; actor: string; selected?: string }) {

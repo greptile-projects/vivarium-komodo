@@ -67,6 +67,34 @@ repository-browser, advisory, and activity surfaces until the atomic publish;
 afterward both fixed refs, redacted advisory evidence, credit, and actionable
 upgrade activity become available together.
 
+## Versioned interface relationships
+
+Repositories publish named interface versions with `POST
+/repositories/{repository}/interfaces`. A publication must reference an
+existing release in that repository, so the platform—not the caller—binds the
+interface to its exact source commit. Versions use three-part semantic versions;
+an optional schema path points collaborators to the contract inside that
+snapshot. Name/version pairs are immutable and unique within a repository.
+
+Consumers declare their evidence with `POST
+/repositories/{repository}/dependencies`, identifying a readable provider,
+interface name, compatibility constraint, and either an immutable consumer
+release or an exact unreleased commit. Constraints support exact versions,
+caret and tilde ranges, minimum versions, and `*`. Declarations are append-only,
+actor-attributed snapshots rather than a mutable inventory.
+
+`GET /repositories/{repository}/relationships` returns the readable graph
+touching that repository. Repository nodes retain owner identity; every edge
+retains consumer and provider commits and releases, the chosen compatible
+publication, and the newest deployment evidence per environment. A relationship
+is `unresolved` when no readable compatible publication exists and `stale` when
+its release evidence is missing or the consumer has released a newer revision
+without a new declaration. Private linked repositories are omitted unless the
+caller can independently read them. The repository `view=relationships` web tab
+exposes the same graph, status reasons, owners, exact revisions, and environment
+state. Storage defaults to `$RELATIONSHIP_ROOT` at
+`apps/api/data/relationships`.
+
 ## Release builds and attestations
 
 A release candidate is an immutable source and collaboration snapshot. Its
