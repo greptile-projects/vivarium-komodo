@@ -95,6 +95,11 @@ func registerInboxHTTP(mux *http.ServeMux, activity inboxActivityStore, state in
 				if event.TargetUserID == userID {
 					classification, title, summary = "awareness", "Repository access granted", "You can now contribute to this repository."
 				}
+			case "security_advisory.published":
+				if event.TargetUserID == userID {
+					classification, title, summary = "response", "Security upgrade available", event.Metadata["upgrade_guidance"]
+					href = "/security-advisories/" + event.Resource.ID
+				}
 			case "pull_request.created":
 				if pull, getErr := pullStore.Get(event.RepositoryID, event.Resource.ID); repository.OwnerID == userID && getErr == nil && pull.Status == pullrequests.Open {
 					classification, title, summary = "review", "Pull request ready for review", "Review the proposed change and leave a decision."

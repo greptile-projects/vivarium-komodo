@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-09T04:49:34Z: Added maintainer-scheduled atomic security disclosure with attested-line prerequisites, exact repaired-branch publication, rollback and private paused progress on partial failure, redacted anonymous advisories, explicit upgrade guidance and credits, and targeted affected-participant notifications.
+
 2026-08-08T21:56:27Z: Added bounded incident-agent investigations with responder-validated evidence and exact revisions, allowlisted read-only deployment context, attributable findings/tool/questions/uncertainty, and guide/pause/resume/cancel controls. Worker credentials expire after 24 hours, revoke on cancellation, and cannot authorize Git, repository writes, deployment controls, or secret management.
 
 2026-08-08T22:54:44Z: Added evidence-backed incident mitigations with discussion, independent approval/rejection, commander overrides, governed pause/rollback/repair execution links, retained failed attempts, and exact deployment health-event recovery verification. The incident web workspace now exposes proposal, authorization, action progress, and recovery state without expanding environment authority.

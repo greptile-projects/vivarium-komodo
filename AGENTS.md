@@ -538,6 +538,13 @@ whenever dependencies change or the web job fails before it starts.
   requires all recorded gates to pass, both gate classes to be represented, a
   current approval, and no gaps; release attestations must cover the repair's
   affected version line.
+  Security disclosure is prepared only after every repair is integrated and
+  release-attested. The plan freezes redacted public text, guidance, credits,
+  schedule, and ordinary refs. Publication creates every exact repaired ref
+  before lifting the embargo; a failed attempt rolls back its new refs and
+  retains private remaining-work state. Anonymous security-advisory reads must
+  never expose reporter identity, contact, evidence, embargo refs, findings,
+  sessions, or audit records.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 

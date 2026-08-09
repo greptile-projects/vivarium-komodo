@@ -163,6 +163,32 @@ type RepairTask struct {
 	CreatedAt     time.Time           `json:"created_at"`
 	UpdatedAt     time.Time           `json:"updated_at"`
 }
+type DisclosureBranch struct {
+	RepairID       string `json:"repair_id"`
+	RepositoryID   string `json:"repository_id"`
+	Version        string `json:"version"`
+	SourceRef      string `json:"source_ref,omitempty"`
+	PublishedRef   string `json:"published_ref"`
+	Revision       string `json:"revision"`
+	ReleaseID      string `json:"release_id"`
+	ArtifactID     string `json:"artifact_id"`
+	ArtifactSHA256 string `json:"artifact_sha256"`
+	State          string `json:"state"`
+	Error          string `json:"error,omitempty"`
+}
+type Disclosure struct {
+	State           string             `json:"state"`
+	AdvisoryID      string             `json:"advisory_id"`
+	Summary         string             `json:"summary"`
+	UpgradeGuidance string             `json:"upgrade_guidance"`
+	Credits         []string           `json:"credits"`
+	ScheduledAt     *time.Time         `json:"scheduled_at,omitempty"`
+	PublishedAt     *time.Time         `json:"published_at,omitempty"`
+	PublishedByID   string             `json:"published_by_id,omitempty"`
+	Remaining       []string           `json:"remaining"`
+	Branches        []DisclosureBranch `json:"branches"`
+	UpdatedAt       time.Time          `json:"updated_at"`
+}
 type Contact struct {
 	Channel string `json:"channel"`
 	Value   string `json:"value"`
@@ -204,6 +230,7 @@ type Report struct {
 	ImpactMatrix   []Impact             `json:"impact_matrix"`
 	Investigations []Investigation      `json:"investigations"`
 	Repairs        []RepairTask         `json:"repairs"`
+	Disclosure     *Disclosure          `json:"disclosure,omitempty"`
 	CreatedAt      time.Time            `json:"created_at"`
 	UpdatedAt      time.Time            `json:"updated_at"`
 }
@@ -232,6 +259,110 @@ type VerificationAction struct {
 	ArtifactID          string `json:"artifact_id"`
 	ArtifactSHA256      string `json:"artifact_sha256"`
 	Gap                 string `json:"gap"`
+}
+type DisclosureInput struct {
+	ActorID, AdvisoryID, Summary, UpgradeGuidance string
+	Credits                                       []string
+	ScheduledAt                                   *time.Time
+	PublishedRefs                                 map[string]string
+}
+
+// PrepareDisclosure freezes the public payload and proves every supported line
+// has an integrated, attested repair before any ordinary ref can be exposed.
+func (s *Store) PrepareDisclosure(id string, in DisclosureInput, maintainer func(string) bool) (Report, error) {
+	in.AdvisoryID, in.Summary, in.UpgradeGuidance = strings.TrimSpace(in.AdvisoryID), strings.TrimSpace(in.Summary), strings.TrimSpace(in.UpgradeGuidance)
+	if in.ActorID == "" || in.AdvisoryID == "" || in.Summary == "" || in.UpgradeGuidance == "" || len(in.Summary) > 20000 || len(in.UpgradeGuidance) > 20000 || len(in.Credits) > 50 {
+		return Report{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.read(id)
+	if err != nil || !isMaintainer(r, in.ActorID, maintainer) {
+		return Report{}, ErrNotFound
+	}
+	if r.EmbargoState == "lifted" || r.Disclosure != nil || len(r.Repairs) == 0 {
+		return r, ErrTransition
+	}
+	branches := make([]DisclosureBranch, 0, len(r.Repairs))
+	seen := map[string]bool{}
+	for _, repair := range r.Repairs {
+		v := repair.Verification
+		published := strings.TrimSpace(in.PublishedRefs[repair.ID])
+		if v == nil || v.State != "attested" || len(v.ReleaseAttestations) == 0 || !strings.HasPrefix(published, "refs/heads/") || strings.HasPrefix(published, "refs/heads/embargo/") || seen[repair.RepositoryID+"\x00"+published] {
+			return r, ErrInvalid
+		}
+		seen[repair.RepositoryID+"\x00"+published] = true
+		a := v.ReleaseAttestations[len(v.ReleaseAttestations)-1]
+		branches = append(branches, DisclosureBranch{RepairID: repair.ID, RepositoryID: repair.RepositoryID, Version: repair.Version, SourceRef: repair.Branch, PublishedRef: published, Revision: v.IntegrationCommitID, ReleaseID: a.ReleaseID, ArtifactID: a.ArtifactID, ArtifactSHA256: a.ArtifactSHA256, State: "pending"})
+	}
+	now := s.now().UTC()
+	state := "ready"
+	if in.ScheduledAt != nil && in.ScheduledAt.After(now) {
+		state = "scheduled"
+	}
+	r.Disclosure = &Disclosure{State: state, AdvisoryID: in.AdvisoryID, Summary: in.Summary, UpgradeGuidance: in.UpgradeGuidance, Credits: append([]string{}, in.Credits...), ScheduledAt: in.ScheduledAt, Remaining: []string{"publish_repaired_branches", "publish_advisory", "notify_affected_owners"}, Branches: branches, UpdatedAt: now}
+	r.UpdatedAt = now
+	r.append("disclosure.prepared", in.ActorID, in.AdvisoryID, state, now)
+	return r, s.write(r)
+}
+
+func (s *Store) CompleteDisclosure(id, actor string, branches []DisclosureBranch, failure string, maintainer func(string) bool) (Report, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.read(id)
+	if err != nil || !isMaintainer(r, actor, maintainer) {
+		return Report{}, ErrNotFound
+	}
+	if r.Disclosure == nil || r.Disclosure.State == "published" {
+		return r, ErrTransition
+	}
+	now := s.now().UTC()
+	r.Disclosure.Branches, r.Disclosure.UpdatedAt = branches, now
+	if failure != "" {
+		r.Disclosure.State = "paused"
+		r.Disclosure.Remaining = []string{"retry_branch_publication", "publish_advisory", "notify_affected_owners"}
+		r.append("disclosure.paused", actor, r.Disclosure.AdvisoryID, failure, now)
+	} else {
+		r.Disclosure.State = "published"
+		r.Disclosure.Remaining = []string{}
+		r.Disclosure.PublishedAt = &now
+		r.Disclosure.PublishedByID = actor
+		r.EmbargoState = "lifted"
+		r.append("disclosure.published", actor, r.Disclosure.AdvisoryID, "fixes and guidance public", now)
+	}
+	r.UpdatedAt = now
+	return r, s.write(r)
+}
+
+func (s *Store) GetPublicAdvisory(advisoryID string) (Report, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, _ := os.ReadDir(s.root)
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		r, err := s.read(strings.TrimSuffix(entry.Name(), ".json"))
+		if err == nil && r.Disclosure != nil && r.Disclosure.AdvisoryID == advisoryID && r.Disclosure.State == "published" {
+			r.Summary = ""
+			r.ReporterID = ""
+			r.Contact = Contact{}
+			r.Evidence = nil
+			r.Team = nil
+			r.Messages = nil
+			r.Audit = nil
+			r.ResourceLinks = nil
+			r.Findings = nil
+			r.Investigations = nil
+			r.Repairs = nil
+			for i := range r.Disclosure.Branches {
+				r.Disclosure.Branches[i].SourceRef = ""
+				r.Disclosure.Branches[i].Error = ""
+			}
+			return r, nil
+		}
+	}
+	return Report{}, ErrNotFound
 }
 
 type Store struct {
