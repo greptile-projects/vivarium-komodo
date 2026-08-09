@@ -530,6 +530,14 @@ whenever dependencies change or the web job fails before it starts.
   and response-team removal revoke matching Git grants immediately. Keep all
   repair collaboration inside the advisory until the later disclosure workflow
   deliberately publishes it.
+  Exact-candidate repair verification is also report-private. Its ledger binds
+  required-check and security-reproduction attempt summaries, definition
+  digests, approvals, gaps, protected-integration identity, and release
+  artifact checksums to the current embargo branch tip. Never store or return
+  private reproduction commands, fixtures, or logs in the advisory. Integration
+  requires all recorded gates to pass, both gate classes to be represented, a
+  current approval, and no gaps; release attestations must cover the repair's
+  affected version line.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 

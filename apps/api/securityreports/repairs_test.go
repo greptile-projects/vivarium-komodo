@@ -1,7 +1,9 @@
 package securityreports
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -55,5 +57,44 @@ func TestEmbargoedRepairsRetainCrossRepositoryWorkAndPrivateReview(t *testing.T)
 	}
 	if len(firstReport.Audit) == 0 || first.Branch == "" {
 		t.Fatal("repair did not retain private audit and isolated branch")
+	}
+}
+
+func TestRepairVerificationRequiresExactCompleteEvidenceBeforeAttestation(t *testing.T) {
+	store, _ := New(t.TempDir())
+	report, _ := store.Create(CreateInput{ActorID: "reporter", Title: "issue", Summary: "details", Contact: Contact{Channel: "email", Value: "safe@example.test"}, Affected: []AffectedRepository{{RepositoryID: "repo", Versions: []string{"1.x"}}}})
+	allow := func(string) bool { return true }
+	_, repair, _ := store.CreateRepair(report.ID, RepairInput{ActorID: "owner", RepositoryID: "repo", Version: "1.x", Outcome: "remove flaw", BaseRevision: strings.Repeat("a", 40), Branch: "refs/heads/embargo/opaque"}, allow)
+	revision := strings.Repeat("b", 40)
+	act := func(in VerificationAction) (Report, error) {
+		in.ActorID, in.Revision = "owner", revision
+		return store.UpdateRepairVerification(report.ID, repair.ID, in, allow)
+	}
+	if _, err := act(VerificationAction{Action: "begin"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := act(VerificationAction{Action: "integrate", IntegrationEntryID: "queue-1", IntegrationCommitID: strings.Repeat("c", 40)}); !errors.Is(err, ErrTransition) {
+		t.Fatalf("premature integration=%v", err)
+	}
+	if _, err := act(VerificationAction{Action: "gate", Kind: "required_check", Name: "line tests", AttemptID: "check-1", DefinitionDigest: strings.Repeat("1", 64), State: "passed"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := act(VerificationAction{Action: "gate", Kind: "security_reproduction", Name: "CVE regression", AttemptID: "private-1", DefinitionDigest: strings.Repeat("2", 64), State: "passed"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := act(VerificationAction{Action: "approve", Decision: "approve", Summary: "Reviewed the exact candidate and evidence."}); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := act(VerificationAction{Action: "integrate", IntegrationEntryID: "queue-1", IntegrationCommitID: strings.Repeat("c", 40)})
+	if err != nil || updated.Repairs[0].Verification.State != "integrated" {
+		t.Fatalf("integration=%#v err=%v", updated.Repairs[0].Verification, err)
+	}
+	updated, err = act(VerificationAction{Action: "attest", ReleaseID: "release-1", Version: "1.x", ArtifactID: "artifact-1", ArtifactSHA256: strings.Repeat("d", 64)})
+	if err != nil || updated.Repairs[0].Verification.State != "attested" || len(updated.Repairs[0].Verification.ReleaseAttestations) != 1 {
+		t.Fatalf("attestation=%#v err=%v", updated.Repairs[0].Verification, err)
+	}
+	data, _ := json.Marshal(updated)
+	if strings.Contains(string(data), "command") || strings.Contains(string(data), "logs") {
+		t.Fatalf("verification leaked sensitive execution material: %s", data)
 	}
 }

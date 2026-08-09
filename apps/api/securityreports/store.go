@@ -103,25 +103,65 @@ type RepairSession struct {
 	State               string         `json:"state"`
 	Authority           []string       `json:"authority"`
 	InitiatedByID       string         `json:"initiated_by_id"`
-	CredentialName      string         `json:"-"`
+	CredentialName      string         `json:"credential_name,omitempty"`
 	CredentialExpiresAt time.Time      `json:"credential_expires_at"`
 	Records             []RepairRecord `json:"records"`
 	CreatedAt           time.Time      `json:"created_at"`
 	UpdatedAt           time.Time      `json:"updated_at"`
 }
+
+// Verification is the response-team-safe evidence summary for one exact repair
+// candidate. Commands, reproduction inputs, and execution logs deliberately do
+// not belong in this record; those stay in the private runner identified by an
+// opaque attempt ID and definition digest.
+type VerificationGate struct {
+	Kind             string    `json:"kind"`
+	Name             string    `json:"name"`
+	AttemptID        string    `json:"attempt_id"`
+	DefinitionDigest string    `json:"definition_digest"`
+	State            string    `json:"state"`
+	RecordedByID     string    `json:"recorded_by_id"`
+	RecordedAt       time.Time `json:"recorded_at"`
+}
+type VerificationApproval struct {
+	ActorID   string    `json:"actor_id"`
+	Decision  string    `json:"decision"`
+	Summary   string    `json:"summary"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type ReleaseAttestation struct {
+	ReleaseID      string    `json:"release_id"`
+	Version        string    `json:"version"`
+	ArtifactID     string    `json:"artifact_id"`
+	ArtifactSHA256 string    `json:"artifact_sha256"`
+	RecordedByID   string    `json:"recorded_by_id"`
+	RecordedAt     time.Time `json:"recorded_at"`
+}
+type RepairVerification struct {
+	Revision            string                 `json:"revision"`
+	State               string                 `json:"state"`
+	Gates               []VerificationGate     `json:"gates"`
+	Approvals           []VerificationApproval `json:"approvals"`
+	IntegrationEntryID  string                 `json:"integration_entry_id,omitempty"`
+	IntegrationCommitID string                 `json:"integration_commit_id,omitempty"`
+	ReleaseAttestations []ReleaseAttestation   `json:"release_attestations"`
+	RemainingGaps       []string               `json:"remaining_gaps"`
+	UpdatedAt           time.Time              `json:"updated_at"`
+}
 type RepairTask struct {
-	ID            string          `json:"id"`
-	RepositoryID  string          `json:"repository_id"`
-	Version       string          `json:"version"`
-	Outcome       string          `json:"outcome"`
-	BaseRevision  string          `json:"base_revision"`
-	Branch        string          `json:"branch"`
-	DependencyIDs []string        `json:"dependency_ids"`
-	State         string          `json:"state"`
-	CreatedByID   string          `json:"created_by_id"`
-	Sessions      []RepairSession `json:"sessions"`
-	CreatedAt     time.Time       `json:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at"`
+	ID            string              `json:"id"`
+	RepositoryID  string              `json:"repository_id"`
+	Version       string              `json:"version"`
+	Outcome       string              `json:"outcome"`
+	BaseRevision  string              `json:"base_revision"`
+	Branch        string              `json:"branch"`
+	DependencyIDs []string            `json:"dependency_ids"`
+	State         string              `json:"state"`
+	CreatedByID   string              `json:"created_by_id"`
+	Sessions      []RepairSession     `json:"sessions"`
+	Verification  *RepairVerification `json:"verification,omitempty"`
+	CreatedAt     time.Time           `json:"created_at"`
+	UpdatedAt     time.Time           `json:"updated_at"`
 }
 type Contact struct {
 	Channel string `json:"channel"`
@@ -174,6 +214,25 @@ type CreateInput struct {
 	Evidence                []Evidence
 }
 type TriageInput struct{ ActorID, Severity, EmbargoState string }
+type VerificationAction struct {
+	ActorID             string `json:"-"`
+	Action              string `json:"action"`
+	Revision            string `json:"revision"`
+	Kind                string `json:"kind"`
+	Name                string `json:"name"`
+	AttemptID           string `json:"attempt_id"`
+	DefinitionDigest    string `json:"definition_digest"`
+	State               string `json:"state"`
+	Decision            string `json:"decision"`
+	Summary             string `json:"summary"`
+	IntegrationEntryID  string `json:"integration_entry_id"`
+	IntegrationCommitID string `json:"integration_commit_id"`
+	ReleaseID           string `json:"release_id"`
+	Version             string `json:"version"`
+	ArtifactID          string `json:"artifact_id"`
+	ArtifactSHA256      string `json:"artifact_sha256"`
+	Gap                 string `json:"gap"`
+}
 
 type Store struct {
 	root string
@@ -655,6 +714,163 @@ func (s *Store) RevokeRepairSession(id, taskID, sessionID, actor string, maintai
 		}
 	}
 	return r, RepairSession{}, ErrNotFound
+}
+
+// UpdateRepairVerification advances the evidence ledger only through explicit,
+// monotonic actions. The HTTP boundary separately proves Revision is still the
+// embargo branch tip before calling this method.
+func (s *Store) UpdateRepairVerification(id, taskID string, in VerificationAction, maintainer func(string) bool) (Report, error) {
+	in.Action, in.Kind, in.State, in.Decision = strings.ToLower(strings.TrimSpace(in.Action)), strings.ToLower(strings.TrimSpace(in.Kind)), strings.ToLower(strings.TrimSpace(in.State)), strings.ToLower(strings.TrimSpace(in.Decision))
+	in.Name, in.AttemptID, in.DefinitionDigest, in.Summary, in.Gap = strings.TrimSpace(in.Name), strings.TrimSpace(in.AttemptID), strings.TrimSpace(in.DefinitionDigest), strings.TrimSpace(in.Summary), strings.TrimSpace(in.Gap)
+	if in.ActorID == "" || in.Revision == "" {
+		return Report{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.read(id)
+	if err != nil || !canAccess(r, in.ActorID, maintainer) {
+		return Report{}, ErrNotFound
+	}
+	if r.EmbargoState == "lifted" {
+		return r, ErrTransition
+	}
+	for x := range r.Repairs {
+		task := &r.Repairs[x]
+		if task.ID != taskID {
+			continue
+		}
+		now := s.now().UTC()
+		if task.Verification == nil || task.Verification.Revision != in.Revision {
+			if in.Action != "begin" {
+				return r, ErrConflict
+			}
+			task.Verification = &RepairVerification{Revision: in.Revision, State: "verifying", Gates: []VerificationGate{}, Approvals: []VerificationApproval{}, ReleaseAttestations: []ReleaseAttestation{}, RemainingGaps: []string{}, UpdatedAt: now}
+		} else if in.Action == "begin" {
+			return r, ErrConflict
+		}
+		v := task.Verification
+		if v.IntegrationCommitID != "" && in.Action != "attest" {
+			return r, ErrTransition
+		}
+		switch in.Action {
+		case "begin":
+		case "gate":
+			if !oneOf(in.Kind, "required_check", "security_reproduction") || in.Name == "" || len(in.Name) > 200 || in.AttemptID == "" || !validSHA256(in.DefinitionDigest) || !oneOf(in.State, "queued", "running", "passed", "failed", "cancelled") {
+				return r, ErrInvalid
+			}
+			for _, prior := range v.Gates {
+				if prior.AttemptID == in.AttemptID {
+					return r, ErrConflict
+				}
+			}
+			gate := VerificationGate{Kind: in.Kind, Name: in.Name, AttemptID: in.AttemptID, DefinitionDigest: in.DefinitionDigest, State: in.State, RecordedByID: in.ActorID, RecordedAt: now}
+			v.Gates = append(v.Gates, gate)
+		case "approve":
+			if !oneOf(in.Decision, "approve", "request_changes") || in.Summary == "" || len(in.Summary) > 2000 {
+				return r, ErrInvalid
+			}
+			approval := VerificationApproval{ActorID: in.ActorID, Decision: in.Decision, Summary: in.Summary, CreatedAt: now}
+			replaced := false
+			for i := range v.Approvals {
+				if v.Approvals[i].ActorID == in.ActorID {
+					v.Approvals[i], replaced = approval, true
+				}
+			}
+			if !replaced {
+				v.Approvals = append(v.Approvals, approval)
+			}
+		case "gap":
+			if in.Gap == "" || len(in.Gap) > 2000 {
+				return r, ErrInvalid
+			}
+			if len(v.RemainingGaps) >= 50 {
+				return r, ErrInvalid
+			}
+			v.RemainingGaps = append(v.RemainingGaps, in.Gap)
+		case "resolve_gap":
+			found := false
+			for i := range v.RemainingGaps {
+				if v.RemainingGaps[i] == in.Gap {
+					v.RemainingGaps = append(v.RemainingGaps[:i], v.RemainingGaps[i+1:]...)
+					found = true
+					break
+				}
+			}
+			if !found {
+				return r, ErrConflict
+			}
+		case "integrate":
+			if !maintainer(task.RepositoryID) || in.IntegrationEntryID == "" || in.IntegrationCommitID == "" || !verificationPassed(v) {
+				return r, ErrTransition
+			}
+			v.IntegrationEntryID, v.IntegrationCommitID = in.IntegrationEntryID, in.IntegrationCommitID
+		case "attest":
+			if !maintainer(task.RepositoryID) || v.IntegrationCommitID == "" || in.ReleaseID == "" || in.Version != task.Version || in.ArtifactID == "" || !validSHA256(in.ArtifactSHA256) {
+				return r, ErrTransition
+			}
+			for _, prior := range v.ReleaseAttestations {
+				if prior.ReleaseID == in.ReleaseID && prior.ArtifactID == in.ArtifactID {
+					return r, ErrConflict
+				}
+			}
+			v.ReleaseAttestations = append(v.ReleaseAttestations, ReleaseAttestation{ReleaseID: in.ReleaseID, Version: in.Version, ArtifactID: in.ArtifactID, ArtifactSHA256: in.ArtifactSHA256, RecordedByID: in.ActorID, RecordedAt: now})
+		default:
+			return r, ErrInvalid
+		}
+		v.State = verificationState(v)
+		v.UpdatedAt, task.UpdatedAt, r.UpdatedAt = now, now, now
+		r.append("repair.verification."+in.Action, in.ActorID, taskID, "exact candidate evidence updated", now)
+		return r, s.write(r)
+	}
+	return r, ErrNotFound
+}
+
+func verificationPassed(v *RepairVerification) bool {
+	check, reproduction, approval := false, false, false
+	latest := map[string]VerificationGate{}
+	for _, gate := range v.Gates {
+		latest[gate.Kind+"\x00"+gate.Name] = gate
+	}
+	for _, gate := range latest {
+		if gate.State != "passed" {
+			return false
+		}
+		check = check || gate.Kind == "required_check"
+		reproduction = reproduction || gate.Kind == "security_reproduction"
+	}
+	for _, review := range v.Approvals {
+		if review.Decision == "request_changes" {
+			return false
+		}
+		approval = approval || review.Decision == "approve"
+	}
+	return check && reproduction && approval && len(v.RemainingGaps) == 0
+}
+
+func verificationState(v *RepairVerification) string {
+	if len(v.ReleaseAttestations) > 0 {
+		return "attested"
+	}
+	if v.IntegrationCommitID != "" {
+		return "integrated"
+	}
+	if verificationPassed(v) {
+		return "ready"
+	}
+	latest := map[string]VerificationGate{}
+	for _, gate := range v.Gates {
+		latest[gate.Kind+"\x00"+gate.Name] = gate
+	}
+	for _, gate := range latest {
+		if gate.State == "failed" || gate.State == "cancelled" {
+			return "failed"
+		}
+	}
+	return "verifying"
+}
+func validSHA256(value string) bool {
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == sha256.Size
 }
 func (s *Store) findInvestigation(token string) (Report, Investigation, error) {
 	d := digestToken(token)

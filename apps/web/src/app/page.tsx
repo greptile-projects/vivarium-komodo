@@ -99,6 +99,24 @@ type SecurityReport = {
     evidence_ids: string[];
     updated_at: string;
   }[];
+  repairs: {
+    id: string;
+    repository_id: string;
+    version: string;
+    outcome: string;
+    base_revision: string;
+    state: string;
+    verification?: {
+      revision: string;
+      state: string;
+      gates: { kind: string; name: string; attempt_id: string; state: string }[];
+      approvals: { actor_id: string; decision: string; summary: string }[];
+      integration_entry_id?: string;
+      integration_commit_id?: string;
+      release_attestations: { release_id: string; version: string; artifact_id: string; artifact_sha256: string }[];
+      remaining_gaps: string[];
+    };
+  }[];
   investigations: {
     id: string;
     agent: string;
@@ -1064,6 +1082,25 @@ function SecurityReports({
                   Update impact
                 </Button>
               </form>
+            </section>
+            <section className="security-section">
+              <h3>Repair coverage and release evidence</h3>
+              {report.repairs?.length ? report.repairs.map((repair) => {
+                const verification = repair.verification;
+                return <article key={repair.id}>
+                  <Badge tone={verification?.state === "attested" ? "accent" : "neutral"}>{verification?.state ?? "not verified"}</Badge>
+                  <strong>{repair.version} · {repair.repository_id}</strong>
+                  <p>{repair.outcome}</p>
+                  {verification ? <>
+                    <p>Exact candidate <code>{verification.revision}</code></p>
+                    <ul>{verification.gates.map((gate) => <li key={gate.attempt_id}><span>{gate.kind.replaceAll("_", " ")} · {gate.name}</span><Badge tone={gate.state === "passed" ? "accent" : "neutral"}>{gate.state}</Badge></li>)}</ul>
+                    <p>Approvals: {verification.approvals.length ? verification.approvals.map((approval) => `${approval.actor_id} (${approval.decision})`).join(", ") : "None"}</p>
+                    {verification.integration_entry_id && <p>Protected integration <code>{verification.integration_entry_id}</code> · <code>{verification.integration_commit_id}</code></p>}
+                    {verification.release_attestations.map((artifact) => <p key={`${artifact.release_id}:${artifact.artifact_id}`}>Release {artifact.version} · artifact <code>{artifact.artifact_id}</code> · SHA-256 <code>{artifact.artifact_sha256}</code></p>)}
+                    <p>Remaining gaps: {verification.remaining_gaps.length ? verification.remaining_gaps.join("; ") : "None recorded"}</p>
+                  </> : <p>No exact-candidate verification has started.</p>}
+                </article>;
+              }) : <p>No repair lines have been defined.</p>}
             </section>
             <section className="security-section">
               <h3>Read-only agent investigations</h3>
