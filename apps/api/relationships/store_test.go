@@ -69,3 +69,26 @@ func TestEvolutionPlanRetainsContractAgreementAndReadOnlyAnalysis(t *testing.T) 
 		t.Fatalf("out-of-scope finding = %v", err)
 	}
 }
+
+func TestEvolutionMigrationTasksCoordinateIndependentRepositoryWork(t *testing.T) {
+	store, _ := New(t.TempDir())
+	plan, _ := store.CreateEvolution(EvolutionPlan{RepositoryID: "provider", InterfaceName: "payments", SourceKind: "pull_request", SourceID: "pr", CandidateCommitID: "candidate", CandidateSchemaPath: "api.json", Predecessor: Interface{ID: "prior"}, AffectedConsumers: []AffectedConsumer{{RepositoryID: "consumer", OwnerID: "consumer-owner"}}, CreatedByID: "provider-owner"})
+	plan, err := store.CreateMigrationTask(plan.ID, "provider-owner", MigrationTaskInput{RepositoryID: "consumer-fork", TargetRepositoryID: "consumer", TargetVersion: "2.0.0", Title: "Adopt payments v2", Outcome: "Checkout uses v2", CompletionCriteria: []string{"contract tests pass"}})
+	if err != nil || len(plan.Tasks) != 1 || !plan.Tasks[0].Ready {
+		t.Fatalf("create task = %#v, %v", plan, err)
+	}
+	task := plan.Tasks[0]
+	plan, err = store.AssignMigrationTask(plan.ID, task.ID, "consumer-owner", "", "human", "consumer-dev", "migrate checkout", "base")
+	if err != nil || plan.Tasks[0].Assignment.AssignedByID != "consumer-owner" {
+		t.Fatalf("consumer assignment = %#v, %v", plan.Tasks[0], err)
+	}
+	assignment := plan.Tasks[0].Assignment
+	plan, err = store.StartMigrationTask(plan.ID, task.ID, "consumer-dev", assignment.ID, "consumer-fork", "migration/payments-v2", "base", "session")
+	if err != nil || plan.Tasks[0].Work.RepositoryID != "consumer-fork" || plan.Tasks[0].Status != "in_progress" {
+		t.Fatalf("start = %#v, %v", plan.Tasks[0], err)
+	}
+	plan, err = store.SynchronizeMigrationTask(plan.ID, task.ID, "consumer-dev", "head", "pull", true)
+	if err != nil || plan.Tasks[0].Status != "completed" || plan.Tasks[0].Work.PullRequestID != "pull" {
+		t.Fatalf("complete = %#v, %v", plan.Tasks[0], err)
+	}
+}

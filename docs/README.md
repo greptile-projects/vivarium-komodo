@@ -120,6 +120,18 @@ It has no Git or application mutation authority. Findings retain `agent:<name>`
 attribution, selected repository IDs, and explicit uncertainty, and return to
 the shared plan without exposing the persisted credential digest.
 
+Evolution plans also retain ordered migration tasks for the provider and every
+affected consumer. Each task names its target version, observable outcome,
+completion criteria, dependencies, discussion, work repository, and merge
+target. Provider collaborators define that shared contract, but only a writer
+of the task's work repository can assign a participating human or the `codex`
+agent at a verified base commit. Starting work creates a task-scoped change
+session and candidate branch in that repository (or its independently owned
+fork); publication creates an ordinary commit-bound pull request against the
+declared target. The plan tracks branch head and review state, and marks work
+complete—and unblocks dependent tasks—only after the linked pull request is
+merged. Plan authors receive no credential or implicit consumer write access.
+
 ## Release builds and attestations
 
 A release candidate is an immutable source and collaboration snapshot. Its

@@ -26,6 +26,62 @@ type MigrationStep struct {
 	Summary   string `json:"summary"`
 	DependsOn string `json:"depends_on,omitempty"`
 }
+type MigrationTask struct {
+	ID                 string                   `json:"id"`
+	Position           int                      `json:"position"`
+	RepositoryID       string                   `json:"repository_id"`
+	TargetRepositoryID string                   `json:"target_repository_id"`
+	TargetVersion      string                   `json:"target_version"`
+	Title              string                   `json:"title"`
+	Outcome            string                   `json:"outcome"`
+	CompletionCriteria []string                 `json:"completion_criteria"`
+	DependsOn          []string                 `json:"depends_on"`
+	Discussion         []MigrationTaskComment   `json:"discussion"`
+	Assignment         *MigrationTaskAssignment `json:"assignment,omitempty"`
+	Work               *MigrationTaskWork       `json:"work,omitempty"`
+	Status             string                   `json:"status"`
+	Ready              bool                     `json:"ready"`
+	BlockedBy          []string                 `json:"blocked_by"`
+	CreatedByID        string                   `json:"created_by_id"`
+	UpdatedByID        string                   `json:"updated_by_id"`
+	CreatedAt          time.Time                `json:"created_at"`
+	UpdatedAt          time.Time                `json:"updated_at"`
+}
+type MigrationTaskComment struct {
+	ID        string    `json:"id"`
+	AuthorID  string    `json:"author_id"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type MigrationTaskAssignment struct {
+	ID           string    `json:"id"`
+	Kind         string    `json:"kind"`
+	AssigneeID   string    `json:"assignee_id"`
+	Mandate      string    `json:"mandate"`
+	BaseRevision string    `json:"base_revision"`
+	AssignedByID string    `json:"assigned_by_id"`
+	AssignedAt   time.Time `json:"assigned_at"`
+}
+type MigrationTaskWork struct {
+	RepositoryID  string     `json:"repository_id"`
+	Branch        string     `json:"branch"`
+	BaseRevision  string     `json:"base_revision"`
+	HeadRevision  string     `json:"head_revision"`
+	SessionID     string     `json:"change_session_id,omitempty"`
+	PullRequestID string     `json:"pull_request_id,omitempty"`
+	StartedByID   string     `json:"started_by_id"`
+	StartedAt     time.Time  `json:"started_at"`
+	CompletedAt   *time.Time `json:"completed_at,omitempty"`
+}
+type MigrationTaskInput struct {
+	RepositoryID       string   `json:"repository_id"`
+	TargetRepositoryID string   `json:"target_repository_id"`
+	TargetVersion      string   `json:"target_version"`
+	Title              string   `json:"title"`
+	Outcome            string   `json:"outcome"`
+	CompletionCriteria []string `json:"completion_criteria"`
+	DependsOn          []string `json:"depends_on"`
+}
 type EvolutionException struct {
 	ID         string     `json:"id"`
 	ConsumerID string     `json:"consumer_repository_id,omitempty"`
@@ -83,6 +139,7 @@ type EvolutionPlan struct {
 	Strategy                string                     `json:"strategy"`
 	Changes                 []CompatibilityChange      `json:"changes"`
 	Steps                   []MigrationStep            `json:"steps"`
+	Tasks                   []MigrationTask            `json:"tasks"`
 	Exceptions              []EvolutionException       `json:"exceptions"`
 	Acknowledgements        []EvolutionAcknowledgement `json:"acknowledgements"`
 	Findings                []EvolutionFinding         `json:"findings"`
@@ -111,8 +168,183 @@ func (s *Store) CreateEvolution(v EvolutionPlan) (EvolutionPlan, error) {
 	}
 	now := s.now().UTC()
 	v.CreatedAt, v.UpdatedAt = now, now
-	v.Changes, v.Steps, v.Exceptions, v.Acknowledgements, v.Findings, v.Analyses = []CompatibilityChange{}, []MigrationStep{}, []EvolutionException{}, []EvolutionAcknowledgement{}, []EvolutionFinding{}, []EvolutionAnalysis{}
+	v.Changes, v.Steps, v.Tasks, v.Exceptions, v.Acknowledgements, v.Findings, v.Analyses = []CompatibilityChange{}, []MigrationStep{}, []MigrationTask{}, []EvolutionException{}, []EvolutionAcknowledgement{}, []EvolutionFinding{}, []EvolutionAnalysis{}
 	return v, s.write("evolutions", v.ID, v)
+}
+
+func (s *Store) CreateMigrationTask(planID, actor string, in MigrationTaskInput) (EvolutionPlan, error) {
+	if actor == "" {
+		return EvolutionPlan{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, err := s.readEvolution(planID)
+	if err != nil {
+		return v, err
+	}
+	in.RepositoryID, in.TargetRepositoryID, in.TargetVersion, in.Title, in.Outcome = strings.TrimSpace(in.RepositoryID), strings.TrimSpace(in.TargetRepositoryID), strings.TrimSpace(in.TargetVersion), strings.TrimSpace(in.Title), strings.TrimSpace(in.Outcome)
+	if in.RepositoryID == "" || in.TargetRepositoryID == "" || in.TargetVersion == "" || in.Title == "" || in.Outcome == "" || len(in.CompletionCriteria) == 0 || len(in.DependsOn) > 100 {
+		return v, ErrInvalid
+	}
+	allowed := map[string]bool{v.RepositoryID: true}
+	for _, c := range v.AffectedConsumers {
+		allowed[c.RepositoryID] = true
+	}
+	if !allowed[in.TargetRepositoryID] {
+		return v, ErrInvalid
+	}
+	existing := map[string]bool{}
+	for _, task := range v.Tasks {
+		existing[task.ID] = true
+	}
+	for _, id := range in.DependsOn {
+		if !existing[id] {
+			return v, ErrInvalid
+		}
+	}
+	criteria := make([]string, len(in.CompletionCriteria))
+	for i, c := range in.CompletionCriteria {
+		criteria[i] = strings.TrimSpace(c)
+		if criteria[i] == "" {
+			return v, ErrInvalid
+		}
+	}
+	id, _ := newID()
+	now := s.now().UTC()
+	t := MigrationTask{ID: id, Position: len(v.Tasks) + 1, RepositoryID: in.RepositoryID, TargetRepositoryID: in.TargetRepositoryID, TargetVersion: in.TargetVersion, Title: in.Title, Outcome: in.Outcome, CompletionCriteria: criteria, DependsOn: append([]string{}, in.DependsOn...), Discussion: []MigrationTaskComment{}, Status: "planned", CreatedByID: actor, UpdatedByID: actor, CreatedAt: now, UpdatedAt: now}
+	v.Tasks = append(v.Tasks, t)
+	deriveMigrationReadiness(&v)
+	v.UpdatedAt = now
+	return v, s.write("evolutions", v.ID, v)
+}
+func (s *Store) AssignMigrationTask(planID, taskID, actor, expectedID, kind, assignee, mandate, base string) (EvolutionPlan, error) {
+	kind, assignee, mandate, base = strings.ToLower(strings.TrimSpace(kind)), strings.TrimSpace(assignee), strings.TrimSpace(mandate), strings.TrimSpace(base)
+	if actor == "" || !oneOfEvolution(kind, "human", "agent") || assignee == "" || mandate == "" || base == "" {
+		return EvolutionPlan{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, err := s.readEvolution(planID)
+	if err != nil {
+		return v, err
+	}
+	deriveMigrationReadiness(&v)
+	i := migrationTaskIndex(v.Tasks, taskID)
+	if i < 0 {
+		return v, ErrNotFound
+	}
+	t := &v.Tasks[i]
+	if !t.Ready || t.Work != nil || (t.Assignment != nil && t.Assignment.ID != expectedID) || (t.Assignment == nil && expectedID != "") {
+		return v, ErrConflict
+	}
+	id, _ := newID()
+	now := s.now().UTC()
+	t.Assignment = &MigrationTaskAssignment{ID: id, Kind: kind, AssigneeID: assignee, Mandate: mandate, BaseRevision: base, AssignedByID: actor, AssignedAt: now}
+	t.UpdatedByID, t.UpdatedAt = actor, now
+	v.UpdatedAt = now
+	return v, s.write("evolutions", v.ID, v)
+}
+func (s *Store) StartMigrationTask(planID, taskID, actor, expectedID, repositoryID, branch, head, session string) (EvolutionPlan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, err := s.readEvolution(planID)
+	if err != nil {
+		return v, err
+	}
+	i := migrationTaskIndex(v.Tasks, taskID)
+	if i < 0 {
+		return v, ErrNotFound
+	}
+	t := &v.Tasks[i]
+	if t.Assignment == nil || t.Assignment.ID != expectedID || t.Work != nil || repositoryID != t.RepositoryID || branch == "" || head != t.Assignment.BaseRevision {
+		return v, ErrConflict
+	}
+	now := s.now().UTC()
+	t.Work = &MigrationTaskWork{RepositoryID: repositoryID, Branch: branch, BaseRevision: head, HeadRevision: head, SessionID: session, StartedByID: actor, StartedAt: now}
+	t.Status = "in_progress"
+	t.Ready = false
+	t.UpdatedByID, t.UpdatedAt = actor, now
+	v.UpdatedAt = now
+	return v, s.write("evolutions", v.ID, v)
+}
+func (s *Store) SynchronizeMigrationTask(planID, taskID, actor, head, pullID string, completed bool) (EvolutionPlan, error) {
+	if actor == "" || head == "" {
+		return EvolutionPlan{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, err := s.readEvolution(planID)
+	if err != nil {
+		return v, err
+	}
+	i := migrationTaskIndex(v.Tasks, taskID)
+	if i < 0 {
+		return v, ErrNotFound
+	}
+	t := &v.Tasks[i]
+	if t.Work == nil {
+		return v, ErrConflict
+	}
+	now := s.now().UTC()
+	t.Work.HeadRevision = head
+	if pullID != "" {
+		t.Work.PullRequestID = pullID
+		t.Status = "review"
+	}
+	if completed {
+		t.Status = "completed"
+		t.Work.CompletedAt = &now
+	}
+	t.UpdatedByID, t.UpdatedAt = actor, now
+	deriveMigrationReadiness(&v)
+	v.UpdatedAt = now
+	return v, s.write("evolutions", v.ID, v)
+}
+func (s *Store) CommentMigrationTask(planID, taskID, actor, body string) (EvolutionPlan, error) {
+	body = strings.TrimSpace(body)
+	if actor == "" || body == "" || len(body) > 10000 {
+		return EvolutionPlan{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, err := s.readEvolution(planID)
+	if err != nil {
+		return v, err
+	}
+	i := migrationTaskIndex(v.Tasks, taskID)
+	if i < 0 {
+		return v, ErrNotFound
+	}
+	id, _ := newID()
+	now := s.now().UTC()
+	v.Tasks[i].Discussion = append(v.Tasks[i].Discussion, MigrationTaskComment{ID: id, AuthorID: actor, Body: body, CreatedAt: now})
+	v.Tasks[i].UpdatedAt = now
+	v.UpdatedAt = now
+	return v, s.write("evolutions", v.ID, v)
+}
+func migrationTaskIndex(tasks []MigrationTask, id string) int {
+	for i := range tasks {
+		if tasks[i].ID == id {
+			return i
+		}
+	}
+	return -1
+}
+func deriveMigrationReadiness(v *EvolutionPlan) {
+	done := map[string]bool{}
+	for _, t := range v.Tasks {
+		done[t.ID] = t.Status == "completed"
+	}
+	for i := range v.Tasks {
+		t := &v.Tasks[i]
+		t.BlockedBy = []string{}
+		for _, d := range t.DependsOn {
+			if !done[d] {
+				t.BlockedBy = append(t.BlockedBy, d)
+			}
+		}
+		t.Ready = t.Status == "planned" && len(t.BlockedBy) == 0
+	}
 }
 func (s *Store) Evolution(id string) (EvolutionPlan, error) {
 	s.mu.Lock()
