@@ -3,6 +3,7 @@ package securityreports
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,9 +17,10 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("security report not found")
-	ErrInvalid  = errors.New("invalid security report")
-	ErrConflict = errors.New("security report conflict")
+	ErrNotFound   = errors.New("security report not found")
+	ErrInvalid    = errors.New("invalid security report")
+	ErrConflict   = errors.New("security report conflict")
+	ErrTransition = errors.New("invalid security investigation transition")
 )
 
 type AffectedRepository struct {
@@ -26,9 +28,63 @@ type AffectedRepository struct {
 	Versions     []string `json:"versions"`
 }
 type Evidence struct {
+	ID          string `json:"id"`
 	Title       string `json:"title"`
 	Kind        string `json:"kind"`
 	Description string `json:"description"`
+}
+type ResourceLink struct {
+	ID           string    `json:"id"`
+	Kind         string    `json:"kind"`
+	RepositoryID string    `json:"repository_id"`
+	ResourceID   string    `json:"resource_id,omitempty"`
+	Revision     string    `json:"revision,omitempty"`
+	Label        string    `json:"label"`
+	Details      string    `json:"details,omitempty"`
+	ActorID      string    `json:"actor_id"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+type Finding struct {
+	ID          string    `json:"id"`
+	Type        string    `json:"type"`
+	Body        string    `json:"body"`
+	ActorID     string    `json:"actor_id"`
+	EvidenceIDs []string  `json:"evidence_ids"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+type Impact struct {
+	ID           string    `json:"id"`
+	RepositoryID string    `json:"repository_id"`
+	Version      string    `json:"version"`
+	Environment  string    `json:"environment"`
+	State        string    `json:"state"`
+	Rationale    string    `json:"rationale"`
+	ActorID      string    `json:"actor_id"`
+	EvidenceIDs  []string  `json:"evidence_ids"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+type InvestigationRecord struct {
+	Sequence    int64     `json:"sequence"`
+	Type        string    `json:"type"`
+	ActorID     string    `json:"actor_id"`
+	Body        string    `json:"body"`
+	Uncertainty string    `json:"uncertainty,omitempty"`
+	EvidenceIDs []string  `json:"evidence_ids"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+type Investigation struct {
+	ID                  string                `json:"id"`
+	Agent               string                `json:"agent"`
+	Mandate             string                `json:"mandate"`
+	State               string                `json:"state"`
+	InitiatedByID       string                `json:"initiated_by_id"`
+	EvidenceIDs         []string              `json:"evidence_ids"`
+	Authority           []string              `json:"authority"`
+	Records             []InvestigationRecord `json:"records"`
+	CreatedAt           time.Time             `json:"created_at"`
+	UpdatedAt           time.Time             `json:"updated_at"`
+	CredentialExpiresAt time.Time             `json:"credential_expires_at"`
+	CredentialDigest    string                `json:"credential_digest,omitempty"`
 }
 type Contact struct {
 	Channel string `json:"channel"`
@@ -54,20 +110,24 @@ type AuditEvent struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 type Report struct {
-	ID           string               `json:"id"`
-	Title        string               `json:"title"`
-	Summary      string               `json:"summary"`
-	ReporterID   string               `json:"reporter_id"`
-	Contact      Contact              `json:"contact"`
-	Affected     []AffectedRepository `json:"affected_repositories"`
-	Evidence     []Evidence           `json:"evidence"`
-	Severity     string               `json:"severity"`
-	EmbargoState string               `json:"embargo_state"`
-	Team         []TeamMember         `json:"response_team"`
-	Messages     []Message            `json:"messages"`
-	Audit        []AuditEvent         `json:"audit_log"`
-	CreatedAt    time.Time            `json:"created_at"`
-	UpdatedAt    time.Time            `json:"updated_at"`
+	ID             string               `json:"id"`
+	Title          string               `json:"title"`
+	Summary        string               `json:"summary"`
+	ReporterID     string               `json:"reporter_id"`
+	Contact        Contact              `json:"contact"`
+	Affected       []AffectedRepository `json:"affected_repositories"`
+	Evidence       []Evidence           `json:"evidence"`
+	Severity       string               `json:"severity"`
+	EmbargoState   string               `json:"embargo_state"`
+	Team           []TeamMember         `json:"response_team"`
+	Messages       []Message            `json:"messages"`
+	Audit          []AuditEvent         `json:"audit_log"`
+	ResourceLinks  []ResourceLink       `json:"resource_links"`
+	Findings       []Finding            `json:"findings"`
+	ImpactMatrix   []Impact             `json:"impact_matrix"`
+	Investigations []Investigation      `json:"investigations"`
+	CreatedAt      time.Time            `json:"created_at"`
+	UpdatedAt      time.Time            `json:"updated_at"`
 }
 type CreateInput struct {
 	ActorID, Title, Summary string
@@ -123,6 +183,9 @@ func (s *Store) Create(in CreateInput) (Report, error) {
 		if e.Title == "" || len(e.Title) > 300 || !validEvidenceKind(e.Kind) || e.Description == "" || len(e.Description) > 20000 {
 			return Report{}, ErrInvalid
 		}
+		if e.ID == "" {
+			e.ID, _ = newID()
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -131,7 +194,7 @@ func (s *Store) Create(in CreateInput) (Report, error) {
 		return Report{}, err
 	}
 	now := s.now().UTC()
-	r := Report{ID: id, Title: in.Title, Summary: in.Summary, ReporterID: in.ActorID, Contact: in.Contact, Affected: in.Affected, Evidence: in.Evidence, Severity: "unknown", EmbargoState: "requested", Team: []TeamMember{}, Messages: []Message{}, Audit: []AuditEvent{}, CreatedAt: now, UpdatedAt: now}
+	r := Report{ID: id, Title: in.Title, Summary: in.Summary, ReporterID: in.ActorID, Contact: in.Contact, Affected: in.Affected, Evidence: in.Evidence, Severity: "unknown", EmbargoState: "requested", Team: []TeamMember{}, Messages: []Message{}, Audit: []AuditEvent{}, ResourceLinks: []ResourceLink{}, Findings: []Finding{}, ImpactMatrix: []Impact{}, Investigations: []Investigation{}, CreatedAt: now, UpdatedAt: now}
 	r.append("report.created", in.ActorID, "", "private report submitted", now)
 	return r, s.write(r)
 }
@@ -157,6 +220,10 @@ func (s *Store) ListVisible(actor string, maintainer func(string) bool) ([]Repor
 			r.Evidence = nil
 			r.Messages = nil
 			r.Audit = nil
+			r.ResourceLinks = nil
+			r.Findings = nil
+			r.ImpactMatrix = nil
+			r.Investigations = nil
 			for x := range r.Affected {
 				r.Affected[x].Versions = nil
 			}
@@ -166,6 +233,265 @@ func (s *Store) ListVisible(actor string, maintainer func(string) bool) ([]Repor
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
 	return out, nil
 }
+
+func evidenceSet(r Report) map[string]bool {
+	out := map[string]bool{}
+	for _, e := range r.Evidence {
+		out[e.ID] = true
+	}
+	for _, e := range r.ResourceLinks {
+		out[e.ID] = true
+	}
+	return out
+}
+func validCitations(r Report, ids []string) bool {
+	set := evidenceSet(r)
+	for _, id := range ids {
+		if !set[id] {
+			return false
+		}
+	}
+	return true
+}
+func affectedRepository(r Report, id string) bool {
+	for _, affected := range r.Affected {
+		if affected.RepositoryID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Store) AddResource(id, actor string, in ResourceLink, maintainer func(string) bool) (Report, error) {
+	in.Kind = strings.ToLower(strings.TrimSpace(in.Kind))
+	in.RepositoryID = strings.TrimSpace(in.RepositoryID)
+	in.ResourceID = strings.TrimSpace(in.ResourceID)
+	in.Revision = strings.TrimSpace(in.Revision)
+	in.Label = strings.TrimSpace(in.Label)
+	in.Details = strings.TrimSpace(in.Details)
+	if !oneOf(in.Kind, "commit", "dependency", "build", "release_artifact", "deployment", "version_line") || in.RepositoryID == "" || in.Label == "" || len(in.Label) > 300 || len(in.Details) > 10000 || (in.ResourceID == "" && in.Revision == "") {
+		return Report{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.read(id)
+	if err != nil || !canAccess(r, actor, maintainer) {
+		return Report{}, ErrNotFound
+	}
+	if !affectedRepository(r, in.RepositoryID) {
+		return r, ErrInvalid
+	}
+	in.ID, err = newID()
+	if err != nil {
+		return r, err
+	}
+	now := s.now().UTC()
+	in.ActorID = actor
+	in.CreatedAt = now
+	r.ResourceLinks = append(r.ResourceLinks, in)
+	r.UpdatedAt = now
+	r.append("evidence.linked", actor, in.ID, in.Kind, now)
+	return r, s.write(r)
+}
+func (s *Store) AddFinding(id, actor string, in Finding, maintainer func(string) bool) (Report, error) {
+	in.Type = strings.ToLower(strings.TrimSpace(in.Type))
+	in.Body = strings.TrimSpace(in.Body)
+	if !oneOf(in.Type, "hypothesis", "conclusion") || in.Body == "" || len(in.Body) > 20000 || len(in.EvidenceIDs) == 0 {
+		return Report{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.read(id)
+	if err != nil || !canAccess(r, actor, maintainer) {
+		return Report{}, ErrNotFound
+	}
+	if !validCitations(r, in.EvidenceIDs) {
+		return r, ErrInvalid
+	}
+	in.ID, err = newID()
+	if err != nil {
+		return r, err
+	}
+	now := s.now().UTC()
+	in.ActorID = actor
+	in.CreatedAt = now
+	r.Findings = append(r.Findings, in)
+	r.UpdatedAt = now
+	r.append("finding."+in.Type, actor, in.ID, "attributed assessment", now)
+	return r, s.write(r)
+}
+func (s *Store) SetImpact(id, actor string, in Impact, maintainer func(string) bool) (Report, error) {
+	in.RepositoryID = strings.TrimSpace(in.RepositoryID)
+	in.Version = strings.TrimSpace(in.Version)
+	in.Environment = strings.TrimSpace(in.Environment)
+	in.State = strings.ToLower(strings.TrimSpace(in.State))
+	in.Rationale = strings.TrimSpace(in.Rationale)
+	if in.RepositoryID == "" || in.Version == "" || in.Environment == "" || !oneOf(in.State, "confirmed", "suspected", "unaffected", "fixed") || in.Rationale == "" || len(in.Rationale) > 10000 || len(in.EvidenceIDs) == 0 {
+		return Report{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.read(id)
+	if err != nil || !canAccess(r, actor, maintainer) {
+		return Report{}, ErrNotFound
+	}
+	if !affectedRepository(r, in.RepositoryID) {
+		return r, ErrInvalid
+	}
+	if !validCitations(r, in.EvidenceIDs) {
+		return r, ErrInvalid
+	}
+	now := s.now().UTC()
+	in.ActorID = actor
+	in.UpdatedAt = now
+	for x := range r.ImpactMatrix {
+		if r.ImpactMatrix[x].RepositoryID == in.RepositoryID && r.ImpactMatrix[x].Version == in.Version && r.ImpactMatrix[x].Environment == in.Environment {
+			in.ID = r.ImpactMatrix[x].ID
+			r.ImpactMatrix[x] = in
+			r.UpdatedAt = now
+			r.append("impact.updated", actor, in.ID, in.State, now)
+			return r, s.write(r)
+		}
+	}
+	in.ID, err = newID()
+	if err != nil {
+		return r, err
+	}
+	r.ImpactMatrix = append(r.ImpactMatrix, in)
+	r.UpdatedAt = now
+	r.append("impact.created", actor, in.ID, in.State, now)
+	return r, s.write(r)
+}
+func (s *Store) StartInvestigation(id, actor, agent, mandate string, evidenceIDs []string, maintainer func(string) bool) (Report, string, error) {
+	agent = strings.TrimSpace(agent)
+	mandate = strings.TrimSpace(mandate)
+	if agent == "" || mandate == "" || len(mandate) > 10000 || len(evidenceIDs) == 0 {
+		return Report{}, "", ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.read(id)
+	if err != nil || !canAccess(r, actor, maintainer) {
+		return Report{}, "", ErrNotFound
+	}
+	if !validCitations(r, evidenceIDs) {
+		return r, "", ErrInvalid
+	}
+	iid, _ := newID()
+	token, _ := newToken()
+	now := s.now().UTC()
+	inv := Investigation{ID: iid, Agent: agent, Mandate: mandate, State: "running", InitiatedByID: actor, EvidenceIDs: append([]string{}, evidenceIDs...), Authority: []string{"advisory:selected_evidence:read", "advisory:investigation_records:write"}, Records: []InvestigationRecord{}, CreatedAt: now, UpdatedAt: now, CredentialExpiresAt: now.Add(24 * time.Hour), CredentialDigest: digestToken(token)}
+	r.Investigations = append(r.Investigations, inv)
+	r.UpdatedAt = now
+	r.append("investigation.delegated", actor, iid, "read-only selected evidence", now)
+	return r, token, s.write(r)
+}
+func (s *Store) InvestigationContext(token string) (Report, Investigation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.findInvestigation(token)
+}
+func (s *Store) AddInvestigationRecord(token, typ, body, uncertainty string, evidenceIDs []string) (Report, Investigation, error) {
+	typ = strings.ToLower(strings.TrimSpace(typ))
+	body = strings.TrimSpace(body)
+	uncertainty = strings.TrimSpace(uncertainty)
+	if !oneOf(typ, "finding", "tool", "question", "uncertainty") || body == "" || len(body) > 10000 || len(uncertainty) > 2000 {
+		return Report{}, Investigation{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, inv, err := s.findInvestigation(token)
+	if err != nil {
+		return r, inv, err
+	}
+	if inv.State != "running" {
+		return r, inv, ErrTransition
+	}
+	allowed := map[string]bool{}
+	for _, id := range inv.EvidenceIDs {
+		allowed[id] = true
+	}
+	for _, id := range evidenceIDs {
+		if !allowed[id] {
+			return r, inv, ErrInvalid
+		}
+	}
+	now := s.now().UTC()
+	inv.Records = append(inv.Records, InvestigationRecord{Sequence: int64(len(inv.Records) + 1), Type: typ, ActorID: "agent:" + inv.Agent, Body: body, Uncertainty: uncertainty, EvidenceIDs: append([]string{}, evidenceIDs...), CreatedAt: now})
+	inv.UpdatedAt = now
+	for x := range r.Investigations {
+		if r.Investigations[x].ID == inv.ID {
+			r.Investigations[x] = inv
+		}
+	}
+	r.UpdatedAt = now
+	r.append("agent."+typ, "agent:"+inv.Agent, inv.ID, "embargoed investigation", now)
+	err = s.write(r)
+	return r, inv, err
+}
+func (s *Store) ControlInvestigation(id, session, actor, action, message string, maintainer func(string) bool) (Report, error) {
+	action = strings.ToLower(strings.TrimSpace(action))
+	if !oneOf(action, "pause", "resume", "cancel", "guide") || (action == "guide" && strings.TrimSpace(message) == "") {
+		return Report{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.read(id)
+	if err != nil || !canAccess(r, actor, maintainer) {
+		return Report{}, ErrNotFound
+	}
+	for x := range r.Investigations {
+		inv := &r.Investigations[x]
+		if inv.ID != session {
+			continue
+		}
+		if action == "pause" && inv.State == "running" {
+			inv.State = "paused"
+		} else if action == "resume" && inv.State == "paused" {
+			inv.State = "running"
+		} else if action == "cancel" && inv.State != "cancelled" {
+			inv.State = "cancelled"
+			inv.CredentialDigest = ""
+		} else if action != "guide" {
+			return r, ErrTransition
+		}
+		now := s.now().UTC()
+		inv.Records = append(inv.Records, InvestigationRecord{Sequence: int64(len(inv.Records) + 1), Type: action, ActorID: actor, Body: message, CreatedAt: now})
+		inv.UpdatedAt = now
+		r.UpdatedAt = now
+		r.append("investigation."+action, actor, session, message, now)
+		return r, s.write(r)
+	}
+	return r, ErrNotFound
+}
+func (s *Store) findInvestigation(token string) (Report, Investigation, error) {
+	d := digestToken(token)
+	entries, _ := os.ReadDir(s.root)
+	for _, f := range entries {
+		if filepath.Ext(f.Name()) != ".json" {
+			continue
+		}
+		r, err := s.read(strings.TrimSuffix(f.Name(), ".json"))
+		if err != nil {
+			continue
+		}
+		for _, inv := range r.Investigations {
+			if d != "" && inv.CredentialDigest == d {
+				if s.now().UTC().After(inv.CredentialExpiresAt) || inv.State == "cancelled" {
+					return r, inv, ErrConflict
+				}
+				return r, inv, nil
+			}
+		}
+	}
+	return Report{}, Investigation{}, ErrNotFound
+}
+func newToken() (string, error) {
+	b := make([]byte, 32)
+	_, err := rand.Read(b)
+	return hex.EncodeToString(b), err
+}
+func digestToken(v string) string { sum := sha256.Sum256([]byte(v)); return hex.EncodeToString(sum[:]) }
 func (s *Store) Get(id, actor string, maintainer func(string) bool) (Report, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -298,6 +624,12 @@ func (s *Store) read(id string) (Report, error) {
 	var r Report
 	if json.Unmarshal(b, &r) != nil {
 		return Report{}, ErrInvalid
+	}
+	for x := range r.Evidence {
+		if r.Evidence[x].ID == "" {
+			sum := sha256.Sum256([]byte(r.ID + ":submitted:" + r.Evidence[x].Title))
+			r.Evidence[x].ID = hex.EncodeToString(sum[:16])
+		}
 	}
 	return r, nil
 }

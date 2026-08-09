@@ -207,6 +207,25 @@ Storage is rooted at `$SECURITY_REPORT_ROOT`, defaulting to
 submission, triage, invitation, conversation, evidence, and audit controls
 through the same-origin API proxy.
 
+Responders build the advisory's private provenance graph through `/resources`:
+typed links connect exact commits and dependencies to builds, release artifacts,
+deployments, and supported version lines. Attributable `/findings` are either
+hypotheses or conclusions and must cite submitted or linked evidence IDs. The
+upserted `/impact` resource keys each row by repository, version line, and
+environment, retaining its confirmed, suspected, unaffected, or fixed state,
+rationale, citations, actor, and update time.
+
+A report participant may delegate selected evidence through
+`/security-reports/{id}/investigations`. The returned credential is shown once,
+expires after 24 hours, and is accepted only by the read-only
+`/security-investigations/context` and append-only `/records` resources. Context
+contains a safe advisory header plus selected evidence—not reporter contact,
+conversation, response-team, audit, matrix, or other evidence. Agent findings,
+tool notes, questions, and explicit uncertainty remain private and attributed;
+participant pause/resume/guidance is retained, while cancellation revokes the
+credential. This authority cannot read or mutate repositories, Git, builds,
+releases, artifacts, deployments, or any other platform resource.
+
 ## Entrypoints
 
 - `apps/web` — Next.js frontend. Starts at `src/app/page.tsx`; routes are

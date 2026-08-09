@@ -79,6 +79,48 @@ func TestPrivateSecurityReportWorkflowAndIsolation(t *testing.T) {
 	if len(report.Messages) != 1 || len(report.Audit) < 5 || report.Audit[len(report.Audit)-1].Type != "access.viewed" {
 		t.Fatalf("audit=%#v messages=%#v", report.Audit, report.Messages)
 	}
+	code, body = requestJSON(http.MethodPost, "/security-reports/"+report.ID+"/resources", responderToken, map[string]any{"kind": "commit", "repository_id": string(repo.ID), "revision": "deadbeef", "label": "Parser bounds change", "details": "Candidate introduction point"})
+	if code != 201 {
+		t.Fatalf("link=%d %s", code, body)
+	}
+	_ = json.Unmarshal(body, &report)
+	linkID := report.ResourceLinks[0].ID
+	code, body = requestJSON(http.MethodPost, "/security-reports/"+report.ID+"/findings", responderToken, map[string]any{"type": "hypothesis", "body": "The bounds regression begins at this change.", "evidence_ids": []string{linkID}})
+	if code != 201 {
+		t.Fatalf("hypothesis=%d %s", code, body)
+	}
+	code, body = requestJSON(http.MethodPut, "/security-reports/"+report.ID+"/impact", responderToken, map[string]any{"repository_id": string(repo.ID), "version": "1.4.x", "environment": "production", "state": "confirmed", "rationale": "Production artifacts contain the linked change.", "evidence_ids": []string{linkID}})
+	if code != 200 {
+		t.Fatalf("impact=%d %s", code, body)
+	}
+	code, body = requestJSON(http.MethodPost, "/security-reports/"+report.ID+"/investigations", responderToken, map[string]any{"agent": "codex", "mandate": "Determine affected shipped lines without proposing a repair.", "evidence_ids": []string{linkID}})
+	if code != 201 {
+		t.Fatalf("delegate=%d %s", code, body)
+	}
+	var delegated struct {
+		Report           securityreports.Report `json:"report"`
+		WorkerCredential string                 `json:"worker_credential"`
+	}
+	_ = json.Unmarshal(body, &delegated)
+	if delegated.WorkerCredential == "" || delegated.Report.Investigations[0].CredentialDigest != "" {
+		t.Fatalf("delegation leaked credential: %s", body)
+	}
+	code, body = requestJSON(http.MethodGet, "/security-investigations/context", delegated.WorkerCredential, nil)
+	if code != 200 || bytes.Contains(body, []byte("security@example.test")) || !bytes.Contains(body, []byte(linkID)) {
+		t.Fatalf("worker context=%d %s", code, body)
+	}
+	code, body = requestJSON(http.MethodPost, "/security-investigations/records", delegated.WorkerCredential, map[string]any{"type": "finding", "body": "The supported 1.4 line contains the change.", "uncertainty": "Build provenance for staging remains unverified.", "evidence_ids": []string{linkID}})
+	if code != 201 {
+		t.Fatalf("agent finding=%d %s", code, body)
+	}
+	code, body = requestJSON(http.MethodPost, "/security-reports/"+report.ID+"/investigations/"+delegated.Report.Investigations[0].ID+"/control", responderToken, map[string]string{"action": "cancel", "message": "Scope answered"})
+	if code != 200 {
+		t.Fatalf("cancel=%d %s", code, body)
+	}
+	code, _ = requestJSON(http.MethodGet, "/security-investigations/context", delegated.WorkerCredential, nil)
+	if code != 401 {
+		t.Fatalf("revoked worker=%d", code)
+	}
 	code, _ = requestJSON(http.MethodDelete, "/security-reports/"+report.ID+"/team/"+string(responder.ID), maintainerToken, nil)
 	if code != 200 {
 		t.Fatalf("remove=%d", code)
