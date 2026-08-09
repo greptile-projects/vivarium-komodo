@@ -6,6 +6,9 @@ async function proxy(request: Request, context: { params: Promise<{ path: string
   const target = new URL(`/${path.join("/")}${incoming.search}`, API_ORIGIN);
   const headers = new Headers(request.headers);
   headers.delete("host"); headers.delete("content-length");
+  headers.set("x-forwarded-host", incoming.host);
+  headers.set("x-forwarded-proto", incoming.protocol.slice(0, -1));
+  headers.set("x-forwarded-prefix", "/api");
   const response = await fetch(target, { method: request.method, headers, body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body, duplex: "half", redirect: "manual" } as RequestInit & { duplex: "half" });
   const outgoing = new Headers(response.headers);
   outgoing.delete("content-length"); outgoing.delete("content-encoding");

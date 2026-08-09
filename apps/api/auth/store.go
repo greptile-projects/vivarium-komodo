@@ -32,9 +32,10 @@ type Kind string
 type Scope string
 
 const (
-	Web Kind = "web"
-	API Kind = "api"
-	Git Kind = "git"
+	Web     Kind = "web"
+	API     Kind = "api"
+	Git     Kind = "git"
+	Package Kind = "package"
 
 	ProfileRead     Scope = "profile:read"
 	ProfileWrite    Scope = "profile:write"
@@ -43,6 +44,7 @@ const (
 	RepositoryWrite Scope = "repository:write"
 	GitRead         Scope = "git:read"
 	GitWrite        Scope = "git:write"
+	PackageRead     Scope = "package:read"
 )
 
 const TokenPrefix = "vkm_"
@@ -51,24 +53,57 @@ var kindPolicy = map[Kind]struct {
 	maximum time.Duration
 	scopes  []Scope
 }{
-	Web: {12 * time.Hour, []Scope{ProfileRead, ProfileWrite, AccessManage, RepositoryRead, RepositoryWrite}},
-	API: {90 * 24 * time.Hour, []Scope{ProfileRead, ProfileWrite, AccessManage, RepositoryRead, RepositoryWrite}},
-	Git: {30 * 24 * time.Hour, []Scope{GitRead, GitWrite}},
+	Web:     {12 * time.Hour, []Scope{ProfileRead, ProfileWrite, AccessManage, RepositoryRead, RepositoryWrite}},
+	API:     {90 * 24 * time.Hour, []Scope{ProfileRead, ProfileWrite, AccessManage, RepositoryRead, RepositoryWrite}},
+	Git:     {30 * 24 * time.Hour, []Scope{GitRead, GitWrite}},
+	Package: {24 * time.Hour, []Scope{PackageRead}},
 }
 
 type Grant struct {
-	ID           string     `json:"id"`
-	UserID       string     `json:"user_id"`
-	Name         string     `json:"name"`
-	Kind         Kind       `json:"kind"`
-	Scopes       []Scope    `json:"scopes"`
-	CreatedAt    time.Time  `json:"created_at"`
-	ExpiresAt    time.Time  `json:"expires_at"`
-	LastUsedAt   *time.Time `json:"last_used_at,omitempty"`
-	RevokedAt    *time.Time `json:"revoked_at,omitempty"`
-	Digest       string     `json:"-"`
-	RepositoryID string     `json:"repository_id,omitempty"`
-	Branch       string     `json:"branch,omitempty"`
+	ID                string     `json:"id"`
+	UserID            string     `json:"user_id"`
+	Name              string     `json:"name"`
+	Kind              Kind       `json:"kind"`
+	Scopes            []Scope    `json:"scopes"`
+	CreatedAt         time.Time  `json:"created_at"`
+	ExpiresAt         time.Time  `json:"expires_at"`
+	LastUsedAt        *time.Time `json:"last_used_at,omitempty"`
+	RevokedAt         *time.Time `json:"revoked_at,omitempty"`
+	Digest            string     `json:"-"`
+	RepositoryID      string     `json:"repository_id,omitempty"`
+	Branch            string     `json:"branch,omitempty"`
+	PackageVersionIDs []string   `json:"package_version_ids,omitempty"`
+}
+
+// IssueRepositoryPackage creates an install-only credential for one consumer
+// repository and an explicit immutable set of package versions.
+func (s *Store) IssueRepositoryPackage(userID, name, repositoryID string, versionIDs []string, lifetime time.Duration) (IssuedGrant, error) {
+	if repositoryID == "" || len(versionIDs) == 0 || len(versionIDs) > 100 {
+		return IssuedGrant{}, ErrInvalidGrant
+	}
+	seen := map[string]bool{}
+	for _, id := range versionIDs {
+		if id == "" || seen[id] {
+			return IssuedGrant{}, ErrInvalidGrant
+		}
+		seen[id] = true
+	}
+	issued, err := s.issue(userID, name, Package, []Scope{PackageRead}, lifetime, repositoryID, "")
+	if err != nil {
+		return IssuedGrant{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	grant, err := s.read(issued.ID)
+	if err != nil {
+		return IssuedGrant{}, err
+	}
+	grant.PackageVersionIDs = append([]string(nil), versionIDs...)
+	if err := s.write(grant); err != nil {
+		return IssuedGrant{}, err
+	}
+	issued.Grant = grant
+	return issued, nil
 }
 
 // IssueRepositoryGit creates a worker credential whose authority is limited to

@@ -2,10 +2,13 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
@@ -33,7 +36,7 @@ func TestPackagePublicationRetainsVerifiedProvenance(t *testing.T) {
 	collaborator := issueAccess(t, credentials, "collaborator", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	mux := http.NewServeMux()
 	registerPackagesHTTP(mux, packages, releaseStore, builds, catalog, credentials)
-	body := map[string]any{"name": "sdk", "version": "1.2.3", "release_id": release.ID, "build_run_id": run.ID, "artifact_id": artifact.ID, "platform": map[string]string{"os": "linux", "arch": "amd64", "runtime": "go1.24"}, "dependencies": map[string]string{"@owner/core": "^1.0.0"}, "visibility": "public"}
+	body := map[string]any{"name": "sdk", "version": "1.2.3", "release_id": release.ID, "build_run_id": run.ID, "artifact_id": artifact.ID, "platform": map[string]string{"os": "linux", "arch": "amd64", "runtime": "go1.24"}, "dependencies": map[string]string{"@owner/core": "^1.0.0"}, "documentation": "# SDK\n\nVerified client library.", "visibility": "public"}
 	request := func(token string, payload map[string]any) *httptest.ResponseRecorder {
 		data, _ := json.Marshal(payload)
 		req := httptest.NewRequest(http.MethodPost, "/repositories/"+string(repository.ID)+"/packages", bytes.NewReader(data))
@@ -51,7 +54,7 @@ func TestPackagePublicationRetainsVerifiedProvenance(t *testing.T) {
 	}
 	var item packagecatalog.Version
 	_ = json.Unmarshal(response.Body.Bytes(), &item)
-	if item.Identity != "@owner/sdk" || item.SourceCommitID != release.CommitID || item.Build.RunID != run.ID || item.SHA256 != artifact.SHA256 || item.PublisherID != "owner" || item.Visibility != "public" {
+	if item.Identity != "@owner/sdk" || item.SourceCommitID != release.CommitID || item.Build.RunID != run.ID || item.SHA256 != artifact.SHA256 || item.PublisherID != "owner" || item.Visibility != "public" || item.DocumentationSHA256 == "" {
 		t.Fatalf("package = %#v", item)
 	}
 	if response = request(owner, body); response.Code != 409 {
@@ -69,6 +72,67 @@ func TestPackagePublicationRetainsVerifiedProvenance(t *testing.T) {
 	mux.ServeHTTP(downloadResponse, download)
 	if downloadResponse.Code != 200 || downloadResponse.Body.String() != "package bytes" {
 		t.Fatalf("download = %d %q", downloadResponse.Code, downloadResponse.Body.String())
+	}
+}
+
+func TestPackageDiscoveryAndRepositoryScopedRegistryCredential(t *testing.T) {
+	gitStore, _ := storage.New(t.TempDir())
+	catalog, _ := repositories.New(t.TempDir(), gitStore)
+	publisher, _ := catalog.Create("owner", repositories.Metadata{Name: "sdk", Visibility: repositories.Private})
+	consumer, _ := catalog.Create("owner", repositories.Metadata{Name: "app", Visibility: repositories.Private})
+	packages, _ := packagecatalog.New(t.TempDir())
+	publish := func(name, visibility string) packagecatalog.Version {
+		content := []byte("package " + name)
+		digest := sha256.Sum256(content)
+		item, err := packages.Publish(packagecatalog.PublishParams{OwnerID: "owner", Name: name, Version: "1.0.0", RepositoryID: string(publisher.ID), ReleaseID: "release", SourceCommitID: "commit", ArtifactID: "artifact-" + name, ArtifactPath: name + ".tgz", ArtifactMediaType: "application/gzip", ArtifactSize: int64(len(content)), ExpectedSHA256: hex.EncodeToString(digest[:]), Build: packagecatalog.BuildAttestation{RunID: "run", BuildName: "package", Command: "build", CompletedAt: time.Now()}, Platform: packagecatalog.Platform{OS: "linux", Arch: "amd64"}, Documentation: "# " + name + "\nInstall documentation.", PublisherID: "owner", Visibility: visibility}, bytes.NewReader(content))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return item
+	}
+	private := publish("private-sdk", "private")
+	public := publish("public-sdk", "public")
+	credentials, _ := auth.New(t.TempDir())
+	owner := issueAccess(t, credentials, "owner", auth.API, auth.RepositoryRead)
+	mux := http.NewServeMux()
+	registerPackagesHTTP(mux, packages, nil, nil, catalog, credentials)
+
+	search := httptest.NewRecorder()
+	mux.ServeHTTP(search, httptest.NewRequest(http.MethodGet, "/packages?q=sdk", nil))
+	if search.Code != 200 || bytes.Contains(search.Body.Bytes(), []byte(private.ID)) || !bytes.Contains(search.Body.Bytes(), []byte(public.ID)) {
+		t.Fatalf("public search = %d %s", search.Code, search.Body.String())
+	}
+
+	data, _ := json.Marshal(map[string]any{"name": "isolated build", "package_version_ids": []string{private.ID}, "expires_in_hours": 1})
+	req := httptest.NewRequest(http.MethodPost, "/repositories/"+string(consumer.ID)+"/package-credentials", bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+owner)
+	created := httptest.NewRecorder()
+	mux.ServeHTTP(created, req)
+	if created.Code != 201 {
+		t.Fatalf("credential = %d %s", created.Code, created.Body.String())
+	}
+	var grant struct {
+		Token string `json:"token"`
+	}
+	_ = json.Unmarshal(created.Body.Bytes(), &grant)
+
+	metadataReq := httptest.NewRequest(http.MethodGet, "/package-registry/%40owner%2Fprivate-sdk", nil)
+	metadataReq.Header.Set("Authorization", "Bearer "+grant.Token)
+	metadata := httptest.NewRecorder()
+	mux.ServeHTTP(metadata, metadataReq)
+	if metadata.Code != 200 || !bytes.Contains(metadata.Body.Bytes(), []byte(private.SourceCommitID)) {
+		t.Fatalf("metadata = %d %s", metadata.Code, metadata.Body.String())
+	}
+	deniedReq := httptest.NewRequest(http.MethodGet, "/package-registry/artifacts/"+public.ID, nil)
+	deniedReq.Header.Set("Authorization", "Bearer "+grant.Token)
+	// Public bytes remain public, while private unlisted versions are never exposed.
+	private2 := publish("other-private", "private")
+	deniedReq = httptest.NewRequest(http.MethodGet, "/package-registry/artifacts/"+private2.ID, nil)
+	deniedReq.Header.Set("Authorization", "Bearer "+grant.Token)
+	denied := httptest.NewRecorder()
+	mux.ServeHTTP(denied, deniedReq)
+	if denied.Code != 404 {
+		t.Fatalf("unrelated private package = %d %s", denied.Code, denied.Body.String())
 	}
 }
 

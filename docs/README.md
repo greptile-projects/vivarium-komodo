@@ -20,8 +20,36 @@ conflicting identity/version, authorization failure, checksum mismatch, or I/O
 failure therefore leaves no partially available package. Public package
 versions can only originate in public repositories; private versions remain
 available to repository participants. The repository Releases tab publishes
-and displays this evidence, while later ecosystem work can build discovery and
-standard-client resolution on the same immutable records.
+and displays this evidence. Publication may also attach Markdown documentation;
+its SHA-256 digest becomes part of the immutable version record.
+
+Anonymous discovery uses the paginated `GET /packages?q={query}` collection and
+`GET /packages/{version-id}` inspection resource. They expose public versions
+only and search identity, semantic version, and documentation. The public
+`/packages` web catalog keeps documentation, platform/runtime compatibility,
+declared dependencies, lifecycle warnings, source commit, release, build
+attempt, artifact checksum, and size together rather than asking a collaborator
+to trust an opaque download.
+
+Standard npm clients resolve metadata at
+`GET /package-registry/{encoded-package-identity}` and immutable tarballs at the
+returned `dist.tarball` URL. Public versions require no credential. For private
+resolution, a repository participant calls `POST
+/repositories/{consumer}/package-credentials` with an explicit nonempty list of
+package version IDs they can already read and a lifetime of at most 24 hours.
+The returned secret is shown once and configured as the registry Bearer token.
+It has only `package:read`, retains the consuming repository and immutable
+version allowlist, and is revalidated against consumer and publisher access
+whenever used. It cannot read Git, mutate either repository, publish packages, reuse a
+publisher credential, discover unlisted private packages, or download their
+bytes. Isolated builds can therefore receive the same narrow token without a
+developer's or publisher's general credential.
+
+```sh
+npm config set @publisher:registry https://kanso.example/api/package-registry
+npm config set //kanso.example/api/package-registry/:_authToken "$PACKAGE_TOKEN"
+npm install @publisher/sdk@1.2.3
+```
 
 ## Embargoed security repairs
 

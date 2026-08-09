@@ -46,25 +46,27 @@ type BuildAttestation struct {
 }
 
 type Version struct {
-	ID                string            `json:"id"`
-	Identity          string            `json:"identity"`
-	Name              string            `json:"name"`
-	Version           string            `json:"version"`
-	RepositoryID      string            `json:"repository_id"`
-	ReleaseID         string            `json:"release_id"`
-	SourceCommitID    string            `json:"source_commit_id"`
-	ArtifactID        string            `json:"artifact_id"`
-	ArtifactPath      string            `json:"artifact_path"`
-	ArtifactMediaType string            `json:"artifact_media_type"`
-	ArtifactSize      int64             `json:"artifact_size"`
-	SHA256            string            `json:"sha256"`
-	Build             BuildAttestation  `json:"build_attestation"`
-	Platform          Platform          `json:"platform"`
-	Dependencies      map[string]string `json:"dependencies"`
-	PublisherID       string            `json:"publisher_id"`
-	Visibility        string            `json:"visibility"`
-	Lifecycle         string            `json:"lifecycle"`
-	PublishedAt       time.Time         `json:"published_at"`
+	ID                  string            `json:"id"`
+	Identity            string            `json:"identity"`
+	Name                string            `json:"name"`
+	Version             string            `json:"version"`
+	RepositoryID        string            `json:"repository_id"`
+	ReleaseID           string            `json:"release_id"`
+	SourceCommitID      string            `json:"source_commit_id"`
+	ArtifactID          string            `json:"artifact_id"`
+	ArtifactPath        string            `json:"artifact_path"`
+	ArtifactMediaType   string            `json:"artifact_media_type"`
+	ArtifactSize        int64             `json:"artifact_size"`
+	SHA256              string            `json:"sha256"`
+	Build               BuildAttestation  `json:"build_attestation"`
+	Platform            Platform          `json:"platform"`
+	Dependencies        map[string]string `json:"dependencies"`
+	Documentation       string            `json:"documentation,omitempty"`
+	DocumentationSHA256 string            `json:"documentation_sha256,omitempty"`
+	PublisherID         string            `json:"publisher_id"`
+	Visibility          string            `json:"visibility"`
+	Lifecycle           string            `json:"lifecycle"`
+	PublishedAt         time.Time         `json:"published_at"`
 }
 
 type PublishParams struct {
@@ -74,6 +76,7 @@ type PublishParams struct {
 	Build                                                           BuildAttestation
 	Platform                                                        Platform
 	Dependencies                                                    map[string]string
+	Documentation                                                   string
 	PublisherID, Visibility                                         string
 }
 
@@ -104,7 +107,8 @@ func New(root string) (*Store, error) {
 func (s *Store) Publish(p PublishParams, source io.Reader) (Version, error) {
 	p.Name, p.Version = strings.ToLower(strings.TrimSpace(p.Name)), strings.TrimSpace(p.Version)
 	p.Visibility = strings.ToLower(strings.TrimSpace(p.Visibility))
-	if p.OwnerID == "" || p.RepositoryID == "" || p.ReleaseID == "" || p.SourceCommitID == "" || p.PublisherID == "" || p.ArtifactID == "" || !namePattern.MatchString(p.Name) || !versionPattern.MatchString(p.Version) || (p.Visibility != "public" && p.Visibility != "private") || !validPlatform(p.Platform) || !validDependencies(p.Dependencies) || len(p.ExpectedSHA256) != 64 || source == nil {
+	p.Documentation = strings.TrimSpace(p.Documentation)
+	if p.OwnerID == "" || p.RepositoryID == "" || p.ReleaseID == "" || p.SourceCommitID == "" || p.PublisherID == "" || p.ArtifactID == "" || !namePattern.MatchString(p.Name) || !versionPattern.MatchString(p.Version) || (p.Visibility != "public" && p.Visibility != "private") || !validPlatform(p.Platform) || !validDependencies(p.Dependencies) || len(p.Documentation) > 64<<10 || len(p.ExpectedSHA256) != 64 || source == nil {
 		return Version{}, ErrInvalid
 	}
 	identity := "@" + strings.ToLower(p.OwnerID) + "/" + p.Name
@@ -148,12 +152,48 @@ func (s *Store) Publish(p PublishParams, source io.Reader) (Version, error) {
 	if err := os.Rename(tmpName, filepath.Join(s.root, "artifacts", artifactName)); err != nil {
 		return Version{}, err
 	}
-	item := Version{ID: id, Identity: identity, Name: p.Name, Version: p.Version, RepositoryID: p.RepositoryID, ReleaseID: p.ReleaseID, SourceCommitID: p.SourceCommitID, ArtifactID: p.ArtifactID, ArtifactPath: p.ArtifactPath, ArtifactMediaType: p.ArtifactMediaType, ArtifactSize: size, SHA256: digest, Build: p.Build, Platform: p.Platform, Dependencies: cloneMap(p.Dependencies), PublisherID: p.PublisherID, Visibility: p.Visibility, Lifecycle: "active", PublishedAt: s.now().UTC()}
+	documentationDigest := ""
+	if p.Documentation != "" {
+		sum := sha256.Sum256([]byte(p.Documentation))
+		documentationDigest = hex.EncodeToString(sum[:])
+	}
+	item := Version{ID: id, Identity: identity, Name: p.Name, Version: p.Version, RepositoryID: p.RepositoryID, ReleaseID: p.ReleaseID, SourceCommitID: p.SourceCommitID, ArtifactID: p.ArtifactID, ArtifactPath: p.ArtifactPath, ArtifactMediaType: p.ArtifactMediaType, ArtifactSize: size, SHA256: digest, Build: p.Build, Platform: p.Platform, Dependencies: cloneMap(p.Dependencies), Documentation: p.Documentation, DocumentationSHA256: documentationDigest, PublisherID: p.PublisherID, Visibility: p.Visibility, Lifecycle: "active", PublishedAt: s.now().UTC()}
 	if err := s.write(item); err != nil {
 		_ = os.Remove(filepath.Join(s.root, "artifacts", artifactName))
 		return Version{}, err
 	}
 	return item, nil
+}
+
+// GetByID resolves a globally unique version without weakening HTTP policy.
+// Callers remain responsible for applying repository and package visibility.
+func (s *Store) GetByID(id string) (Version, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.read(id)
+}
+
+// Search returns catalog records matching identity, version, or documentation.
+// Visibility filtering belongs to the caller because it depends on its actor.
+func (s *Store) Search(query string) ([]Version, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items, err := s.listAll()
+	if err != nil {
+		return nil, err
+	}
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return items, nil
+	}
+	matched := make([]Version, 0)
+	for _, item := range items {
+		haystack := strings.ToLower(item.Identity + " " + item.Version + " " + item.Documentation)
+		if strings.Contains(haystack, query) {
+			matched = append(matched, item)
+		}
+	}
+	return matched, nil
 }
 
 func (s *Store) Get(repositoryID, id string) (Version, error) {

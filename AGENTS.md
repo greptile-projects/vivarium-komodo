@@ -404,8 +404,17 @@ whenever dependencies change or the web job fails before it starts.
   build attempt and command, artifact checksum, platform and dependencies,
   publisher, visibility, and active lifecycle. Public packages require a public
   source repository; private package reads and downloads follow repository
-  participant policy. The release web view is the publication and inspection
-  surface.
+  participant policy. Immutable publisher-authored documentation is checksumed
+  with the version. Anonymous `/packages` search and inspection expose only
+  public versions; the `/packages` web catalog presents documentation,
+  compatibility, dependencies, lifecycle, checksums, source, release, and build
+  evidence. A participant may issue a 24-hour install-only credential at a
+  consuming repository's `/package-credentials` resource for an explicit set of
+  version IDs they can already read. The credential is bound to that consumer,
+  carries only `package:read`, and the npm-compatible `/package-registry`
+  metadata and artifact endpoints must never resolve unlisted private versions
+  or confer publisher/repository authority. The release web view remains the
+  publication surface.
   Versioned cross-repository relationships live beneath `$RELATIONSHIP_ROOT`
   (default `apps/api/data/relationships`). A repository participant publishes
   an interface only from an existing immutable release, which binds its name,
