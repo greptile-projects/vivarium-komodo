@@ -137,20 +137,71 @@ type Event struct {
 	SubjectID string    `json:"subject_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// PolicyRule is one independently explainable organization requirement. Config
+// remains domain-specific while Enforcement gives clients a stable way to
+// distinguish mandatory requirements from advisory guidance.
+type PolicyRule struct {
+	ID          string          `json:"id"`
+	Domain      string          `json:"domain"`
+	Enforcement string          `json:"enforcement"`
+	Config      json.RawMessage `json:"config"`
+}
+type PolicyTarget struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id,omitempty"`
+}
+type PolicyVersion struct {
+	ID            string         `json:"id"`
+	Version       int64          `json:"version"`
+	Name          string         `json:"name"`
+	Description   string         `json:"description,omitempty"`
+	State         string         `json:"state"`
+	Rules         []PolicyRule   `json:"rules"`
+	Targets       []PolicyTarget `json:"targets"`
+	CreatedByID   string         `json:"created_by_id"`
+	CreatedAt     time.Time      `json:"created_at"`
+	ActivatedByID string         `json:"activated_by_id,omitempty"`
+	ActivatedAt   *time.Time     `json:"activated_at,omitempty"`
+}
+type PolicyException struct {
+	ID            string     `json:"id"`
+	PolicyID      string     `json:"policy_id"`
+	PolicyVersion int64      `json:"policy_version"`
+	RuleID        string     `json:"rule_id"`
+	RepositoryID  string     `json:"repository_id"`
+	Reason        string     `json:"reason"`
+	RequestedByID string     `json:"requested_by_id"`
+	RequestedAt   time.Time  `json:"requested_at"`
+	ExpiresAt     time.Time  `json:"expires_at"`
+	State         string     `json:"state"`
+	ResolvedByID  string     `json:"resolved_by_id,omitempty"`
+	ResolvedAt    *time.Time `json:"resolved_at,omitempty"`
+}
+type EffectiveRule struct {
+	PolicyID      string           `json:"policy_id"`
+	PolicyVersion int64            `json:"policy_version"`
+	PolicyName    string           `json:"policy_name"`
+	Target        PolicyTarget     `json:"target"`
+	Rule          PolicyRule       `json:"rule"`
+	Exception     *PolicyException `json:"exception,omitempty"`
+}
 type Organization struct {
-	ID             string          `json:"id"`
-	Slug           string          `json:"slug"`
-	Name           string          `json:"name"`
-	Description    string          `json:"description"`
-	Members        []Member        `json:"members"`
-	Transfers      []Transfer      `json:"transfers"`
-	Events         []Event         `json:"events"`
-	Teams          []Team          `json:"teams"`
-	Agents         []Agent         `json:"agents"`
-	RoleGrants     []RoleGrant     `json:"role_grants"`
-	AccessRequests []AccessRequest `json:"access_requests"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
+	ID               string            `json:"id"`
+	Slug             string            `json:"slug"`
+	Name             string            `json:"name"`
+	Description      string            `json:"description"`
+	Members          []Member          `json:"members"`
+	Transfers        []Transfer        `json:"transfers"`
+	Events           []Event           `json:"events"`
+	Teams            []Team            `json:"teams"`
+	Agents           []Agent           `json:"agents"`
+	RoleGrants       []RoleGrant       `json:"role_grants"`
+	AccessRequests   []AccessRequest   `json:"access_requests"`
+	Policies         []PolicyVersion   `json:"policies"`
+	PolicyExceptions []PolicyException `json:"policy_exceptions"`
+	CreatedAt        time.Time         `json:"created_at"`
+	UpdatedAt        time.Time         `json:"updated_at"`
 }
 
 type Store struct {
@@ -194,7 +245,7 @@ func (s *Store) Create(actor, slug, name, description string) (Organization, err
 		return Organization{}, err
 	}
 	now := s.now().UTC()
-	o := Organization{ID: id, Slug: slug, Name: name, Description: description, Members: []Member{{UserID: actor, Role: "owner", AcceptedAt: now}}, Transfers: []Transfer{}, Teams: []Team{}, Agents: []Agent{}, RoleGrants: []RoleGrant{}, AccessRequests: []AccessRequest{}, Events: []Event{{Sequence: 1, Type: "organization.created", ActorID: actor, CreatedAt: now}}, CreatedAt: now, UpdatedAt: now}
+	o := Organization{ID: id, Slug: slug, Name: name, Description: description, Members: []Member{{UserID: actor, Role: "owner", AcceptedAt: now}}, Transfers: []Transfer{}, Teams: []Team{}, Agents: []Agent{}, RoleGrants: []RoleGrant{}, AccessRequests: []AccessRequest{}, Policies: []PolicyVersion{}, PolicyExceptions: []PolicyException{}, Events: []Event{{Sequence: 1, Type: "organization.created", ActorID: actor, CreatedAt: now}}, CreatedAt: now, UpdatedAt: now}
 	return o, s.write(o)
 }
 func (s *Store) Get(id string) (Organization, error) {
@@ -904,6 +955,254 @@ func (s *Store) ResolveTransfer(id, transfer, actor, state string) (Organization
 		return ErrNotFound
 	})
 	return o, found, e
+}
+
+var policyDomains = map[string]bool{"repository_visibility": true, "reviews": true, "required_checks": true, "integration": true, "release_provenance": true, "dependency_use": true, "environment_promotion": true, "agent_authority": true}
+
+// DraftPolicy appends a version. Supplying policyID creates the next immutable
+// version in that lineage; an empty policyID starts a new policy.
+func (s *Store) DraftPolicy(id, actor, policyID string, in PolicyVersion) (Organization, PolicyVersion, error) {
+	var made PolicyVersion
+	o, err := s.change(id, func(o *Organization) error {
+		m, ok := membership(*o, actor, true)
+		if !ok || m.Role != "owner" {
+			return ErrForbidden
+		}
+		in.Name, in.Description = strings.TrimSpace(in.Name), strings.TrimSpace(in.Description)
+		if in.Name == "" || len(in.Name) > 100 || len(in.Description) > 1000 || len(in.Rules) == 0 || len(in.Targets) == 0 {
+			return ErrInvalid
+		}
+		version := int64(1)
+		if policyID == "" {
+			var e error
+			policyID, e = newID()
+			if e != nil {
+				return e
+			}
+		} else {
+			found := false
+			for _, p := range o.Policies {
+				if p.ID == policyID {
+					found = true
+					if p.Version >= version {
+						version = p.Version + 1
+					}
+				}
+			}
+			if !found {
+				return ErrNotFound
+			}
+		}
+		seenRules := map[string]bool{}
+		for i := range in.Rules {
+			r := &in.Rules[i]
+			if !policyDomains[r.Domain] || (r.Enforcement != "required" && r.Enforcement != "advisory") || len(r.Config) == 0 || !json.Valid(r.Config) {
+				return ErrInvalid
+			}
+			if r.ID == "" {
+				r.ID = r.Domain
+			}
+			if seenRules[r.ID] {
+				return ErrInvalid
+			}
+			seenRules[r.ID] = true
+		}
+		seenTargets := map[string]bool{}
+		for _, target := range in.Targets {
+			if target.Kind != "organization" && target.Kind != "team" && target.Kind != "repository" {
+				return ErrInvalid
+			}
+			if target.Kind == "organization" && target.ID != "" {
+				return ErrInvalid
+			}
+			if target.Kind != "organization" && target.ID == "" {
+				return ErrInvalid
+			}
+			key := target.Kind + ":" + target.ID
+			if seenTargets[key] {
+				return ErrInvalid
+			}
+			seenTargets[key] = true
+			if target.Kind == "team" {
+				if _, ok := teamByID(*o, target.ID); !ok {
+					return ErrInvalid
+				}
+			}
+		}
+		now := s.now().UTC()
+		in.ID, in.Version, in.State, in.CreatedByID, in.CreatedAt = policyID, version, "draft", actor, now
+		in.ActivatedAt, in.ActivatedByID = nil, ""
+		o.Policies = append(o.Policies, in)
+		made = in
+		event(o, "policy.drafted", actor, policyID, now)
+		return nil
+	})
+	return o, made, err
+}
+
+func (s *Store) ActivatePolicy(id, actor, policyID string, version int64) (Organization, PolicyVersion, error) {
+	var activated PolicyVersion
+	o, err := s.change(id, func(o *Organization) error {
+		m, ok := membership(*o, actor, true)
+		if !ok || m.Role != "owner" {
+			return ErrForbidden
+		}
+		index := -1
+		for i := range o.Policies {
+			if o.Policies[i].ID == policyID && o.Policies[i].Version == version {
+				index = i
+			}
+		}
+		if index < 0 {
+			return ErrNotFound
+		}
+		if o.Policies[index].State != "draft" {
+			return ErrConflict
+		}
+		now := s.now().UTC()
+		for i := range o.Policies {
+			if o.Policies[i].ID == policyID && o.Policies[i].State == "active" {
+				o.Policies[i].State = "superseded"
+			}
+		}
+		o.Policies[index].State, o.Policies[index].ActivatedByID, o.Policies[index].ActivatedAt = "active", actor, &now
+		activated = o.Policies[index]
+		event(o, "policy.activated", actor, policyID, now)
+		return nil
+	})
+	return o, activated, err
+}
+
+func (s *Store) EffectivePolicy(id, repositoryID string, includeDraft *PolicyVersion) ([]EffectiveRule, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	o, err := s.read(id)
+	if err != nil {
+		return nil, err
+	}
+	policies := o.Policies
+	result := []EffectiveRule{}
+	for _, p := range policies {
+		if includeDraft != nil && p.ID == includeDraft.ID && p.Version != includeDraft.Version {
+			continue
+		}
+		if p.State != "active" && (includeDraft == nil || p.ID != includeDraft.ID || p.Version != includeDraft.Version) {
+			continue
+		}
+		for _, target := range p.Targets {
+			if !targetApplies(o, target, repositoryID) {
+				continue
+			}
+			for _, rule := range p.Rules {
+				e := EffectiveRule{PolicyID: p.ID, PolicyVersion: p.Version, PolicyName: p.Name, Target: target, Rule: rule}
+				for i := range o.PolicyExceptions {
+					x := &o.PolicyExceptions[i]
+					if x.PolicyID == p.ID && x.PolicyVersion == p.Version && x.RuleID == rule.ID && x.RepositoryID == repositoryID && x.State == "approved" && x.ExpiresAt.After(s.now()) {
+						copy := *x
+						e.Exception = &copy
+					}
+				}
+				result = append(result, e)
+			}
+		}
+	}
+	return result, nil
+}
+
+func targetApplies(o Organization, target PolicyTarget, repositoryID string) bool {
+	if target.Kind == "organization" || (target.Kind == "repository" && target.ID == repositoryID) {
+		return true
+	}
+	if target.Kind == "team" {
+		if team, ok := teamByID(o, target.ID); ok {
+			for _, r := range team.Responsibilities {
+				if r.RepositoryID == repositoryID {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (s *Store) RequestPolicyException(id, actor string, in PolicyException) (Organization, PolicyException, error) {
+	var made PolicyException
+	o, err := s.change(id, func(o *Organization) error {
+		if _, ok := membership(*o, actor, true); !ok {
+			return ErrForbidden
+		}
+		now := s.now().UTC()
+		in.Reason = strings.TrimSpace(in.Reason)
+		if in.RepositoryID == "" || in.RuleID == "" || in.Reason == "" || !in.ExpiresAt.After(now) || in.ExpiresAt.After(now.Add(30*24*time.Hour)) {
+			return ErrInvalid
+		}
+		found := false
+		for _, p := range o.Policies {
+			if p.ID == in.PolicyID && p.Version == in.PolicyVersion && p.State == "active" && targetApplies(*o, firstMatchingTarget(p.Targets, *o, in.RepositoryID), in.RepositoryID) {
+				for _, r := range p.Rules {
+					if r.ID == in.RuleID {
+						found = true
+					}
+				}
+			}
+		}
+		if !found {
+			return ErrInvalid
+		}
+		for _, x := range o.PolicyExceptions {
+			if x.RepositoryID == in.RepositoryID && x.PolicyID == in.PolicyID && x.PolicyVersion == in.PolicyVersion && x.RuleID == in.RuleID && (x.State == "pending" || x.State == "approved") && x.ExpiresAt.After(now) {
+				return ErrConflict
+			}
+		}
+		var e error
+		in.ID, e = newID()
+		if e != nil {
+			return e
+		}
+		in.RequestedByID, in.RequestedAt, in.State = actor, now, "pending"
+		in.ResolvedAt, in.ResolvedByID = nil, ""
+		o.PolicyExceptions = append(o.PolicyExceptions, in)
+		made = in
+		event(o, "policy.exception_requested", actor, in.ID, now)
+		return nil
+	})
+	return o, made, err
+}
+func firstMatchingTarget(targets []PolicyTarget, o Organization, repo string) PolicyTarget {
+	for _, t := range targets {
+		if targetApplies(o, t, repo) {
+			return t
+		}
+	}
+	return PolicyTarget{}
+}
+
+func (s *Store) ResolvePolicyException(id, exceptionID, actor, decision string) (Organization, PolicyException, error) {
+	var resolved PolicyException
+	o, err := s.change(id, func(o *Organization) error {
+		m, ok := membership(*o, actor, true)
+		if !ok || m.Role != "owner" {
+			return ErrForbidden
+		}
+		if decision != "approved" && decision != "denied" {
+			return ErrInvalid
+		}
+		for i := range o.PolicyExceptions {
+			x := &o.PolicyExceptions[i]
+			if x.ID == exceptionID {
+				if x.State != "pending" {
+					return ErrConflict
+				}
+				now := s.now().UTC()
+				x.State, x.ResolvedByID, x.ResolvedAt = decision, actor, &now
+				resolved = *x
+				event(o, "policy.exception_"+decision, actor, x.ID, now)
+				return nil
+			}
+		}
+		return ErrNotFound
+	})
+	return o, resolved, err
 }
 
 func authorizedEndpoint(o Organization, user, kind, id string) bool {

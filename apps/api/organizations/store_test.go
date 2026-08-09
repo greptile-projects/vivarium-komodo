@@ -1,6 +1,7 @@
 package organizations
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -151,5 +152,65 @@ func TestNestedTeamsResponsibilitiesAgentsAndConcurrency(t *testing.T) {
 	o, _ = s.Get(o.ID)
 	if len(o.Agents[0].OperatorIDs) != 0 {
 		t.Fatal("removed member remained an agent operator")
+	}
+}
+
+func TestVersionedPoliciesPreviewActivationAndExpiringExceptions(t *testing.T) {
+	s, _ := New(t.TempDir())
+	now := time.Date(2026, 8, 9, 20, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	o, _ := s.Create("owner", "quality", "Quality", "")
+	o, _ = s.Invite(o.ID, "owner", "maintainer")
+	o, _ = s.Accept(o.ID, "maintainer")
+	_, team, _ := s.CreateTeam(o.ID, "owner", Team{Slug: "runtime", Name: "Runtime", Visibility: "internal"})
+	o, _, _ = s.AddResponsibility(o.ID, team.ID, "owner", Responsibility{RepositoryID: "repo-a", Area: "**", Visibility: "internal"}, team.Version)
+	draft := PolicyVersion{Name: "Shared delivery bar", Targets: []PolicyTarget{{Kind: "team", ID: team.ID}}, Rules: []PolicyRule{
+		{ID: "checks", Domain: "required_checks", Enforcement: "required", Config: json.RawMessage(`{"names":["test"]}`)},
+		{ID: "agents", Domain: "agent_authority", Enforcement: "required", Config: json.RawMessage(`{"approved_only":true}`)},
+	}}
+	_, draft, err := s.DraftPolicy(o.ID, "owner", "", draft)
+	if err != nil || draft.State != "draft" || draft.Version != 1 {
+		t.Fatalf("draft = %#v, err=%v", draft, err)
+	}
+	preview, _ := s.EffectivePolicy(o.ID, "repo-a", &draft)
+	if len(preview) != 2 || preview[0].Target.ID != team.ID {
+		t.Fatalf("preview = %#v", preview)
+	}
+	activeRules, _ := s.EffectivePolicy(o.ID, "repo-a", nil)
+	if len(activeRules) != 0 {
+		t.Fatal("draft affected repository before activation")
+	}
+	_, active, err := s.ActivatePolicy(o.ID, "owner", draft.ID, 1)
+	if err != nil || active.ActivatedByID != "owner" {
+		t.Fatalf("active = %#v, err=%v", active, err)
+	}
+	_, request, err := s.RequestPolicyException(o.ID, "maintainer", PolicyException{PolicyID: draft.ID, PolicyVersion: 1, RuleID: "checks", RepositoryID: "repo-a", Reason: "legacy runner migration", ExpiresAt: now.Add(48 * time.Hour)})
+	if err != nil || request.State != "pending" {
+		t.Fatalf("request = %#v, err=%v", request, err)
+	}
+	rules, _ := s.EffectivePolicy(o.ID, "repo-a", nil)
+	if rules[0].Exception != nil {
+		t.Fatal("pending exception silently weakened policy")
+	}
+	_, approved, err := s.ResolvePolicyException(o.ID, request.ID, "owner", "approved")
+	if err != nil || approved.ResolvedByID != "owner" {
+		t.Fatalf("approval = %#v, err=%v", approved, err)
+	}
+	rules, _ = s.EffectivePolicy(o.ID, "repo-a", nil)
+	if rules[0].Exception == nil || rules[0].Rule.Enforcement != "required" {
+		t.Fatalf("effective explanation = %#v", rules)
+	}
+	now = now.Add(72 * time.Hour)
+	rules, _ = s.EffectivePolicy(o.ID, "repo-a", nil)
+	if rules[0].Exception != nil {
+		t.Fatal("expired exception remained effective")
+	}
+	_, next, err := s.DraftPolicy(o.ID, "owner", draft.ID, PolicyVersion{Name: "Stronger bar", Targets: []PolicyTarget{{Kind: "organization"}}, Rules: []PolicyRule{{ID: "review", Domain: "reviews", Enforcement: "required", Config: json.RawMessage(`{"owner_approvals":2}`)}}})
+	if err != nil || next.Version != 2 {
+		t.Fatalf("next = %#v, err=%v", next, err)
+	}
+	stillActive, _ := s.EffectivePolicy(o.ID, "repo-a", nil)
+	if stillActive[0].PolicyVersion != 1 {
+		t.Fatal("new draft invalidated active work")
 	}
 }

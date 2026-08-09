@@ -1606,3 +1606,31 @@ organization member revokes only that user's credentials from grants they no
 longer inherit, leaving unaffected teammates intact. The organization event
 sequence audits requests, decisions, grants, credential issuance, and
 revocation without storing credential secrets.
+
+## Organization policy baselines and exceptions
+
+Organization owners define portfolio governance as immutable policy versions
+in the organization record. Rules cover `repository_visibility`, `reviews`,
+`required_checks`, `integration`, `release_provenance`, `dependency_use`,
+`environment_promotion`, and `agent_authority`; each is required or advisory
+and carries domain-specific JSON configuration. A policy targets the whole
+organization, one organization-owned repository, or a team. Team targeting
+follows declared repository responsibilities and grants no repository access.
+
+`POST /organizations/{id}/policies` starts a draft lineage and `POST
+/organizations/{id}/policies/{policy}/versions` appends its next immutable
+version. Drafts have no effect. Members submit repository IDs to a draft
+version's `/preview` resource to see active-plus-proposed rules and their target
+explanations before activation. Activation supersedes only the prior active
+version in that lineage; other policy lineages remain additive, and existing
+pull requests, runs, releases, deployments, and captured work are not rewritten.
+
+Maintainers inspect inherited rules at `GET
+/organizations/{id}/repositories/{repository}/effective-policy`. Required rules
+remain visible even when an exception applies. An owner or holder of an active
+organization `maintainer` or `operator` grant for the repository may request a
+reasoned exception at `POST /organizations/{id}/policy-exceptions`. It binds one
+exact policy version, rule, and repository, expires within 30 days, and is
+ineffective until an owner approves it. Pending, denied, expired, and approved
+decisions retain requester/resolver attribution; a newer policy version needs a
+new explicit exception.

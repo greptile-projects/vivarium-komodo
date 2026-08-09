@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,6 +48,182 @@ type organizationCredentialStore interface {
 }
 
 func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, repos organizationRepositories, people organizationUsers, packages organizationPackages, releaseStore organizationReleases, pulls organizationPulls, incidentStore organizationIncidents, credentials organizationCredentialStore) {
+	mux.HandleFunc("POST /organizations/{organization}/policies", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in organizations.PolicyVersion
+		if !readJSON(w, r, &in, 65536) {
+			return
+		}
+		if !organizationPolicyTargets(w, r.PathValue("organization"), in.Targets, repos) {
+			return
+		}
+		_, made, err := orgs.DraftPolicy(r.PathValue("organization"), actor.UserID, "", in)
+		if organizationError(w, err) {
+			return
+		}
+		w.Header().Set("Location", "/organizations/"+r.PathValue("organization")+"/policies/"+made.ID+"/versions/1")
+		writeJSON(w, 201, made)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/policies/{policy}/versions", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in organizations.PolicyVersion
+		if !readJSON(w, r, &in, 65536) {
+			return
+		}
+		if !organizationPolicyTargets(w, r.PathValue("organization"), in.Targets, repos) {
+			return
+		}
+		_, made, err := orgs.DraftPolicy(r.PathValue("organization"), actor.UserID, r.PathValue("policy"), in)
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 201, made)
+	})
+	mux.HandleFunc("GET /organizations/{organization}/policies", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryRead)
+		if !ok {
+			return
+		}
+		if !orgs.IsMember(r.PathValue("organization"), actor.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		o, err := orgs.Get(r.PathValue("organization"))
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 200, map[string]any{"items": o.Policies, "exceptions": o.PolicyExceptions})
+	})
+	mux.HandleFunc("POST /organizations/{organization}/policies/{policy}/versions/{version}/activate", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		version, err := parsePositiveInt64(r.PathValue("version"))
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_organization"})
+			return
+		}
+		_, active, err := orgs.ActivatePolicy(r.PathValue("organization"), actor.UserID, r.PathValue("policy"), version)
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 200, active)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/policies/{policy}/versions/{version}/preview", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryRead)
+		if !ok {
+			return
+		}
+		id := r.PathValue("organization")
+		if !orgs.IsMember(id, actor.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		version, err := parsePositiveInt64(r.PathValue("version"))
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_organization"})
+			return
+		}
+		var in struct {
+			RepositoryIDs []string `json:"repository_ids"`
+		}
+		if !readJSON(w, r, &in, 16384) {
+			return
+		}
+		o, err := orgs.Get(id)
+		if organizationError(w, err) {
+			return
+		}
+		var draft *organizations.PolicyVersion
+		for i := range o.Policies {
+			if o.Policies[i].ID == r.PathValue("policy") && o.Policies[i].Version == version {
+				copy := o.Policies[i]
+				draft = &copy
+			}
+		}
+		if draft == nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		impacts := map[string][]organizations.EffectiveRule{}
+		for _, repoID := range in.RepositoryIDs {
+			if !organizationRepository(w, id, repoID, repos) {
+				return
+			}
+			rules, e := orgs.EffectivePolicy(id, repoID, draft)
+			if organizationError(w, e) {
+				return
+			}
+			impacts[repoID] = rules
+		}
+		writeJSON(w, 200, map[string]any{"policy_id": draft.ID, "version": draft.Version, "state": draft.State, "impacts": impacts, "activation_changes_new_decisions_only": true})
+	})
+	mux.HandleFunc("GET /organizations/{organization}/repositories/{repository}/effective-policy", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryRead)
+		if !ok {
+			return
+		}
+		id, repoID := r.PathValue("organization"), r.PathValue("repository")
+		if !orgs.IsMember(id, actor.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if !organizationRepository(w, id, repoID, repos) {
+			return
+		}
+		rules, err := orgs.EffectivePolicy(id, repoID, nil)
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 200, map[string]any{"repository_id": repoID, "rules": rules})
+	})
+	mux.HandleFunc("POST /organizations/{organization}/policy-exceptions", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		id := r.PathValue("organization")
+		var in organizations.PolicyException
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		if !organizationRepository(w, id, in.RepositoryID, repos) {
+			return
+		}
+		if !organizationPolicyMaintainer(orgs, id, actor.UserID, in.RepositoryID) {
+			writeJSON(w, 403, map[string]string{"error": "forbidden"})
+			return
+		}
+		_, made, err := orgs.RequestPolicyException(id, actor.UserID, in)
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 201, made)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/policy-exceptions/{exception}", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in struct {
+			Decision string `json:"decision"`
+		}
+		if !readJSON(w, r, &in, 1024) {
+			return
+		}
+		_, resolved, err := orgs.ResolvePolicyException(r.PathValue("organization"), r.PathValue("exception"), actor.UserID, in.Decision)
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 200, resolved)
+	})
 	mux.HandleFunc("GET /organizations/{organization}/directory", func(w http.ResponseWriter, r *http.Request) {
 		actor, authenticated, ok := authenticateOptionalRequest(w, r, credentials, auth.RepositoryRead)
 		if !ok {
@@ -592,6 +769,49 @@ func organizationResources(w http.ResponseWriter, organization string, resources
 		}
 	}
 	return true
+}
+func parsePositiveInt64(value string) (int64, error) {
+	n, e := strconv.ParseInt(value, 10, 64)
+	if e != nil || n < 1 {
+		return 0, errors.New("invalid number")
+	}
+	return n, nil
+}
+func organizationRepository(w http.ResponseWriter, organization, repository string, repos organizationRepositories) bool {
+	repo, err := repos.Inspect(storage.ID(repository))
+	if err != nil || repo.OrganizationID != organization {
+		writeJSON(w, 422, map[string]string{"error": "invalid_resource"})
+		return false
+	}
+	return true
+}
+func organizationPolicyTargets(w http.ResponseWriter, organization string, targets []organizations.PolicyTarget, repos organizationRepositories) bool {
+	for _, target := range targets {
+		if target.Kind == "repository" && !organizationRepository(w, organization, target.ID, repos) {
+			return false
+		}
+	}
+	return true
+}
+func organizationPolicyMaintainer(orgs *organizations.Store, organization, user, repository string) bool {
+	if orgs.IsOwner(organization, user) {
+		return true
+	}
+	grants, err := orgs.EffectiveAccess(organization, user)
+	if err != nil {
+		return false
+	}
+	for _, grant := range grants {
+		if grant.Role != "maintainer" && grant.Role != "operator" {
+			continue
+		}
+		for _, resource := range grant.Resources {
+			if resource.Kind == "repository" && resource.ID == repository {
+				return true
+			}
+		}
+	}
+	return false
 }
 func organizationError(w http.ResponseWriter, e error) bool {
 	if e == nil {
