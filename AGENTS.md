@@ -500,8 +500,15 @@ whenever dependencies change or the web job fails before it starts.
   dependencies, accountable teams, accepted humans, or approved agents,
   upcoming releases, policy exceptions, and the next decision. Initiative
   reads derive dependency blockers and reassignment needs from current
-  membership and repository ownership; never erase an invalid assignment or
-  copy the lifecycle state of its authoritative source.
+  membership, repository ownership, and active repository-scoped role grants.
+  Organization membership or team responsibility alone is not repository
+  authority; non-owner humans inherit authority through accepted teams, while
+  teams and approved agents need their own current grant. Never erase an
+  invalid assignment or copy the lifecycle state of its authoritative source.
+  `organizations.TestOrganizationGovernanceCollaborationLoop` is the regression
+  boundary for composing teams, approved agents, grants, policies, exceptions,
+  initiatives, delivery links, and membership-loss reassignment without losing
+  evidence or attribution.
   Versioned cross-repository relationships live beneath `$RELATIONSHIP_ROOT`
   (default `apps/api/data/relationships`). A repository participant publishes
   an interface only from an existing immutable release, which binds its name,

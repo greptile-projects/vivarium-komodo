@@ -238,7 +238,7 @@ func TestPortfolioInitiativesExposeCrossRepositoryBlockersAndReassignment(t *tes
 		t.Fatal(err)
 	}
 	view, err := s.InitiativeView(o.ID, func(repo string) bool { return repo == "repo-a" || repo == "repo-b" })
-	if err != nil || len(view) != 1 || len(view[0].Items) != 2 || len(view[0].Items[1].BlockedBy) != 1 || view[0].Items[1].BlockedBy[0] != first.ID {
+	if err != nil || len(view) != 1 || len(view[0].Items) != 2 || len(view[0].Items[1].BlockedBy) != 2 || view[0].Items[1].BlockedBy[0] != first.ID || view[0].Items[1].BlockedBy[1] != "reassignment" {
 		t.Fatalf("view = %#v, err=%v", view, err)
 	}
 	if view[0].Items[0].NeedsReassignment {
@@ -261,5 +261,108 @@ func TestPortfolioInitiativesExposeCrossRepositoryBlockersAndReassignment(t *tes
 	}
 	if _, _, err = s.PutInitiativeItem(o.ID, initiative.ID, first.ID, "owner", InitiativeItem{Title: "cycle", Outcome: "cycle", RepositoryID: "repo-a", Source: ResourceRef{Kind: "proposal_task", ID: "task-a", RepositoryID: "repo-a"}, AssigneeKind: "team", AssigneeID: team.ID, DependsOn: []string{second.ID}}); err != ErrInvalid {
 		t.Fatalf("cycle accepted: %v", err)
+	}
+}
+
+// TestOrganizationGovernanceCollaborationLoop is the durable regression for
+// composing the organization primitives as one workflow. Delivery resources
+// remain pointers to their authoritative stores; this boundary proves that
+// governance changes preserve those identities while recalculating authority.
+func TestOrganizationGovernanceCollaborationLoop(t *testing.T) {
+	root := t.TempDir()
+	s, _ := New(root)
+	now := time.Date(2026, 8, 9, 22, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	o, err := s.Create("owner", "northstar", "Northstar", "Human and agent delivery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, _ = s.Invite(o.ID, "owner", "developer")
+	o, _ = s.Accept(o.ID, "developer")
+	_, platform, _ := s.CreateTeam(o.ID, "owner", Team{Slug: "platform", Name: "Platform", Visibility: "public"})
+	_, delivery, _ := s.CreateTeam(o.ID, "owner", Team{Slug: "delivery", Name: "Delivery", Visibility: "internal"})
+	o, _ = s.InviteTeamMember(o.ID, platform.ID, "owner", "developer", "member", platform.Version)
+	o, _ = s.AcceptTeam(o.ID, platform.ID, "developer", 2)
+	_, platformResponsibility, _ := s.AddResponsibility(o.ID, platform.ID, "owner", Responsibility{RepositoryID: "service", Area: "src/**", Visibility: "public"}, 3)
+	_, _, _ = s.AddResponsibility(o.ID, delivery.ID, "owner", Responsibility{RepositoryID: "deploy", Area: "production", Visibility: "internal"}, delivery.Version)
+	_, agent, err := s.RegisterAgent(o.ID, "owner", Agent{Slug: "codex-delivery", Name: "Codex delivery", Capabilities: []string{"candidate_branch:write", "checks:read"}, OperatorIDs: []string{"developer"}, Visibility: "internal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Responsibility makes ownership discoverable, but does not itself grant
+	// the developer write authority.
+	_, initiative, _ := s.CreateInitiative(o.ID, "owner", Initiative{Title: "Ship coordinated runtime", Outcome: "Service and deployment repositories release together", Sources: []ResourceRef{{Kind: "proposal", ID: "proposal-service", RepositoryID: "service"}}})
+	_, human, _ := s.PutInitiativeItem(o.ID, initiative.ID, "", "owner", InitiativeItem{Title: "Implement runtime", Outcome: "Reviewed service change lands", RepositoryID: "service", Source: ResourceRef{Kind: "proposal_task", ID: "task-service", RepositoryID: "service"}, AssigneeKind: "human", AssigneeID: "developer", State: "in_progress", NextDecision: "Publish candidate branch"})
+	view, _ := s.InitiativeView(o.ID, func(string) bool { return true })
+	if !view[0].Items[0].NeedsReassignment {
+		t.Fatal("team responsibility silently granted repository authority")
+	}
+
+	expires := now.Add(24 * time.Hour)
+	_, humanGrant, err := s.GrantRole(o.ID, "owner", RoleGrant{PrincipalKind: "team", PrincipalID: platform.ID, Role: "maintainer", Resources: []ResourceRef{{Kind: "repository", ID: "service"}}, Reason: "Implement and govern the coordinated runtime", ExpiresAt: expires})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, agentGrant, err := s.GrantRole(o.ID, "owner", RoleGrant{PrincipalKind: "agent", PrincipalID: agent.ID, Role: "contributor", Resources: []ResourceRef{{Kind: "repository", ID: "deploy"}}, Reason: "Prepare bounded deployment automation", ExpiresAt: expires})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, _ = s.InitiativeView(o.ID, func(string) bool { return true })
+	if view[0].Items[0].NeedsReassignment {
+		t.Fatal("developer did not inherit the scoped team grant")
+	}
+
+	draft := PolicyVersion{Name: "Shared review and delivery", Targets: []PolicyTarget{{Kind: "organization"}}, Rules: []PolicyRule{
+		{ID: "review", Domain: "reviews", Enforcement: "required", Config: json.RawMessage(`{"owner_approvals":1}`)},
+		{ID: "checks", Domain: "required_checks", Enforcement: "required", Config: json.RawMessage(`{"names":["test"]}`)},
+		{ID: "promotion", Domain: "environment_promotion", Enforcement: "required", Config: json.RawMessage(`{"independent_approvals":1}`)},
+		{ID: "agents", Domain: "agent_authority", Enforcement: "required", Config: json.RawMessage(`{"approved_only":true}`)},
+	}}
+	_, draft, _ = s.DraftPolicy(o.ID, "owner", "", draft)
+	_, active, err := s.ActivatePolicy(o.ID, "owner", draft.ID, draft.Version)
+	if err != nil || active.State != "active" {
+		t.Fatalf("activate shared policy = %#v, %v", active, err)
+	}
+	_, exception, err := s.RequestPolicyException(o.ID, "developer", PolicyException{PolicyID: active.ID, PolicyVersion: active.Version, RuleID: "checks", RepositoryID: "service", Reason: "Legacy runner migration", ExpiresAt: now.Add(8 * time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, exception, _ = s.ResolvePolicyException(o.ID, exception.ID, "owner", "approved")
+
+	_, human, _ = s.PutInitiativeItem(o.ID, initiative.ID, human.ID, "developer", InitiativeItem{Title: human.Title, Outcome: human.Outcome, RepositoryID: human.RepositoryID, Source: human.Source, AssigneeKind: human.AssigneeKind, AssigneeID: human.AssigneeID, State: "completed", Contributions: []ResourceRef{{Kind: "pull_request", ID: "pull-service", RepositoryID: "service"}}, UpcomingReleaseIDs: []string{"release-service-v1"}, PolicyExceptionIDs: []string{exception.ID}, NextDecision: "Release verified service artifact"})
+	_, automated, err := s.PutInitiativeItem(o.ID, initiative.ID, "", "developer", InitiativeItem{Title: "Automate rollout", Outcome: "Reviewed agent change reaches production", RepositoryID: "deploy", Source: ResourceRef{Kind: "proposal_task", ID: "task-deploy", RepositoryID: "deploy"}, DependsOn: []string{human.ID}, AssigneeKind: "agent", AssigneeID: agent.ID, State: "in_progress", Contributions: []ResourceRef{{Kind: "pull_request", ID: "pull-deploy", RepositoryID: "deploy"}}, UpcomingReleaseIDs: []string{"release-deploy-v1"}, NextDecision: "Approve production promotion"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, _ = s.InitiativeView(o.ID, func(repo string) bool { return repo == "service" || repo == "deploy" })
+	if len(view[0].Items[1].BlockedBy) != 0 || view[0].Items[1].NeedsReassignment {
+		t.Fatalf("ready agent delivery = %#v", view[0].Items[1])
+	}
+
+	// Removing the developer revokes only their inherited authority and agent
+	// operator link. Completed work, delivery evidence, exception decisions,
+	// and stable attribution remain available for reassignment.
+	if _, err = s.Remove(o.ID, "owner", "developer"); err != nil {
+		t.Fatal(err)
+	}
+	view, _ = s.InitiativeView(o.ID, func(string) bool { return true })
+	if !view[0].Items[0].NeedsReassignment || !view[0].Items[1].NeedsReassignment {
+		t.Fatalf("membership change did not surface reassignment: %#v", view[0].Items)
+	}
+	if view[0].Items[0].Contributions[0].ID != "pull-service" || view[0].Items[0].UpcomingReleaseIDs[0] != "release-service-v1" || view[0].Items[0].PolicyExceptionIDs[0] != exception.ID || view[0].Items[0].UpdatedByID != "developer" {
+		t.Fatalf("human delivery evidence or attribution was lost: %#v", view[0].Items[0])
+	}
+	if view[0].Items[1].ID != automated.ID || view[0].Items[1].Contributions[0].ID != "pull-deploy" {
+		t.Fatalf("agent delivery evidence was lost: %#v", view[0].Items[1])
+	}
+
+	reloaded, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persisted, _ := reloaded.Get(o.ID)
+	if len(persisted.Policies) != 1 || len(persisted.PolicyExceptions) != 1 || persisted.PolicyExceptions[0].ResolvedByID != "owner" || len(persisted.Initiatives) != 1 || platformResponsibility.CreatedByID != "owner" || humanGrant.CreatedByID != "owner" || agentGrant.CreatedByID != "owner" {
+		t.Fatalf("governance evidence did not survive reload: %#v", persisted)
 	}
 }

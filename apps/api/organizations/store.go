@@ -1365,20 +1365,24 @@ func (s *Store) InitiativeView(id string, repositoryOwned func(string) bool) ([]
 
 func initiativePrincipalAccess(o Organization, item *InitiativeItem, now time.Time) bool {
 	if item.AssigneeKind == "human" {
-		_, ok := membership(o, item.AssigneeID, true)
-		return ok
-	}
-	if item.AssigneeKind == "team" {
-		if team, ok := teamByID(o, item.AssigneeID); ok {
-			for _, responsibility := range team.Responsibilities {
-				if responsibility.RepositoryID == item.RepositoryID {
-					return true
-				}
-			}
+		member, ok := membership(o, item.AssigneeID, true)
+		if !ok {
+			return false
+		}
+		// The organization owner controls its repository portfolio. Other
+		// members need a current scoped grant inherited through one of their
+		// teams; organization membership and team responsibility are directory
+		// facts, not repository authority.
+		if member.Role == "owner" {
+			return true
 		}
 	}
 	for _, grant := range o.RoleGrants {
-		if grant.PrincipalKind != item.AssigneeKind || grant.PrincipalID != item.AssigneeID || grant.RevokedAt != nil || !grant.ExpiresAt.After(now) {
+		principalMatches := grant.PrincipalKind == item.AssigneeKind && grant.PrincipalID == item.AssigneeID
+		if item.AssigneeKind == "human" {
+			principalMatches = principalIncludes(o, grant, item.AssigneeID)
+		}
+		if !principalMatches || grant.RevokedAt != nil || !grant.ExpiresAt.After(now) {
 			continue
 		}
 		for _, resource := range grant.Resources {
