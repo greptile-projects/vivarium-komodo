@@ -395,6 +395,16 @@ whenever dependencies change or the web job fails before it starts.
   attestation. Failed or successful steps may be rerun against their original
   immutable definition and commit without replacing earlier evidence. The web surface is the
   shareable `view=releases&release={id}` repository tab.
+  Versioned cross-repository relationships live beneath `$RELATIONSHIP_ROOT`
+  (default `apps/api/data/relationships`). A repository participant publishes
+  an interface only from an existing immutable release, which binds its name,
+  semantic version, optional schema path, release, exact commit, owner, and
+  actor. Consumer declarations bind an exact release or commit to a readable
+  provider repository, interface name, and an exact, caret, tilde, minimum, or
+  wildcard compatibility constraint. Read the caller-filtered graph through
+  `/repositories/{repository}/relationships`; it joins existing release and
+  deployment evidence and reports resolved, stale, and unresolved edges
+  explicitly. The shareable web surface is `view=relationships`.
   Governed delivery is stored beneath `$DEPLOYMENT_ROOT` (default
   `apps/api/data/deployments`). Owners define ordered environments with
   commands, scoped configuration, encrypted write-only credentials, required
