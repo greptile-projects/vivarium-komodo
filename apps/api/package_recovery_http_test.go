@@ -87,4 +87,41 @@ func TestQuarantineStopsNewInstallsButRetainsExposure(t *testing.T) {
 	if historical.Code != 200 {
 		t.Fatalf("historical evidence = %d %s", historical.Code, historical.Body.String())
 	}
+
+	consumerToken := issueAccess(t, credentials, "consumer", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
+	repairBody, _ := json.Marshal(map[string]string{"inventory_id": inventories.item.ID, "package_version_id": unsafe.ID, "owner_type": "agent"})
+	repairRequest := httptest.NewRequest(http.MethodPost, "/repositories/"+string(consumer.ID)+"/package-repairs", bytes.NewReader(repairBody))
+	repairRequest.Header.Set("Authorization", "Bearer "+consumerToken)
+	repairResponse := httptest.NewRecorder()
+	mux.ServeHTTP(repairResponse, repairRequest)
+	if repairResponse.Code != http.StatusCreated {
+		t.Fatalf("repair = %d %s", repairResponse.Code, repairResponse.Body.String())
+	}
+	var repair packagecatalog.Repair
+	if err := json.Unmarshal(repairResponse.Body.Bytes(), &repair); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := plans.PublishTaskContribution(string(consumer.ID), repair.ProposalID, repair.TaskID, "codex", proposals.TaskContribution{PullRequestID: "repair-pull", SourceCommitID: "repair-head", TargetCommitID: inventories.item.CommitID, Status: proposals.ContributionReview}); err != nil {
+		t.Fatal(err)
+	}
+	assertRepairState := func(want string) {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodGet, "/repositories/"+string(consumer.ID)+"/package-repairs", nil)
+		request.Header.Set("Authorization", "Bearer "+consumerToken)
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, request)
+		if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"status":"`+want+`"`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"contribution_pull_request_id":"repair-pull"`)) {
+			t.Fatalf("repair status %s = %d %s", want, response.Code, response.Body.String())
+		}
+	}
+	assertRepairState("in_review")
+	if _, err := plans.UpdateTaskContribution(string(consumer.ID), repair.ProposalID, repair.TaskID, "repair-pull", "consumer", proposals.ContributionMerged); err != nil {
+		t.Fatal(err)
+	}
+	assertRepairState("remediated")
+	exposed = httptest.NewRecorder()
+	mux.ServeHTTP(exposed, httptest.NewRequest(http.MethodGet, "/packages/"+unsafe.ID+"/exposure", nil))
+	if exposed.Code != http.StatusOK || !bytes.Contains(exposed.Body.Bytes(), []byte(`"remediation":"remediated"`)) {
+		t.Fatalf("remediated exposure = %d %s", exposed.Code, exposed.Body.String())
+	}
 }

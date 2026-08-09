@@ -42,11 +42,11 @@ func (s packageSafetyEnforcer) HasActiveException(repositoryID, packageID string
 
 func registerPackageRecoveryHTTP(mux *http.ServeMux, packages packageStore, inventories recoveryInventoryStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) {
 	mux.HandleFunc("PUT /repositories/{repository}/packages/{package}/safety", setPackageSafety(packages, inventories, repositories, credentials, activity))
-	mux.HandleFunc("GET /packages/{package}/exposure", packageExposure(packages, inventories, repositories, credentials))
+	mux.HandleFunc("GET /packages/{package}/exposure", packageExposure(packages, inventories, proposalStore, repositories, credentials))
 	mux.HandleFunc("PUT /repositories/{repository}/package-recovery-policy", putPackageRecoveryPolicy(packages, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/package-recovery-exceptions", createPackageRecoveryException(packages, inventories, repositories, credentials, activity))
 	mux.HandleFunc("POST /repositories/{repository}/package-repairs", createPackageRepair(packages, inventories, proposalStore, repositories, credentials, activity))
-	mux.HandleFunc("GET /repositories/{repository}/package-repairs", listPackageRepairs(packages, repositories, credentials))
+	mux.HandleFunc("GET /repositories/{repository}/package-repairs", listPackageRepairs(packages, proposalStore, repositories, credentials))
 }
 
 func setPackageSafety(store packageStore, inventories recoveryInventoryStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
@@ -110,7 +110,7 @@ type exposure struct {
 	RepairID       string `json:"repair_id,omitempty"`
 }
 
-func packageExposure(store packageStore, inventories recoveryInventoryStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+func packageExposure(store packageStore, inventories recoveryInventoryStore, plans proposalStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		item, err := store.GetByID(r.PathValue("package"))
 		if err != nil || item.Visibility != "public" {
@@ -135,7 +135,7 @@ func packageExposure(store packageStore, inventories recoveryInventoryStore, rep
 			repairs, _ := store.ListRepairs(inv.RepositoryID)
 			for _, repair := range repairs {
 				if repair.InventoryID == inv.ID && repair.PackageVersionID == item.ID {
-					state = "repair_open"
+					state = packageRepairStatus(repair, plans)
 					rid = repair.ID
 					break
 				}
@@ -297,7 +297,59 @@ func createPackageRepair(store packageStore, inventories recoveryInventoryStore,
 		writeJSON(w, 201, v)
 	}
 }
-func listPackageRepairs(store packageStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+
+type packageRepairView struct {
+	packagecatalog.Repair
+	Status             string `json:"status"`
+	ContributionPullID string `json:"contribution_pull_request_id,omitempty"`
+}
+
+// packageRepairStatus projects the ordinary proposal delivery state onto the
+// ecosystem recovery record. The repair itself remains immutable evidence of
+// why work was opened, while its linked task remains the source of truth for
+// execution, review, and integration.
+func packageRepairStatus(repair packagecatalog.Repair, plans proposalStore) string {
+	plan, err := plans.GetPlan(repair.RepositoryID, repair.ProposalID)
+	if err != nil {
+		return "open"
+	}
+	for _, task := range plan.Tasks {
+		if task.ID != repair.TaskID {
+			continue
+		}
+		switch task.Status {
+		case proposals.TaskMerged:
+			return "remediated"
+		case proposals.TaskDraft, proposals.TaskReview:
+			return "in_review"
+		case proposals.TaskClosed, proposals.TaskCanceled, proposals.TaskSuperseded:
+			return "closed"
+		case proposals.TaskInProgress:
+			return "in_progress"
+		default:
+			return "open"
+		}
+	}
+	return "open"
+}
+
+func packageRepairViews(items []packagecatalog.Repair, plans proposalStore) []packageRepairView {
+	out := make([]packageRepairView, 0, len(items))
+	for _, repair := range items {
+		view := packageRepairView{Repair: repair, Status: packageRepairStatus(repair, plans)}
+		if plan, err := plans.GetPlan(repair.RepositoryID, repair.ProposalID); err == nil {
+			for _, task := range plan.Tasks {
+				if task.ID == repair.TaskID && len(task.Contributions) > 0 {
+					view.ContributionPullID = task.Contributions[len(task.Contributions)-1].PullRequestID
+				}
+			}
+		}
+		out = append(out, view)
+	}
+	return out
+}
+
+func listPackageRepairs(store packageStore, plans proposalStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repo, _, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
 		if !ok {
@@ -308,6 +360,6 @@ func listPackageRepairs(store packageStore, repositories pullRequestRepositorySt
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"items": v, "total_count": len(v)})
+		writeJSON(w, 200, map[string]any{"items": packageRepairViews(v, plans), "total_count": len(v)})
 	}
 }

@@ -414,7 +414,9 @@ whenever dependencies change or the web job fails before it starts.
   carries only `package:read`, and the npm-compatible `/package-registry`
   metadata and artifact endpoints must never resolve unlisted private versions
   or confer publisher/repository authority. The release web view remains the
-  publication surface.
+  publication surface. Package attestations retain Go-style platform names,
+  while npm registry metadata translates architecture compatibility (`amd64`
+  to `x64`, `386` to `ia32`) for standard-client enforcement.
   Dependency inventories are immutable, actor-attributed snapshots beneath
   `$DEPENDENCY_INVENTORY_ROOT` (default `apps/api/data/dependency-inventories`).
   Derive them only from an exact visible commit's schema-version `1`
@@ -444,6 +446,10 @@ whenever dependencies change or the web job fails before it starts.
   Assignment, scoped agent execution, contribution, checks, review, queueing,
   release, and deployment then use the ordinary proposal workflow; package
   publication and update discovery never confer consumer repository authority.
+  Package repair and exposure reads derive live remediation status from the
+  linked proposal task (`open`, `in_progress`, `in_review`, `remediated`, or
+  `closed`) and retain its contribution pull request; do not add a second
+  mutable recovery status that can diverge from ordinary delivery state.
   Versioned cross-repository relationships live beneath `$RELATIONSHIP_ROOT`
   (default `apps/api/data/relationships`). A repository participant publishes
   an interface only from an existing immutable release, which binds its name,
