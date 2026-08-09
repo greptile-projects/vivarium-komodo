@@ -1536,3 +1536,21 @@ lifecycle and an independent candidate branch. Coverage includes branch
 discovery, fetch, creation, advancement, pull, force-update, deletion, and
 default-branch recovery. Remote observations use `git ls-remote` or a fresh
 working copy rather than direct access to server-side references or objects.
+# Organization portfolio
+
+Organizations are durable group identities stored beneath `$ORGANIZATION_ROOT`.
+An invitation is only a pending membership record: the invited user explicitly
+accepts before receiving repository collaborator access, and removal revokes
+those portfolio grants. Organization owners may create repositories directly in
+the group or request an ownership transfer. A transfer changes the repository
+catalog owner only after the receiving controller accepts, preserving the same
+storage ID, Git history and references, forks, pull requests, proposals, checks,
+releases, packages, deployments, incidents, and attribution.
+
+`GET /organizations/{id}/portfolio` is a joined view, not a second source of
+truth. It reads the organization's repositories and their existing package,
+open-pull-request, release, and unresolved-incident records. Repository JSON
+uses the organization ID as `owner_id` and exposes the acting human owner as
+`administrator_id`; internal repository policy continues through that explicit
+administrator plus accepted members' collaborator grants until later team and
+portfolio-role milestones replace the coarse membership mapping.

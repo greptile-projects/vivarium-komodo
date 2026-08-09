@@ -39,6 +39,7 @@ const (
 type Repository struct {
 	ID               storage.ID                        `json:"id"`
 	OwnerID          string                            `json:"owner_id"`
+	OrganizationID   string                            `json:"organization_id,omitempty"`
 	Name             string                            `json:"name"`
 	Description      string                            `json:"description"`
 	Visibility       Visibility                        `json:"visibility"`
@@ -49,6 +50,43 @@ type Repository struct {
 	RequiredChecks   map[string][]string               `json:"required_checks,omitempty"`
 	IntegrationQueue map[string]IntegrationQueuePolicy `json:"integration_queue,omitempty"`
 	UpstreamID       storage.ID                        `json:"upstream_repository_id,omitempty"`
+}
+
+// TransferOwner changes only the catalog's ownership pointer. The storage ID,
+// Git objects, refs, timestamps, and every repository-linked resource remain
+// untouched. Acceptance is enforced by the organization boundary before this
+// method is called.
+func (s *Store) TransferOwner(id storage.ID, fromKind, fromID, toKind, toID, administratorID string) (Repository, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(id)
+	if err != nil {
+		return Repository{}, ErrNotFound
+	}
+	if (fromKind == "user" && (item.OrganizationID != "" || item.OwnerID != fromID)) || (fromKind == "organization" && item.OrganizationID != fromID) {
+		return Repository{}, ErrNotFound
+	}
+	if toKind == "organization" {
+		item.OrganizationID = toID
+		item.OwnerID = administratorID
+	} else if toKind == "user" {
+		item.OrganizationID = ""
+		item.OwnerID = toID
+	} else {
+		return Repository{}, ErrInvalidRepository
+	}
+	if err := s.ensureNameAvailable(item.OwnerID, item.Name, item.ID); err != nil {
+		return Repository{}, err
+	}
+	item.UpdatedAt = s.now().UTC()
+	if err := s.write(item); err != nil {
+		return Repository{}, err
+	}
+	return item, nil
+}
+
+func (s *Store) ListOrganization(id string) ([]Repository, error) {
+	return s.list(func(item Repository) bool { return item.OrganizationID == id })
 }
 
 type IntegrationQueuePolicy struct {
