@@ -165,6 +165,18 @@ func registerInboxHTTP(mux *http.ServeMux, activity inboxActivityStore, state in
 				if event.TargetUserID == "" || event.TargetUserID == userID {
 					classification, title, summary = "awareness", "Deployment rollout updated", "Review the latest environment and health evidence."
 				}
+			case "incident.commitment.assigned":
+				if event.TargetUserID == userID {
+					classification, title, summary = "response", "Incident follow-up assigned", "Own the corrective task created from the incident review."
+				}
+			case "incident.commitment.overdue":
+				if event.TargetUserID == userID {
+					classification, title, summary = "response", "Incident follow-up overdue", "Update or complete the corrective commitment so recurrence risk remains owned."
+				}
+			case "incident.commitment.invalidated":
+				if event.TargetUserID == userID {
+					classification, title, summary = "response", "Incident follow-up invalidated", "The linked task can no longer satisfy the incident commitment; coordinate replacement work."
+				}
 			}
 			if classification == "" {
 				continue
@@ -177,6 +189,9 @@ func registerInboxHTTP(mux *http.ServeMux, activity inboxActivityStore, state in
 			}
 			if event.Resource.Type == "repository" {
 				href = "/repositories/" + event.RepositoryID
+			}
+			if event.Resource.Type == "incident" {
+				href = "/repositories/" + event.RepositoryID + "?view=incidents&incident=" + event.Resource.ID
 			}
 			if event.Resource.Type == "deployment" {
 				href = "/repositories/" + event.RepositoryID + "?view=releases&release=" + event.Metadata["release_id"] + "#deployment-" + event.Resource.ID

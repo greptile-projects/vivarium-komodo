@@ -89,9 +89,35 @@ func TestInvestigationConnectsFindingsToTimeBoundedEvidence(t *testing.T) {
 func TestResolvedIncidentRejectsFurtherUpdates(t *testing.T) {
 	store, _ := New(t.TempDir())
 	item, _ := store.Create(CreateInput{RepositoryID: "repo", ActorID: "alice", Title: "Degraded", Summary: "Impact", Severity: "high", Roles: map[string]string{"commander": "alice"}, Affected: []AffectedEnvironment{{RepositoryID: "repo"}}})
-	item, _ = store.Update("repo", item.ID, UpdateInput{ActorID: "alice", Status: "resolved"})
+	item, _ = store.AddFinding("repo", item.ID, "alice", Finding{Kind: "conclusion", Body: "A missing bound exhausted the pool.", Audience: "participants"})
+	item, _ = store.Resolve("repo", item.ID, ResolutionInput{ActorID: "alice", ImpactSummary: "Requests failed for twelve minutes.", TimelineSummary: "Deploy, saturation, rollback, recovery.", ContributingFactors: []string{"The pool had no upper bound."}, ConclusionIDs: []string{item.Findings[0].ID}, CorrectiveWork: []CorrectiveWork{{ProposalID: "proposal", TaskID: "task", OwnerID: "alice"}}})
 	if _, err := store.AddUpdate("repo", item.ID, "alice", "participants", "late"); err != ErrTransition {
 		t.Fatalf("resolved update error = %v", err)
+	}
+}
+
+func TestResolutionRequiresReviewAndTracksCorrectiveProgress(t *testing.T) {
+	store, _ := New(t.TempDir())
+	item, _ := store.Create(CreateInput{RepositoryID: "repo", ActorID: "commander", Title: "Outage", Summary: "Unavailable", Severity: "critical", Roles: map[string]string{"commander": "commander"}, Affected: []AffectedEnvironment{{RepositoryID: "repo"}}})
+	if _, err := store.Update("repo", item.ID, UpdateInput{ActorID: "commander", Status: "resolved"}); err != ErrTransition {
+		t.Fatalf("unreviewed resolve = %v", err)
+	}
+	item, _ = store.AddFinding("repo", item.ID, "commander", Finding{Kind: "conclusion", Body: "Retries amplified load.", Audience: "participants"})
+	due := time.Now().Add(-time.Hour)
+	item, err := store.Resolve("repo", item.ID, ResolutionInput{ActorID: "commander", ImpactSummary: "Checkout failed.", TimelineSummary: "Alert, mitigation, recovery.", ContributingFactors: []string{"Unbounded retries"}, ConclusionIDs: []string{item.Findings[0].ID}, CorrectiveWork: []CorrectiveWork{{ProposalID: "proposal", TaskID: "task", OwnerID: "owner", DueAt: &due}}})
+	if err != nil || item.Resolution.ResolvedByID != "commander" {
+		t.Fatalf("resolution = %#v, %v", item.Resolution, err)
+	}
+	work := append([]CorrectiveWork{}, item.Resolution.CorrectiveWork...)
+	work[0].State = "review"
+	work[0].PullRequestIDs = []string{"pull"}
+	item, overdue, err := store.ReconcileCorrectiveWork("repo", item.ID, work)
+	if err != nil || len(overdue) != 1 || !item.Resolution.CorrectiveWork[0].Overdue {
+		t.Fatalf("progress = %#v, %#v, %v", item.Resolution, overdue, err)
+	}
+	_, overdue, _ = store.ReconcileCorrectiveWork("repo", item.ID, work)
+	if len(overdue) != 0 {
+		t.Fatalf("duplicate overdue notification = %#v", overdue)
 	}
 }
 
