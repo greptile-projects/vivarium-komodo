@@ -405,6 +405,15 @@ whenever dependencies change or the web job fails before it starts.
   `/repositories/{repository}/relationships`; it joins existing release and
   deployment evidence and reports resolved, stale, and unresolved edges
   explicitly. The shareable web surface is `view=relationships`.
+  Potentially breaking provider proposals and pull requests become durable
+  evolution plans beneath the same relationship boundary. A plan snapshots the
+  candidate and released predecessor schema digests, readable affected consumer
+  declarations and owners, classified changes, migration strategy, ordered
+  owner work, exceptions, and owner acknowledgements. Its delegated analysis
+  credential is shown once, expires after 24 hours, and permits only exact blob
+  reads from explicitly selected readable repositories plus attributable
+  findings and uncertainty; never accept it on repository mutation, Git,
+  proposal, pull-request, release, or deployment resources.
   Governed delivery is stored beneath `$DEPLOYMENT_ROOT` (default
   `apps/api/data/deployments`). Owners define ordered environments with
   commands, scoped configuration, encrypted write-only credentials, required

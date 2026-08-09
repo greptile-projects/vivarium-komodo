@@ -37,3 +37,35 @@ func TestStoreRetainsPublicationsAndDeclarations(t *testing.T) {
 		t.Fatalf("retained %d %d", len(interfaces), len(dependencies))
 	}
 }
+
+func TestEvolutionPlanRetainsContractAgreementAndReadOnlyAnalysis(t *testing.T) {
+	store, _ := New(t.TempDir())
+	predecessor := Interface{ID: "published", RepositoryID: "provider", Name: "payments", Version: "1.0.0", CommitID: "old", ReleaseID: "release", SchemaPath: "api.json"}
+	plan, err := store.CreateEvolution(EvolutionPlan{RepositoryID: "provider", InterfaceName: "payments", SourceKind: "pull_request", SourceID: "pr", CandidateCommitID: "new", CandidateSchemaPath: "api.json", CandidateSchemaSHA256: "new-hash", Predecessor: predecessor, PredecessorSchemaSHA256: "old-hash", AffectedConsumers: []AffectedConsumer{{RepositoryID: "checkout", OwnerID: "consumer-owner"}}, CreatedByID: "provider-owner"})
+	if err != nil || plan.ID == "" {
+		t.Fatalf("create = %#v %v", plan, err)
+	}
+	plan, err = store.UpdateEvolution(plan.ID, "provider-owner", EvolutionUpdate{Strategy: "dual publish, migrate, retire", Changes: []CompatibilityChange{{Classification: "breaking", Area: "request", Summary: "required field", Rationale: "explicit routing"}}, Steps: []MigrationStep{{ID: "provider", OwnerID: "provider-owner", Summary: "publish both shapes"}, {OwnerID: "consumer-owner", Summary: "migrate checkout", DependsOn: "provider"}}, Exceptions: []EvolutionException{{ConsumerID: "legacy", Reason: "retire next quarter"}}})
+	if err != nil || len(plan.Changes) != 1 || len(plan.Steps) != 2 {
+		t.Fatalf("contract = %#v %v", plan, err)
+	}
+	plan, err = store.AcknowledgeEvolution(plan.ID, "consumer-owner", "acknowledge", "window works", []string{"checkout"})
+	if err != nil || len(plan.Acknowledgements) != 1 {
+		t.Fatalf("ack = %#v %v", plan, err)
+	}
+	plan, token, err := store.StartEvolutionAnalysis(plan.ID, "provider-owner", "codex", "inspect selected snapshots", []string{"provider", "checkout"})
+	if err != nil || token == "" || plan.Analyses[0].CredentialDigest == "" {
+		t.Fatalf("analysis = %#v %v", plan, err)
+	}
+	context, analysis, err := store.EvolutionAnalysisContext(token)
+	if err != nil || context.Analyses[0].CredentialDigest != "" || analysis.CredentialDigest != "" {
+		t.Fatalf("context leaked credential = %#v %#v %v", context, analysis, err)
+	}
+	plan, err = store.AddEvolutionFinding(token, "risk", "checkout assumes the removed field", "dynamic clients were not sampled", []string{"checkout"})
+	if err != nil || len(plan.Findings) != 1 || plan.Findings[0].ActorID != "agent:codex" {
+		t.Fatalf("finding = %#v %v", plan, err)
+	}
+	if _, err = store.AddEvolutionFinding(token, "risk", "out of scope", "", []string{"unknown"}); err != ErrInvalid {
+		t.Fatalf("out-of-scope finding = %v", err)
+	}
+}

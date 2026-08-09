@@ -95,6 +95,31 @@ exposes the same graph, status reasons, owners, exact revisions, and environment
 state. Storage defaults to `$RELATIONSHIP_ROOT` at
 `apps/api/data/relationships`.
 
+### Interface evolution decisions
+
+An authorized provider collaborator can turn either a proposal or pull request
+into an evolution plan before the candidate merges. The plan resolves the pull
+request's immutable source revision (or validates the proposal's supplied exact
+revision), reads the candidate schema and newest released predecessor through
+the Git storage boundary, and retains their SHA-256 digests. It snapshots only
+affected consumer declarations whose repositories the creator can read, with
+their exact revisions, constraints, and owner identities.
+
+Provider and consumer owners record the migration contract in the plan:
+classified breaking, compatible, behavioral, or unknown changes; an overall
+strategy; ordered owner-attributed steps; explicit exceptions; and replaceable
+acknowledge or request-changes decisions. The repository `view=relationships`
+workspace presents the comparison, blast radius, contract, and agreement beside
+the existing relationship graph.
+
+A provider collaborator may delegate analysis over an explicit subset of the
+provider and affected consumer repositories they can read. The one-time
+credential expires after 24 hours and is accepted only by the evolution-analysis
+context, selected-repository exact-blob read, and finding publication resources.
+It has no Git or application mutation authority. Findings retain `agent:<name>`
+attribution, selected repository IDs, and explicit uncertainty, and return to
+the shared plan without exposing the persisted credential digest.
+
 ## Release builds and attestations
 
 A release candidate is an immutable source and collaboration snapshot. Its

@@ -9,6 +9,8 @@ import (
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/relationships"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
@@ -29,7 +31,9 @@ func TestRelationshipGraphReportsExactResolvedAndStaleEvidence(t *testing.T) {
 	providerToken := issueAccess(t, credentials, "provider-owner", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	consumerToken := issueAccess(t, credentials, "consumer-owner", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	mux := http.NewServeMux()
-	registerRelationshipsHTTP(mux, relationshipStore, releaseStore, deploymentStore, catalog, credentials)
+	proposalStore, _ := proposals.New(t.TempDir())
+	pullStore, _ := pullrequests.New(t.TempDir())
+	registerRelationshipsHTTP(mux, relationshipStore, releaseStore, deploymentStore, catalog, proposalStore, pullStore, credentials)
 	post := func(path, token string, body map[string]string) int {
 		data, _ := json.Marshal(body)
 		request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(data))
