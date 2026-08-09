@@ -51,8 +51,21 @@ pauses with its remaining actions; no advisory becomes anonymously readable.
 On success, `GET /security-advisories/{advisory}` exposes affected versions,
 fixed branches, release and artifact checksums, upgrade guidance, and credits,
 while omitting reporter identity, contact, evidence, private refs, findings,
-sessions, and audit history. Affected repository owners and collaborators
+sessions, impact rationale and citations, internal report and repair IDs, and
+audit history. Affected repository owners and collaborators
 receive targeted upgrade activity containing only public guidance.
+
+The complete report-to-disclosure boundary is covered by
+`security_remediation_workflow_test.go`. An external researcher reports a
+critical issue, a read-only agent assesses two supported lines, and human- and
+agent-authored fixes travel through distinct scoped embargo Git grants. The
+regression requires exact-candidate reviews, normal checks, private security
+reproductions, protected-integration identities, and artifact attestations for
+both lines before disclosure. It also proves that embargo refs and commits,
+the advisory, and security activity remain absent from ordinary public Git,
+repository-browser, advisory, and activity surfaces until the atomic publish;
+afterward both fixed refs, redacted advisory evidence, credit, and actionable
+upgrade activity become available together.
 
 ## Release builds and attestations
 

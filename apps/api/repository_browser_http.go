@@ -185,7 +185,7 @@ func getRepositoryCommit(store repositoryBrowserStore, credentials authStore) ht
 			return
 		}
 		commit, err := opened.ReadCommit(storage.ObjectID(r.PathValue("commit")))
-		if err != nil {
+		if err != nil || !visibleCommit(opened, commit.ID) {
 			writeJSON(w, 404, map[string]string{"error": "commit_not_found"})
 			return
 		}
