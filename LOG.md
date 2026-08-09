@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-09T21:30:38Z: Added organization portfolio initiatives that connect verified proposal, evolution, incident, and security sources to ordered cross-repository work, accountable teams/humans/agents, contribution and release evidence, policy exceptions, blockers, and next decisions. Live initiative reads turn membership, scoped-access, agent-operation, or repository-ownership loss into explicit reassignment instead of orphaned work, with creation and inspection in the organization web workspace.
+
 2026-08-09T13:16:19Z: Added public package search and provenance/documentation inspection plus npm-compatible immutable resolution. Consumer-repository credentials now carry only package:read and an exact version allowlist, so isolated builds can install authorized private dependencies without publisher or unrelated-package access.
 
 2026-08-09T10:33:55Z: Added owner-approved cross-repository evolution rollout phases gated by current compatibility attestations and linked to real queue, release-build, deployment, rollback, and repair evidence. Failures pause later work while retaining safe outcomes, and the relationship workspace now exposes ownership, readiness, next actions, and recovery history.

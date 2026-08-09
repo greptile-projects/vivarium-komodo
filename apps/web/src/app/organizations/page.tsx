@@ -43,6 +43,14 @@ type Portfolio = {
   releases: { id: string; version: string; repository_id: string }[];
   incidents: { id: string; title: string; status: string }[];
 };
+type InitiativeItem = {
+  id: string; title: string; outcome: string; position: number; state: string;
+  repository_id: string; source: ResourceRef; depends_on: string[];
+  assignee_kind: string; assignee_id: string; contributions: ResourceRef[];
+  upcoming_release_ids: string[]; policy_exception_ids: string[];
+  blocked_by: string[]; needs_reassignment: boolean; next_decision?: string;
+};
+type Initiative = { id: string; title: string; outcome: string; state: string; sources: ResourceRef[]; items: InitiativeItem[] };
 type Envelope<T> = { items: T[] };
 type Session = { user: { id: string } };
 
@@ -65,6 +73,7 @@ export default function OrganizationsPage() {
   const [message, setMessage] = useState("");
   const [userID, setUserID] = useState("");
   const [effective, setEffective] = useState<RoleGrant[]>([]);
+  const [initiatives, setInitiatives] = useState<Initiative[]>([]);
   const selectedID = selected?.id;
   const load = useCallback(async () => {
     try {
@@ -75,14 +84,16 @@ export default function OrganizationsPage() {
       setOrganizations(data.items);
       setUserID(session.user.id);
       if (selectedID) {
-        const [organization, view, access] = await Promise.all([
+        const [organization, view, access, initiativeView] = await Promise.all([
           api<Organization>(`/organizations/${selectedID}`),
           api<Portfolio>(`/organizations/${selectedID}/portfolio`),
           api<{ items: RoleGrant[] }>(`/organizations/${selectedID}/access/effective`),
+          api<{ items: Initiative[] }>(`/organizations/${selectedID}/initiatives`),
         ]);
         setSelected(organization);
         setPortfolio(view);
         setEffective(access.items);
+        setInitiatives(initiativeView.items);
       }
     } catch (error) {
       setMessage(
@@ -200,6 +211,25 @@ export default function OrganizationsPage() {
     await api(`/organizations/${selected.id}/access-grants/${id}`, { method: "DELETE" });
     setMessage("Authority and its derived credentials were revoked."); await load();
   }
+  async function createInitiative(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!selected) return;
+    const form = new FormData(event.currentTarget);
+    await api(`/organizations/${selected.id}/initiatives`, { method: "POST", body: JSON.stringify({
+      title: form.get("title"), outcome: form.get("outcome"), sources: [{ kind: form.get("source_kind"), id: form.get("source_id"), repository_id: form.get("repository_id") }],
+    }) });
+    event.currentTarget.reset(); setMessage("Portfolio initiative created from authoritative work."); await load();
+  }
+  async function createInitiativeItem(event: FormEvent<HTMLFormElement>, initiativeID: string) {
+    event.preventDefault(); if (!selected) return;
+    const form = new FormData(event.currentTarget);
+    await api(`/organizations/${selected.id}/initiatives/${initiativeID}/items`, { method: "POST", body: JSON.stringify({
+      title: form.get("title"), outcome: form.get("outcome"), repository_id: form.get("repository_id"), state: "planned",
+      source: { kind: form.get("source_kind"), id: form.get("source_id"), repository_id: form.get("repository_id") },
+      assignee_kind: form.get("assignee_kind"), assignee_id: form.get("assignee_id"),
+      depends_on: String(form.get("depends_on") || "").split(",").map((x) => x.trim()).filter(Boolean), next_decision: form.get("next_decision"),
+    }) });
+    event.currentTarget.reset(); setMessage("Cross-repository work connected to the initiative."); await load();
+  }
 
   return (
     <AppShell>
@@ -309,6 +339,33 @@ export default function OrganizationsPage() {
                   {portfolio?.releases.length ?? 0} releases ·{" "}
                   {portfolio?.incidents.length ?? 0} active incidents
                 </p>
+              </section>
+              <section className="panel">
+                <p className="eyebrow">Shared outcomes</p>
+                <h2>Portfolio initiatives</h2>
+                <p>Connect existing decisions and delivery evidence across repositories. Current access and ownership are reconciled into blockers, so accountable work cannot silently become orphaned.</p>
+                {initiatives.map((initiative) => <div className="stack" key={initiative.id}>
+                  <div><h3>{initiative.title}</h3><p>{initiative.outcome}</p><Badge>{initiative.state}</Badge></div>
+                  {initiative.items.map((item) => <div className="repo-row" key={item.id}>
+                    <span><strong>{item.position}. {item.title}</strong><br />{item.outcome}<br />{item.assignee_kind} · {item.assignee_id} · repository {item.repository_id}<br />Source {item.source.kind}:{item.source.id}{item.upcoming_release_ids?.length ? ` · releases ${item.upcoming_release_ids.join(", ")}` : ""}{item.policy_exception_ids?.length ? ` · exceptions ${item.policy_exception_ids.join(", ")}` : ""}<br />{item.next_decision && <em>Next decision: {item.next_decision}</em>}</span>
+                    <span><Badge>{item.needs_reassignment ? "reassign" : item.state}</Badge>{item.blocked_by?.length > 0 && <Badge>blocked · {item.blocked_by.join(", ")}</Badge>}</span>
+                  </div>)}
+                  <form className="stack" onSubmit={(event) => createInitiativeItem(event, initiative.id)}>
+                    <h3>Connect work</h3>
+                    <label>Title<input required name="title" /></label><label>Observable outcome<textarea required name="outcome" /></label>
+                    <label>Repository<select required name="repository_id"><option value="">Select…</option>{portfolio?.repositories.map((repo) => <option key={repo.id} value={repo.id}>{repo.name}</option>)}</select></label>
+                    <label>Work type<select name="source_kind"><option value="proposal_task">Proposal task</option><option value="evolution_task">Evolution task</option><option value="incident_action">Incident action</option><option value="security_repair">Security repair</option></select></label>
+                    <label>Source ID<input required name="source_id" /></label><label>Assignee type<select name="assignee_kind"><option value="team">Team</option><option value="human">Human</option><option value="agent">Approved agent</option></select></label>
+                    <label>Assignee ID<input required name="assignee_id" /></label><label>Dependency item IDs (comma separated)<input name="depends_on" /></label><label>Next decision<textarea name="next_decision" /></label>
+                    <Button type="submit" variant="secondary">Connect item</Button>
+                  </form>
+                </div>)}
+                <form className="stack" onSubmit={createInitiative}>
+                  <h3>New initiative</h3><label>Title<input required name="title" /></label><label>Outcome<textarea required name="outcome" /></label>
+                  <label>Starting repository<select required name="repository_id"><option value="">Select…</option>{portfolio?.repositories.map((repo) => <option key={repo.id} value={repo.id}>{repo.name}</option>)}</select></label>
+                  <label>Starting work<select name="source_kind"><option value="proposal">Proposal</option><option value="evolution">Evolution plan</option><option value="incident">Incident</option><option value="security">Security work</option></select></label><label>Source ID<input required name="source_id" /></label>
+                  <Button type="submit">Create initiative</Button>
+                </form>
               </section>
               <div className="content-grid">
                 <section className="panel">

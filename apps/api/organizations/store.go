@@ -186,6 +186,41 @@ type EffectiveRule struct {
 	Rule          PolicyRule       `json:"rule"`
 	Exception     *PolicyException `json:"exception,omitempty"`
 }
+
+// Initiative coordinates an outcome without copying the source records that
+// explain why the work exists. Items may span organization repositories while
+// retaining their own accountable principal and delivery evidence.
+type Initiative struct {
+	ID          string           `json:"id"`
+	Title       string           `json:"title"`
+	Outcome     string           `json:"outcome"`
+	State       string           `json:"state"`
+	Sources     []ResourceRef    `json:"sources"`
+	Items       []InitiativeItem `json:"items"`
+	CreatedByID string           `json:"created_by_id"`
+	CreatedAt   time.Time        `json:"created_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
+}
+type InitiativeItem struct {
+	ID                 string        `json:"id"`
+	Title              string        `json:"title"`
+	Outcome            string        `json:"outcome"`
+	Position           int           `json:"position"`
+	State              string        `json:"state"`
+	RepositoryID       string        `json:"repository_id"`
+	Source             ResourceRef   `json:"source"`
+	DependsOn          []string      `json:"depends_on"`
+	AssigneeKind       string        `json:"assignee_kind"`
+	AssigneeID         string        `json:"assignee_id"`
+	Contributions      []ResourceRef `json:"contributions"`
+	UpcomingReleaseIDs []string      `json:"upcoming_release_ids"`
+	PolicyExceptionIDs []string      `json:"policy_exception_ids"`
+	BlockedBy          []string      `json:"blocked_by"`
+	NeedsReassignment  bool          `json:"needs_reassignment"`
+	NextDecision       string        `json:"next_decision,omitempty"`
+	UpdatedByID        string        `json:"updated_by_id"`
+	UpdatedAt          time.Time     `json:"updated_at"`
+}
 type Organization struct {
 	ID               string            `json:"id"`
 	Slug             string            `json:"slug"`
@@ -200,6 +235,7 @@ type Organization struct {
 	AccessRequests   []AccessRequest   `json:"access_requests"`
 	Policies         []PolicyVersion   `json:"policies"`
 	PolicyExceptions []PolicyException `json:"policy_exceptions"`
+	Initiatives      []Initiative      `json:"initiatives"`
 	CreatedAt        time.Time         `json:"created_at"`
 	UpdatedAt        time.Time         `json:"updated_at"`
 }
@@ -245,7 +281,7 @@ func (s *Store) Create(actor, slug, name, description string) (Organization, err
 		return Organization{}, err
 	}
 	now := s.now().UTC()
-	o := Organization{ID: id, Slug: slug, Name: name, Description: description, Members: []Member{{UserID: actor, Role: "owner", AcceptedAt: now}}, Transfers: []Transfer{}, Teams: []Team{}, Agents: []Agent{}, RoleGrants: []RoleGrant{}, AccessRequests: []AccessRequest{}, Policies: []PolicyVersion{}, PolicyExceptions: []PolicyException{}, Events: []Event{{Sequence: 1, Type: "organization.created", ActorID: actor, CreatedAt: now}}, CreatedAt: now, UpdatedAt: now}
+	o := Organization{ID: id, Slug: slug, Name: name, Description: description, Members: []Member{{UserID: actor, Role: "owner", AcceptedAt: now}}, Transfers: []Transfer{}, Teams: []Team{}, Agents: []Agent{}, RoleGrants: []RoleGrant{}, AccessRequests: []AccessRequest{}, Policies: []PolicyVersion{}, PolicyExceptions: []PolicyException{}, Initiatives: []Initiative{}, Events: []Event{{Sequence: 1, Type: "organization.created", ActorID: actor, CreatedAt: now}}, CreatedAt: now, UpdatedAt: now}
 	return o, s.write(o)
 }
 func (s *Store) Get(id string) (Organization, error) {
@@ -1203,6 +1239,217 @@ func (s *Store) ResolvePolicyException(id, exceptionID, actor, decision string) 
 		return ErrNotFound
 	})
 	return o, resolved, err
+}
+
+func (s *Store) CreateInitiative(id, actor string, in Initiative) (Organization, Initiative, error) {
+	var made Initiative
+	o, err := s.change(id, func(o *Organization) error {
+		if _, ok := membership(*o, actor, true); !ok {
+			return ErrForbidden
+		}
+		in.Title, in.Outcome = strings.TrimSpace(in.Title), strings.TrimSpace(in.Outcome)
+		if in.Title == "" || in.Outcome == "" || len(in.Title) > 200 || len(in.Outcome) > 4000 || len(in.Sources) == 0 {
+			return ErrInvalid
+		}
+		for _, source := range in.Sources {
+			if !validInitiativeResource(source, true) {
+				return ErrInvalid
+			}
+		}
+		uid, e := newID()
+		if e != nil {
+			return e
+		}
+		now := s.now().UTC()
+		in.ID, in.State, in.Items, in.CreatedByID, in.CreatedAt, in.UpdatedAt = uid, "open", []InitiativeItem{}, actor, now, now
+		made = in
+		o.Initiatives = append(o.Initiatives, in)
+		event(o, "initiative.created", actor, uid, now)
+		return nil
+	})
+	return o, made, err
+}
+
+func (s *Store) PutInitiativeItem(id, initiativeID, itemID, actor string, in InitiativeItem) (Organization, InitiativeItem, error) {
+	var saved InitiativeItem
+	o, err := s.change(id, func(o *Organization) error {
+		if _, ok := membership(*o, actor, true); !ok {
+			return ErrForbidden
+		}
+		var initiative *Initiative
+		for i := range o.Initiatives {
+			if o.Initiatives[i].ID == initiativeID {
+				initiative = &o.Initiatives[i]
+			}
+		}
+		if initiative == nil {
+			return ErrNotFound
+		}
+		in.Title, in.Outcome, in.NextDecision = strings.TrimSpace(in.Title), strings.TrimSpace(in.Outcome), strings.TrimSpace(in.NextDecision)
+		if in.Title == "" || in.Outcome == "" || in.RepositoryID == "" || len(in.Title) > 200 || len(in.Outcome) > 4000 || len(in.NextDecision) > 1000 || !validInitiativeResource(in.Source, false) || !validInitiativeAssignee(*o, in.AssigneeKind, in.AssigneeID) {
+			return ErrInvalid
+		}
+		if in.State == "" {
+			in.State = "planned"
+		}
+		if in.State != "planned" && in.State != "in_progress" && in.State != "completed" && in.State != "canceled" {
+			return ErrInvalid
+		}
+		if itemID == "" {
+			var e error
+			itemID, e = newID()
+			if e != nil {
+				return e
+			}
+		}
+		in.ID, in.UpdatedByID, in.UpdatedAt = itemID, actor, s.now().UTC()
+		if in.Position < 1 {
+			in.Position = len(initiative.Items) + 1
+		}
+		found := false
+		for i := range initiative.Items {
+			if initiative.Items[i].ID == itemID {
+				initiative.Items[i] = in
+				found = true
+			}
+		}
+		if !found {
+			initiative.Items = append(initiative.Items, in)
+		}
+		if !validInitiativeGraph(initiative.Items) {
+			return ErrInvalid
+		}
+		sort.SliceStable(initiative.Items, func(i, j int) bool { return initiative.Items[i].Position < initiative.Items[j].Position })
+		initiative.UpdatedAt, saved = in.UpdatedAt, in
+		event(o, "initiative.item_saved", actor, itemID, in.UpdatedAt)
+		return nil
+	})
+	return o, saved, err
+}
+
+// InitiativeView derives reassignment and dependency blockers from current
+// organization membership and repository ownership. Historical assignment is
+// retained so work never silently becomes unowned.
+func (s *Store) InitiativeView(id string, repositoryOwned func(string) bool) ([]Initiative, error) {
+	o, err := s.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	out := append([]Initiative(nil), o.Initiatives...)
+	for ii := range out {
+		out[ii].Items = append([]InitiativeItem(nil), out[ii].Items...)
+		state := map[string]string{}
+		for _, item := range out[ii].Items {
+			state[item.ID] = item.State
+		}
+		for i := range out[ii].Items {
+			item := &out[ii].Items[i]
+			item.BlockedBy = nil
+			for _, dependency := range item.DependsOn {
+				if state[dependency] != "completed" {
+					item.BlockedBy = append(item.BlockedBy, dependency)
+				}
+			}
+			valid := repositoryOwned(item.RepositoryID) && validInitiativeAssignee(o, item.AssigneeKind, item.AssigneeID) && initiativePrincipalAccess(o, item, s.now().UTC())
+			item.NeedsReassignment = !valid
+			if !valid {
+				item.BlockedBy = append(item.BlockedBy, "reassignment")
+			}
+			if len(item.BlockedBy) > 0 && item.NextDecision == "" {
+				item.NextDecision = "Resolve the listed dependency or assign an accountable principal with current access."
+			}
+		}
+	}
+	return out, nil
+}
+
+func initiativePrincipalAccess(o Organization, item *InitiativeItem, now time.Time) bool {
+	if item.AssigneeKind == "human" {
+		_, ok := membership(o, item.AssigneeID, true)
+		return ok
+	}
+	if item.AssigneeKind == "team" {
+		if team, ok := teamByID(o, item.AssigneeID); ok {
+			for _, responsibility := range team.Responsibilities {
+				if responsibility.RepositoryID == item.RepositoryID {
+					return true
+				}
+			}
+		}
+	}
+	for _, grant := range o.RoleGrants {
+		if grant.PrincipalKind != item.AssigneeKind || grant.PrincipalID != item.AssigneeID || grant.RevokedAt != nil || !grant.ExpiresAt.After(now) {
+			continue
+		}
+		for _, resource := range grant.Resources {
+			if (resource.Kind == "repository" && resource.ID == item.RepositoryID) || resource.RepositoryID == item.RepositoryID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func validInitiativeResource(r ResourceRef, source bool) bool {
+	if r.ID == "" || r.RepositoryID == "" {
+		return false
+	}
+	if source {
+		return r.Kind == "proposal" || r.Kind == "evolution" || r.Kind == "incident" || r.Kind == "security"
+	}
+	return r.Kind == "proposal_task" || r.Kind == "evolution_task" || r.Kind == "incident_action" || r.Kind == "security_repair"
+}
+func validInitiativeAssignee(o Organization, kind, id string) bool {
+	if id == "" {
+		return false
+	}
+	if kind == "human" {
+		_, ok := membership(o, id, true)
+		return ok
+	}
+	if kind == "team" {
+		_, ok := teamByID(o, id)
+		return ok
+	}
+	if kind == "agent" {
+		for _, a := range o.Agents {
+			if a.ID == id && len(a.OperatorIDs) > 0 {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+func validInitiativeGraph(items []InitiativeItem) bool {
+	byID := map[string]InitiativeItem{}
+	for _, item := range items {
+		byID[item.ID] = item
+	}
+	visiting, done := map[string]bool{}, map[string]bool{}
+	var visit func(string) bool
+	visit = func(id string) bool {
+		if visiting[id] {
+			return false
+		}
+		if done[id] {
+			return true
+		}
+		visiting[id] = true
+		for _, dep := range byID[id].DependsOn {
+			if _, ok := byID[dep]; !ok || !visit(dep) {
+				return false
+			}
+		}
+		visiting[id], done[id] = false, true
+		return true
+	}
+	for id := range byID {
+		if !visit(id) {
+			return false
+		}
+	}
+	return true
 }
 
 func authorizedEndpoint(o Organization, user, kind, id string) bool {
