@@ -180,6 +180,19 @@ The relationship workspace shows the attested matrix, phase gates, owners,
 approvals, current compatibility state, next action, linked resources, and all
 prior outcomes together.
 
+The complete proposal-to-ecosystem boundary is covered by
+`evolution_workflow_test.go`. A released provider and independently owned
+consumer become an explicit dependency; a provider maintainer proposes a
+breaking candidate, a read-only Codex analysis records risk and uncertainty,
+and the consumer owner acknowledges the migration window. Provider agent work
+and human consumer work in a contributor-owned fork retain separate assignment,
+session, branch, pull-request, and actor identities. Verification freezes both
+heads plus the dependency declaration before rollout. A failed consumer
+deployment then proves that completed integration remains safe, provider
+cutover stays blocked, rollback evidence is retained, and only the respective
+repository owners can advance the recovered consumer and provider phases to a
+completed ecosystem migration.
+
 ## Release builds and attestations
 
 A release candidate is an immutable source and collaboration snapshot. Its

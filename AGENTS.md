@@ -437,6 +437,11 @@ whenever dependencies change or the web job fails before it starts.
   affected phase and retain safe prior outcomes; later phases stay blocked.
   Never use evolution-plan authority to execute repository or environment work,
   and never trust caller-supplied compatibility or rollout success state.
+  `evolution_workflow_test.go` is the complete cross-repository regression
+  boundary. It retains consumer discovery, read-only agent findings,
+  independently authorized human and agent migration work, fork provenance,
+  exact revision matrices, owner approvals, progressive rollout, failure
+  containment, rollback, and final cutover as one attributable workflow.
   Governed delivery is stored beneath `$DEPLOYMENT_ROOT` (default
   `apps/api/data/deployments`). Owners define ordered environments with
   commands, scoped configuration, encrypted write-only credentials, required
