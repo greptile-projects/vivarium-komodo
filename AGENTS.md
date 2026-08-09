@@ -395,6 +395,17 @@ whenever dependencies change or the web job fails before it starts.
   attestation. Failed or successful steps may be rerun against their original
   immutable definition and commit without replacing earlier evidence. The web surface is the
   shareable `view=releases&release={id}` repository tab.
+  Verified release artifacts may be published as immutable package versions
+  beneath `$PACKAGE_ROOT` (default `apps/api/data/packages`). Only the repository
+  owner may publish. The server derives the `@owner/package` identity, requires
+  every latest release build to have succeeded at the exact release commit, and
+  copies plus verifies the selected artifact before atomically exposing its
+  version record. Package provenance retains the release, source commit, exact
+  build attempt and command, artifact checksum, platform and dependencies,
+  publisher, visibility, and active lifecycle. Public packages require a public
+  source repository; private package reads and downloads follow repository
+  participant policy. The release web view is the publication and inspection
+  surface.
   Versioned cross-repository relationships live beneath `$RELATIONSHIP_ROOT`
   (default `apps/api/data/relationships`). A repository participant publishes
   an interface only from an existing immutable release, which binds its name,
