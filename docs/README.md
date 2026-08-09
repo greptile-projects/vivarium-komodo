@@ -1634,3 +1634,28 @@ exact policy version, rule, and repository, expires within 30 days, and is
 ineffective until an owner approves it. Pending, denied, expired, and approved
 decisions retain requester/resolver attribution; a newer policy version needs a
 new explicit exception.
+
+## Cross-repository portfolio initiatives
+
+An organization member creates an initiative at `POST
+/organizations/{id}/initiatives` from one or more existing proposals, interface
+evolution plans, incidents, or private security reports they are authorized to
+see. The API verifies every source and its organization-owned repository. The
+initiative records the shared outcome and source identities without copying
+their discussion, status, or evidence.
+
+Ordered items connect proposal tasks, evolution tasks, incident actions, or
+security repairs across organization repositories. Each item names an
+observable outcome, dependencies on other initiative items, and one accountable
+accepted human, team, or approved agent. It may point to ordinary contribution
+records, upcoming immutable releases, applicable policy exceptions, and the
+specific decision that moves the work forward. Dependency cycles and missing
+organization resources are rejected.
+
+`GET /organizations/{id}/initiatives` is a live coordination view. It retains
+the historical assignee but derives incomplete dependencies and reassignment
+blockers from current organization membership, approved-agent operation, and
+repository ownership. Membership removal or repository transfer therefore
+turns affected work into an explicit `needs_reassignment` decision instead of
+silently deleting or orphaning it. The Organizations web workspace presents
+these blockers and links beside the portfolio's authoritative delivery state.

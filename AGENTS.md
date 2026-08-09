@@ -494,6 +494,14 @@ whenever dependencies change or the web job fails before it starts.
   Repository-scoped maintainers and operators may request owner-approved,
   actor-attributed exceptions bound to an exact policy version and rule for at
   most 30 days; pending, denied, and expired requests never weaken the baseline.
+  Portfolio initiatives are organization-owned coordination records built from
+  verified existing proposals, evolution plans, incidents, or security work.
+  Their ordered items retain repository-scoped source and contribution links,
+  dependencies, accountable teams, accepted humans, or approved agents,
+  upcoming releases, policy exceptions, and the next decision. Initiative
+  reads derive dependency blockers and reassignment needs from current
+  membership and repository ownership; never erase an invalid assignment or
+  copy the lifecycle state of its authoritative source.
   Versioned cross-repository relationships live beneath `$RELATIONSHIP_ROOT`
   (default `apps/api/data/relationships`). A repository participant publishes
   an interface only from an existing immutable release, which binds its name,

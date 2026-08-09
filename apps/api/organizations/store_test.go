@@ -214,3 +214,52 @@ func TestVersionedPoliciesPreviewActivationAndExpiringExceptions(t *testing.T) {
 		t.Fatal("new draft invalidated active work")
 	}
 }
+
+func TestPortfolioInitiativesExposeCrossRepositoryBlockersAndReassignment(t *testing.T) {
+	s, _ := New(t.TempDir())
+	o, _ := s.Create("owner", "portfolio", "Portfolio", "")
+	o, _ = s.Invite(o.ID, "owner", "developer")
+	o, _ = s.Accept(o.ID, "developer")
+	_, team, _ := s.CreateTeam(o.ID, "owner", Team{Slug: "platform", Name: "Platform", Visibility: "internal"})
+	_, grant, err := s.GrantRole(o.ID, "owner", RoleGrant{PrincipalKind: "team", PrincipalID: team.ID, Role: "contributor", Resources: []ResourceRef{{Kind: "repository", ID: "repo-a"}}, Reason: "Deliver the initiative", ExpiresAt: time.Now().Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, initiative, err := s.CreateInitiative(o.ID, "owner", Initiative{Title: "Ship shared identity", Outcome: "All services use the new identity contract", Sources: []ResourceRef{{Kind: "proposal", ID: "proposal-a", RepositoryID: "repo-a"}, {Kind: "incident", ID: "incident-b", RepositoryID: "repo-b"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, first, err := s.PutInitiativeItem(o.ID, initiative.ID, "", "owner", InitiativeItem{Title: "Publish contract", Outcome: "Provider release is available", RepositoryID: "repo-a", Source: ResourceRef{Kind: "proposal_task", ID: "task-a", RepositoryID: "repo-a"}, AssigneeKind: "team", AssigneeID: team.ID, State: "in_progress", UpcomingReleaseIDs: []string{"release-a"}, NextDecision: "Approve the compatibility exception"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, second, err := s.PutInitiativeItem(o.ID, initiative.ID, "", "developer", InitiativeItem{Title: "Adopt contract", Outcome: "Consumer is migrated", RepositoryID: "repo-b", Source: ResourceRef{Kind: "incident_action", ID: "action-b", RepositoryID: "repo-b"}, AssigneeKind: "human", AssigneeID: "developer", DependsOn: []string{first.ID}, State: "planned", Contributions: []ResourceRef{{Kind: "pull_request", ID: "pull-b", RepositoryID: "repo-b"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := s.InitiativeView(o.ID, func(repo string) bool { return repo == "repo-a" || repo == "repo-b" })
+	if err != nil || len(view) != 1 || len(view[0].Items) != 2 || len(view[0].Items[1].BlockedBy) != 1 || view[0].Items[1].BlockedBy[0] != first.ID {
+		t.Fatalf("view = %#v, err=%v", view, err)
+	}
+	if view[0].Items[0].NeedsReassignment {
+		t.Fatalf("active scoped team access was not recognized: %#v", view[0].Items[0])
+	}
+	if _, _, err = s.RevokeRole(o.ID, grant.ID, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	view, _ = s.InitiativeView(o.ID, func(repo string) bool { return true })
+	if !view[0].Items[0].NeedsReassignment {
+		t.Fatal("revoked team access did not request reassignment")
+	}
+	if _, err = s.Remove(o.ID, "owner", "developer"); err != nil {
+		t.Fatal(err)
+	}
+	view, _ = s.InitiativeView(o.ID, func(repo string) bool { return repo != "repo-b" })
+	second = view[0].Items[1]
+	if !second.NeedsReassignment || second.BlockedBy[len(second.BlockedBy)-1] != "reassignment" || second.NextDecision == "" {
+		t.Fatalf("reassignment = %#v", second)
+	}
+	if _, _, err = s.PutInitiativeItem(o.ID, initiative.ID, first.ID, "owner", InitiativeItem{Title: "cycle", Outcome: "cycle", RepositoryID: "repo-a", Source: ResourceRef{Kind: "proposal_task", ID: "task-a", RepositoryID: "repo-a"}, AssigneeKind: "team", AssigneeID: team.ID, DependsOn: []string{second.ID}}); err != ErrInvalid {
+		t.Fatalf("cycle accepted: %v", err)
+	}
+}

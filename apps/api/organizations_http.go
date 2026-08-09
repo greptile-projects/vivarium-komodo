@@ -11,9 +11,12 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/incidents"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
 	packagecatalog "github.com/greptile-projects/vivarium-komodo/apps/api/packages"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/relationships"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/securityreports"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/users"
 )
@@ -40,14 +43,24 @@ type organizationPulls interface {
 }
 type organizationIncidents interface {
 	List(string) ([]incidents.Incident, error)
+	Get(string, string) (incidents.Incident, error)
 }
 type organizationCredentialStore interface {
 	authStore
 	IssueRepositoryGit(string, string, string, string, time.Duration) (auth.IssuedGrant, error)
 	RevokeIDs([]string) error
 }
+type organizationProposals interface {
+	Get(string, string) (proposals.Proposal, error)
+}
+type organizationEvolutions interface {
+	Evolution(string) (relationships.EvolutionPlan, error)
+}
+type organizationSecurityReports interface {
+	Get(string, string, func(string) bool) (securityreports.Report, error)
+}
 
-func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, repos organizationRepositories, people organizationUsers, packages organizationPackages, releaseStore organizationReleases, pulls organizationPulls, incidentStore organizationIncidents, credentials organizationCredentialStore) {
+func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, repos organizationRepositories, people organizationUsers, packages organizationPackages, releaseStore organizationReleases, pulls organizationPulls, incidentStore organizationIncidents, proposalStore organizationProposals, evolutionStore organizationEvolutions, securityStore organizationSecurityReports, credentials organizationCredentialStore) {
 	mux.HandleFunc("POST /organizations/{organization}/policies", func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
 		if !ok {
@@ -726,6 +739,105 @@ func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, re
 		}
 		writeJSON(w, 200, map[string]any{"repositories": rs, "packages": pkg, "active_work": active, "releases": rel, "incidents": incs})
 	})
+	mux.HandleFunc("GET /organizations/{organization}/initiatives", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryRead)
+		if !ok {
+			return
+		}
+		id := r.PathValue("organization")
+		if !orgs.IsMember(id, actor.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		items, err := orgs.InitiativeView(id, func(repoID string) bool {
+			repo, e := repos.Inspect(storage.ID(repoID))
+			return e == nil && repo.OrganizationID == id
+		})
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 200, map[string]any{"items": items})
+	})
+	mux.HandleFunc("POST /organizations/{organization}/initiatives", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		id := r.PathValue("organization")
+		var in organizations.Initiative
+		if !readJSON(w, r, &in, 65536) || !organizationResources(w, id, in.Sources, repos) || !organizationInitiativeSources(w, in.Sources, actor.UserID, orgs.IsOwner(id, actor.UserID), proposalStore, evolutionStore, incidentStore, securityStore) {
+			return
+		}
+		_, made, err := orgs.CreateInitiative(id, actor.UserID, in)
+		if organizationError(w, err) {
+			return
+		}
+		w.Header().Set("Location", "/organizations/"+id+"/initiatives/"+made.ID)
+		writeJSON(w, 201, made)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/initiatives/{initiative}/items", func(w http.ResponseWriter, r *http.Request) {
+		putInitiativeItem(w, r, orgs, repos, credentials, "")
+	})
+	mux.HandleFunc("PUT /organizations/{organization}/initiatives/{initiative}/items/{item}", func(w http.ResponseWriter, r *http.Request) {
+		putInitiativeItem(w, r, orgs, repos, credentials, r.PathValue("item"))
+	})
+}
+func organizationInitiativeSources(w http.ResponseWriter, sources []organizations.ResourceRef, actor string, maintainer bool, proposals organizationProposals, evolutions organizationEvolutions, incidents organizationIncidents, security organizationSecurityReports) bool {
+	for _, source := range sources {
+		valid := false
+		switch source.Kind {
+		case "proposal":
+			_, err := proposals.Get(source.RepositoryID, source.ID)
+			valid = err == nil
+		case "evolution":
+			plan, err := evolutions.Evolution(source.ID)
+			valid = err == nil && plan.RepositoryID == source.RepositoryID
+		case "incident":
+			_, err := incidents.Get(source.RepositoryID, source.ID)
+			valid = err == nil
+		case "security":
+			report, err := security.Get(source.ID, actor, func(repositoryID string) bool { return maintainer && repositoryID == source.RepositoryID })
+			valid = err == nil
+			if valid {
+				valid = false
+				for _, affected := range report.Affected {
+					if affected.RepositoryID == source.RepositoryID {
+						valid = true
+					}
+				}
+			}
+		}
+		if !valid {
+			writeJSON(w, 422, map[string]string{"error": "invalid_initiative_source"})
+			return false
+		}
+	}
+	return true
+}
+func putInitiativeItem(w http.ResponseWriter, r *http.Request, orgs *organizations.Store, repos organizationRepositories, credentials organizationCredentialStore, itemID string) {
+	actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+	if !ok {
+		return
+	}
+	id := r.PathValue("organization")
+	var in organizations.InitiativeItem
+	if !readJSON(w, r, &in, 65536) {
+		return
+	}
+	refs := []organizations.ResourceRef{in.Source}
+	refs = append(refs, in.Contributions...)
+	if !organizationResources(w, id, refs, repos) || !organizationRepository(w, id, in.RepositoryID, repos) {
+		return
+	}
+	_, saved, err := orgs.PutInitiativeItem(id, r.PathValue("initiative"), itemID, actor.UserID, in)
+	if organizationError(w, err) {
+		return
+	}
+	status := 200
+	if itemID == "" {
+		status = 201
+	}
+	writeJSON(w, status, saved)
 }
 func mustOrgRepos(r organizationRepositories, id string) []repositories.Repository {
 	x, _ := r.ListOrganization(id)
