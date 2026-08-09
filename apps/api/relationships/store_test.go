@@ -1,6 +1,9 @@
 package relationships
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestVersionConstraints(t *testing.T) {
 	cases := []struct {
@@ -90,5 +93,28 @@ func TestEvolutionMigrationTasksCoordinateIndependentRepositoryWork(t *testing.T
 	plan, err = store.SynchronizeMigrationTask(plan.ID, task.ID, "consumer-dev", "head", "pull", true)
 	if err != nil || plan.Tasks[0].Status != "completed" || plan.Tasks[0].Work.PullRequestID != "pull" {
 		t.Fatalf("complete = %#v, %v", plan.Tasks[0], err)
+	}
+}
+
+func TestEvolutionVerificationRetainsExactRevisionMatrix(t *testing.T) {
+	store, _ := New(t.TempDir())
+	plan, err := store.CreateEvolution(EvolutionPlan{RepositoryID: "provider", InterfaceName: "payments", SourceKind: "pull_request", SourceID: "provider-pr", CandidateCommitID: "provider-head", CandidateSchemaPath: "api.json", Predecessor: Interface{ID: "published"}, CreatedByID: "owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revisions := []EvolutionRevision{{RepositoryID: "provider", CommitID: "provider-head", TaskID: "provider-task", PullRequestID: "provider-pr"}, {RepositoryID: "consumer", CommitID: "consumer-head", TaskID: "consumer-task", PullRequestID: "consumer-pr", DependencyID: "dependency"}}
+	_, attempt, err := store.CreateEvolutionVerification(plan.ID, "owner", revisions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.AttachEvolutionVerificationRuns(plan.ID, attempt.ID, []string{"contract-run", "integration-run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Verifications) != 1 || updated.Verifications[0].Revisions[1].CommitID != "consumer-head" || updated.Verifications[0].RunIDs[1] != "integration-run" {
+		t.Fatalf("verification matrix = %#v", updated.Verifications)
+	}
+	if _, err = store.AttachEvolutionVerificationRuns(plan.ID, attempt.ID, []string{"replacement"}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("replace evidence error = %v", err)
 	}
 }

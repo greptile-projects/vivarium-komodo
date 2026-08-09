@@ -19,6 +19,7 @@ import (
 
 const ManifestPath = ".komodo/checks.json"
 const ReleaseManifestPath = ".komodo/releases.json"
+const EvolutionManifestPath = ".komodo/evolution-checks.json"
 
 type repositoryOpener interface {
 	Open(storage.ID) (*storage.Repository, error)
@@ -119,6 +120,58 @@ func (r *Runner) StartRelease(repositoryID, releaseID, commitID, actorID string)
 	return runs, nil
 }
 
+// StartEvolution runs provider-defined checks against an exact provider and
+// consumer revision matrix. The namespace keeps this evidence separate from
+// ordinary pull-request and release checks.
+func (r *Runner) StartEvolution(repositoryID, planID, attemptID, actorID string, revisions []Revision) ([]Run, error) {
+	if len(revisions) < 2 || len(revisions) > 25 {
+		return nil, errors.New("invalid evolution revision matrix")
+	}
+	seen := map[string]bool{}
+	for _, revision := range revisions {
+		if revision.RepositoryID == "" || revision.CommitID == "" || seen[revision.RepositoryID] {
+			return nil, errors.New("invalid evolution revision matrix")
+		}
+		seen[revision.RepositoryID] = true
+	}
+	provider, err := r.repositories.Open(storage.ID(repositoryID))
+	if err != nil {
+		return nil, err
+	}
+	definitions, err := readEvolutionManifest(provider, storage.ObjectID(revisions[0].CommitID))
+	if err != nil {
+		return nil, err
+	}
+	runs := make([]Run, 0, len(definitions))
+	for _, definition := range definitions {
+		run, createErr := r.store.createAttempt(repositoryID, repositoryID, "evolution:"+planID+":"+attemptID, revisions[0].CommitID, definition, actorID, "")
+		if createErr != nil {
+			return runs, createErr
+		}
+		run.Revisions = append([]Revision{}, revisions...)
+		if writeErr := r.store.write(run); writeErr != nil {
+			return runs, writeErr
+		}
+		runs = append(runs, run)
+		go r.execute(run.ID)
+	}
+	return runs, nil
+}
+
+func readEvolutionManifest(repository *storage.Repository, commitID storage.ObjectID) ([]Definition, error) {
+	definitions, err := readDefinitions(repository, commitID, EvolutionManifestPath, "evolution_checks")
+	if err != nil {
+		return nil, err
+	}
+	for i := range definitions {
+		definitions[i].Kind = strings.ToLower(strings.TrimSpace(definitions[i].Kind))
+		if definitions[i].Kind != "contract" && definitions[i].Kind != "integration" {
+			return nil, errors.New("invalid evolution check kind")
+		}
+	}
+	return definitions, nil
+}
+
 func (r *Runner) ValidateRelease(repositoryID, commitID string) error {
 	repository, err := r.repositories.Open(storage.ID(repositoryID))
 	if err != nil {
@@ -196,9 +249,10 @@ func readDefinitions(repository *storage.Repository, commitID storage.ObjectID, 
 		return nil, err
 	}
 	var raw struct {
-		Version int          `json:"version"`
-		Checks  []Definition `json:"checks"`
-		Builds  []Definition `json:"builds"`
+		Version         int          `json:"version"`
+		Checks          []Definition `json:"checks"`
+		Builds          []Definition `json:"builds"`
+		EvolutionChecks []Definition `json:"evolution_checks"`
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(object.Content)))
 	decoder.DisallowUnknownFields()
@@ -208,8 +262,10 @@ func readDefinitions(repository *storage.Repository, commitID storage.ObjectID, 
 	definitions := raw.Checks
 	if field == "builds" {
 		definitions = raw.Builds
+	} else if field == "evolution_checks" {
+		definitions = raw.EvolutionChecks
 	}
-	if len(definitions) == 0 || len(definitions) > 20 || (field == "checks" && len(raw.Builds) != 0) || (field == "builds" && len(raw.Checks) != 0) {
+	if len(definitions) == 0 || len(definitions) > 20 || (field == "checks" && (len(raw.Builds) != 0 || len(raw.EvolutionChecks) != 0)) || (field == "builds" && (len(raw.Checks) != 0 || len(raw.EvolutionChecks) != 0)) || (field == "evolution_checks" && (len(raw.Checks) != 0 || len(raw.Builds) != 0)) {
 		return nil, errors.New("invalid check manifest")
 	}
 	names := map[string]bool{}
@@ -228,7 +284,7 @@ func readDefinitions(repository *storage.Repository, commitID storage.ObjectID, 
 		if len(d.Dependencies) > 20 {
 			return nil, errors.New("invalid execution manifest")
 		}
-		if field == "checks" && len(d.Dependencies) != 0 {
+		if field != "builds" && len(d.Dependencies) != 0 {
 			return nil, errors.New("check dependencies are unsupported")
 		}
 		for j := range d.Dependencies {
@@ -290,26 +346,52 @@ func (r *Runner) execute(id string) {
 	if err != nil {
 		return
 	}
-	repository, err := r.repositories.Open(storage.ID(run.SourceRepositoryID))
-	if err != nil {
-		_, _ = r.store.Complete(id, -1, false, "repository unavailable")
-		return
-	}
 	dir, err := os.MkdirTemp("", "komodo-check-")
 	if err != nil {
 		_, _ = r.store.Complete(id, -1, false, "create isolated workspace")
 		return
 	}
 	defer os.RemoveAll(dir)
-	commit, err := repository.ReadCommit(storage.ObjectID(run.CommitID))
-	if err == nil {
-		err = materialize(repository, commit.Tree, dir)
+	workingRoot := dir
+	if len(run.Revisions) == 0 {
+		repository, openErr := r.repositories.Open(storage.ID(run.SourceRepositoryID))
+		err = openErr
+		if err == nil {
+			var commit storage.Commit
+			commit, err = repository.ReadCommit(storage.ObjectID(run.CommitID))
+			if err == nil {
+				err = materialize(repository, commit.Tree, dir)
+			}
+		}
+	} else {
+		root := filepath.Join(dir, "repositories")
+		err = os.Mkdir(root, 0o750)
+		for _, revision := range run.Revisions {
+			if err != nil {
+				break
+			}
+			repository, openErr := r.repositories.Open(storage.ID(revision.RepositoryID))
+			if openErr != nil {
+				err = openErr
+				break
+			}
+			commit, readErr := repository.ReadCommit(storage.ObjectID(revision.CommitID))
+			if readErr != nil {
+				err = readErr
+				break
+			}
+			target := filepath.Join(root, revision.RepositoryID)
+			if err = os.Mkdir(target, 0o750); err == nil {
+				err = materialize(repository, commit.Tree, target)
+			}
+		}
+		workingRoot = filepath.Join(root, run.Revisions[0].RepositoryID)
 	}
 	if err != nil {
 		_, _ = r.store.Complete(id, -1, false, "materialize exact revision")
 		return
 	}
-	working := filepath.Join(dir, filepath.FromSlash(run.Definition.WorkingDirectory))
+	working := filepath.Join(workingRoot, filepath.FromSlash(run.Definition.WorkingDirectory))
 	if info, statErr := os.Stat(working); statErr != nil || !info.IsDir() {
 		_, _ = r.store.Complete(id, -1, false, "working directory unavailable")
 		return
@@ -317,6 +399,9 @@ func (r *Runner) execute(id string) {
 	ctx, cancel := context.WithTimeout(rootContext, time.Duration(run.Definition.TimeoutSeconds)*time.Second)
 	defer cancel()
 	sandboxWorking := "/workspace"
+	if len(run.Revisions) > 0 {
+		sandboxWorking += "/repositories/" + run.Revisions[0].RepositoryID
+	}
 	if run.Definition.WorkingDirectory != "" {
 		sandboxWorking += "/" + run.Definition.WorkingDirectory
 	}
@@ -357,7 +442,7 @@ func (r *Runner) execute(id string) {
 		}
 	}
 	for _, artifactPath := range run.Definition.Artifacts {
-		path := filepath.Join(dir, filepath.FromSlash(artifactPath))
+		path := filepath.Join(workingRoot, filepath.FromSlash(artifactPath))
 		info, statErr := os.Lstat(path)
 		if statErr != nil || !info.Mode().IsRegular() || info.Size() > 25<<20 {
 			continue

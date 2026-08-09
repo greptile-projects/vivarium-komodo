@@ -5,11 +5,16 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"os"
+	"path"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
@@ -37,6 +42,15 @@ type relationshipStore interface {
 	StartMigrationTask(string, string, string, string, string, string, string, string) (relationships.EvolutionPlan, error)
 	SynchronizeMigrationTask(string, string, string, string, string, bool) (relationships.EvolutionPlan, error)
 	CommentMigrationTask(string, string, string, string) (relationships.EvolutionPlan, error)
+	CreateEvolutionVerification(string, string, []relationships.EvolutionRevision) (relationships.EvolutionPlan, relationships.EvolutionVerification, error)
+	AttachEvolutionVerificationRuns(string, string, []string) (relationships.EvolutionPlan, error)
+}
+type relationshipCheckStarter interface {
+	StartEvolution(string, string, string, string, []checkruns.Revision) ([]checkruns.Run, error)
+}
+type relationshipCheckStore interface {
+	List(string, string) ([]checkruns.Run, error)
+	OpenArtifact(string, string, string, string) (checkruns.Artifact, *os.File, error)
 }
 type relationshipReleaseStore interface {
 	Get(string, string) (releases.Release, error)
@@ -84,6 +98,203 @@ func registerRelationshipsHTTP(mux *http.ServeMux, store relationshipStore, rele
 	mux.HandleFunc("GET /relationship-evolution-analysis/context", evolutionAnalysisContext(store))
 	mux.HandleFunc("GET /relationship-evolution-analysis/repositories/{repository}/blobs", evolutionAnalysisBlob(store, repositoryStore))
 	mux.HandleFunc("POST /relationship-evolution-analysis/findings", addEvolutionAnalysisFinding(store))
+}
+
+func registerEvolutionVerificationHTTP(mux *http.ServeMux, store relationshipStore, repositories relationshipRepositoryStore, pulls relationshipPullStore, credentials authStore, starter relationshipCheckStarter, runs relationshipCheckStore) {
+	mux.HandleFunc("POST /repositories/{repository}/evolution-plans/{plan}/verifications", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		plan, ok := evolutionPlanForRepo(w, store, repo, r.PathValue("plan"))
+		if !ok {
+			return
+		}
+		var input struct {
+			TaskIDs []string `json:"task_ids"`
+		}
+		if !readJSON(w, r, &input, 10<<10) {
+			return
+		}
+		if len(input.TaskIDs) < 2 || len(input.TaskIDs) > 25 {
+			writeJSON(w, 422, map[string]string{"error": "invalid_verification_matrix"})
+			return
+		}
+		byID := map[string]relationships.MigrationTask{}
+		for _, task := range plan.Tasks {
+			byID[task.ID] = task
+		}
+		revisions := make([]relationships.EvolutionRevision, 0, len(input.TaskIDs))
+		execution := make([]checkruns.Revision, 0, len(input.TaskIDs))
+		seen := map[string]bool{}
+		for index, id := range input.TaskIDs {
+			task, exists := byID[id]
+			if !exists || task.Work == nil || task.Work.PullRequestID == "" || seen[task.TargetRepositoryID] {
+				writeJSON(w, 409, map[string]string{"error": "verification_context_incomplete"})
+				return
+			}
+			pr, err := pulls.Get(task.TargetRepositoryID, task.Work.PullRequestID)
+			if err != nil || pr.SourceCommitID != task.Work.HeadRevision || pr.Status != pullrequests.Open {
+				writeJSON(w, 409, map[string]string{"error": "verification_revision_changed"})
+				return
+			}
+			if index == 0 && task.TargetRepositoryID != plan.RepositoryID {
+				writeJSON(w, 422, map[string]string{"error": "provider_task_must_be_first"})
+				return
+			}
+			if target, inspectErr := repositories.Inspect(storage.ID(task.TargetRepositoryID)); inspectErr != nil || !relationshipRepositoryReadable(target, actor.UserID) {
+				writeJSON(w, 404, map[string]string{"error": "evolution_plan_not_found"})
+				return
+			}
+			dependency := ""
+			for _, consumer := range plan.AffectedConsumers {
+				if consumer.RepositoryID == task.TargetRepositoryID {
+					dependency = consumer.DependencyID
+				}
+			}
+			revisions = append(revisions, relationships.EvolutionRevision{RepositoryID: task.TargetRepositoryID, CommitID: pr.SourceCommitID, TaskID: task.ID, PullRequestID: pr.ID, DependencyID: dependency})
+			execution = append(execution, checkruns.Revision{RepositoryID: task.TargetRepositoryID, CommitID: pr.SourceCommitID})
+			seen[task.TargetRepositoryID] = true
+		}
+		updated, attempt, err := store.CreateEvolutionVerification(plan.ID, actor.UserID, revisions)
+		if err != nil {
+			writeEvolution(w, updated, err, 201)
+			return
+		}
+		started, err := starter.StartEvolution(plan.RepositoryID, plan.ID, attempt.ID, actor.UserID, execution)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_evolution_checks"})
+			return
+		}
+		ids := make([]string, len(started))
+		for i := range started {
+			ids[i] = started[i].ID
+		}
+		updated, err = store.AttachEvolutionVerificationRuns(plan.ID, attempt.ID, ids)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, 201, updated)
+	})
+	mux.HandleFunc("GET /repositories/{repository}/evolution-plans/{plan}/verifications/{verification}", func(w http.ResponseWriter, r *http.Request) {
+		repo, viewer, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		plan, ok := evolutionPlanForRepo(w, store, repo, r.PathValue("plan"))
+		if !ok {
+			return
+		}
+		var attempt relationships.EvolutionVerification
+		for _, item := range plan.Verifications {
+			if item.ID == r.PathValue("verification") {
+				attempt = item
+			}
+		}
+		if attempt.ID == "" {
+			writeJSON(w, 404, map[string]string{"error": "verification_not_found"})
+			return
+		}
+		if !evolutionMatrixReadable(repositories, attempt.Revisions, viewer.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "verification_not_found"})
+			return
+		}
+		items, err := runs.List(plan.RepositoryID, "evolution:"+plan.ID+":"+attempt.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		current := true
+		dependencies, _ := store.Dependencies()
+		for _, revision := range attempt.Revisions {
+			task, exists := evolutionTask(plan, revision.TaskID)
+			if !exists || task.Work == nil || task.Work.HeadRevision != revision.CommitID {
+				current = false
+				break
+			}
+			if revision.DependencyID != "" {
+				for _, dependency := range dependencies {
+					if dependency.RepositoryID == revision.RepositoryID && dependency.ProviderRepositoryID == plan.RepositoryID && strings.EqualFold(dependency.InterfaceName, plan.InterfaceName) && dependency.DeclaredAt.After(attempt.CreatedAt) && dependency.ID != revision.DependencyID {
+						current = false
+					}
+				}
+			}
+		}
+		writeJSON(w, 200, map[string]any{"verification": attempt, "runs": items, "current": current, "attested": current && allEvolutionRunsPassed(items)})
+	})
+	mux.HandleFunc("GET /repositories/{repository}/evolution-plans/{plan}/verifications/{verification}/runs/{run}/artifacts/{artifact}", func(w http.ResponseWriter, r *http.Request) {
+		repo, viewer, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		plan, ok := evolutionPlanForRepo(w, store, repo, r.PathValue("plan"))
+		if !ok {
+			return
+		}
+		var attempt relationships.EvolutionVerification
+		for _, item := range plan.Verifications {
+			if item.ID == r.PathValue("verification") {
+				attempt = item
+			}
+		}
+		if attempt.ID == "" || !evolutionMatrixReadable(repositories, attempt.Revisions, viewer.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "artifact_not_found"})
+			return
+		}
+		namespace := "evolution:" + plan.ID + ":" + r.PathValue("verification")
+		artifact, file, err := runs.OpenArtifact(plan.RepositoryID, namespace, r.PathValue("run"), r.PathValue("artifact"))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "artifact_not_found"})
+			return
+		}
+		defer file.Close()
+		w.Header().Set("Content-Type", artifact.MediaType)
+		w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(path.Base(artifact.Path)))
+		http.ServeContent(w, r, path.Base(artifact.Path), attemptTime(plan, r.PathValue("verification")), file)
+	})
+}
+func relationshipRepositoryReadable(repository repositories.Repository, userID string) bool {
+	if repository.Visibility == repositories.Public {
+		return true
+	}
+	if userID == repository.OwnerID {
+		return true
+	}
+	for _, collaborator := range repository.CollaboratorIDs {
+		if collaborator == userID {
+			return true
+		}
+	}
+	return false
+}
+func evolutionMatrixReadable(store relationshipRepositoryStore, revisions []relationships.EvolutionRevision, userID string) bool {
+	for _, revision := range revisions {
+		repository, err := store.Inspect(storage.ID(revision.RepositoryID))
+		if err != nil || !relationshipRepositoryReadable(repository, userID) {
+			return false
+		}
+	}
+	return true
+}
+func allEvolutionRunsPassed(runs []checkruns.Run) bool {
+	if len(runs) == 0 {
+		return false
+	}
+	for _, run := range runs {
+		if run.State != checkruns.Succeeded {
+			return false
+		}
+	}
+	return true
+}
+func attemptTime(plan relationships.EvolutionPlan, id string) (t time.Time) {
+	for _, v := range plan.Verifications {
+		if v.ID == id {
+			return v.CreatedAt
+		}
+	}
+	return
 }
 
 func evolutionPlanForRepo(w http.ResponseWriter, store relationshipStore, repo repositories.Repository, id string) (relationships.EvolutionPlan, bool) {

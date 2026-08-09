@@ -144,9 +144,25 @@ type EvolutionPlan struct {
 	Acknowledgements        []EvolutionAcknowledgement `json:"acknowledgements"`
 	Findings                []EvolutionFinding         `json:"findings"`
 	Analyses                []EvolutionAnalysis        `json:"analyses"`
+	Verifications           []EvolutionVerification    `json:"verifications"`
 	CreatedByID             string                     `json:"created_by_id"`
 	CreatedAt               time.Time                  `json:"created_at"`
 	UpdatedAt               time.Time                  `json:"updated_at"`
+}
+
+type EvolutionRevision struct {
+	RepositoryID  string `json:"repository_id"`
+	CommitID      string `json:"commit_id"`
+	TaskID        string `json:"task_id"`
+	PullRequestID string `json:"pull_request_id"`
+	DependencyID  string `json:"dependency_id,omitempty"`
+}
+type EvolutionVerification struct {
+	ID            string              `json:"id"`
+	Revisions     []EvolutionRevision `json:"revisions"`
+	RunIDs        []string            `json:"run_ids"`
+	TriggeredByID string              `json:"triggered_by_id"`
+	CreatedAt     time.Time           `json:"created_at"`
 }
 type EvolutionUpdate struct {
 	Strategy   string                `json:"strategy"`
@@ -168,8 +184,51 @@ func (s *Store) CreateEvolution(v EvolutionPlan) (EvolutionPlan, error) {
 	}
 	now := s.now().UTC()
 	v.CreatedAt, v.UpdatedAt = now, now
-	v.Changes, v.Steps, v.Tasks, v.Exceptions, v.Acknowledgements, v.Findings, v.Analyses = []CompatibilityChange{}, []MigrationStep{}, []MigrationTask{}, []EvolutionException{}, []EvolutionAcknowledgement{}, []EvolutionFinding{}, []EvolutionAnalysis{}
+	v.Changes, v.Steps, v.Tasks, v.Exceptions, v.Acknowledgements, v.Findings, v.Analyses, v.Verifications = []CompatibilityChange{}, []MigrationStep{}, []MigrationTask{}, []EvolutionException{}, []EvolutionAcknowledgement{}, []EvolutionFinding{}, []EvolutionAnalysis{}, []EvolutionVerification{}
 	return v, s.write("evolutions", v.ID, v)
+}
+
+func (s *Store) CreateEvolutionVerification(planID, actor string, revisions []EvolutionRevision) (EvolutionPlan, EvolutionVerification, error) {
+	if actor == "" || len(revisions) < 2 || len(revisions) > 25 {
+		return EvolutionPlan{}, EvolutionVerification{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, err := s.readEvolution(planID)
+	if err != nil {
+		return v, EvolutionVerification{}, err
+	}
+	seen := map[string]bool{}
+	for _, revision := range revisions {
+		if revision.RepositoryID == "" || revision.CommitID == "" || revision.TaskID == "" || revision.PullRequestID == "" || seen[revision.RepositoryID] {
+			return v, EvolutionVerification{}, ErrInvalid
+		}
+		seen[revision.RepositoryID] = true
+	}
+	id, _ := newID()
+	attempt := EvolutionVerification{ID: id, Revisions: append([]EvolutionRevision{}, revisions...), RunIDs: []string{}, TriggeredByID: actor, CreatedAt: s.now().UTC()}
+	v.Verifications = append(v.Verifications, attempt)
+	v.UpdatedAt = attempt.CreatedAt
+	return v, attempt, s.write("evolutions", v.ID, v)
+}
+
+func (s *Store) AttachEvolutionVerificationRuns(planID, attemptID string, runIDs []string) (EvolutionPlan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, err := s.readEvolution(planID)
+	if err != nil {
+		return v, err
+	}
+	for i := range v.Verifications {
+		if v.Verifications[i].ID == attemptID {
+			if len(v.Verifications[i].RunIDs) != 0 {
+				return v, ErrConflict
+			}
+			v.Verifications[i].RunIDs = append([]string{}, runIDs...)
+			return v, s.write("evolutions", v.ID, v)
+		}
+	}
+	return v, ErrNotFound
 }
 
 func (s *Store) CreateMigrationTask(planID, actor string, in MigrationTaskInput) (EvolutionPlan, error) {
