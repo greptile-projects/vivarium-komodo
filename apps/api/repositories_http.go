@@ -24,6 +24,8 @@ type ownedRepositoryStore interface {
 	IsCollaborator(storage.ID, string) (bool, error)
 	SetRequiredChecks(string, storage.ID, string, []string) (repositories.Repository, error)
 	SetIntegrationQueue(string, storage.ID, string, repositories.IntegrationQueuePolicy) (repositories.Repository, error)
+	TransferOwner(storage.ID, string, string, string, string, string) (repositories.Repository, error)
+	ListOrganization(string) ([]repositories.Repository, error)
 }
 
 func registerRepositoriesHTTP(mux *http.ServeMux, store ownedRepositoryStore, credentials authStore) {
@@ -385,6 +387,14 @@ func deleteRepository(store ownedRepositoryStore, credentials authStore) http.Ha
 
 func repositoryResponse(item repositories.Repository) map[string]any {
 	response := map[string]any{"id": item.ID, "owner_id": item.OwnerID, "name": item.Name, "description": item.Description, "visibility": item.Visibility, "empty": item.Empty, "created_at": item.CreatedAt, "updated_at": item.UpdatedAt, "api_url": "/repositories/" + string(item.ID), "git_url": "/repositories/" + string(item.ID)}
+	if item.OrganizationID != "" {
+		response["organization_id"] = item.OrganizationID
+		response["owner_kind"] = "organization"
+		response["administrator_id"] = item.OwnerID
+		response["owner_id"] = item.OrganizationID
+	} else {
+		response["owner_kind"] = "user"
+	}
 	if item.UpstreamID != "" {
 		response["upstream_repository_id"] = item.UpstreamID
 		response["upstream_api_url"] = "/repositories/" + string(item.UpstreamID)

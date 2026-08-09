@@ -450,6 +450,19 @@ whenever dependencies change or the web job fails before it starts.
   linked proposal task (`open`, `in_progress`, `in_review`, `remediated`, or
   `closed`) and retain its contribution pull request; do not add a second
   mutable recovery status that can diverge from ordinary delivery state.
+  Organization identities and accepted membership live beneath
+  `$ORGANIZATION_ROOT` (default `apps/api/data/organizations`). Organization
+  invitations grant no repository access until accepted; removal revokes the
+  member's portfolio collaborator grants. Repositories created in or transferred
+  to an organization retain their storage ID, Git objects, refs, timestamps,
+  upstream lineage, and linked collaboration/delivery evidence. Ownership
+  transfers are durable pending records and the receiving user or organization
+  owner must explicitly accept before the catalog ownership pointer changes.
+  Organization portfolio reads join repositories, packages, open pull requests,
+  releases, and unresolved incidents from their authoritative stores rather than
+  copying lifecycle state into the organization record. The organization ID is
+  the public repository owner identity; `administrator_id` identifies the human
+  owner currently exercising repository-owner policy on the group's behalf.
   Versioned cross-repository relationships live beneath `$RELATIONSHIP_ROOT`
   (default `apps/api/data/relationships`). A repository participant publishes
   an interface only from an existing immutable release, which binds its name,

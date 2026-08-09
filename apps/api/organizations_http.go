@@ -1,0 +1,302 @@
+package main
+
+import (
+	"errors"
+	"net/http"
+
+	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/incidents"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
+	packagecatalog "github.com/greptile-projects/vivarium-komodo/apps/api/packages"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/users"
+)
+
+type organizationRepositories interface {
+	Create(string, repositories.Metadata) (repositories.Repository, error)
+	Inspect(storage.ID) (repositories.Repository, error)
+	TransferOwner(storage.ID, string, string, string, string, string) (repositories.Repository, error)
+	ListOrganization(string) ([]repositories.Repository, error)
+	AddCollaborator(string, storage.ID, string) (repositories.Repository, error)
+	RemoveCollaborator(string, storage.ID, string) error
+}
+type organizationUsers interface {
+	FindByHandle(string) (users.User, error)
+}
+type organizationPackages interface {
+	List(string) ([]packagecatalog.Version, error)
+}
+type organizationReleases interface {
+	List(string) ([]releases.Release, error)
+}
+type organizationPulls interface {
+	List(string) ([]pullrequests.PullRequest, error)
+}
+type organizationIncidents interface {
+	List(string) ([]incidents.Incident, error)
+}
+
+func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, repos organizationRepositories, people organizationUsers, packages organizationPackages, releaseStore organizationReleases, pulls organizationPulls, incidentStore organizationIncidents, credentials authStore) {
+	mux.HandleFunc("POST /organizations", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in struct {
+			Slug        string `json:"slug"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		}
+		if !readJSON(w, r, &in, 4096) {
+			return
+		}
+		o, e := orgs.Create(actor.UserID, in.Slug, in.Name, in.Description)
+		if organizationError(w, e) {
+			return
+		}
+		w.Header().Set("Location", "/organizations/"+o.ID)
+		writeJSON(w, 201, o)
+	})
+	mux.HandleFunc("GET /organizations", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryRead)
+		if !ok {
+			return
+		}
+		items, e := orgs.ListFor(actor.UserID)
+		if organizationError(w, e) {
+			return
+		}
+		writeJSON(w, 200, map[string]any{"items": items, "page": 1, "per_page": len(items), "total_count": len(items)})
+	})
+	mux.HandleFunc("GET /organizations/{organization}", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryRead)
+		if !ok {
+			return
+		}
+		id := r.PathValue("organization")
+		if !orgs.IsMember(id, actor.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		o, e := orgs.Get(id)
+		if organizationError(w, e) {
+			return
+		}
+		writeJSON(w, 200, o)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/members", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in struct {
+			Handle string `json:"handle"`
+		}
+		if !readJSON(w, r, &in, 2048) {
+			return
+		}
+		u, e := people.FindByHandle(in.Handle)
+		if e != nil {
+			writeJSON(w, 404, map[string]string{"error": "user_not_found"})
+			return
+		}
+		o, e := orgs.Invite(r.PathValue("organization"), actor.UserID, string(u.ID))
+		if organizationError(w, e) {
+			return
+		}
+		writeJSON(w, 201, o)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/members/accept", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		o, e := orgs.Accept(r.PathValue("organization"), actor.UserID)
+		if organizationError(w, e) {
+			return
+		}
+		for _, repo := range mustOrgRepos(repos, o.ID) {
+			_, _ = repos.AddCollaborator(repo.OwnerID, repo.ID, actor.UserID)
+		}
+		writeJSON(w, 200, o)
+	})
+	mux.HandleFunc("DELETE /organizations/{organization}/members/{user}", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		id := r.PathValue("organization")
+		user := r.PathValue("user")
+		o, e := orgs.Remove(id, actor.UserID, user)
+		if organizationError(w, e) {
+			return
+		}
+		for _, repo := range mustOrgRepos(repos, id) {
+			_ = repos.RemoveCollaborator(repo.OwnerID, repo.ID, user)
+		}
+		writeJSON(w, 200, o)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/repositories", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		id := r.PathValue("organization")
+		if !orgs.IsOwner(id, actor.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var in struct {
+			Name        string                  `json:"name"`
+			Description string                  `json:"description"`
+			Visibility  repositories.Visibility `json:"visibility"`
+		}
+		if !readJSON(w, r, &in, 4096) {
+			return
+		}
+		if in.Visibility == "" {
+			in.Visibility = repositories.Private
+		}
+		repo, e := repos.Create(actor.UserID, repositories.Metadata{Name: in.Name, Description: in.Description, Visibility: in.Visibility})
+		if e != nil {
+			writeRepositoryError(w, e)
+			return
+		}
+		repo, e = repos.TransferOwner(repo.ID, "user", actor.UserID, "organization", id, actor.UserID)
+		if e != nil {
+			writeRepositoryError(w, e)
+			return
+		}
+		o, _ := orgs.Get(id)
+		for _, member := range o.Members {
+			if !member.AcceptedAt.IsZero() && member.UserID != repo.OwnerID {
+				_, _ = repos.AddCollaborator(repo.OwnerID, repo.ID, member.UserID)
+			}
+		}
+		writeJSON(w, 201, repositoryResponse(repo))
+	})
+	mux.HandleFunc("POST /organizations/{organization}/repository-transfers", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		id := r.PathValue("organization")
+		var in struct {
+			RepositoryID string `json:"repository_id"`
+			ToKind       string `json:"to_kind"`
+			ToID         string `json:"to_id"`
+		}
+		if !readJSON(w, r, &in, 2048) {
+			return
+		}
+		repo, e := repos.Inspect(storage.ID(in.RepositoryID))
+		if e != nil {
+			writeRepositoryError(w, e)
+			return
+		}
+		fromKind, fromID := "user", repo.OwnerID
+		if repo.OrganizationID != "" {
+			fromKind, fromID = "organization", repo.OrganizationID
+		}
+		if in.ToKind == "" {
+			in.ToKind = "organization"
+		}
+		if in.ToID == "" {
+			in.ToID = id
+		}
+		_, t, e := orgs.RequestTransfer(id, actor.UserID, organizations.Transfer{RepositoryID: in.RepositoryID, FromKind: fromKind, FromID: fromID, ToKind: in.ToKind, ToID: in.ToID})
+		if organizationError(w, e) {
+			return
+		}
+		writeJSON(w, 201, t)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/repository-transfers/{transfer}/accept", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		id := r.PathValue("organization")
+		_, t, e := orgs.ResolveTransfer(id, r.PathValue("transfer"), actor.UserID, "accepted")
+		if organizationError(w, e) {
+			return
+		}
+		repo, e := repos.TransferOwner(storage.ID(t.RepositoryID), t.FromKind, t.FromID, t.ToKind, t.ToID, actor.UserID)
+		if e != nil {
+			writeRepositoryError(w, e)
+			return
+		}
+		if t.ToKind == "organization" {
+			o, _ := orgs.Get(t.ToID)
+			for _, m := range o.Members {
+				if !m.AcceptedAt.IsZero() && m.UserID != repo.OwnerID {
+					_, _ = repos.AddCollaborator(repo.OwnerID, repo.ID, m.UserID)
+				}
+			}
+		}
+		writeJSON(w, 200, repositoryResponse(repo))
+	})
+	mux.HandleFunc("GET /organizations/{organization}/portfolio", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryRead)
+		if !ok {
+			return
+		}
+		id := r.PathValue("organization")
+		if !orgs.IsMember(id, actor.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		rs, e := repos.ListOrganization(id)
+		if e != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		pkg := []packagecatalog.Version{}
+		rel := []releases.Release{}
+		active := []pullrequests.PullRequest{}
+		incs := []incidents.Incident{}
+		for _, repo := range rs {
+			p, _ := packages.List(string(repo.ID))
+			pkg = append(pkg, p...)
+			x, _ := releaseStore.List(string(repo.ID))
+			rel = append(rel, x...)
+			pr, _ := pulls.List(string(repo.ID))
+			for _, v := range pr {
+				if v.Status == pullrequests.Open {
+					active = append(active, v)
+				}
+			}
+			ii, _ := incidentStore.List(string(repo.ID))
+			for _, v := range ii {
+				if v.Status != "resolved" {
+					incs = append(incs, v)
+				}
+			}
+		}
+		writeJSON(w, 200, map[string]any{"repositories": rs, "packages": pkg, "active_work": active, "releases": rel, "incidents": incs})
+	})
+}
+func mustOrgRepos(r organizationRepositories, id string) []repositories.Repository {
+	x, _ := r.ListOrganization(id)
+	return x
+}
+func organizationError(w http.ResponseWriter, e error) bool {
+	if e == nil {
+		return false
+	}
+	switch {
+	case errors.Is(e, organizations.ErrNotFound):
+		writeJSON(w, 404, map[string]string{"error": "not_found"})
+	case errors.Is(e, organizations.ErrForbidden):
+		writeJSON(w, 403, map[string]string{"error": "forbidden"})
+	case errors.Is(e, organizations.ErrConflict):
+		writeJSON(w, 409, map[string]string{"error": "conflict"})
+	case errors.Is(e, organizations.ErrInvalid):
+		writeJSON(w, 422, map[string]string{"error": "invalid_organization"})
+	default:
+		writeJSON(w, 500, map[string]string{"error": "internal_error"})
+	}
+	return true
+}
