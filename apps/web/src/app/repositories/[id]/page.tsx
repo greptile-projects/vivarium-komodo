@@ -544,6 +544,21 @@ type EvolutionPlan = {
     triggered_by_id: string;
     created_at: string;
   }>;
+  rollout?: {
+    verification_id: string;
+    state: "awaiting_approval" | "active" | "paused" | "blocked" | "completed";
+    updated_at: string;
+    phases: Array<{
+      id: string;
+      position: number;
+      name: string;
+      compatibility_gates: string[];
+      state: "pending" | "ready" | "running" | "paused" | "blocked" | "completed";
+      approvals: Array<{ repository_id: string; actor_id: string; decision: "approve" | "reject"; note?: string }>;
+      steps: Array<{ id: string; repository_id: string; kind: "queue" | "release" | "deployment" | "rollback" | "repair"; resource_id?: string; state: string }>;
+      outcomes: Array<{ step_id: string; repository_id: string; kind: string; resource_id: string; state: string; actor_id: string; note?: string; created_at: string }>;
+    }>;
+  };
   acknowledgements: Array<{
     actor_id: string;
     decision: "acknowledge" | "request_changes";
@@ -2180,6 +2195,35 @@ function RelationshipWorkspace({
       );
     }
   }
+  async function configureRollout(plan: EvolutionPlan) {
+    const attested = [...plan.verifications].reverse().find((attempt) => verificationDetails[attempt.id]?.attested);
+    if (!attested) { setError("Inspect a current passing compatibility matrix before defining rollout phases."); return; }
+    const consumers = plan.affected_consumers.map((item) => item.repository_id);
+    try {
+      await send(`/repositories/${repository.id}/evolution-plans/${plan.id}/rollout`, "PUT", {
+        verification_id: attested.id,
+        phases: [
+          ...consumers.map((id) => ({ name: `Make ${names.get(id) ?? short(id)} compatible`, compatibility_gates: ["contract", "integration"], steps: ["queue", "release", "deployment"].map((kind) => ({ repository_id: id, kind })) })),
+          { name: "Provider cutover", compatibility_gates: ["contract", "integration"], steps: ["queue", "release", "deployment"].map((kind) => ({ repository_id: repository.id, kind })) },
+        ],
+      });
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Rollout could not be configured."); }
+  }
+  async function decidePhase(plan: EvolutionPlan, phase: NonNullable<EvolutionPlan["rollout"]>["phases"][number], repositoryID: string, decision: "approve" | "reject") {
+    try {
+      await send(`/repositories/${repository.id}/evolution-plans/${plan.id}/rollout/phases/${phase.id}/approvals`, "POST", { repository_id: repositoryID, decision, note: decision === "approve" ? "Repository window and authority confirmed." : "Repository is not ready to participate." });
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Rollout decision was not accepted."); }
+  }
+  async function linkOutcome(plan: EvolutionPlan, phaseID: string, step: NonNullable<EvolutionPlan["rollout"]>["phases"][number]["steps"][number]) {
+    const resource = window.prompt(`Link the existing ${step.kind} resource ID for ${names.get(step.repository_id) ?? short(step.repository_id)}:`);
+    if (!resource) return;
+    try {
+      await send(`/repositories/${repository.id}/evolution-plans/${plan.id}/rollout/phases/${phaseID}/steps/${step.id}/outcomes`, "POST", { resource_id: resource, note: "Linked from the established workflow; state derived by the platform." });
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Outcome could not be linked."); }
+  }
   const names = new Map(
     graph?.nodes.map((node) => [node.repository_id, node.name]),
   );
@@ -2702,6 +2746,25 @@ function RelationshipWorkspace({
                     </article>;
                   })}
                   {!plan.verifications.length && <p>No exact cross-repository combination has been tested yet.</p>}
+                </div>
+                <div className="evolution-rollout">
+                  <header className="release-heading">
+                    <div><h4>Governed rollout</h4><p>Owner-approved phases connect compatibility evidence to existing queues, releases, environments, and recovery.</p></div>
+                    {!plan.rollout && repository.owner_id === actor && <Button type="button" disabled={busy} onClick={() => void configureRollout(plan)}>Define rollout phases</Button>}
+                    {plan.rollout && <Badge tone={plan.rollout.state === "completed" ? "accent" : "neutral"}>{plan.rollout.state.replace("_", " ")}</Badge>}
+                  </header>
+                  {plan.rollout?.phases.map((phase) => {
+                    const owned = [...new Set(phase.steps.filter((step) => step.repository_id === repository.id ? repository.owner_id === actor : plan.affected_consumers.some((item) => item.repository_id === step.repository_id && item.owner_id === actor)).map((step) => step.repository_id))];
+                    const next = phase.steps.find((step) => step.state === "pending" || step.state === "failed");
+                    return <article className="panel rollout-phase" key={phase.id}>
+                      <header><span><Badge tone={phase.state === "completed" ? "accent" : "neutral"}>{phase.state}</Badge> <b>{phase.position}. {phase.name}</b></span><small>Gates: {phase.compatibility_gates.join(", ")}</small></header>
+                      <div className="rollout-owners">{[...new Set(phase.steps.map((step) => step.repository_id))].map((id) => { const approval = phase.approvals.find((item) => item.repository_id === id); return <span key={id}><b>{names.get(id) ?? short(id)}</b><Badge tone={approval?.decision === "approve" ? "accent" : "neutral"}>{approval?.decision ?? "owner approval needed"}</Badge>{owned.includes(id) && <><Button type="button" variant="secondary" onClick={() => void decidePhase(plan, phase, id, "approve")}>Approve</Button><Button type="button" variant="secondary" onClick={() => void decidePhase(plan, phase, id, "reject")}>Pause</Button></>}</span>; })}</div>
+                      <div className="rollout-steps">{phase.steps.map((step) => <span key={step.id}><Badge tone={step.state === "succeeded" || step.state === "rolled_back" ? "accent" : "neutral"}>{step.state}</Badge><b>{step.kind}</b><small>{names.get(step.repository_id) ?? short(step.repository_id)}</small>{step.resource_id && <code>{short(step.resource_id)}</code>}{owned.includes(step.repository_id) && (phase.state === "ready" || phase.state === "running" || phase.state === "paused") && <Button type="button" variant="secondary" onClick={() => void linkOutcome(plan, phase.id, step)}>Link outcome</Button>}</span>)}</div>
+                      {next && <p className="rollout-next"><b>Next:</b> {phase.state === "paused" ? `Recover ${names.get(next.repository_id) ?? short(next.repository_id)} through rollback or agent repair.` : phase.state === "pending" || phase.state === "blocked" ? "Waiting for repository owners and prior phases." : `Execute ${next.kind} for ${names.get(next.repository_id) ?? short(next.repository_id)}.`}</p>}
+                      {phase.outcomes.length > 0 && <details><summary>Retained outcomes ({phase.outcomes.length})</summary>{phase.outcomes.map((outcome, index) => <p key={`${outcome.step_id}-${index}`}><Actor id={outcome.actor_id}/> recorded <b>{outcome.kind} {outcome.state}</b> · <code>{short(outcome.resource_id)}</code>{outcome.note && ` · ${outcome.note}`}</p>)}</details>}
+                    </article>;
+                  })}
+                  {!plan.rollout && <p>No rollout is defined. A passing current matrix is required before the provider owner can sequence participation.</p>}
                 </div>
               </article>
             ))}

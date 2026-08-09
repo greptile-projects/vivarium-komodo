@@ -16,6 +16,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/integrationqueue"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/relationships"
@@ -44,6 +45,9 @@ type relationshipStore interface {
 	CommentMigrationTask(string, string, string, string) (relationships.EvolutionPlan, error)
 	CreateEvolutionVerification(string, string, []relationships.EvolutionRevision) (relationships.EvolutionPlan, relationships.EvolutionVerification, error)
 	AttachEvolutionVerificationRuns(string, string, []string) (relationships.EvolutionPlan, error)
+	ConfigureEvolutionRollout(string, string, string, []relationships.EvolutionRolloutPhaseInput) (relationships.EvolutionPlan, error)
+	ApproveEvolutionRollout(string, string, string, string, string, string) (relationships.EvolutionPlan, error)
+	RecordEvolutionRolloutOutcome(string, string, string, string, string, string, string) (relationships.EvolutionPlan, error)
 }
 type relationshipCheckStarter interface {
 	StartEvolution(string, string, string, string, []checkruns.Revision) ([]checkruns.Run, error)
@@ -59,11 +63,197 @@ type relationshipReleaseStore interface {
 type relationshipDeploymentStore interface {
 	ListEnvironments(string) ([]deployments.Environment, error)
 	ListDeployments(string) ([]deployments.Deployment, error)
+	GetDeployment(string, string) (deployments.Deployment, error)
+}
+type relationshipQueueStore interface {
+	Get(string) (integrationqueue.Entry, error)
 }
 type relationshipRepositoryStore interface {
 	proposalRepositoryStore
 	Open(storage.ID) (*storage.Repository, error)
 }
+
+func registerEvolutionRolloutHTTP(mux *http.ServeMux, store relationshipStore, repositories relationshipRepositoryStore, credentials authStore, queues relationshipQueueStore, releases relationshipReleaseStore, deploymentStore relationshipDeploymentStore, pulls relationshipPullStore, runs relationshipCheckStore) {
+	mux.HandleFunc("PUT /repositories/{repository}/evolution-plans/{plan}/rollout", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if repo.OwnerID != actor.UserID {
+			writeJSON(w, 403, map[string]string{"error": "owner_required"})
+			return
+		}
+		if _, ok = evolutionPlanForRepo(w, store, repo, r.PathValue("plan")); !ok {
+			return
+		}
+		var in struct {
+			VerificationID string                                     `json:"verification_id"`
+			Phases         []relationships.EvolutionRolloutPhaseInput `json:"phases"`
+		}
+		if !readJSON(w, r, &in, 100<<10) {
+			return
+		}
+		plan, _ := store.Evolution(r.PathValue("plan"))
+		var verification *relationships.EvolutionVerification
+		for i := range plan.Verifications {
+			if plan.Verifications[i].ID == in.VerificationID {
+				verification = &plan.Verifications[i]
+			}
+		}
+		if verification == nil {
+			writeJSON(w, 422, map[string]string{"error": "verification_not_found"})
+			return
+		}
+		current := true
+		for _, revision := range verification.Revisions {
+			task, exists := evolutionTask(plan, revision.TaskID)
+			pr, err := pulls.Get(revision.RepositoryID, revision.PullRequestID)
+			if !exists || task.Work == nil || task.Work.HeadRevision != revision.CommitID || err != nil || pr.SourceCommitID != revision.CommitID {
+				current = false
+			}
+		}
+		attempts, err := runs.List(plan.RepositoryID, "evolution:"+plan.ID+":"+verification.ID)
+		if err != nil || !current || !allEvolutionRunsPassed(attempts) {
+			writeJSON(w, 409, map[string]string{"error": "compatibility_verification_not_attested"})
+			return
+		}
+		availableGates := map[string]bool{}
+		for _, attempt := range attempts {
+			availableGates[attempt.Definition.Name] = true
+			availableGates[attempt.Definition.Kind] = true
+		}
+		for _, phase := range in.Phases {
+			for _, gate := range phase.Gates {
+				if !availableGates[gate] {
+					writeJSON(w, 422, map[string]string{"error": "compatibility_gate_not_attested"})
+					return
+				}
+			}
+		}
+		v, err := store.ConfigureEvolutionRollout(r.PathValue("plan"), actor.UserID, in.VerificationID, in.Phases)
+		writeEvolution(w, v, err, 200)
+	})
+	mux.HandleFunc("POST /repositories/{repository}/evolution-plans/{plan}/rollout/phases/{phase}/approvals", func(w http.ResponseWriter, r *http.Request) {
+		anchor, err := repositories.Inspect(storage.ID(r.PathValue("repository")))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "evolution_plan_not_found"})
+			return
+		}
+		if _, ok := evolutionPlanForRepo(w, store, anchor, r.PathValue("plan")); !ok {
+			return
+		}
+		var in struct {
+			RepositoryID string `json:"repository_id"`
+			Decision     string `json:"decision"`
+			Note         string `json:"note"`
+		}
+		if !readJSON(w, r, &in, 10<<10) {
+			return
+		}
+		target, actor, ok := proposalRepositoryAccessPath(w, r, repositories, credentials, in.RepositoryID, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		if target.OwnerID != actor.UserID {
+			writeJSON(w, 403, map[string]string{"error": "owner_required"})
+			return
+		}
+		v, e := store.ApproveEvolutionRollout(r.PathValue("plan"), r.PathValue("phase"), in.RepositoryID, actor.UserID, in.Decision, in.Note)
+		writeEvolution(w, v, e, 200)
+	})
+	mux.HandleFunc("POST /repositories/{repository}/evolution-plans/{plan}/rollout/phases/{phase}/steps/{step}/outcomes", func(w http.ResponseWriter, r *http.Request) {
+		anchor, err := repositories.Inspect(storage.ID(r.PathValue("repository")))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "evolution_plan_not_found"})
+			return
+		}
+		plan, ok := evolutionPlanForRepo(w, store, anchor, r.PathValue("plan"))
+		if !ok || plan.Rollout == nil {
+			return
+		}
+		var in struct {
+			ResourceID string `json:"resource_id"`
+			Note       string `json:"note"`
+		}
+		if !readJSON(w, r, &in, 10<<10) {
+			return
+		}
+		var selected *relationships.EvolutionRolloutStep
+		for _, phase := range plan.Rollout.Phases {
+			if phase.ID == r.PathValue("phase") {
+				for i := range phase.Steps {
+					if phase.Steps[i].ID == r.PathValue("step") {
+						copy := phase.Steps[i]
+						selected = &copy
+					}
+				}
+			}
+		}
+		if selected == nil {
+			writeJSON(w, 404, map[string]string{"error": "rollout_step_not_found"})
+			return
+		}
+		_, actor, ok := proposalRepositoryAccessPath(w, r, repositories, credentials, selected.RepositoryID, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		valid := false
+		derivedState := "pending"
+		switch selected.Kind {
+		case "queue":
+			if item, e := queues.Get(in.ResourceID); e == nil && item.RepositoryID == selected.RepositoryID && item.PullRequestID != "" {
+				valid = true
+				switch item.State {
+				case "merged":
+					derivedState = "succeeded"
+				case "blocked", "removed":
+					derivedState = "failed"
+				default:
+					derivedState = "running"
+				}
+			}
+		case "release":
+			if item, e := releases.Get(selected.RepositoryID, in.ResourceID); e == nil && item.RepositoryID == selected.RepositoryID {
+				valid = true
+				builds, _ := runs.List(selected.RepositoryID, "release:"+item.ID)
+				if allEvolutionRunsPassed(builds) {
+					derivedState = "succeeded"
+				} else {
+					for _, build := range builds {
+						if build.State == checkruns.Failed || build.State == checkruns.Canceled {
+							derivedState = "failed"
+						}
+					}
+				}
+			}
+		case "deployment", "rollback", "repair":
+			if item, e := deploymentStore.GetDeployment(selected.RepositoryID, in.ResourceID); e == nil && item.RepositoryID == selected.RepositoryID {
+				valid = selected.Kind == "deployment" || item.RecoveryAction == selected.Kind
+				switch item.State {
+				case "succeeded":
+					derivedState = "succeeded"
+				case "failed", "canceled":
+					derivedState = "failed"
+				default:
+					derivedState = "running"
+				}
+				if (selected.Kind == "rollback" || item.RecoveryAction == "rollback") && derivedState == "succeeded" {
+					derivedState = "rolled_back"
+				}
+				if (selected.Kind == "repair" || item.RecoveryAction == "repair") && derivedState != "failed" {
+					derivedState = "repairing"
+				}
+			}
+		}
+		if !valid {
+			writeJSON(w, 422, map[string]string{"error": "invalid_rollout_resource"})
+			return
+		}
+		v, e := store.RecordEvolutionRolloutOutcome(plan.ID, r.PathValue("phase"), r.PathValue("step"), actor.UserID, in.ResourceID, derivedState, in.Note)
+		writeEvolution(w, v, e, 200)
+	})
+}
+
 type relationshipSourceStore interface {
 	Get(string, string) (proposals.Proposal, error)
 }

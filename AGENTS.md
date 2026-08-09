@@ -430,6 +430,13 @@ whenever dependencies change or the web job fails before it starts.
   attempt, matrix, log, artifact checksum, and actor; a moved task head
   supersedes only evidence containing that revision, and passing evidence is
   attested only while every captured task head remains current.
+  A provider owner may govern an attested evolution through ordered rollout
+  phases. Each participating repository owner approves only their repository,
+  and phase outcomes link existing queue, release-build, deployment, rollback,
+  or repair resources whose state is derived server-side. Failures pause the
+  affected phase and retain safe prior outcomes; later phases stay blocked.
+  Never use evolution-plan authority to execute repository or environment work,
+  and never trust caller-supplied compatibility or rollout success state.
   Governed delivery is stored beneath `$DEPLOYMENT_ROOT` (default
   `apps/api/data/deployments`). Owners define ordered environments with
   commands, scoped configuration, encrypted write-only credentials, required

@@ -154,6 +154,32 @@ attested only when every run succeeds and every captured task still names the
 same head. A later task commit therefore supersedes only matrices containing
 that revision while unrelated retained evidence remains current.
 
+### Governed evolution rollout
+
+A provider owner can turn a current, fully passing evolution verification into
+ordered rollout phases with named compatibility gates. Each phase identifies
+the repositories that participate and the established integration-queue,
+release, deployment, rollback, or repair evidence expected from each one.
+Phases run sequentially; a later phase cannot become ready until every step in
+the prior phase has reached a safe outcome.
+
+Participation remains repository-owned. Only the owner of a repository named
+in a phase may approve or reject that repository's window, and linking an
+outcome requires ordinary write authority in that repository. The rollout API
+accepts only real resources owned by the named repository and derives their
+state from the integration queue, release build attempts, or governed
+deployment record. It never executes those workflows with plan-level authority
+or accepts a caller's claim that they passed.
+
+A failed queue, build, or deployment pauses its phase without changing already
+successful repositories or allowing later phases to advance. The same retained
+timeline can link a governed rollback or agent-assisted repair deployment; a
+safe rollback completes the affected step while repair remains in progress
+until it returns through normal review, integration, release, and deployment.
+The relationship workspace shows the attested matrix, phase gates, owners,
+approvals, current compatibility state, next action, linked resources, and all
+prior outcomes together.
+
 ## Release builds and attestations
 
 A release candidate is an immutable source and collaboration snapshot. Its
