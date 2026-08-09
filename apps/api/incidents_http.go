@@ -4,9 +4,12 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/incidents"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
 
@@ -29,9 +32,24 @@ type incidentStore interface {
 	DecideMitigation(string, string, string, string, string, string, bool) (incidents.Incident, error)
 	RecordMitigationAttempt(string, string, string, string, string, string, string, string) (incidents.Incident, error)
 	VerifyMitigation(string, string, string, string, []incidents.RecoveryCriterion) (incidents.Incident, error)
+	Resolve(string, string, incidents.ResolutionInput) (incidents.Incident, error)
+	ReconcileCorrectiveWork(string, string, []incidents.CorrectiveWork) (incidents.Incident, []incidents.CorrectiveWork, error)
 }
 
-func registerIncidentsHTTP(mux *http.ServeMux, store incidentStore, deployments deploymentStore, releases releaseStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) {
+func registerIncidentsHTTP(mux *http.ServeMux, store incidentStore, deployments deploymentStore, releases releaseStore, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, extras ...any) {
+	var plans proposalStore
+	var activity activityStore
+	var checks checkRunStore
+	for _, extra := range extras {
+		switch value := extra.(type) {
+		case proposalStore:
+			plans = value
+		case activityStore:
+			activity = value
+		case checkRunStore:
+			checks = value
+		}
+	}
 	mux.HandleFunc("GET /repositories/{repository}/incidents", listIncidents(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/incidents", createIncident(store, deployments, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/incidents/{incident}", getIncident(store, repositories, credentials))
@@ -49,9 +67,207 @@ func registerIncidentsHTTP(mux *http.ServeMux, store incidentStore, deployments 
 	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/mitigations/{mitigation}/decision", decideIncidentMitigation(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/mitigations/{mitigation}/execution", executeIncidentMitigation(store, deployments, pulls, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/mitigations/{mitigation}/verification", verifyIncidentMitigation(store, deployments, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/resolution", resolveIncident(store, plans, repositories, credentials, activity))
+	mux.HandleFunc("POST /repositories/{repository}/incidents/{incident}/resolution/reconcile", reconcileIncidentResolution(store, plans, pulls, releases, deployments, checks, repositories, credentials, activity))
 	mux.HandleFunc("GET /incident-investigations/context", incidentInvestigationContext(store))
 	mux.HandleFunc("GET /incident-investigations/operational/{resource}", incidentInvestigationOperational(store, deployments))
 	mux.HandleFunc("POST /incident-investigations/records", addIncidentInvestigationRecord(store))
+}
+
+func reconcileIncidentResolution(store incidentStore, plans proposalStore, pulls pullRequestStore, releases releaseStore, deployments deploymentStore, checks checkRunStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := incidentAccess(w, r, repositories, credentials, true)
+		if !ok {
+			return
+		}
+		item, err := store.Get(repo, r.PathValue("incident"))
+		if err != nil || item.Resolution == nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		releaseItems, _ := releases.List(repo)
+		deploymentItems, _ := deployments.ListDeployments(repo)
+		work := append([]incidents.CorrectiveWork{}, item.Resolution.CorrectiveWork...)
+		for x := range work {
+			plan, planErr := plans.GetPlan(repo, work[x].ProposalID)
+			if planErr != nil {
+				work[x].Invalidated, work[x].State = true, "invalidated"
+				continue
+			}
+			var task *proposals.Task
+			for y := range plan.Tasks {
+				if plan.Tasks[y].ID == work[x].TaskID {
+					task = &plan.Tasks[y]
+					break
+				}
+			}
+			if task == nil {
+				work[x].Invalidated, work[x].State = true, "invalidated"
+				continue
+			}
+			work[x].State = string(task.Status)
+			work[x].Invalidated = task.Status == proposals.TaskCanceled || task.Status == proposals.TaskClosed || task.Status == proposals.TaskSuperseded
+			work[x].PullRequestIDs = nil
+			for _, contribution := range task.Contributions {
+				work[x].PullRequestIDs = append(work[x].PullRequestIDs, contribution.PullRequestID)
+				if pr, e := pulls.Get(repo, contribution.PullRequestID); e == nil {
+					work[x].State = string(pr.Status)
+				}
+				if checks != nil {
+					if runs, e := checks.List(repo, contribution.PullRequestID); e == nil && len(runs) > 0 {
+						work[x].CheckState = string(runs[len(runs)-1].State)
+					}
+				}
+			}
+			work[x].ReleaseIDs, work[x].DeploymentIDs = nil, nil
+			for _, release := range releaseItems {
+				if containsString(release.TaskIDs, work[x].TaskID) {
+					work[x].ReleaseIDs = append(work[x].ReleaseIDs, release.ID)
+					for _, deployment := range deploymentItems {
+						if deployment.ReleaseID == release.ID {
+							work[x].DeploymentIDs = append(work[x].DeploymentIDs, deployment.ID)
+							work[x].State = "deployed:" + deployment.State
+						}
+					}
+				}
+			}
+		}
+		updated, overdue, err := store.ReconcileCorrectiveWork(repo, item.ID, work)
+		if err != nil {
+			writeIncidentResult(w, updated, err, 200)
+			return
+		}
+		for _, commitment := range overdue {
+			_ = recordActivity(activity, activities.Input{RepositoryID: repo, ActorID: "system", Type: "incident.commitment.overdue", Resource: activities.Resource{Type: "incident", ID: item.ID}, TargetUserID: commitment.OwnerID, Metadata: map[string]string{"proposal_id": commitment.ProposalID, "task_id": commitment.TaskID}})
+		}
+		for index, commitment := range work {
+			if commitment.Invalidated && !item.Resolution.CorrectiveWork[index].Invalidated {
+				_ = recordActivity(activity, activities.Input{RepositoryID: repo, ActorID: "system", Type: "incident.commitment.invalidated", Resource: activities.Resource{Type: "incident", ID: item.ID}, TargetUserID: commitment.OwnerID, Metadata: map[string]string{"proposal_id": commitment.ProposalID, "task_id": commitment.TaskID}})
+			}
+		}
+		writeJSON(w, 200, updated)
+	}
+}
+
+func containsString(items []string, sought string) bool {
+	for _, item := range items {
+		if item == sought {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveIncident(store incidentStore, plans proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore) http.HandlerFunc {
+	type commitmentInput struct {
+		Title        string                 `json:"title"`
+		Outcome      string                 `json:"outcome"`
+		OwnerID      string                 `json:"owner_id"`
+		Kind         proposals.AssigneeKind `json:"kind"`
+		Mandate      string                 `json:"mandate"`
+		BaseRevision string                 `json:"base_revision"`
+		DueAt        *time.Time             `json:"due_at"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := incidentAccess(w, r, repositories, credentials, true)
+		if !ok {
+			return
+		}
+		current, err := store.Get(repo, r.PathValue("incident"))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if !incidentResponder(current, actor) {
+			writeJSON(w, 403, map[string]string{"error": "responder_required"})
+			return
+		}
+		if plans == nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		var in struct {
+			ImpactSummary       string            `json:"impact_summary"`
+			TimelineSummary     string            `json:"timeline_summary"`
+			ContributingFactors []string          `json:"contributing_factors"`
+			ConclusionIDs       []string          `json:"conclusion_ids"`
+			ProposalTitle       string            `json:"proposal_title"`
+			ProposalBody        string            `json:"proposal_body"`
+			Commitments         []commitmentInput `json:"commitments"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		if len(in.Commitments) == 0 {
+			writeJSON(w, 422, map[string]string{"error": "corrective_work_required"})
+			return
+		}
+		knownConclusions := map[string]bool{}
+		for _, finding := range current.Findings {
+			if finding.Kind == "conclusion" {
+				knownConclusions[finding.ID] = true
+			}
+		}
+		for _, id := range in.ConclusionIDs {
+			if !knownConclusions[id] {
+				writeJSON(w, 422, map[string]string{"error": "invalid_resolution_conclusion"})
+				return
+			}
+		}
+		opener, canOpen := repositories.(interface {
+			Open(storage.ID) (*storage.Repository, error)
+		})
+		for _, commitment := range in.Commitments {
+			if strings.TrimSpace(commitment.Title) == "" || strings.TrimSpace(commitment.Outcome) == "" || strings.TrimSpace(commitment.Mandate) == "" || commitment.OwnerID == "" || commitment.BaseRevision == "" || commitment.DueAt == nil || !commitment.DueAt.After(time.Now()) || !canOpen {
+				writeJSON(w, 422, map[string]string{"error": "invalid_corrective_assignment"})
+				return
+			}
+			opened, openErr := opener.Open(storage.ID(repo))
+			if openErr != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_corrective_assignment"})
+				return
+			}
+			if _, commitErr := opened.ReadCommit(storage.ObjectID(commitment.BaseRevision)); commitErr != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_base_revision"})
+				return
+			}
+		}
+		proposal, err := plans.Create(repo, actor, in.ProposalTitle, in.ProposalBody)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_corrective_proposal"})
+			return
+		}
+		work := []incidents.CorrectiveWork{}
+		for _, c := range in.Commitments {
+			task, taskErr := plans.CreateTask(repo, proposal.ID, actor, proposals.TaskInput{Title: c.Title, Outcome: c.Outcome, Status: proposals.TaskPlanned})
+			if taskErr != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_corrective_task"})
+				return
+			}
+			kind := c.Kind
+			if kind == "" {
+				kind = proposals.HumanAssignee
+			}
+			if kind == proposals.HumanAssignee && !incidentParticipant(repositories, repo, c.OwnerID) {
+				writeJSON(w, 422, map[string]string{"error": "invalid_commitment_owner"})
+				return
+			}
+			assigned, assignErr := plans.AssignTask(repo, proposal.ID, task.ID, actor, "", proposals.AssignmentInput{Kind: kind, AssigneeID: c.OwnerID, Mandate: c.Mandate, RepositoryID: repo, BaseRevision: c.BaseRevision})
+			if assignErr != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_corrective_assignment"})
+				return
+			}
+			work = append(work, incidents.CorrectiveWork{ProposalID: proposal.ID, TaskID: task.ID, OwnerID: assigned.Assignment.AssigneeID, DueAt: c.DueAt})
+		}
+		item, err := store.Resolve(repo, current.ID, incidents.ResolutionInput{ActorID: actor, ImpactSummary: in.ImpactSummary, TimelineSummary: in.TimelineSummary, ContributingFactors: in.ContributingFactors, ConclusionIDs: in.ConclusionIDs, CorrectiveWork: work})
+		if err == nil {
+			_ = recordActivity(activity, activities.Input{RepositoryID: repo, ActorID: actor, Type: "incident.resolved", Resource: activities.Resource{Type: "incident", ID: item.ID}, Metadata: map[string]string{"proposal_id": proposal.ID}})
+			for _, c := range work {
+				_ = recordActivity(activity, activities.Input{RepositoryID: repo, ActorID: actor, Type: "incident.commitment.assigned", Resource: activities.Resource{Type: "incident", ID: item.ID}, TargetUserID: c.OwnerID, Metadata: map[string]string{"proposal_id": c.ProposalID, "task_id": c.TaskID}})
+			}
+		}
+		writeIncidentResult(w, item, err, 201)
+	}
 }
 func proposeIncidentMitigation(store incidentStore, deployments deploymentStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

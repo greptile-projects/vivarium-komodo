@@ -156,6 +156,18 @@ pause still uses deployment control permissions, restores remain ordinary
 governed rollback deployments, and emergency repairs remain draft pull
 requests that pass checks, review, integration, release, and promotion.
 
+Resolution is a reviewed handoff, not a bare status change. A responder must
+record an attributed impact summary, condensed chronology, contributing
+factors, and citations to incident conclusions, then create at least one
+corrective proposal task with an owner, exact starting revision, mandate, and
+due time. Those tasks use the ordinary proposal assignment and contribution
+workflow. Reconciliation projects linked pull requests and their latest checks,
+release candidates, and deployments back into the incident record. A missing,
+closed, canceled, or superseded task invalidates the commitment; unfinished
+work past its due time becomes overdue. Both transitions create actionable
+owner inbox activity while the complete resolution and delivery provenance
+remain reviewable from the incident workspace.
+
 ## Entrypoints
 
 - `apps/web` — Next.js frontend. Starts at `src/app/page.tsx`; routes are

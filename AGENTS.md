@@ -467,6 +467,14 @@ whenever dependencies change or the web job fails before it starts.
   durable in the incident. Incident execution must reuse deployment controls,
   governed rollback, and ordinary draft repair/review workflows; it never
   grants broader environment, secret, repository, or Git authority.
+  Incident resolution requires an attributed impact summary, condensed
+  timeline, contributing factors, cited conclusion findings, and at least one
+  linked corrective proposal task with an explicit owner, mandate, exact base
+  revision, and due time. Do not permit a bare transition to `resolved`.
+  Reconcile each commitment through its ordinary task contribution, pull
+  request, latest check, release, and deployment provenance; retain invalidated
+  and overdue state in the incident and emit one actionable inbox transition
+  to the owner when either first occurs.
   Meaningful collaboration transitions are appended through the
   `activities.Store` boundary beneath `$ACTIVITY_ROOT` (default
   `apps/api/data/activities`). Repository activity retains stable actor and

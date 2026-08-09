@@ -165,6 +165,81 @@ type InvestigationInput struct {
 	Revisions         []Revision
 	OperationalAccess []OperationalAccess
 }
+
+// Resolution is the immutable, attributable handoff from response to
+// prevention work. CorrectiveWork points at ordinary proposal-plan resources
+// so implementation continues through the platform's normal review and
+// delivery controls.
+type CorrectiveWork struct {
+	ProposalID      string     `json:"proposal_id"`
+	TaskID          string     `json:"task_id"`
+	OwnerID         string     `json:"owner_id"`
+	DueAt           *time.Time `json:"due_at,omitempty"`
+	State           string     `json:"state"`
+	Invalidated     bool       `json:"invalidated"`
+	PullRequestIDs  []string   `json:"pull_request_ids,omitempty"`
+	CheckState      string     `json:"check_state,omitempty"`
+	ReleaseIDs      []string   `json:"release_ids,omitempty"`
+	DeploymentIDs   []string   `json:"deployment_ids,omitempty"`
+	Overdue         bool       `json:"overdue"`
+	OverdueNotified bool       `json:"overdue_notified,omitempty"`
+}
+
+func (s *Store) ReconcileCorrectiveWork(repositoryID, id string, work []CorrectiveWork) (Incident, []CorrectiveWork, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i, err := s.read(repositoryID, id)
+	if err != nil {
+		return i, nil, err
+	}
+	if i.Resolution == nil || len(work) != len(i.Resolution.CorrectiveWork) {
+		return i, nil, ErrInvalid
+	}
+	now, overdue := s.now().UTC(), []CorrectiveWork{}
+	changed := false
+	for x := range work {
+		if work[x].ProposalID != i.Resolution.CorrectiveWork[x].ProposalID || work[x].TaskID != i.Resolution.CorrectiveWork[x].TaskID {
+			return i, nil, ErrInvalid
+		}
+		work[x].OwnerID, work[x].DueAt, work[x].OverdueNotified = i.Resolution.CorrectiveWork[x].OwnerID, i.Resolution.CorrectiveWork[x].DueAt, i.Resolution.CorrectiveWork[x].OverdueNotified
+		work[x].Overdue = work[x].DueAt != nil && now.After(*work[x].DueAt) && work[x].State != "merged" && work[x].State != "completed"
+		if work[x].Overdue && !work[x].OverdueNotified {
+			overdue = append(overdue, work[x])
+			work[x].OverdueNotified = true
+		}
+		if !sameCorrectiveWork(work[x], i.Resolution.CorrectiveWork[x]) {
+			changed = true
+		}
+	}
+	if changed {
+		i.Resolution.CorrectiveWork = work
+		i.UpdatedAt = now
+		i.append(Event{Type: "corrective_work.reconciled", ActorID: "system", Audience: "participants", Message: "Corrective-work delivery progress refreshed", CreatedAt: now})
+		err = s.write(i)
+	}
+	return i, overdue, err
+}
+
+func sameCorrectiveWork(a, b CorrectiveWork) bool {
+	x, _ := json.Marshal(a)
+	y, _ := json.Marshal(b)
+	return string(x) == string(y)
+}
+
+type Resolution struct {
+	ImpactSummary       string           `json:"impact_summary"`
+	TimelineSummary     string           `json:"timeline_summary"`
+	ContributingFactors []string         `json:"contributing_factors"`
+	ConclusionIDs       []string         `json:"conclusion_ids"`
+	CorrectiveWork      []CorrectiveWork `json:"corrective_work"`
+	ResolvedByID        string           `json:"resolved_by_id"`
+	ResolvedAt          time.Time        `json:"resolved_at"`
+}
+type ResolutionInput struct {
+	ActorID, ImpactSummary, TimelineSummary string
+	ContributingFactors, ConclusionIDs      []string
+	CorrectiveWork                          []CorrectiveWork
+}
 type Event struct {
 	Sequence       int64                 `json:"sequence"`
 	Type           string                `json:"type"`
@@ -195,10 +270,58 @@ type Incident struct {
 	Findings         []Finding             `json:"findings"`
 	Investigations   []Investigation       `json:"investigations"`
 	Mitigations      []Mitigation          `json:"mitigations"`
+	Resolution       *Resolution           `json:"resolution,omitempty"`
 	Timeline         []Event               `json:"timeline"`
 	CreatedAt        time.Time             `json:"created_at"`
 	UpdatedAt        time.Time             `json:"updated_at"`
 }
+
+func (s *Store) Resolve(repositoryID, id string, in ResolutionInput) (Incident, error) {
+	in.ImpactSummary, in.TimelineSummary = strings.TrimSpace(in.ImpactSummary), strings.TrimSpace(in.TimelineSummary)
+	if in.ActorID == "" || in.ImpactSummary == "" || len(in.ImpactSummary) > 10000 || in.TimelineSummary == "" || len(in.TimelineSummary) > 10000 || len(in.ContributingFactors) == 0 || len(in.ConclusionIDs) == 0 || len(in.CorrectiveWork) == 0 {
+		return Incident{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i, err := s.read(repositoryID, id)
+	if err != nil {
+		return i, err
+	}
+	if i.Status == "resolved" || i.Resolution != nil {
+		return i, ErrTransition
+	}
+	conclusions := map[string]bool{}
+	for _, f := range i.Findings {
+		if f.Kind == "conclusion" {
+			conclusions[f.ID] = true
+		}
+	}
+	for _, cid := range in.ConclusionIDs {
+		if !conclusions[cid] {
+			return i, ErrInvalid
+		}
+	}
+	factors := make([]string, len(in.ContributingFactors))
+	for x, factor := range in.ContributingFactors {
+		factors[x] = strings.TrimSpace(factor)
+		if factors[x] == "" || len(factors[x]) > 2000 {
+			return i, ErrInvalid
+		}
+	}
+	work := append([]CorrectiveWork{}, in.CorrectiveWork...)
+	for x := range work {
+		if work[x].ProposalID == "" || work[x].TaskID == "" || work[x].OwnerID == "" {
+			return i, ErrInvalid
+		}
+		work[x].State = "planned"
+	}
+	now := s.now().UTC()
+	i.Resolution = &Resolution{ImpactSummary: in.ImpactSummary, TimelineSummary: in.TimelineSummary, ContributingFactors: factors, ConclusionIDs: append([]string{}, in.ConclusionIDs...), CorrectiveWork: work, ResolvedByID: in.ActorID, ResolvedAt: now}
+	i.Status, i.UpdatedAt = "resolved", now
+	i.append(Event{Type: "resolved", ActorID: in.ActorID, Status: "resolved", Audience: "participants", Message: in.ImpactSummary, CreatedAt: now})
+	return i, s.write(i)
+}
+
 type CreateInput struct {
 	RepositoryID, ActorID, Title, Summary, Severity string
 	Roles                                           map[string]string
@@ -305,6 +428,9 @@ func (s *Store) Update(repositoryID, id string, in UpdateInput) (Incident, error
 		changed = true
 	}
 	if in.Status != "" {
+		if in.Status == "resolved" {
+			return i, ErrTransition
+		}
 		if !validStatus(in.Status) || !statusTransition(i.Status, in.Status) {
 			return i, ErrTransition
 		}
