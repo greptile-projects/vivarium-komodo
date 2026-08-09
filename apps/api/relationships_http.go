@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
@@ -31,6 +32,11 @@ type relationshipStore interface {
 	StartEvolutionAnalysis(string, string, string, string, []string) (relationships.EvolutionPlan, string, error)
 	EvolutionAnalysisContext(string) (relationships.EvolutionPlan, relationships.EvolutionAnalysis, error)
 	AddEvolutionFinding(string, string, string, string, []string) (relationships.EvolutionPlan, error)
+	CreateMigrationTask(string, string, relationships.MigrationTaskInput) (relationships.EvolutionPlan, error)
+	AssignMigrationTask(string, string, string, string, string, string, string, string) (relationships.EvolutionPlan, error)
+	StartMigrationTask(string, string, string, string, string, string, string, string) (relationships.EvolutionPlan, error)
+	SynchronizeMigrationTask(string, string, string, string, string, bool) (relationships.EvolutionPlan, error)
+	CommentMigrationTask(string, string, string, string) (relationships.EvolutionPlan, error)
 }
 type relationshipReleaseStore interface {
 	Get(string, string) (releases.Release, error)
@@ -49,9 +55,17 @@ type relationshipSourceStore interface {
 }
 type relationshipPullStore interface {
 	Get(string, string) (pullrequests.PullRequest, error)
+	Create(pullrequests.CreateParams) (pullrequests.PullRequest, error)
+}
+type relationshipSessionStore interface {
+	CreateForTask(string, string, string, string, changesessions.TaskContext) (changesessions.Session, error)
 }
 
-func registerRelationshipsHTTP(mux *http.ServeMux, store relationshipStore, releaseStore relationshipReleaseStore, deploymentStore relationshipDeploymentStore, repositoryStore relationshipRepositoryStore, proposalStore relationshipSourceStore, pullStore relationshipPullStore, credentials authStore) {
+func registerRelationshipsHTTP(mux *http.ServeMux, store relationshipStore, releaseStore relationshipReleaseStore, deploymentStore relationshipDeploymentStore, repositoryStore relationshipRepositoryStore, proposalStore relationshipSourceStore, pullStore relationshipPullStore, credentials authStore, sessionStores ...relationshipSessionStore) {
+	var sessions relationshipSessionStore
+	if len(sessionStores) > 0 {
+		sessions = sessionStores[0]
+	}
 	mux.HandleFunc("POST /repositories/{repository}/interfaces", publishInterface(store, releaseStore, repositoryStore, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/dependencies", declareDependency(store, releaseStore, repositoryStore, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/relationships", getRelationshipGraph(store, releaseStore, deploymentStore, repositoryStore, credentials))
@@ -61,9 +75,307 @@ func registerRelationshipsHTTP(mux *http.ServeMux, store relationshipStore, rele
 	mux.HandleFunc("PUT /repositories/{repository}/evolution-plans/{plan}/contract", updateEvolutionPlan(store, repositoryStore, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/evolution-plans/{plan}/acknowledgements", acknowledgeEvolutionPlan(store, repositoryStore, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/evolution-plans/{plan}/analyses", startEvolutionAnalysis(store, repositoryStore, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/evolution-plans/{plan}/tasks", createEvolutionTask(store, repositoryStore, credentials))
+	mux.HandleFunc("PUT /repositories/{repository}/evolution-plans/{plan}/tasks/{task}/assignment", assignEvolutionTask(store, repositoryStore, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/evolution-plans/{plan}/tasks/{task}/comments", commentEvolutionTask(store, repositoryStore, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/evolution-plans/{plan}/tasks/{task}/start", startEvolutionTask(store, repositoryStore, credentials, sessions))
+	mux.HandleFunc("POST /repositories/{repository}/evolution-plans/{plan}/tasks/{task}/pull-request", publishEvolutionTask(store, repositoryStore, pullStore, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/evolution-plans/{plan}/tasks/{task}/complete", completeEvolutionTask(store, repositoryStore, pullStore, credentials))
 	mux.HandleFunc("GET /relationship-evolution-analysis/context", evolutionAnalysisContext(store))
 	mux.HandleFunc("GET /relationship-evolution-analysis/repositories/{repository}/blobs", evolutionAnalysisBlob(store, repositoryStore))
 	mux.HandleFunc("POST /relationship-evolution-analysis/findings", addEvolutionAnalysisFinding(store))
+}
+
+func evolutionPlanForRepo(w http.ResponseWriter, store relationshipStore, repo repositories.Repository, id string) (relationships.EvolutionPlan, bool) {
+	v, err := store.Evolution(id)
+	if err != nil || v.RepositoryID != string(repo.ID) {
+		writeJSON(w, 404, map[string]string{"error": "evolution_plan_not_found"})
+		return v, false
+	}
+	return v, true
+}
+func evolutionTask(v relationships.EvolutionPlan, id string) (relationships.MigrationTask, bool) {
+	for _, t := range v.Tasks {
+		if t.ID == id {
+			return t, true
+		}
+	}
+	return relationships.MigrationTask{}, false
+}
+func createEvolutionTask(store relationshipStore, repositories relationshipRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if _, ok = evolutionPlanForRepo(w, store, repo, r.PathValue("plan")); !ok {
+			return
+		}
+		var in relationships.MigrationTaskInput
+		if !readJSON(w, r, &in, 30<<10) {
+			return
+		}
+		target, e := repositories.Inspect(storage.ID(in.TargetRepositoryID))
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_target_repository"})
+			return
+		}
+		work, e := repositories.Inspect(storage.ID(in.RepositoryID))
+		if e != nil || (work.ID != target.ID && work.UpstreamID != target.ID) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_work_repository"})
+			return
+		}
+		v, e := store.CreateMigrationTask(r.PathValue("plan"), actor.UserID, in)
+		writeEvolution(w, v, e, 201)
+	}
+}
+func assignEvolutionTask(store relationshipStore, repositories relationshipRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		anchor, err := repositories.Inspect(storage.ID(r.PathValue("repository")))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "evolution_plan_not_found"})
+			return
+		}
+		v, ok := evolutionPlanForRepo(w, store, anchor, r.PathValue("plan"))
+		if !ok {
+			return
+		}
+		task, ok := evolutionTask(v, r.PathValue("task"))
+		if !ok {
+			writeJSON(w, 404, map[string]string{"error": "migration_task_not_found"})
+			return
+		}
+		work, actor, ok := proposalRepositoryAccessPath(w, r, repositories, credentials, task.RepositoryID, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedAssignmentID string `json:"expected_assignment_id"`
+			Kind                 string `json:"kind"`
+			AssigneeID           string `json:"assignee_id"`
+			Mandate              string `json:"mandate"`
+			BaseRevision         string `json:"base_revision"`
+		}
+		if !readJSON(w, r, &in, 10<<10) {
+			return
+		}
+		if in.Kind == "human" && !relationshipParticipant(work, in.AssigneeID, repositories) {
+			writeJSON(w, 422, map[string]string{"error": "assignee_not_repository_participant"})
+			return
+		}
+		if in.Kind == "agent" && in.AssigneeID != "codex" {
+			writeJSON(w, 422, map[string]string{"error": "agent_unavailable"})
+			return
+		}
+		if !relationshipCommit(repositories, work.ID, in.BaseRevision) {
+			writeJSON(w, 422, map[string]string{"error": "base_revision_not_found"})
+			return
+		}
+		v, e := store.AssignMigrationTask(v.ID, task.ID, actor.UserID, in.ExpectedAssignmentID, in.Kind, in.AssigneeID, in.Mandate, in.BaseRevision)
+		writeEvolution(w, v, e, 200)
+	}
+}
+func commentEvolutionTask(store relationshipStore, repositories relationshipRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		anchor, err := repositories.Inspect(storage.ID(r.PathValue("repository")))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "evolution_plan_not_found"})
+			return
+		}
+		v, ok := evolutionPlanForRepo(w, store, anchor, r.PathValue("plan"))
+		if !ok {
+			return
+		}
+		task, ok := evolutionTask(v, r.PathValue("task"))
+		if !ok {
+			return
+		}
+		_, actor, ok := proposalRepositoryAccessPath(w, r, repositories, credentials, task.RepositoryID, auth.RepositoryRead)
+		if !ok {
+			return
+		}
+		var in struct {
+			Body string `json:"body"`
+		}
+		if !readJSON(w, r, &in, 12<<10) {
+			return
+		}
+		v, err = store.CommentMigrationTask(v.ID, task.ID, actor.UserID, in.Body)
+		writeEvolution(w, v, err, 201)
+	}
+}
+func startEvolutionTask(store relationshipStore, repositories relationshipRepositoryStore, credentials authStore, sessions relationshipSessionStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		anchor, err := repositories.Inspect(storage.ID(r.PathValue("repository")))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "evolution_plan_not_found"})
+			return
+		}
+		v, ok := evolutionPlanForRepo(w, store, anchor, r.PathValue("plan"))
+		if !ok {
+			return
+		}
+		task, ok := evolutionTask(v, r.PathValue("task"))
+		if !ok || task.Assignment == nil {
+			writeJSON(w, 409, map[string]string{"error": "task_not_assigned"})
+			return
+		}
+		work, actor, ok := proposalRepositoryAccessPath(w, r, repositories, credentials, task.RepositoryID, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		if task.Assignment.Kind == "human" && actor.UserID != task.Assignment.AssigneeID {
+			writeJSON(w, 403, map[string]string{"error": "assignee_required"})
+			return
+		}
+		var in struct {
+			ExpectedAssignmentID string `json:"expected_assignment_id"`
+			Branch               string `json:"branch"`
+		}
+		if !readJSON(w, r, &in, 4096) {
+			return
+		}
+		if in.ExpectedAssignmentID != task.Assignment.ID {
+			writeJSON(w, 409, map[string]string{"error": "evolution_plan_conflict"})
+			return
+		}
+		branch := strings.TrimSpace(in.Branch)
+		if branch == "" {
+			branch = "migration/" + task.ID
+		}
+		opened, e := repositories.Open(work.ID)
+		if e != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		ref := storage.ReferenceName("refs/heads/" + branch)
+		if _, e = opened.ReadReference(ref); e == nil {
+			writeJSON(w, 409, map[string]string{"error": "branch_exists"})
+			return
+		}
+		if e = opened.CreateReference(storage.Reference{Name: ref, ObjectID: storage.ObjectID(task.Assignment.BaseRevision)}); e != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_branch"})
+			return
+		}
+		sessionID := ""
+		if sessions != nil {
+			ctx := changesessions.TaskContext{TaskID: task.ID, TaskTitle: task.Title, TaskOutcome: task.Outcome, Mandate: task.Assignment.Mandate, Repository: changesessions.RepositoryContext{ID: string(work.ID), Name: work.Name, Description: work.Description, BaseRevision: task.Assignment.BaseRevision, WorkingBranch: branch}}
+			s, se := sessions.CreateForTask(string(work.ID), "evolution-"+task.ID, actor.UserID, task.Assignment.BaseRevision, ctx)
+			if se == nil {
+				sessionID = s.ID
+			}
+		}
+		v, e = store.StartMigrationTask(v.ID, task.ID, actor.UserID, in.ExpectedAssignmentID, string(work.ID), branch, task.Assignment.BaseRevision, sessionID)
+		writeEvolution(w, v, e, 201)
+	}
+}
+func publishEvolutionTask(store relationshipStore, repositories relationshipRepositoryStore, pulls relationshipPullStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		anchor, err := repositories.Inspect(storage.ID(r.PathValue("repository")))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "evolution_plan_not_found"})
+			return
+		}
+		v, ok := evolutionPlanForRepo(w, store, anchor, r.PathValue("plan"))
+		if !ok {
+			return
+		}
+		task, ok := evolutionTask(v, r.PathValue("task"))
+		if !ok || task.Work == nil {
+			writeJSON(w, 409, map[string]string{"error": "task_not_started"})
+			return
+		}
+		work, actor, ok := proposalRepositoryAccessPath(w, r, repositories, credentials, task.RepositoryID, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		if task.Assignment.Kind == "human" && actor.UserID != task.Assignment.AssigneeID {
+			writeJSON(w, 403, map[string]string{"error": "assignee_required"})
+			return
+		}
+		var in struct {
+			Title        string `json:"title"`
+			Body         string `json:"body"`
+			TargetBranch string `json:"target_branch"`
+			Draft        bool   `json:"draft"`
+		}
+		if !readJSON(w, r, &in, 70<<10) {
+			return
+		}
+		sourceOpened, _ := repositories.Open(work.ID)
+		source, sourceName, found := branchTip(sourceOpened, task.Work.Branch)
+		targetRepo, e := repositories.Inspect(storage.ID(task.TargetRepositoryID))
+		if e != nil || (!found) {
+			writeJSON(w, 422, map[string]string{"error": "branch_unavailable"})
+			return
+		}
+		targetOpened, _ := repositories.Open(targetRepo.ID)
+		target, targetName, found := branchTip(targetOpened, in.TargetBranch)
+		if !found {
+			writeJSON(w, 422, map[string]string{"error": "target_branch_unavailable"})
+			return
+		}
+		pr, e := pulls.Create(pullrequests.CreateParams{RepositoryID: string(targetRepo.ID), SourceRepositoryID: string(work.ID), TaskID: task.ID, ChangeSessionID: task.Work.SessionID, AuthorID: actor.UserID, Title: in.Title, Body: in.Body, SourceBranch: sourceName, TargetBranch: targetName, SourceCommitID: string(source), TargetCommitID: string(target), Draft: in.Draft})
+		if e != nil {
+			writePullRequestError(w, e)
+			return
+		}
+		v, e = store.SynchronizeMigrationTask(v.ID, task.ID, actor.UserID, string(source), pr.ID, false)
+		if e != nil {
+			writeEvolution(w, v, e, 201)
+			return
+		}
+		writeJSON(w, 201, map[string]any{"plan": v, "pull_request": pr})
+	}
+}
+func completeEvolutionTask(store relationshipStore, repositories relationshipRepositoryStore, pulls relationshipPullStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		anchor, err := repositories.Inspect(storage.ID(r.PathValue("repository")))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "evolution_plan_not_found"})
+			return
+		}
+		v, ok := evolutionPlanForRepo(w, store, anchor, r.PathValue("plan"))
+		if !ok {
+			return
+		}
+		task, ok := evolutionTask(v, r.PathValue("task"))
+		if !ok || task.Work == nil || task.Work.PullRequestID == "" {
+			writeJSON(w, 409, map[string]string{"error": "pull_request_required"})
+			return
+		}
+		_, actor, ok := proposalRepositoryAccessPath(w, r, repositories, credentials, task.RepositoryID, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		pr, err := pulls.Get(task.TargetRepositoryID, task.Work.PullRequestID)
+		if err != nil || pr.Status != pullrequests.Merged {
+			writeJSON(w, 409, map[string]string{"error": "pull_request_not_merged"})
+			return
+		}
+		v, err = store.SynchronizeMigrationTask(v.ID, task.ID, actor.UserID, pr.SourceCommitID, pr.ID, true)
+		writeEvolution(w, v, err, 200)
+	}
+}
+func proposalRepositoryAccessPath(w http.ResponseWriter, r *http.Request, repositories relationshipRepositoryStore, credentials authStore, id string, scope auth.Scope) (repositories.Repository, auth.Grant, bool) {
+	copy := r.Clone(r.Context())
+	copy.SetPathValue("repository", id)
+	return proposalRepositoryAccess(w, copy, repositories, credentials, scope, true)
+}
+func relationshipParticipant(repo repositories.Repository, user string, store relationshipRepositoryStore) bool {
+	if repo.OwnerID == user {
+		return true
+	}
+	ok, _ := store.IsCollaborator(repo.ID, user)
+	return ok
+}
+func relationshipCommit(store relationshipRepositoryStore, id storage.ID, commit string) bool {
+	opened, e := store.Open(id)
+	if e != nil {
+		return false
+	}
+	o, e := opened.ReadObject(storage.ObjectID(commit))
+	return e == nil && o.Type == storage.CommitObject
 }
 
 func publishInterface(store relationshipStore, releaseStore relationshipReleaseStore, repositoryStore proposalRepositoryStore, credentials authStore) http.HandlerFunc {

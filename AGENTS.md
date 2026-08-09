@@ -414,6 +414,14 @@ whenever dependencies change or the web job fails before it starts.
   reads from explicitly selected readable repositories plus attributable
   findings and uncertainty; never accept it on repository mutation, Git,
   proposal, pull-request, release, or deployment resources.
+  Evolution migration tasks connect provider and affected-consumer work to that
+  plan with target versions, completion criteria, dependencies, discussion,
+  assignment, exact base/head revisions, change sessions, and pull requests.
+  Provider collaborators define tasks, but assignment and branch creation
+  require write authority in the named work repository or independently owned
+  fork. A linked pull request must be merged before the task completes and
+  dependent work becomes ready; never infer consumer write authority from plan
+  authorship.
   Governed delivery is stored beneath `$DEPLOYMENT_ROOT` (default
   `apps/api/data/deployments`). Owners define ordered environments with
   commands, scoped configuration, encrypted write-only credentials, required
