@@ -483,6 +483,17 @@ whenever dependencies change or the web job fails before it starts.
   branch-only Git credentials; grant or membership revocation invalidates only
   the credentials derived by the affected principal. These scoped roles do not
   silently add repository collaborators or replace existing owner policy.
+  Organization governance baselines are immutable policy versions in the
+  organization record. Rules cover repository visibility, reviews, required
+  checks, integration, release provenance, dependency use, environment
+  promotion, and agent authority, and target the organization, a repository, or
+  a team's declared repository responsibilities. Draft preview is read-only;
+  activation supersedes only the prior version in the same lineage and does not
+  rewrite captured work. Effective-policy reads retain every inherited required
+  rule and annotate an approved exception instead of removing the rule.
+  Repository-scoped maintainers and operators may request owner-approved,
+  actor-attributed exceptions bound to an exact policy version and rule for at
+  most 30 days; pending, denied, and expired requests never weaken the baseline.
   Versioned cross-repository relationships live beneath `$RELATIONSHIP_ROOT`
   (default `apps/api/data/relationships`). A repository participant publishes
   an interface only from an existing immutable release, which binds its name,
