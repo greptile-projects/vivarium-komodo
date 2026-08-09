@@ -303,7 +303,7 @@ func packageRegistryMetadata(store packageStore, repositories pullRequestReposit
 				continue
 			}
 			digest, _ := hexToBytes(item.SHA256)
-			versions[item.Version] = map[string]any{"name": item.Identity, "version": item.Version, "description": item.Documentation, "os": []string{item.Platform.OS}, "cpu": []string{item.Platform.Arch}, "dependencies": item.Dependencies, "dist": map[string]any{"tarball": registryArtifactURL(r, item.ID), "integrity": "sha256-" + base64.StdEncoding.EncodeToString(digest)}, "komodo": item}
+			versions[item.Version] = map[string]any{"name": item.Identity, "version": item.Version, "description": item.Documentation, "os": []string{item.Platform.OS}, "cpu": []string{npmArchitecture(item.Platform.Arch)}, "dependencies": item.Dependencies, "dist": map[string]any{"tarball": registryArtifactURL(r, item.ID), "integrity": "sha256-" + base64.StdEncoding.EncodeToString(digest)}, "komodo": item}
 			if latest == "" {
 				latest = item.Version
 			}
@@ -314,6 +314,17 @@ func packageRegistryMetadata(store packageStore, repositories pullRequestReposit
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"name": identity, "dist-tags": map[string]string{"latest": latest}, "versions": versions})
+	}
+}
+
+func npmArchitecture(architecture string) string {
+	switch architecture {
+	case "amd64":
+		return "x64"
+	case "386":
+		return "ia32"
+	default:
+		return architecture
 	}
 }
 

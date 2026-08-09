@@ -44,6 +44,9 @@ whenever used. It cannot read Git, mutate either repository, publish packages, r
 publisher credential, discover unlisted private packages, or download their
 bytes. Isolated builds can therefore receive the same narrow token without a
 developer's or publisher's general credential.
+Registry compatibility translates attested `amd64` and `386` architectures to
+npm's `x64` and `ia32` CPU names; the embedded Komodo attestation continues to
+expose the original platform value.
 
 ```sh
 npm config set @publisher:registry https://kanso.example/api/package-registry
@@ -138,6 +141,11 @@ owners receive targeted activity. Consumer writers use `POST
 Codex-owned proposal work at the captured revision. Ordinary checks, review,
 integration, release, and deployment remain consumer-controlled, so publisher
 coordination never grants authority over downstream code or environments.
+Repair collection and exposure reads project the linked proposal task as
+`open`, `in_progress`, `in_review`, `remediated`, or `closed`, and retain the
+contribution pull request once one exists. The immutable exposure and repair
+records therefore remain connected to current review and integration status
+without duplicating delivery state.
 
 ## Embargoed security repairs
 
