@@ -38,6 +38,22 @@ version line must match the repair. The advisory workspace summarizes every
 line's coverage, failures, approvals, integration, artifacts, and explicit
 gaps without exposing the confidential reproduction itself.
 
+Disclosure is a separately prepared, maintainer-owned commit point. A plan
+freezes a public advisory ID, redacted summary, upgrade guidance, explicit
+credits, optional publication time, and one ordinary branch ref for every
+attested repair line. Preparation is rejected unless every repair has passed
+private verification, protected integration, and release artifact attestation.
+
+At or after the scheduled time, publication creates every repaired branch at
+its exact integrated commit before lifting the embargo. If any ref cannot be
+published, refs created by that attempt are rolled back and the private plan
+pauses with its remaining actions; no advisory becomes anonymously readable.
+On success, `GET /security-advisories/{advisory}` exposes affected versions,
+fixed branches, release and artifact checksums, upgrade guidance, and credits,
+while omitting reporter identity, contact, evidence, private refs, findings,
+sessions, and audit history. Affected repository owners and collaborators
+receive targeted upgrade activity containing only public guidance.
+
 ## Release builds and attestations
 
 A release candidate is an immutable source and collaboration snapshot. Its

@@ -164,7 +164,7 @@ func main() {
 	registerReleasesHTTP(mux, releaseStore, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials)
 	registerDeploymentsHTTP(mux, deploymentStore, releaseStore, checkRunStore, repositoryCatalog, credentials, activityStore, changeSessionStore, pullRequestStore)
 	registerIncidentsHTTP(mux, incidentStore, deploymentStore, releaseStore, pullRequestStore, repositoryCatalog, credentials, proposalStore, activityStore, checkRunStore)
-	registerSecurityReportsHTTP(mux, securityReportStore, repositoryCatalog, userStore, credentials)
+	registerSecurityReportsHTTP(mux, securityReportStore, repositoryCatalog, userStore, credentials, activityStore)
 	registerChangeSessionsHTTP(mux, changeSessionStore, pullRequestStore, repositoryCatalog, credentials, activityStore, checkRunner)
 	registerCheckRunsHTTP(mux, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials, changeSessionStore, activityStore)
 	registerActivitiesHTTP(mux, activityStore, repositoryCatalog, credentials)

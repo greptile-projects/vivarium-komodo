@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityreports"
@@ -34,6 +35,9 @@ type securityReportStore interface {
 	AddRepairRecord(string, string, string, string, string, string, string, string, func(string) bool) (securityreports.Report, error)
 	RevokeRepairSession(string, string, string, string, func(string) bool) (securityreports.Report, securityreports.RepairSession, error)
 	UpdateRepairVerification(string, string, securityreports.VerificationAction, func(string) bool) (securityreports.Report, error)
+	PrepareDisclosure(string, securityreports.DisclosureInput, func(string) bool) (securityreports.Report, error)
+	CompleteDisclosure(string, string, []securityreports.DisclosureBranch, string, func(string) bool) (securityreports.Report, error)
+	GetPublicAdvisory(string) (securityreports.Report, error)
 }
 type securityUserStore interface {
 	Get(users.ID) (users.User, error)
@@ -44,7 +48,11 @@ type securityCredentialStore interface {
 	RevokeRepositoryGit(string, string, string) error
 }
 
-func registerSecurityReportsHTTP(mux *http.ServeMux, store securityReportStore, catalog pullRequestRepositoryStore, userStore securityUserStore, credentials securityCredentialStore) {
+func registerSecurityReportsHTTP(mux *http.ServeMux, store securityReportStore, catalog pullRequestRepositoryStore, userStore securityUserStore, credentials securityCredentialStore, extras ...activityStore) {
+	var activity activityStore
+	if len(extras) > 0 {
+		activity = extras[0]
+	}
 	mux.HandleFunc("POST /security-reports", createSecurityReport(store, catalog, credentials))
 	mux.HandleFunc("GET /security-reports", listSecurityReports(store, catalog, credentials))
 	mux.HandleFunc("GET /security-reports/{report}", getSecurityReport(store, catalog, credentials))
@@ -64,6 +72,125 @@ func registerSecurityReportsHTTP(mux *http.ServeMux, store securityReportStore, 
 	mux.HandleFunc("POST /security-reports/{report}/repairs/{repair}/sessions/{session}/records", addSecurityRepairRecord(store, catalog, credentials))
 	mux.HandleFunc("DELETE /security-reports/{report}/repairs/{repair}/sessions/{session}", revokeSecurityRepairSession(store, catalog, credentials))
 	mux.HandleFunc("POST /security-reports/{report}/repairs/{repair}/verification", updateSecurityRepairVerification(store, catalog, credentials))
+	mux.HandleFunc("POST /security-reports/{report}/disclosure", prepareSecurityDisclosure(store, catalog, credentials))
+	mux.HandleFunc("POST /security-reports/{report}/disclosure/publish", publishSecurityDisclosure(store, catalog, credentials, activity))
+	mux.HandleFunc("GET /security-advisories/{advisory}", getPublicSecurityAdvisory(store))
+}
+
+func prepareSecurityDisclosure(store securityReportStore, catalog pullRequestRepositoryStore, credentials securityCredentialStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := securityActor(w, r, credentials)
+		if !ok {
+			return
+		}
+		var in struct {
+			AdvisoryID      string            `json:"advisory_id"`
+			Summary         string            `json:"summary"`
+			UpgradeGuidance string            `json:"upgrade_guidance"`
+			Credits         []string          `json:"credits"`
+			ScheduledAt     *time.Time        `json:"scheduled_at"`
+			PublishedRefs   map[string]string `json:"published_refs"`
+		}
+		if !readJSON(w, r, &in, 70<<10) {
+			return
+		}
+		item, err := store.PrepareDisclosure(r.PathValue("report"), securityreports.DisclosureInput{ActorID: actor, AdvisoryID: in.AdvisoryID, Summary: in.Summary, UpgradeGuidance: in.UpgradeGuidance, Credits: in.Credits, ScheduledAt: in.ScheduledAt, PublishedRefs: in.PublishedRefs}, ownerCheck(catalog, actor))
+		writeSecurityReport(w, item, err, 201)
+	}
+}
+
+func publishSecurityDisclosure(store securityReportStore, catalog pullRequestRepositoryStore, credentials securityCredentialStore, activity activityStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := securityActor(w, r, credentials)
+		if !ok {
+			return
+		}
+		item, err := store.Get(r.PathValue("report"), actor, ownerCheck(catalog, actor))
+		if err != nil {
+			writeSecurityReport(w, item, err, 200)
+			return
+		}
+		if item.Disclosure == nil || (item.Disclosure.State != "ready" && item.Disclosure.State != "scheduled" && item.Disclosure.State != "paused") {
+			writeJSON(w, 409, map[string]string{"error": "disclosure_not_ready"})
+			return
+		}
+		if item.Disclosure.ScheduledAt != nil && time.Now().UTC().Before(*item.Disclosure.ScheduledAt) {
+			writeJSON(w, 409, map[string]string{"error": "disclosure_scheduled"})
+			return
+		}
+		branches := append([]securityreports.DisclosureBranch{}, item.Disclosure.Branches...)
+		created := []struct {
+			repo *storage.Repository
+			ref  storage.ReferenceName
+		}{}
+		failure := ""
+		for i := range branches {
+			repo, openErr := catalog.Open(storage.ID(branches[i].RepositoryID))
+			if openErr != nil {
+				failure = "repository unavailable: " + branches[i].RepositoryID
+				branches[i].State, branches[i].Error = "failed", failure
+				break
+			}
+			ref := storage.Reference{Name: storage.ReferenceName(branches[i].PublishedRef), ObjectID: storage.ObjectID(branches[i].Revision)}
+			if createErr := repo.CreateReference(ref); createErr != nil {
+				existing, readErr := repo.ReadReference(ref.Name)
+				if readErr != nil || existing.ObjectID != ref.ObjectID {
+					failure = "could not publish " + branches[i].PublishedRef
+					branches[i].State, branches[i].Error = "failed", failure
+					break
+				}
+			} else {
+				created = append(created, struct {
+					repo *storage.Repository
+					ref  storage.ReferenceName
+				}{repo, ref.Name})
+			}
+			branches[i].State = "published"
+		}
+		if failure != "" {
+			for _, made := range created {
+				_ = made.repo.DeleteReference(made.ref)
+			}
+			for i := range branches {
+				if branches[i].State == "published" {
+					branches[i].State = "rolled_back"
+				}
+			}
+			updated, completeErr := store.CompleteDisclosure(item.ID, actor, branches, failure, ownerCheck(catalog, actor))
+			if completeErr != nil {
+				writeSecurityReport(w, updated, completeErr, 200)
+				return
+			}
+			scrubSecurityCredentials(&updated)
+			writeJSON(w, 409, updated)
+			return
+		}
+		updated, err := store.CompleteDisclosure(item.ID, actor, branches, "", ownerCheck(catalog, actor))
+		if err == nil {
+			for _, affected := range updated.Affected {
+				repository, inspectErr := catalog.Inspect(storage.ID(affected.RepositoryID))
+				if inspectErr != nil {
+					continue
+				}
+				recipients := append([]string{repository.OwnerID}, repository.CollaboratorIDs...)
+				for _, recipient := range recipients {
+					_ = recordActivity(activity, activities.Input{RepositoryID: affected.RepositoryID, ActorID: actor, Type: "security_advisory.published", Resource: activities.Resource{Type: "security_advisory", ID: updated.Disclosure.AdvisoryID}, TargetUserID: recipient, Metadata: map[string]string{"severity": updated.Severity, "upgrade_guidance": updated.Disclosure.UpgradeGuidance}})
+				}
+			}
+		}
+		writeSecurityReport(w, updated, err, 200)
+	}
+}
+
+func getPublicSecurityAdvisory(store securityReportStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		item, err := store.GetPublicAdvisory(r.PathValue("advisory"))
+		if err != nil {
+			writeSecurityReport(w, item, err, 200)
+			return
+		}
+		writeJSON(w, 200, item)
+	}
 }
 
 func updateSecurityRepairVerification(store securityReportStore, catalog pullRequestRepositoryStore, credentials securityCredentialStore) http.HandlerFunc {

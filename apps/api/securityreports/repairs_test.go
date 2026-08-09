@@ -98,3 +98,39 @@ func TestRepairVerificationRequiresExactCompleteEvidenceBeforeAttestation(t *tes
 		t.Fatalf("verification leaked sensitive execution material: %s", data)
 	}
 }
+
+func TestDisclosurePublishesOnlyRedactedActionableAdvisory(t *testing.T) {
+	store, _ := New(t.TempDir())
+	report, _ := store.Create(CreateInput{ActorID: "reporter", Title: "unsafe parser", Summary: "secret reproduction details", Contact: Contact{Channel: "email", Value: "private@example.test"}, Affected: []AffectedRepository{{RepositoryID: "repo", Versions: []string{"1.x"}}}, Evidence: []Evidence{{Title: "exploit", Kind: "reproduction", Description: "secret payload"}}})
+	allow := func(string) bool { return true }
+	_, repair, _ := store.CreateRepair(report.ID, RepairInput{ActorID: "owner", RepositoryID: "repo", Version: "1.x", Outcome: "fix parser", BaseRevision: strings.Repeat("a", 40), Branch: "refs/heads/embargo/private"}, allow)
+	revision := strings.Repeat("b", 40)
+	act := func(action VerificationAction) {
+		action.ActorID, action.Revision = "owner", revision
+		if _, err := store.UpdateRepairVerification(report.ID, repair.ID, action, allow); err != nil {
+			t.Fatal(err)
+		}
+	}
+	act(VerificationAction{Action: "begin"})
+	act(VerificationAction{Action: "gate", Kind: "required_check", Name: "tests", AttemptID: "check", DefinitionDigest: strings.Repeat("1", 64), State: "passed"})
+	act(VerificationAction{Action: "gate", Kind: "security_reproduction", Name: "regression", AttemptID: "private", DefinitionDigest: strings.Repeat("2", 64), State: "passed"})
+	act(VerificationAction{Action: "approve", Decision: "approve", Summary: "safe"})
+	act(VerificationAction{Action: "integrate", IntegrationEntryID: "queue", IntegrationCommitID: strings.Repeat("c", 40)})
+	act(VerificationAction{Action: "attest", ReleaseID: "release", Version: "1.x", ArtifactID: "artifact", ArtifactSHA256: strings.Repeat("d", 64)})
+	prepared, err := store.PrepareDisclosure(report.ID, DisclosureInput{ActorID: "owner", AdvisoryID: "KSA-2026-001", Summary: "Parser validation vulnerability", UpgradeGuidance: "Upgrade to 1.2.3 immediately.", Credits: []string{"reporter"}, PublishedRefs: map[string]string{repair.ID: "refs/heads/security/ksa-2026-001-1.x"}}, allow)
+	if err != nil || prepared.Disclosure.State != "ready" || len(prepared.Disclosure.Remaining) == 0 {
+		t.Fatalf("prepared=%#v err=%v", prepared.Disclosure, err)
+	}
+	if _, err = store.GetPublicAdvisory("KSA-2026-001"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("advisory leaked before publication: %v", err)
+	}
+	published, err := store.CompleteDisclosure(report.ID, "owner", prepared.Disclosure.Branches, "", allow)
+	if err != nil || published.EmbargoState != "lifted" {
+		t.Fatal(err)
+	}
+	public, err := store.GetPublicAdvisory("KSA-2026-001")
+	data, _ := json.Marshal(public)
+	if err != nil || strings.Contains(string(data), "secret") || strings.Contains(string(data), "private@example") || !strings.Contains(string(data), "Upgrade to 1.2.3") {
+		t.Fatalf("public=%s err=%v", data, err)
+	}
+}
