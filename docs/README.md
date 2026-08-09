@@ -1554,3 +1554,29 @@ uses the organization ID as `owner_id` and exposes the acting human owner as
 `administrator_id`; internal repository policy continues through that explicit
 administrator plus accepted members' collaborator grants until later team and
 portfolio-role milestones replace the coarse membership mapping.
+
+## Organization teams and approved agents
+
+Organizations keep nested teams, accepted team membership, maintainers,
+repository-area responsibility, and organization-approved agent identities in
+the same durable organization record and audit sequence. Owners create teams at
+`POST /organizations/{id}/teams`; a maintainer can invite or remove people and
+declare responsibility for that team or any descendant. Invitations become
+effective only through the invited user's team acceptance endpoint. Every team
+mutation includes `expected_version`, and stale concurrent edits return `409`
+without overwriting the intervening decision.
+
+Responsibilities name an organization-owned repository and an area such as a
+path glob, subsystem, service, or operational domain. Approved agents retain
+their visible capability declarations and accepted human operators; registering
+an agent grants no repository authority. Removing an organization member also
+removes their direct team memberships and operator links.
+
+`GET /organizations/{id}/directory` is anonymously readable. Anonymous callers
+see public teams, public responsibilities, public approved agents, and accepted
+effective members. `via_team_ids` records the nested path explaining why each
+person is effective in a team. Authenticated organization members additionally
+see internal teams, responsibilities, direct membership records, and pending
+invitations. This directory expresses responsibility only; portfolio access
+continues to use coarse organization membership grants until scoped roles are
+introduced.

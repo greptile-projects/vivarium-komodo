@@ -44,3 +44,70 @@ func TestMembershipAndTransferRequireAcceptance(t *testing.T) {
 		t.Fatal("removed member retained access")
 	}
 }
+
+func TestNestedTeamsResponsibilitiesAgentsAndConcurrency(t *testing.T) {
+	s, _ := New(t.TempDir())
+	o, _ := s.Create("owner", "acme", "Acme", "")
+	o, _ = s.Invite(o.ID, "owner", "maintainer")
+	o, _ = s.Accept(o.ID, "maintainer")
+	o, _ = s.Invite(o.ID, "owner", "developer")
+	_, _ = s.Accept(o.ID, "developer")
+	_, platform, err := s.CreateTeam(o.ID, "owner", Team{Slug: "platform", Name: "Platform", Visibility: "public"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, runtime, err := s.CreateTeam(o.ID, "owner", Team{Slug: "runtime", Name: "Runtime", ParentID: platform.ID, Visibility: "public"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.InviteTeamMember(o.ID, platform.ID, "owner", "maintainer", "maintainer", platform.Version); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.AcceptTeam(o.ID, platform.ID, "maintainer", 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.InviteTeamMember(o.ID, runtime.ID, "maintainer", "developer", "member", runtime.Version); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.AcceptTeam(o.ID, runtime.ID, "developer", 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.InviteTeamMember(o.ID, runtime.ID, "owner", "maintainer", "member", 1); err != ErrConflict {
+		t.Fatalf("stale edit = %v", err)
+	}
+	_, responsibility, err := s.AddResponsibility(o.ID, runtime.ID, "maintainer", Responsibility{RepositoryID: "repo", Area: "src/runtime/**", Visibility: "public"}, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if responsibility.CreatedByID != "maintainer" {
+		t.Fatal("responsibility attribution missing")
+	}
+	_, agent, err := s.RegisterAgent(o.ID, "owner", Agent{Slug: "release-bot", Name: "Release bot", Capabilities: []string{"release:inspect", "checks:read"}, OperatorIDs: []string{"maintainer"}, Visibility: "public"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.Version != 1 || agent.CreatedByID != "owner" {
+		t.Fatal("agent governance evidence missing")
+	}
+	o, _ = s.Get(o.ID)
+	directory := DirectoryFor(o, false)
+	if len(directory.Teams) != 2 || len(directory.Agents) != 1 || len(directory.EffectiveMembers[platform.ID]) != 2 {
+		t.Fatalf("directory = %#v", directory)
+	}
+	foundNested := false
+	for _, m := range directory.EffectiveMembers[platform.ID] {
+		if m.UserID == "developer" && len(m.ViaTeamIDs) == 2 && m.ViaTeamIDs[1] == runtime.ID {
+			foundNested = true
+		}
+	}
+	if !foundNested {
+		t.Fatalf("nested explanation = %#v", directory.EffectiveMembers)
+	}
+	if _, err = s.Remove(o.ID, "owner", "maintainer"); err != nil {
+		t.Fatal(err)
+	}
+	o, _ = s.Get(o.ID)
+	if len(o.Agents[0].OperatorIDs) != 0 {
+		t.Fatal("removed member remained an agent operator")
+	}
+}
