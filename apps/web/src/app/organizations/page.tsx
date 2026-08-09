@@ -22,7 +22,14 @@ type Organization = {
   description: string;
   members: Member[];
   transfers: Transfer[];
+  teams: { id: string; name: string }[];
+  agents: { id: string; name: string }[];
+  role_grants: RoleGrant[];
+  access_requests: AccessRequest[];
 };
+type ResourceRef = { kind: string; id: string; repository_id?: string };
+type RoleGrant = { id: string; principal_kind: string; principal_id: string; role: string; resources: ResourceRef[]; exceptions: string[]; reason: string; expires_at: string; revoked_at?: string };
+type AccessRequest = RoleGrant & { requested_by_id: string; state: string; grant_id?: string };
 type Repository = {
   id: string;
   name: string;
@@ -57,6 +64,7 @@ export default function OrganizationsPage() {
   const [portfolio, setPortfolio] = useState<Portfolio>();
   const [message, setMessage] = useState("");
   const [userID, setUserID] = useState("");
+  const [effective, setEffective] = useState<RoleGrant[]>([]);
   const selectedID = selected?.id;
   const load = useCallback(async () => {
     try {
@@ -67,12 +75,14 @@ export default function OrganizationsPage() {
       setOrganizations(data.items);
       setUserID(session.user.id);
       if (selectedID) {
-        const [organization, view] = await Promise.all([
+        const [organization, view, access] = await Promise.all([
           api<Organization>(`/organizations/${selectedID}`),
           api<Portfolio>(`/organizations/${selectedID}/portfolio`),
+          api<{ items: RoleGrant[] }>(`/organizations/${selectedID}/access/effective`),
         ]);
         setSelected(organization);
         setPortfolio(view);
+        setEffective(access.items);
       }
     } catch (error) {
       setMessage(
@@ -163,6 +173,32 @@ export default function OrganizationsPage() {
     });
     setMessage("Member removed from the organization portfolio.");
     await load();
+  }
+  async function submitAccess(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected) return;
+    const form = new FormData(event.currentTarget);
+    const repositoryID = String(form.get("repository_id"));
+    const principalID = String(form.get("principal_id"));
+    const body = {
+      principal_kind: selected.agents?.some((agent) => agent.id === principalID) ? "agent" : "team", principal_id: principalID, role: form.get("role"),
+      resources: [{ kind: "repository", id: repositoryID }],
+      exceptions: String(form.get("exceptions") || "").split(",").map((x) => x.trim()).filter(Boolean),
+      reason: form.get("reason"), expires_at: new Date(String(form.get("expires_at"))).toISOString(),
+    };
+    const owner = selected.members.some((member) => member.user_id === userID && member.role === "owner");
+    await api(`/organizations/${selected.id}/${owner ? "access-grants" : "access-requests"}`, { method: "POST", body: JSON.stringify(body) });
+    event.currentTarget.reset(); setMessage(owner ? "Scoped authority granted." : "Access request sent for owner review."); await load();
+  }
+  async function resolveRequest(id: string, decision: "approved" | "denied") {
+    if (!selected) return;
+    await api(`/organizations/${selected.id}/access-requests/${id}`, { method: "POST", body: JSON.stringify({ decision }) });
+    setMessage(`Access request ${decision}.`); await load();
+  }
+  async function revokeRole(id: string) {
+    if (!selected) return;
+    await api(`/organizations/${selected.id}/access-grants/${id}`, { method: "DELETE" });
+    setMessage("Authority and its derived credentials were revoked."); await load();
   }
 
   return (
@@ -340,6 +376,28 @@ export default function OrganizationsPage() {
                     )}
                   </div>
                 ))}
+              </section>
+              <section className="panel">
+                <p className="eyebrow">Least privilege</p>
+                <h2>Scoped authority</h2>
+                <p>Roles apply only to the listed resources until their expiry. Exceptions are explicit denied actions, and every request, decision, credential, and revocation remains in the organization audit trail.</p>
+                <h3>Your effective access</h3>
+                {effective.length === 0 && <p>No team or approved-agent role currently gives you derived authority.</p>}
+                {effective.map((grant) => <div className="repo-row" key={grant.id}><span><strong>{grant.role}</strong> via {grant.principal_kind} {grant.principal_id}<br />{grant.resources.map((resource) => `${resource.kind}:${resource.id}`).join(" · ")} · expires {new Date(grant.expires_at).toLocaleString()}<br />{grant.exceptions.length ? `Denied: ${grant.exceptions.join(", ")}` : "No exceptions"}</span><Badge>effective</Badge></div>)}
+                <h3>Active grants</h3>
+                {selected.role_grants?.filter((grant) => !grant.revoked_at).map((grant) => <div className="repo-row" key={grant.id}><span><strong>{grant.role}</strong> → {grant.principal_kind} {grant.principal_id}<br />{grant.reason} · {grant.resources.map((resource) => `${resource.kind}:${resource.id}`).join(" · ")}<br />Expires {new Date(grant.expires_at).toLocaleString()}{grant.exceptions.length ? ` · denied ${grant.exceptions.join(", ")}` : ""}</span>{selected.members.some((member) => member.user_id === userID && member.role === "owner") && <Button size="sm" variant="secondary" onClick={() => revokeRole(grant.id)}>Revoke</Button>}</div>)}
+                <h3>Requests</h3>
+                {selected.access_requests?.map((request) => <div className="repo-row" key={request.id}><span><strong>{request.role}</strong> for {request.principal_kind} {request.principal_id}<br />{request.reason}</span><Badge>{request.state}</Badge>{request.state === "pending" && selected.members.some((member) => member.user_id === userID && member.role === "owner") && <span><Button size="sm" onClick={() => resolveRequest(request.id, "approved")}>Approve</Button> <Button size="sm" variant="secondary" onClick={() => resolveRequest(request.id, "denied")}>Deny</Button></span>}</div>)}
+                <form className="stack" onSubmit={submitAccess}>
+                  <h3>{selected.members.some((member) => member.user_id === userID && member.role === "owner") ? "Grant authority" : "Request authority"}</h3>
+                  <label>Team or agent<select required name="principal_id"><option value="">Select…</option>{selected.teams?.map((team) => <option key={team.id} value={team.id}>Team · {team.name}</option>)}{selected.agents?.map((agent) => <option key={agent.id} value={agent.id}>Agent · {agent.name}</option>)}</select></label>
+                  <label>Role<select name="role"><option value="viewer">Viewer</option><option value="contributor">Contributor</option><option value="maintainer">Maintainer</option><option value="operator">Operator</option></select></label>
+                  <label>Repository<select required name="repository_id"><option value="">Select…</option>{portfolio?.repositories.map((repo) => <option key={repo.id} value={repo.id}>{repo.name}</option>)}</select></label>
+                  <label>Expires at<input required name="expires_at" type="datetime-local" /></label>
+                  <label>Explicit denied actions (comma separated)<input name="exceptions" placeholder="deploy:production" /></label>
+                  <label>Reason<textarea required name="reason" /></label>
+                  <Button type="submit">{selected.members.some((member) => member.user_id === userID && member.role === "owner") ? "Grant scoped role" : "Request access"}</Button>
+                </form>
               </section>
             </>
           ) : (

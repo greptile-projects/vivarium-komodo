@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/incidents"
@@ -38,8 +40,13 @@ type organizationPulls interface {
 type organizationIncidents interface {
 	List(string) ([]incidents.Incident, error)
 }
+type organizationCredentialStore interface {
+	authStore
+	IssueRepositoryGit(string, string, string, string, time.Duration) (auth.IssuedGrant, error)
+	RevokeIDs([]string) error
+}
 
-func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, repos organizationRepositories, people organizationUsers, packages organizationPackages, releaseStore organizationReleases, pulls organizationPulls, incidentStore organizationIncidents, credentials authStore) {
+func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, repos organizationRepositories, people organizationUsers, packages organizationPackages, releaseStore organizationReleases, pulls organizationPulls, incidentStore organizationIncidents, credentials organizationCredentialStore) {
 	mux.HandleFunc("GET /organizations/{organization}/directory", func(w http.ResponseWriter, r *http.Request) {
 		actor, authenticated, ok := authenticateOptionalRequest(w, r, credentials, auth.RepositoryRead)
 		if !ok {
@@ -114,8 +121,14 @@ func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, re
 		if !readJSON(w, r, &in, 1024) {
 			return
 		}
+		before, _ := orgs.EffectiveAccess(r.PathValue("organization"), r.PathValue("user"))
 		o, e := orgs.RemoveTeamMember(r.PathValue("organization"), r.PathValue("team"), actor.UserID, r.PathValue("user"), in.ExpectedVersion)
 		if organizationError(w, e) {
+			return
+		}
+		after, _ := orgs.EffectiveAccess(r.PathValue("organization"), r.PathValue("user"))
+		if e = revokeLostCredentials(credentials, r.PathValue("user"), before, after); e != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
 		writeJSON(w, 200, o)
@@ -161,6 +174,138 @@ func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, re
 		}
 		w.Header().Set("Location", "/organizations/"+r.PathValue("organization")+"/agents/"+made.ID)
 		writeJSON(w, 201, made)
+	})
+	mux.HandleFunc("GET /organizations/{organization}/access/effective", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryRead)
+		if !ok {
+			return
+		}
+		if !orgs.IsMember(r.PathValue("organization"), actor.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		items, e := orgs.EffectiveAccess(r.PathValue("organization"), actor.UserID)
+		if organizationError(w, e) {
+			return
+		}
+		writeJSON(w, 200, map[string]any{"user_id": actor.UserID, "items": items})
+	})
+	mux.HandleFunc("POST /organizations/{organization}/access-grants", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in organizations.RoleGrant
+		if !readJSON(w, r, &in, 16384) {
+			return
+		}
+		if !organizationResources(w, r.PathValue("organization"), in.Resources, repos) {
+			return
+		}
+		_, made, e := orgs.GrantRole(r.PathValue("organization"), actor.UserID, in)
+		if organizationError(w, e) {
+			return
+		}
+		writeJSON(w, 201, made)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/access-requests", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in organizations.AccessRequest
+		if !readJSON(w, r, &in, 16384) {
+			return
+		}
+		if !organizationResources(w, r.PathValue("organization"), in.Resources, repos) {
+			return
+		}
+		_, made, e := orgs.RequestAccess(r.PathValue("organization"), actor.UserID, in)
+		if organizationError(w, e) {
+			return
+		}
+		writeJSON(w, 201, made)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/access-requests/{request}", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in struct {
+			Decision string `json:"decision"`
+		}
+		if !readJSON(w, r, &in, 1024) {
+			return
+		}
+		_, request, grant, e := orgs.ResolveAccessRequest(r.PathValue("organization"), r.PathValue("request"), actor.UserID, in.Decision)
+		if organizationError(w, e) {
+			return
+		}
+		writeJSON(w, 200, map[string]any{"request": request, "grant": grant})
+	})
+	mux.HandleFunc("DELETE /organizations/{organization}/access-grants/{grant}", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		_, revoked, e := orgs.RevokeRole(r.PathValue("organization"), r.PathValue("grant"), actor.UserID)
+		if organizationError(w, e) {
+			return
+		}
+		if e = credentials.RevokeIDs(revoked.CredentialIDs); e != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, 200, revoked)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/access-grants/{grant}/credentials", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in struct {
+			RepositoryID   string `json:"repository_id"`
+			Branch         string `json:"branch"`
+			ExpiresInHours int    `json:"expires_in_hours"`
+		}
+		if !readJSON(w, r, &in, 4096) {
+			return
+		}
+		grants, e := orgs.EffectiveAccess(r.PathValue("organization"), actor.UserID)
+		if organizationError(w, e) {
+			return
+		}
+		var selected *organizations.RoleGrant
+		for i := range grants {
+			if grants[i].ID == r.PathValue("grant") {
+				selected = &grants[i]
+				break
+			}
+		}
+		allowed := selected != nil && selected.Role != "viewer" && in.ExpiresInHours > 0 && in.ExpiresInHours <= 24 && time.Now().Add(time.Duration(in.ExpiresInHours)*time.Hour).Before(selected.ExpiresAt.Add(time.Second)) && strings.HasPrefix(in.Branch, "refs/heads/") && !contains(selected.Exceptions, "candidate_branch:write")
+		if allowed {
+			allowed = false
+			for _, resource := range selected.Resources {
+				if resource.Kind == "repository" && resource.ID == in.RepositoryID {
+					allowed = true
+				}
+			}
+		}
+		if !allowed {
+			writeJSON(w, 403, map[string]string{"error": "forbidden"})
+			return
+		}
+		issued, e := credentials.IssueRepositoryGit(actor.UserID, "Organization role "+selected.ID, in.RepositoryID, in.Branch, time.Duration(in.ExpiresInHours)*time.Hour)
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_credential"})
+			return
+		}
+		if _, _, e = orgs.AttachCredential(r.PathValue("organization"), selected.ID, actor.UserID, issued.ID); e != nil {
+			_ = credentials.RevokeIDs([]string{issued.ID})
+			organizationError(w, e)
+			return
+		}
+		writeJSON(w, 201, map[string]any{"id": issued.ID, "token": issued.Token, "username": "agent", "repository_id": in.RepositoryID, "branch": in.Branch, "expires_at": issued.ExpiresAt})
 	})
 	mux.HandleFunc("POST /organizations", func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
@@ -252,12 +397,17 @@ func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, re
 		}
 		id := r.PathValue("organization")
 		user := r.PathValue("user")
+		before, _ := orgs.EffectiveAccess(id, user)
 		o, e := orgs.Remove(id, actor.UserID, user)
 		if organizationError(w, e) {
 			return
 		}
 		for _, repo := range mustOrgRepos(repos, id) {
 			_ = repos.RemoveCollaborator(repo.OwnerID, repo.ID, user)
+		}
+		if e = revokeLostCredentials(credentials, user, before, nil); e != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
 		}
 		writeJSON(w, 200, o)
 	})
@@ -403,6 +553,45 @@ func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, re
 func mustOrgRepos(r organizationRepositories, id string) []repositories.Repository {
 	x, _ := r.ListOrganization(id)
 	return x
+}
+func contains(items []string, value string) bool {
+	for _, item := range items {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}
+func revokeLostCredentials(credentials organizationCredentialStore, user string, before, after []organizations.RoleGrant) error {
+	retained := map[string]bool{}
+	for _, grant := range after {
+		retained[grant.ID] = true
+	}
+	ids := []string{}
+	for _, grant := range before {
+		if !retained[grant.ID] {
+			for _, id := range grant.CredentialIDs {
+				if grant.CredentialUsers[id] == user {
+					ids = append(ids, id)
+				}
+			}
+		}
+	}
+	return credentials.RevokeIDs(ids)
+}
+func organizationResources(w http.ResponseWriter, organization string, resources []organizations.ResourceRef, repos organizationRepositories) bool {
+	for _, resource := range resources {
+		repositoryID := resource.RepositoryID
+		if resource.Kind == "repository" {
+			repositoryID = resource.ID
+		}
+		repo, err := repos.Inspect(storage.ID(repositoryID))
+		if err != nil || repo.OrganizationID != organization {
+			writeJSON(w, 422, map[string]string{"error": "invalid_resource"})
+			return false
+		}
+	}
+	return true
 }
 func organizationError(w http.ResponseWriter, e error) bool {
 	if e == nil {

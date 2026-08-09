@@ -1577,6 +1577,32 @@ see public teams, public responsibilities, public approved agents, and accepted
 effective members. `via_team_ids` records the nested path explaining why each
 person is effective in a team. Authenticated organization members additionally
 see internal teams, responsibilities, direct membership records, and pending
-invitations. This directory expresses responsibility only; portfolio access
-continues to use coarse organization membership grants until scoped roles are
-introduced.
+invitations.
+
+The organization access ledger turns that responsibility into reviewable,
+temporary authority. An owner assigns a `viewer`, `contributor`, `maintainer`,
+or `operator` role to a team or approved agent, selecting individual
+repositories, packages, environments, and collaboration resources. Nested
+resources retain their repository boundary. Every grant has a reason, an
+expiry no more than 30 days away, and optional explicit denied-action
+exceptions such as `deploy:production`; it does not silently add collaborators
+or grant the rest of the portfolio.
+
+Members request the same contract at `POST
+/organizations/{id}/access-requests`; they may request only for a team they
+belong to or an approved agent they operate. Organization owners approve or
+deny once, and approval creates the role grant linked from the request. `GET
+/organizations/{id}/access/effective` returns the active, unexpired grants
+derived for the caller through accepted nested-team membership or agent
+operation, including exact resources, exceptions, reason, and expiry. The
+Organizations web workspace presents this explanation and pending decisions.
+
+A contributor-or-higher grant over one selected repository can derive a
+one-time-visible, branch-only Git credential for at most 24 hours through the
+grant's `/credentials` resource. The credential cannot outlive its role and an
+exception named `candidate_branch:write` prevents issuance. Revoking a grant
+immediately revokes every credential derived from it. Removing a team or
+organization member revokes only that user's credentials from grants they no
+longer inherit, leaving unaffected teammates intact. The organization event
+sequence audits requests, decisions, grants, credential issuance, and
+revocation without storing credential secrets.
