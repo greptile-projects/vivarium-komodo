@@ -506,6 +506,16 @@ whenever dependencies change or the web job fails before it starts.
   exact authorized reads own contact, summary, versions, evidence,
   conversation, and audit detail. Never mirror pre-disclosure report data into
   repository activity, search, inbox, incidents, or ordinary notifications.
+  Advisory diagnosis stays inside that embargoed resource. Responders connect
+  typed commit, dependency, build, release-artifact, deployment, and supported-
+  version evidence; hypotheses and conclusions cite stable evidence IDs, and
+  the version-by-environment matrix records confirmed, suspected, unaffected,
+  or fixed state with actor and rationale. A responder may delegate selected
+  evidence to a 24-hour read-only investigation. Its credential reads only the
+  safe advisory header and selected evidence and appends findings, tool notes,
+  questions, and uncertainty; it has no repository, Git, build, release,
+  deployment, conversation, team, or general advisory access. Cancellation
+  immediately revokes it, and responses never return its stored digest.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 
