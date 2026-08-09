@@ -22,6 +22,22 @@ retain attributable discussion, branch revisions, and approve or
 request-changes review decisions inside the advisory. Revoking a session—or
 removing its human assignee from the response team—revokes its Git grant.
 
+Verification stays advisory-owned as well. `POST
+/security-reports/{report}/repairs/{repair}/verification` opens a ledger at the
+current embargo branch tip and records required-check and private-security-
+reproduction outcomes by safe name, opaque attempt identity, and definition
+digest. The ledger never accepts commands, fixtures, or logs. A branch-tip
+change requires a new ledger, preventing evidence from silently following a
+different candidate.
+
+Protected integration is rejected until at least one required check, one
+security reproduction, and one current approval all pass and no remaining gap
+is recorded. A repository maintainer can then connect the protected queue entry
+and integration commit, followed by checksum-addressed release artifacts whose
+version line must match the repair. The advisory workspace summarizes every
+line's coverage, failures, approvals, integration, artifacts, and explicit
+gaps without exposing the confidential reproduction itself.
+
 ## Release builds and attestations
 
 A release candidate is an immutable source and collaboration snapshot. Its

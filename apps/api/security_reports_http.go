@@ -33,6 +33,7 @@ type securityReportStore interface {
 	StartRepairSession(string, string, string, string, string, string, string, time.Time, func(string) bool) (securityreports.Report, securityreports.RepairSession, error)
 	AddRepairRecord(string, string, string, string, string, string, string, string, func(string) bool) (securityreports.Report, error)
 	RevokeRepairSession(string, string, string, string, func(string) bool) (securityreports.Report, securityreports.RepairSession, error)
+	UpdateRepairVerification(string, string, securityreports.VerificationAction, func(string) bool) (securityreports.Report, error)
 }
 type securityUserStore interface {
 	Get(users.ID) (users.User, error)
@@ -62,6 +63,48 @@ func registerSecurityReportsHTTP(mux *http.ServeMux, store securityReportStore, 
 	mux.HandleFunc("POST /security-reports/{report}/repairs/{repair}/sessions", startSecurityRepairSession(store, catalog, userStore, credentials))
 	mux.HandleFunc("POST /security-reports/{report}/repairs/{repair}/sessions/{session}/records", addSecurityRepairRecord(store, catalog, credentials))
 	mux.HandleFunc("DELETE /security-reports/{report}/repairs/{repair}/sessions/{session}", revokeSecurityRepairSession(store, catalog, credentials))
+	mux.HandleFunc("POST /security-reports/{report}/repairs/{repair}/verification", updateSecurityRepairVerification(store, catalog, credentials))
+}
+
+func updateSecurityRepairVerification(store securityReportStore, catalog pullRequestRepositoryStore, credentials securityCredentialStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := securityActor(w, r, credentials)
+		if !ok {
+			return
+		}
+		var in securityreports.VerificationAction
+		if !readJSON(w, r, &in, 70<<10) {
+			return
+		}
+		report, err := store.Get(r.PathValue("report"), actor, ownerCheck(catalog, actor))
+		if err != nil {
+			writeSecurityReport(w, report, err, 200)
+			return
+		}
+		var task *securityreports.RepairTask
+		for x := range report.Repairs {
+			if report.Repairs[x].ID == r.PathValue("repair") {
+				task = &report.Repairs[x]
+			}
+		}
+		if task == nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		repository, err := catalog.Open(storage.ID(task.RepositoryID))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		ref, err := repository.ReadReference(storage.ReferenceName(task.Branch))
+		if err != nil || string(ref.ObjectID) != in.Revision {
+			writeJSON(w, 409, map[string]string{"error": "repair_revision_changed"})
+			return
+		}
+		in.ActorID = actor
+		updated, err := store.UpdateRepairVerification(report.ID, task.ID, in, ownerCheck(catalog, actor))
+		writeSecurityReport(w, updated, err, 200)
+	}
 }
 
 func createSecurityRepair(store securityReportStore, catalog pullRequestRepositoryStore, credentials securityCredentialStore) http.HandlerFunc {
@@ -414,6 +457,11 @@ func addSecurityInvestigationRecord(store securityReportStore) http.HandlerFunc 
 func scrubSecurityCredentials(r *securityreports.Report) {
 	for x := range r.Investigations {
 		r.Investigations[x].CredentialDigest = ""
+	}
+	for x := range r.Repairs {
+		for y := range r.Repairs[x].Sessions {
+			r.Repairs[x].Sessions[y].CredentialName = ""
+		}
 	}
 }
 

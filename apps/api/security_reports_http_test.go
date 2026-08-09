@@ -202,6 +202,23 @@ func TestSecurityRepairHTTPScopesAndRevokesEmbargoedBranch(t *testing.T) {
 	if err != nil || grant.RepositoryID != string(repo.ID) || grant.Branch != created.Repair.Branch {
 		t.Fatalf("grant=%#v err=%v", grant, err)
 	}
+	verificationPath := "/security-reports/" + report.ID + "/repairs/" + created.Repair.ID + "/verification"
+	for _, action := range []map[string]any{
+		{"action": "begin", "revision": string(commit)},
+		{"action": "gate", "revision": string(commit), "kind": "required_check", "name": "supported line", "attempt_id": "check-1", "definition_digest": strings.Repeat("1", 64), "state": "passed"},
+		{"action": "gate", "revision": string(commit), "kind": "security_reproduction", "name": "private regression", "attempt_id": "secret-1", "definition_digest": strings.Repeat("2", 64), "state": "passed"},
+		{"action": "approve", "revision": string(commit), "decision": "approve", "summary": "Exact candidate reviewed."},
+		{"action": "integrate", "revision": string(commit), "integration_entry_id": "queue-1", "integration_commit_id": strings.Repeat("c", 40)},
+		{"action": "attest", "revision": string(commit), "release_id": "release-1", "version": "1.x", "artifact_id": "artifact-1", "artifact_sha256": strings.Repeat("d", 64)},
+	} {
+		code, body = request(http.MethodPost, verificationPath, token, action)
+		if code != 200 {
+			t.Fatalf("verification action %#v=%d %s", action, code, body)
+		}
+	}
+	if bytes.Contains(body, []byte(`"command":`)) || bytes.Contains(body, []byte(`"logs":`)) || !bytes.Contains(body, []byte(`"state":"attested"`)) {
+		t.Fatalf("unsafe or incomplete verification response: %s", body)
+	}
 	code, _ = request(http.MethodDelete, "/security-reports/"+report.ID+"/repairs/"+created.Repair.ID+"/sessions/"+delegated.Session.ID, token, nil)
 	if code != 200 {
 		t.Fatalf("revoke=%d", code)
