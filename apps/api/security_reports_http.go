@@ -1,8 +1,12 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
@@ -25,12 +29,21 @@ type securityReportStore interface {
 	InvestigationContext(string) (securityreports.Report, securityreports.Investigation, error)
 	AddInvestigationRecord(string, string, string, string, []string) (securityreports.Report, securityreports.Investigation, error)
 	ControlInvestigation(string, string, string, string, string, func(string) bool) (securityreports.Report, error)
+	CreateRepair(string, securityreports.RepairInput, func(string) bool) (securityreports.Report, securityreports.RepairTask, error)
+	StartRepairSession(string, string, string, string, string, string, string, time.Time, func(string) bool) (securityreports.Report, securityreports.RepairSession, error)
+	AddRepairRecord(string, string, string, string, string, string, string, string, func(string) bool) (securityreports.Report, error)
+	RevokeRepairSession(string, string, string, string, func(string) bool) (securityreports.Report, securityreports.RepairSession, error)
 }
 type securityUserStore interface {
 	Get(users.ID) (users.User, error)
 }
+type securityCredentialStore interface {
+	authStore
+	IssueRepositoryGit(string, string, string, string, time.Duration) (auth.IssuedGrant, error)
+	RevokeRepositoryGit(string, string, string) error
+}
 
-func registerSecurityReportsHTTP(mux *http.ServeMux, store securityReportStore, catalog pullRequestRepositoryStore, userStore securityUserStore, credentials authStore) {
+func registerSecurityReportsHTTP(mux *http.ServeMux, store securityReportStore, catalog pullRequestRepositoryStore, userStore securityUserStore, credentials securityCredentialStore) {
 	mux.HandleFunc("POST /security-reports", createSecurityReport(store, catalog, credentials))
 	mux.HandleFunc("GET /security-reports", listSecurityReports(store, catalog, credentials))
 	mux.HandleFunc("GET /security-reports/{report}", getSecurityReport(store, catalog, credentials))
@@ -45,6 +58,220 @@ func registerSecurityReportsHTTP(mux *http.ServeMux, store securityReportStore, 
 	mux.HandleFunc("POST /security-reports/{report}/investigations/{session}/control", controlSecurityInvestigation(store, catalog, credentials))
 	mux.HandleFunc("GET /security-investigations/context", securityInvestigationContext(store))
 	mux.HandleFunc("POST /security-investigations/records", addSecurityInvestigationRecord(store))
+	mux.HandleFunc("POST /security-reports/{report}/repairs", createSecurityRepair(store, catalog, credentials))
+	mux.HandleFunc("POST /security-reports/{report}/repairs/{repair}/sessions", startSecurityRepairSession(store, catalog, userStore, credentials))
+	mux.HandleFunc("POST /security-reports/{report}/repairs/{repair}/sessions/{session}/records", addSecurityRepairRecord(store, catalog, credentials))
+	mux.HandleFunc("DELETE /security-reports/{report}/repairs/{repair}/sessions/{session}", revokeSecurityRepairSession(store, catalog, credentials))
+}
+
+func createSecurityRepair(store securityReportStore, catalog pullRequestRepositoryStore, credentials securityCredentialStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := securityActor(w, r, credentials)
+		if !ok {
+			return
+		}
+		var in struct {
+			RepositoryID  string   `json:"repository_id"`
+			Version       string   `json:"version"`
+			Outcome       string   `json:"outcome"`
+			BaseRevision  string   `json:"base_revision"`
+			DependencyIDs []string `json:"dependency_ids"`
+		}
+		if !readJSON(w, r, &in, 70<<10) {
+			return
+		}
+		report, accessErr := store.Get(r.PathValue("report"), actor, ownerCheck(catalog, actor))
+		if accessErr != nil {
+			writeSecurityReport(w, report, accessErr, 201)
+			return
+		}
+		if !repositoryParticipant(catalog, storage.ID(in.RepositoryID), actor) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		repository, err := catalog.Open(storage.ID(in.RepositoryID))
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_repair_base"})
+			return
+		}
+		base, err := repository.ReadObject(storage.ObjectID(in.BaseRevision))
+		if err != nil || base.Type != storage.CommitObject {
+			writeJSON(w, 422, map[string]string{"error": "invalid_repair_base"})
+			return
+		}
+		var nonce [16]byte
+		if _, err = rand.Read(nonce[:]); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		branch := "refs/heads/embargo/" + hex.EncodeToString(nonce[:])
+		if err = repository.CreateReference(storage.Reference{Name: storage.ReferenceName(branch), ObjectID: storage.ObjectID(in.BaseRevision)}); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		item, task, err := store.CreateRepair(r.PathValue("report"), securityreports.RepairInput{ActorID: actor, RepositoryID: in.RepositoryID, Version: in.Version, Outcome: in.Outcome, BaseRevision: in.BaseRevision, Branch: branch, DependencyIDs: in.DependencyIDs}, ownerCheck(catalog, actor))
+		if err != nil {
+			_ = repository.DeleteReference(storage.ReferenceName(branch))
+			writeSecurityReport(w, item, err, 201)
+			return
+		}
+		scrubSecurityCredentials(&item)
+		writeJSON(w, 201, map[string]any{"report": item, "repair": task})
+	}
+}
+
+func startSecurityRepairSession(store securityReportStore, catalog pullRequestRepositoryStore, users securityUserStore, credentials securityCredentialStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := securityActor(w, r, credentials)
+		if !ok {
+			return
+		}
+		var in struct {
+			Kind       string `json:"kind"`
+			AssigneeID string `json:"assignee_id"`
+			Mandate    string `json:"mandate"`
+		}
+		if !readJSON(w, r, &in, 70<<10) {
+			return
+		}
+		report, err := store.Get(r.PathValue("report"), actor, ownerCheck(catalog, actor))
+		if err != nil {
+			writeSecurityReport(w, report, err, 201)
+			return
+		}
+		var task *securityreports.RepairTask
+		for x := range report.Repairs {
+			if report.Repairs[x].ID == r.PathValue("repair") {
+				task = &report.Repairs[x]
+			}
+		}
+		if task == nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if !repositoryParticipant(catalog, storage.ID(task.RepositoryID), actor) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		grantUser := actor
+		if strings.ToLower(strings.TrimSpace(in.Kind)) == "human" {
+			if _, er := users.Get(userspkgID(in.AssigneeID)); er != nil || !securityTeamMember(report, in.AssigneeID) || !repositoryParticipant(catalog, storage.ID(task.RepositoryID), in.AssigneeID) {
+				writeJSON(w, 422, map[string]string{"error": "invalid_repair_assignee"})
+				return
+			}
+			grantUser = in.AssigneeID
+		} else if strings.ToLower(strings.TrimSpace(in.Kind)) != "agent" || strings.TrimSpace(in.AssigneeID) != "codex" {
+			writeJSON(w, 422, map[string]string{"error": "invalid_repair_assignee"})
+			return
+		}
+		var credentialNonce [8]byte
+		if _, er := rand.Read(credentialNonce[:]); er != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		name := "Security repair " + report.ID + "/" + task.ID + "/" + hex.EncodeToString(credentialNonce[:])
+		issued, er := credentials.IssueRepositoryGit(grantUser, name, task.RepositoryID, task.Branch, 24*time.Hour)
+		if er != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		item, session, er := store.StartRepairSession(report.ID, task.ID, actor, in.Kind, in.AssigneeID, in.Mandate, name, issued.ExpiresAt, ownerCheck(catalog, actor))
+		if er != nil {
+			_ = credentials.RevokeRepositoryGit(task.RepositoryID, task.Branch, name)
+			writeSecurityReport(w, item, er, 201)
+			return
+		}
+		scrubSecurityCredentials(&item)
+		writeJSON(w, 201, map[string]any{"report": item, "session": session, "git_credential": issued.Token, "credential_notice": "shown once; exact embargoed repository branch only"})
+	}
+}
+
+func userspkgID(id string) users.ID { return users.ID(id) }
+func securityTeamMember(r securityreports.Report, id string) bool {
+	if r.ReporterID == id {
+		return true
+	}
+	for _, m := range r.Team {
+		if m.UserID == id {
+			return true
+		}
+	}
+	return false
+}
+func repositoryParticipant(c pullRequestRepositoryStore, id storage.ID, actor string) bool {
+	r, e := c.Inspect(id)
+	if e != nil {
+		return false
+	}
+	if r.OwnerID == actor {
+		return true
+	}
+	ok, _ := c.IsCollaborator(id, actor)
+	return ok
+}
+
+func addSecurityRepairRecord(store securityReportStore, catalog pullRequestRepositoryStore, credentials securityCredentialStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := securityActor(w, r, credentials)
+		if !ok {
+			return
+		}
+		var in struct {
+			Type     string `json:"type"`
+			Body     string `json:"body"`
+			Revision string `json:"revision"`
+			Decision string `json:"decision"`
+		}
+		if !readJSON(w, r, &in, 70<<10) {
+			return
+		}
+		if in.Type == "branch_update" || in.Type == "review" {
+			report, er := store.Get(r.PathValue("report"), actor, ownerCheck(catalog, actor))
+			if er != nil {
+				writeSecurityReport(w, report, er, 201)
+				return
+			}
+			var task *securityreports.RepairTask
+			for x := range report.Repairs {
+				if report.Repairs[x].ID == r.PathValue("repair") {
+					task = &report.Repairs[x]
+				}
+			}
+			if task == nil {
+				writeJSON(w, 404, map[string]string{"error": "not_found"})
+				return
+			}
+			repository, er := catalog.Open(storage.ID(task.RepositoryID))
+			if er != nil {
+				writeJSON(w, 404, map[string]string{"error": "not_found"})
+				return
+			}
+			ref, er := repository.ReadReference(storage.ReferenceName(task.Branch))
+			if er != nil || string(ref.ObjectID) != in.Revision {
+				writeJSON(w, 409, map[string]string{"error": "repair_revision_changed"})
+				return
+			}
+		}
+		item, err := store.AddRepairRecord(r.PathValue("report"), r.PathValue("repair"), r.PathValue("session"), actor, in.Type, in.Body, in.Revision, in.Decision, ownerCheck(catalog, actor))
+		writeSecurityReport(w, item, err, 201)
+	}
+}
+func revokeSecurityRepairSession(store securityReportStore, catalog pullRequestRepositoryStore, credentials securityCredentialStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := securityActor(w, r, credentials)
+		if !ok {
+			return
+		}
+		item, session, err := store.RevokeRepairSession(r.PathValue("report"), r.PathValue("repair"), r.PathValue("session"), actor, ownerCheck(catalog, actor))
+		if err == nil {
+			for _, task := range item.Repairs {
+				if task.ID == r.PathValue("repair") {
+					_ = credentials.RevokeRepositoryGit(task.RepositoryID, task.Branch, session.CredentialName)
+				}
+			}
+		}
+		writeSecurityReport(w, item, err, 200)
+	}
 }
 
 func addSecurityReportResource(store securityReportStore, catalog pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
@@ -307,13 +534,24 @@ func addSecurityReportMember(store securityReportStore, catalog pullRequestRepos
 		writeSecurityReport(w, item, err, 201)
 	}
 }
-func removeSecurityReportMember(store securityReportStore, catalog pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+func removeSecurityReportMember(store securityReportStore, catalog pullRequestRepositoryStore, credentials securityCredentialStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := securityActor(w, r, credentials)
 		if !ok {
 			return
 		}
+		before, _ := store.Get(r.PathValue("report"), actor, ownerCheck(catalog, actor))
 		item, err := store.SetMember(r.PathValue("report"), actor, r.PathValue("user"), false, ownerCheck(catalog, actor))
+		if err == nil {
+			for _, task := range before.Repairs {
+				for _, session := range task.Sessions {
+					if session.AssigneeID == r.PathValue("user") && session.State == "active" {
+						_ = credentials.RevokeRepositoryGit(task.RepositoryID, task.Branch, session.CredentialName)
+						_, _, _ = store.RevokeRepairSession(before.ID, task.ID, session.ID, actor, ownerCheck(catalog, actor))
+					}
+				}
+			}
+		}
 		writeSecurityReport(w, item, err, 200)
 	}
 }

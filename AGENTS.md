@@ -516,6 +516,20 @@ whenever dependencies change or the web job fails before it starts.
   questions, and uncertainty; it has no repository, Git, build, release,
   deployment, conversation, team, or general advisory access. Cancellation
   immediately revokes it, and responses never return its stored digest.
+  Embargoed vulnerability repairs remain owned by the security report rather
+  than ordinary proposals, pull requests, activity, or inbox. Each repair
+  targets one declared affected repository/version and exact base commit, may
+  depend on another report repair across repositories, and uses an opaque
+  `refs/heads/embargo/*` branch. Normal Git advertisement and repository browser
+  reads hide those refs and commits, including from repository owners. Human or
+  agent repair sessions receive a one-time 24-hour Git credential limited to
+  the exact repository and embargo branch; human assignees must independently
+  retain both response-team and repository-participant access. Private session
+  records retain messages, status, published commit IDs, and commit-bound
+  approve/request-changes decisions with stable authorship. Session revocation
+  and response-team removal revoke matching Git grants immediately. Keep all
+  repair collaboration inside the advisory until the later disclosure workflow
+  deliberately publishes it.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 

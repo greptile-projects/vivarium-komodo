@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
@@ -148,5 +150,63 @@ func TestSecurityReportRejectsInaccessibleAffectedRepository(t *testing.T) {
 	mux.ServeHTTP(w, r)
 	if w.Code != 422 {
 		t.Fatalf("create=%d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSecurityRepairHTTPScopesAndRevokesEmbargoedBranch(t *testing.T) {
+	userStore, _ := users.New(t.TempDir())
+	owner, _ := userStore.Create(users.Profile{Handle: "repair-owner", DisplayName: "Repair owner"})
+	gitStore, _ := storage.New(t.TempDir())
+	catalog, _ := repositories.New(t.TempDir(), gitStore)
+	repo, _ := catalog.Create(string(owner.ID), repositories.Metadata{Name: "secure-library", Visibility: repositories.Public})
+	opened, _ := catalog.Open(repo.ID)
+	tree, _ := opened.WriteObject(storage.TreeObject, nil)
+	commit, _ := opened.WriteObject(storage.CommitObject, []byte("tree "+string(tree)+"\nauthor Owner <owner@example.test> 0 +0000\ncommitter Owner <owner@example.test> 0 +0000\n\nbase\n"))
+	_ = opened.CreateReference(storage.Reference{Name: "refs/heads/main", ObjectID: commit})
+	credentials, _ := auth.New(t.TempDir())
+	token := issueAccess(t, credentials, string(owner.ID), auth.API, auth.RepositoryRead)
+	store, _ := securityreports.New(t.TempDir())
+	report, _ := store.Create(securityreports.CreateInput{ActorID: string(owner.ID), Title: "private parser issue", Summary: "details", Contact: securityreports.Contact{Channel: "email", Value: "safe@example.test"}, Affected: []securityreports.AffectedRepository{{RepositoryID: string(repo.ID), Versions: []string{"1.x"}}}})
+	_, _ = store.Triage(report.ID, securityreports.TriageInput{ActorID: string(owner.ID), EmbargoState: "active"}, func(string) bool { return true })
+	mux := http.NewServeMux()
+	registerSecurityReportsHTTP(mux, store, catalog, userStore, credentials)
+	request := func(method, path, bearer string, input any) (int, []byte) {
+		body, _ := json.Marshal(input)
+		r := httptest.NewRequest(method, path, bytes.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+bearer)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		return w.Code, w.Body.Bytes()
+	}
+	code, body := request(http.MethodPost, "/security-reports/"+report.ID+"/repairs", token, map[string]any{"repository_id": string(repo.ID), "version": "1.x", "outcome": "remove unsafe parser path", "base_revision": string(commit)})
+	if code != 201 {
+		t.Fatalf("repair=%d %s", code, body)
+	}
+	var created struct {
+		Repair securityreports.RepairTask `json:"repair"`
+	}
+	_ = json.Unmarshal(body, &created)
+	if !strings.HasPrefix(created.Repair.Branch, "refs/heads/embargo/") {
+		t.Fatalf("branch=%q", created.Repair.Branch)
+	}
+	code, body = request(http.MethodPost, "/security-reports/"+report.ID+"/repairs/"+created.Repair.ID+"/sessions", token, map[string]string{"kind": "agent", "assignee_id": "codex", "mandate": "make the bounded repair"})
+	if code != 201 {
+		t.Fatalf("session=%d %s", code, body)
+	}
+	var delegated struct {
+		Session       securityreports.RepairSession `json:"session"`
+		GitCredential string                        `json:"git_credential"`
+	}
+	_ = json.Unmarshal(body, &delegated)
+	grant, err := credentials.Authenticate(delegated.GitCredential, auth.GitWrite)
+	if err != nil || grant.RepositoryID != string(repo.ID) || grant.Branch != created.Repair.Branch {
+		t.Fatalf("grant=%#v err=%v", grant, err)
+	}
+	code, _ = request(http.MethodDelete, "/security-reports/"+report.ID+"/repairs/"+created.Repair.ID+"/sessions/"+delegated.Session.ID, token, nil)
+	if code != 200 {
+		t.Fatalf("revoke=%d", code)
+	}
+	if _, err = credentials.Authenticate(delegated.GitCredential, auth.GitWrite); !errors.Is(err, auth.ErrUnauthenticated) {
+		t.Fatalf("credential survived revoke: %v", err)
 	}
 }
