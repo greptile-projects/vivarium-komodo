@@ -430,6 +430,7 @@ type PackageVersion = {
   build_attestation: { run_id: string; build_name: string; command: string; completed_at: string };
   platform: { os: string; arch: string; runtime?: string };
   dependencies: Record<string, string>; publisher_id: string;
+  documentation?: string; documentation_sha256?: string;
   visibility: "public" | "private"; lifecycle: "active"; published_at: string;
 };
 type PackageList = { items: PackageVersion[]; total_count: number };
@@ -3003,7 +3004,7 @@ function ReleaseWorkspace({
         name: data.get("name"), version: data.get("version"), release_id: current.id,
         build_run_id: buildRunID, artifact_id: artifactID,
         platform: { os: data.get("os"), arch: data.get("arch"), runtime: data.get("runtime") },
-        dependencies, visibility: data.get("visibility"),
+        dependencies, documentation: data.get("documentation"), visibility: data.get("visibility"),
       });
       event.currentTarget.reset();
       await loadPackages();
@@ -3414,6 +3415,7 @@ function ReleaseWorkspace({
                         </select>
                       </label>
                       <label className="package-dependencies">Dependencies<textarea name="dependencies" rows={3} placeholder={"@owner/core@^1.0.0\n@owner/types@~2.1.0"} /></label>
+                      <label className="package-dependencies">Documentation<textarea name="documentation" rows={5} placeholder="Install and usage guidance for collaborators choosing this version." /></label>
                       <div className="release-form-actions"><Button disabled={publishingPackage}>{publishingPackage ? "Publishing…" : "Publish immutable version"}</Button></div>
                     </form>
                   </details>

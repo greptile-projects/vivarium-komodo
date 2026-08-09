@@ -7,6 +7,7 @@ import { Key, Shield, Sparkles } from "./icons";
 const navigation = [
   { label: "Home", href: "/", icon: Home, active: true },
   { label: "Repositories", href: "#repositories", icon: Book },
+  { label: "Packages", href: "/packages", icon: Plus },
   { label: "Pull requests", href: "#activity", icon: GitPullRequest, count: 3 },
   { label: "People", href: "#people", icon: Users },
 ];
