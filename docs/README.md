@@ -3,6 +3,25 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Embargoed security repairs
+
+Security repairs are advisory-owned workspaces, not private-flavored ordinary
+pull requests. A repair captures an affected repository and version line, exact
+base commit, intended outcome, and optional dependencies on other repairs in
+the same advisory. Its randomized `refs/heads/embargo/*` ref is excluded from
+normal Git advertisements and JSON repository browsing; direct commit browsing
+also requires reachability from a non-embargo branch. This keeps branch names,
+new commits, agent activity, discussion, and review out of normal contribution
+surfaces before disclosure.
+
+Each human or agent session receives a separately revocable, 24-hour Git grant
+for exactly one repository and repair branch. Human assignees must be both on
+the advisory response team and an existing repository owner or collaborator,
+so the security workflow does not expand repository authority. Session records
+retain attributable discussion, branch revisions, and approve or
+request-changes review decisions inside the advisory. Revoking a session—or
+removing its human assignee from the response team—revokes its Git grant.
+
 ## Release builds and attestations
 
 A release candidate is an immutable source and collaboration snapshot. Its

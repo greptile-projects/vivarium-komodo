@@ -75,7 +75,7 @@ func listRepositoryBranches(store repositoryBrowserStore, credentials authStore)
 		branches := make([]branchResponse, 0)
 		for _, ref := range refs {
 			name, found := strings.CutPrefix(string(ref.Name), "refs/heads/")
-			if found && ref.ObjectID != "" {
+			if found && !strings.HasPrefix(name, "embargo/") && ref.ObjectID != "" {
 				branches = append(branches, branchResponse{Name: name, CommitID: string(ref.ObjectID), IsDefault: ref.Name == defaultRef})
 			}
 		}
@@ -85,6 +85,9 @@ func listRepositoryBranches(store repositoryBrowserStore, credentials authStore)
 }
 
 func resolveRevision(repository *storage.Repository, revision string) (storage.ObjectID, string, error) {
+	if strings.HasPrefix(revision, "embargo/") {
+		return "", "", storage.ErrObjectNotFound
+	}
 	if revision == "" {
 		defaultRef, err := repository.DefaultBranch()
 		if err != nil {
@@ -97,10 +100,40 @@ func resolveRevision(repository *storage.Repository, revision string) (storage.O
 		return ref.ObjectID, revision, nil
 	}
 	id := storage.ObjectID(revision)
-	if _, objectErr := repository.ReadCommit(id); objectErr == nil {
+	if _, objectErr := repository.ReadCommit(id); objectErr == nil && visibleCommit(repository, id) {
 		return id, revision, nil
 	}
 	return "", "", storage.ErrObjectNotFound
+}
+
+func visibleCommit(repository *storage.Repository, wanted storage.ObjectID) bool {
+	refs, err := repository.ListReferences()
+	if err != nil {
+		return false
+	}
+	seen := map[storage.ObjectID]bool{}
+	queue := []storage.ObjectID{}
+	for _, ref := range refs {
+		if strings.HasPrefix(string(ref.Name), "refs/heads/") && !strings.HasPrefix(string(ref.Name), "refs/heads/embargo/") && ref.ObjectID != "" {
+			queue = append(queue, ref.ObjectID)
+		}
+	}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		if id == wanted {
+			return true
+		}
+		commit, er := repository.ReadCommit(id)
+		if er == nil {
+			queue = append(queue, commit.Parents...)
+		}
+	}
+	return false
 }
 
 func listRepositoryCommits(store repositoryBrowserStore, credentials authStore) http.HandlerFunc {

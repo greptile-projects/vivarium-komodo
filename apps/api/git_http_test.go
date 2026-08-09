@@ -43,6 +43,40 @@ func TestGitCloneSupportsEmptyRepositoryAndPrimaryBranch(t *testing.T) {
 	}
 }
 
+func TestEmbargoedBranchesRequireExactScopedVisibility(t *testing.T) {
+	requireGit(t)
+	store, _ := storage.New(t.TempDir())
+	repository, _ := store.Create()
+	tree := writeObject(t, repository, storage.TreeObject, nil)
+	commit := writeCommit(t, repository, tree, nil, "private repair")
+	public := "refs/heads/trunk"
+	private := "refs/heads/embargo/4f5c9a"
+	if err := repository.CreateReference(storage.Reference{Name: storage.ReferenceName(public), ObjectID: commit}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.CreateReference(storage.Reference{Name: storage.ReferenceName(private), ObjectID: commit}); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	ordinary, err := runGitServiceWithVisibility(request, repository, uploadPackService, "", "--advertise-refs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(ordinary, []byte(private)) {
+		t.Fatalf("ordinary advertisement leaked embargo ref: %q", ordinary)
+	}
+	if !bytes.Contains(ordinary, []byte(public)) {
+		t.Fatalf("ordinary advertisement omitted public branch: %q", ordinary)
+	}
+	scoped, err := runGitServiceWithVisibility(request, repository, uploadPackService, private, "--advertise-refs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(scoped, []byte(private)) {
+		t.Fatalf("scoped advertisement omitted exact embargo ref: %q", scoped)
+	}
+}
+
 func TestGitCloneChecksOutPrimaryBranchWithReachableHistoryAndFiles(t *testing.T) {
 	requireGit(t)
 	store, err := storage.New(t.TempDir())

@@ -49,12 +49,12 @@ func advertiseRepository(repositoryStore gitRepositoryStore, credentials credent
 		if service == receivePackService {
 			scope = auth.GitWrite
 		}
-		repository, _, _, ok := authorizeGitRepository(w, r, repositoryStore, credentials, scope)
+		repository, _, grant, ok := authorizeGitRepository(w, r, repositoryStore, credentials, scope)
 		if !ok {
 			return
 		}
 
-		advertisement, err := runGitService(r, repository, service, "--advertise-refs")
+		advertisement, err := runGitServiceWithVisibility(r, repository, service, grant.Branch, "--advertise-refs")
 		if err != nil {
 			http.Error(w, "could not advertise repository", http.StatusInternalServerError)
 			return
@@ -70,7 +70,7 @@ func advertiseRepository(repositoryStore gitRepositoryStore, credentials credent
 
 func uploadPack(repositoryStore gitRepositoryStore, credentials credentialAuthenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		repository, _, _, ok := authorizeGitRepository(w, r, repositoryStore, credentials, auth.GitRead)
+		repository, _, grant, ok := authorizeGitRepository(w, r, repositoryStore, credentials, auth.GitRead)
 		if !ok {
 			return
 		}
@@ -79,7 +79,7 @@ func uploadPack(repositoryStore gitRepositoryStore, credentials credentialAuthen
 			return
 		}
 
-		result, err := runGitService(r, repository, uploadPackService)
+		result, err := runGitServiceWithVisibility(r, repository, uploadPackService, grant.Branch)
 		if err != nil {
 			http.Error(w, "could not read repository state", http.StatusBadRequest)
 			return
@@ -168,6 +168,38 @@ func authorizeGitRepository(w http.ResponseWriter, r *http.Request, store gitRep
 
 func runGitService(r *http.Request, repository *storage.Repository, service string, arguments ...string) ([]byte, error) {
 	return runGitServiceWithPolicy(r, repository, service, true, "", "", arguments...)
+}
+
+// Embargo refs are absent from ordinary repository discovery, including an
+// owner's clone. Only a credential scoped to one exact repair branch receives
+// the negative hideRefs exception needed to fetch or push that branch.
+func runGitServiceWithVisibility(r *http.Request, repository *storage.Repository, service, allowedBranch string, arguments ...string) ([]byte, error) {
+	visibility := []string{"-c", "transfer.hideRefs=refs/heads/embargo/"}
+	if strings.HasPrefix(allowedBranch, "refs/heads/embargo/") {
+		visibility = append(visibility, "-c", "transfer.hideRefs=!"+allowedBranch)
+	}
+	return runGitServiceWithConfig(r, repository, service, visibility, arguments)
+}
+
+func runGitServiceWithConfig(r *http.Request, repository *storage.Repository, service string, config, arguments []string) ([]byte, error) {
+	commandName := strings.TrimPrefix(service, "git-")
+	commandArguments := append([]string{}, config...)
+	commandArguments = append(commandArguments, commandName, "--stateless-rpc")
+	commandArguments = append(commandArguments, arguments...)
+	commandArguments = append(commandArguments, repository.GitDir())
+	command := exec.CommandContext(r.Context(), "git", commandArguments...)
+	command.Stdin = r.Body
+	command.Env = os.Environ()
+	if protocol := r.Header.Get("Git-Protocol"); protocol == "version=1" || protocol == "version=2" {
+		command.Env = append(command.Env, "GIT_PROTOCOL="+protocol)
+	}
+	var output, stderr bytes.Buffer
+	command.Stdout = &output
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		return nil, fmt.Errorf("git %s: %w: %s", commandName, err, strings.TrimSpace(stderr.String()))
+	}
+	return output.Bytes(), nil
 }
 
 func runGitServiceWithPolicy(r *http.Request, repository *storage.Repository, service string, owner bool, defaultBranch string, allowedBranch string, arguments ...string) ([]byte, error) {
