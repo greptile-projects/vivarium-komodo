@@ -475,6 +475,12 @@ whenever dependencies change or the web job fails before it starts.
   request, latest check, release, and deployment provenance; retain invalidated
   and overdue state in the incident and emit one actionable inbox transition
   to the owner when either first occurs.
+  `incident_response_workflow_test.go` is the black-box regression boundary for
+  the complete degraded-signal-to-corrected-deployment lifecycle. It proves
+  public and participant communication, bounded agent diagnosis, independent
+  governed recovery, health verification, resolution ownership, and ordinary
+  corrective task, Git, check, review, release, and deployment provenance while
+  asserting that incident-worker and anonymous access remain least-privileged.
   Meaningful collaboration transitions are appended through the
   `activities.Store` boundary beneath `$ACTIVITY_ROOT` (default
   `apps/api/data/activities`). Repository activity retains stable actor and

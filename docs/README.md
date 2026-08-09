@@ -168,6 +168,17 @@ work past its due time becomes overdue. Both transitions create actionable
 owner inbox activity while the complete resolution and delivery provenance
 remain reviewable from the incident workspace.
 
+The complete response loop is covered as one black-box public-surface workflow.
+A real failed release health signal becomes an incident with audience-aware
+coordination and read-only agent diagnosis, then an independently approved
+known-good rollback whose declared signal must pass before recovery is accepted.
+Resolution creates owned corrective work that publishes through stock Git,
+checks, review, merge, release build, and governed deployment; reconciliation
+projects every resulting identity and outcome back into the original incident.
+The regression also proves that an incident worker cannot control deployment
+state and that anonymous readers receive only explicitly public investigation
+context.
+
 ## Entrypoints
 
 - `apps/web` — Next.js frontend. Starts at `src/app/page.tsx`; routes are
