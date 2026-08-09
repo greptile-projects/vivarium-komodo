@@ -105,7 +105,16 @@ type ProposalTask = {
   title: string;
   outcome: string;
   position: number;
-  status: "planned" | "in_progress" | "completed" | "canceled" | "draft" | "review" | "merged" | "closed" | "superseded";
+  status:
+    | "planned"
+    | "in_progress"
+    | "completed"
+    | "canceled"
+    | "draft"
+    | "review"
+    | "merged"
+    | "closed"
+    | "superseded";
   depends_on: string[];
   discussion_comment_ids: string[];
   created_by_id: string;
@@ -338,14 +347,22 @@ type PullRequestReadiness = {
     satisfied: boolean;
     requirements: {
       name: string;
-      status: "missing" | "pending" | "failed" | "canceled" | "stale" | "succeeded";
+      status:
+        "missing" | "pending" | "failed" | "canceled" | "stale" | "succeeded";
       run_id?: string;
       commit_id?: string;
     }[];
   };
   blockers: { code: string; message: string }[];
 };
-type IntegrationQueuePolicy = { branch: string; enabled: boolean; concurrency: number; failure_behavior: "pause" | "remove"; required_checks: string[] | null; required_owner_approvals: number };
+type IntegrationQueuePolicy = {
+  branch: string;
+  enabled: boolean;
+  concurrency: number;
+  failure_behavior: "pause" | "remove";
+  required_checks: string[] | null;
+  required_owner_approvals: number;
+};
 type IntegrationQueueEntry = {
   id: string;
   pull_request_id: string;
@@ -361,53 +378,443 @@ type IntegrationQueueEntry = {
   next_action: string;
   blocker?: string;
   enqueued_by_id: string;
-  events: { action: string; actor_id?: string; from?: number; to?: number; created_at: string }[];
-  attempt_history: { generation: number; target_commit_id: string; candidate_commit_id: string; created_at: string; checks: PullRequestReadiness["checks"] }[];
+  events: {
+    action: string;
+    actor_id?: string;
+    from?: number;
+    to?: number;
+    created_at: string;
+  }[];
+  attempt_history: {
+    generation: number;
+    target_commit_id: string;
+    candidate_commit_id: string;
+    created_at: string;
+    checks: PullRequestReadiness["checks"];
+  }[];
   created_at: string;
   checks: PullRequestReadiness["checks"];
 };
-type IntegrationQueueEntries = { items: IntegrationQueueEntry[]; total_count: number; policy: IntegrationQueuePolicy };
+type IntegrationQueueEntries = {
+  items: IntegrationQueueEntry[];
+  total_count: number;
+  policy: IntegrationQueuePolicy;
+};
 type ReleaseCandidate = {
-  id: string; repository_id: string; version: string; notes: string; commit_id: string;
-  prior_release_id?: string; prior_commit_id?: string; status: "candidate"; created_by_id: string; created_at: string;
-  pull_requests: Array<{ id: string; title: string; author_id: string; merge_commit_id: string }>;
-  proposal_ids: string[]; task_ids: string[]; contributor_ids: string[];
+  id: string;
+  repository_id: string;
+  version: string;
+  notes: string;
+  commit_id: string;
+  prior_release_id?: string;
+  prior_commit_id?: string;
+  status: "candidate";
+  created_by_id: string;
+  created_at: string;
+  pull_requests: Array<{
+    id: string;
+    title: string;
+    author_id: string;
+    merge_commit_id: string;
+  }>;
+  proposal_ids: string[];
+  task_ids: string[];
+  contributor_ids: string[];
 };
 type ReleaseList = { items: ReleaseCandidate[]; total_count: number };
 type RelationshipGraph = {
-  repository_id:string;
-  can_write:boolean;
-  nodes:Array<{repository_id:string;name:string;owner_id:string;visibility:string}>;
-  interfaces:Array<{id:string;repository_id:string;name:string;version:string;commit_id:string;release_id:string;schema_path?:string;published_by_id:string;published_at:string}>;
-  edges:Array<{dependency:{id:string;repository_id:string;commit_id:string;release_id?:string;provider_repository_id:string;interface_name:string;constraint:string;declared_by_id:string;declared_at:string};provider?:RelationshipGraph["interfaces"][number];status:"resolved"|"stale"|"unresolved";reasons:string[];consumer_release?:ReleaseCandidate;provider_release?:ReleaseCandidate;consumer_environments:Array<{id:string;name:string;deployment_id:string;state:string;release_id:string;commit_id:string}>;provider_environments:Array<{id:string;name:string;deployment_id:string;state:string;release_id:string;commit_id:string}>}>;
-  summary:{repositories:number;relationships:number;resolved:number;stale:number;unresolved:number};
+  repository_id: string;
+  can_write: boolean;
+  nodes: Array<{
+    repository_id: string;
+    name: string;
+    owner_id: string;
+    visibility: string;
+  }>;
+  interfaces: Array<{
+    id: string;
+    repository_id: string;
+    name: string;
+    version: string;
+    commit_id: string;
+    release_id: string;
+    schema_path?: string;
+    published_by_id: string;
+    published_at: string;
+  }>;
+  edges: Array<{
+    dependency: {
+      id: string;
+      repository_id: string;
+      commit_id: string;
+      release_id?: string;
+      provider_repository_id: string;
+      interface_name: string;
+      constraint: string;
+      declared_by_id: string;
+      declared_at: string;
+    };
+    provider?: RelationshipGraph["interfaces"][number];
+    status: "resolved" | "stale" | "unresolved";
+    reasons: string[];
+    consumer_release?: ReleaseCandidate;
+    provider_release?: ReleaseCandidate;
+    consumer_environments: Array<{
+      id: string;
+      name: string;
+      deployment_id: string;
+      state: string;
+      release_id: string;
+      commit_id: string;
+    }>;
+    provider_environments: Array<{
+      id: string;
+      name: string;
+      deployment_id: string;
+      state: string;
+      release_id: string;
+      commit_id: string;
+    }>;
+  }>;
+  summary: {
+    repositories: number;
+    relationships: number;
+    resolved: number;
+    stale: number;
+    unresolved: number;
+  };
 };
 type EvolutionPlan = {
-  id:string;repository_id:string;interface_name:string;source_kind:"proposal"|"pull_request";source_id:string;candidate_commit_id:string;candidate_schema_path:string;candidate_schema_sha256:string;predecessor:RelationshipGraph["interfaces"][number];predecessor_schema_sha256:string;
-  affected_consumers:Array<{dependency_id:string;repository_id:string;owner_id:string;commit_id:string;constraint:string}>;strategy:string;
-  changes:Array<{id:string;classification:"breaking"|"compatible"|"behavioral"|"unknown";area:string;summary:string;rationale:string;actor_id:string}>;
-  steps:Array<{id:string;position:number;owner_id:string;summary:string;depends_on?:string}>;exceptions:Array<{id:string;consumer_repository_id?:string;reason:string;expires_at?:string;actor_id:string}>;
-  acknowledgements:Array<{actor_id:string;decision:"acknowledge"|"request_changes";note:string;owner_for_repository_ids:string[];created_at:string}>;findings:Array<{id:string;kind:string;body:string;uncertainty?:string;repository_ids:string[];actor_id:string;created_at:string}>;analyses:Array<{id:string;agent:string;mandate:string;repository_ids:string[];state:string;initiated_by_id:string;credential_expires_at:string}>;created_by_id:string;updated_at:string;
+  id: string;
+  repository_id: string;
+  interface_name: string;
+  source_kind: "proposal" | "pull_request";
+  source_id: string;
+  candidate_commit_id: string;
+  candidate_schema_path: string;
+  candidate_schema_sha256: string;
+  predecessor: RelationshipGraph["interfaces"][number];
+  predecessor_schema_sha256: string;
+  affected_consumers: Array<{
+    dependency_id: string;
+    repository_id: string;
+    owner_id: string;
+    commit_id: string;
+    constraint: string;
+  }>;
+  strategy: string;
+  changes: Array<{
+    id: string;
+    classification: "breaking" | "compatible" | "behavioral" | "unknown";
+    area: string;
+    summary: string;
+    rationale: string;
+    actor_id: string;
+  }>;
+  steps: Array<{
+    id: string;
+    position: number;
+    owner_id: string;
+    summary: string;
+    depends_on?: string;
+  }>;
+  exceptions: Array<{
+    id: string;
+    consumer_repository_id?: string;
+    reason: string;
+    expires_at?: string;
+    actor_id: string;
+  }>;
+  tasks: Array<{
+    id: string;
+    target_repository_id: string;
+    status: string;
+    work?: { pull_request_id?: string; head_revision: string };
+  }>;
+  verifications: Array<{
+    id: string;
+    revisions: Array<{
+      repository_id: string;
+      commit_id: string;
+      task_id: string;
+      pull_request_id: string;
+      dependency_id?: string;
+    }>;
+    run_ids: string[];
+    triggered_by_id: string;
+    created_at: string;
+  }>;
+  acknowledgements: Array<{
+    actor_id: string;
+    decision: "acknowledge" | "request_changes";
+    note: string;
+    owner_for_repository_ids: string[];
+    created_at: string;
+  }>;
+  findings: Array<{
+    id: string;
+    kind: string;
+    body: string;
+    uncertainty?: string;
+    repository_ids: string[];
+    actor_id: string;
+    created_at: string;
+  }>;
+  analyses: Array<{
+    id: string;
+    agent: string;
+    mandate: string;
+    repository_ids: string[];
+    state: string;
+    initiated_by_id: string;
+    credential_expires_at: string;
+  }>;
+  created_by_id: string;
+  updated_at: string;
 };
-type EvolutionList={items:EvolutionPlan[];total_count:number};
+type EvolutionList = { items: EvolutionPlan[]; total_count: number };
+type EvolutionVerificationDetail = {
+  verification: EvolutionPlan["verifications"][number];
+  current: boolean;
+  attested: boolean;
+  runs: Array<{
+    id: string;
+    state: string;
+    definition: { name: string; kind?: string };
+    events: Array<{
+      sequence: number;
+      type: string;
+      stream?: string;
+      message?: string;
+      artifact?: { id: string; path: string; sha256: string };
+    }>;
+  }>;
+};
 type ReleaseBuild = {
-  id: string; commit_id: string; state: "queued" | "running" | "succeeded" | "failed" | "canceled";
-  triggered_by_id?: string; retry_of_id?: string; created_at: string; completed_at?: string;
-  definition: { name: string; command: string; working_directory?: string; dependencies?: string[] };
-  events: Array<{ sequence: number; type: string; stream?: string; message?: string; artifact?: { id: string; path: string; size: number; sha256: string; media_type: string } }>;
+  id: string;
+  commit_id: string;
+  state: "queued" | "running" | "succeeded" | "failed" | "canceled";
+  triggered_by_id?: string;
+  retry_of_id?: string;
+  created_at: string;
+  completed_at?: string;
+  definition: {
+    name: string;
+    command: string;
+    working_directory?: string;
+    dependencies?: string[];
+  };
+  events: Array<{
+    sequence: number;
+    type: string;
+    stream?: string;
+    message?: string;
+    artifact?: {
+      id: string;
+      path: string;
+      size: number;
+      sha256: string;
+      media_type: string;
+    };
+  }>;
 };
-type ReleaseAttestation = { release_id: string; repository_id: string; source_commit_id: string; created_by_id: string; verified: boolean; attempts: ReleaseBuild[] };
-type DeliveryEnvironment = { id: string; name: string; position: number; command: string; configuration: Record<string,string>; secret_names: string[]; required_approvals: number; concurrency: number; updated_by_id: string };
-type Deployment = { id: string; environment_id: string; release_id: string; build_run_id: string; artifact_id: string; artifact_path: string; artifact_sha256: string; source_commit_id: string; state: "pending"|"queued"|"running"|"paused"|"succeeded"|"failed"|"canceled"; initiated_by_id: string; approvals: Array<{actor_id:string;created_at:string}>; events: Array<{sequence:number;type:string;state?:string;actor_id?:string;stream?:string;message?:string;stage?:string;signal?:string;outcome?:string;created_at:string}>; current_stage?:string; decision_by_id?:string; decision_reason?:string; recovery_of_id?:string; recovery_action?:string; created_at:string };
+type ReleaseAttestation = {
+  release_id: string;
+  repository_id: string;
+  source_commit_id: string;
+  created_by_id: string;
+  verified: boolean;
+  attempts: ReleaseBuild[];
+};
+type DeliveryEnvironment = {
+  id: string;
+  name: string;
+  position: number;
+  command: string;
+  configuration: Record<string, string>;
+  secret_names: string[];
+  required_approvals: number;
+  concurrency: number;
+  updated_by_id: string;
+};
+type Deployment = {
+  id: string;
+  environment_id: string;
+  release_id: string;
+  build_run_id: string;
+  artifact_id: string;
+  artifact_path: string;
+  artifact_sha256: string;
+  source_commit_id: string;
+  state:
+    | "pending"
+    | "queued"
+    | "running"
+    | "paused"
+    | "succeeded"
+    | "failed"
+    | "canceled";
+  initiated_by_id: string;
+  approvals: Array<{ actor_id: string; created_at: string }>;
+  events: Array<{
+    sequence: number;
+    type: string;
+    state?: string;
+    actor_id?: string;
+    stream?: string;
+    message?: string;
+    stage?: string;
+    signal?: string;
+    outcome?: string;
+    created_at: string;
+  }>;
+  current_stage?: string;
+  decision_by_id?: string;
+  decision_reason?: string;
+  recovery_of_id?: string;
+  recovery_action?: string;
+  created_at: string;
+};
 type EnvironmentList = { items: DeliveryEnvironment[]; total_count: number };
 type DeploymentList = { items: Deployment[]; total_count: number };
-type IncidentEvent = { sequence:number; type:string; actor_id:string; status?:string; severity?:string; audience?:"participants"|"public"; message?:string; roles?:Record<string,string>; update_sequence?:number; created_at:string };
-type IncidentEvidence = { id:string; kind:"logs"|"health_signal"|"deployment"|"release"|"commit"|"pull_request"|"incident"; repository_id:string; resource_id:string; event_sequence?:number; start_at?:string; end_at?:string; title:string; audience:"participants"|"public"; attached_by_id:string; captured_at:string };
-type IncidentFinding = { id:string; kind:"observation"|"hypothesis"|"query"|"conclusion"; body:string; query?:string; evidence_ids:string[]; audience:"participants"|"public"; author_id:string; created_at:string };
-type IncidentMitigation = { id:string;kind:"pause_rollout"|"restore_release"|"emergency_repair";title:string;description:string;environment_id:string;deployment_id?:string;evidence_ids:string[];proposed_by_id:string;state:string;comments:Array<{id:string;actor_id:string;body:string;created_at:string}>;decisions:Array<{decision:string;actor_id:string;reason:string;override:boolean;created_at:string}>;attempts:Array<{sequence:number;actor_id:string;outcome:string;resource_type?:string;resource_id?:string;message:string;created_at:string}>;recovery_criteria:Array<{name:string;deployment_id:string;event_sequence:number;outcome:string;verified_by_id?:string;verified_at?:string}>;created_at:string;updated_at:string };
-type IncidentResolution = { impact_summary:string; timeline_summary:string; contributing_factors:string[]; conclusion_ids:string[]; corrective_work:Array<{proposal_id:string;task_id:string;owner_id:string;due_at?:string;state:string;invalidated:boolean;pull_request_ids?:string[];release_ids?:string[];deployment_ids?:string[];overdue:boolean}>; resolved_by_id:string; resolved_at:string };
-type Incident = { id:string; repository_id:string; title:string; summary:string; severity:"critical"|"high"|"medium"|"low"; status:"declared"|"investigating"|"mitigating"|"monitoring"|"resolved"; declared_by_id:string; roles:Record<string,string>; affected:Array<{repository_id:string;environment_id:string}>; source_signal?:{deployment_id:string;event_sequence:number;stage?:string;signal?:string;outcome?:string}; followers:string[]; acknowledgements:Array<{actor_id:string;update_sequence:number;created_at:string}>; evidence:IncidentEvidence[]; findings:IncidentFinding[]; mitigations:IncidentMitigation[]; resolution?:IncidentResolution; timeline:IncidentEvent[]; created_at:string; updated_at:string };
-type IncidentList = { items:Incident[]; total_count:number };
+type IncidentEvent = {
+  sequence: number;
+  type: string;
+  actor_id: string;
+  status?: string;
+  severity?: string;
+  audience?: "participants" | "public";
+  message?: string;
+  roles?: Record<string, string>;
+  update_sequence?: number;
+  created_at: string;
+};
+type IncidentEvidence = {
+  id: string;
+  kind:
+    | "logs"
+    | "health_signal"
+    | "deployment"
+    | "release"
+    | "commit"
+    | "pull_request"
+    | "incident";
+  repository_id: string;
+  resource_id: string;
+  event_sequence?: number;
+  start_at?: string;
+  end_at?: string;
+  title: string;
+  audience: "participants" | "public";
+  attached_by_id: string;
+  captured_at: string;
+};
+type IncidentFinding = {
+  id: string;
+  kind: "observation" | "hypothesis" | "query" | "conclusion";
+  body: string;
+  query?: string;
+  evidence_ids: string[];
+  audience: "participants" | "public";
+  author_id: string;
+  created_at: string;
+};
+type IncidentMitigation = {
+  id: string;
+  kind: "pause_rollout" | "restore_release" | "emergency_repair";
+  title: string;
+  description: string;
+  environment_id: string;
+  deployment_id?: string;
+  evidence_ids: string[];
+  proposed_by_id: string;
+  state: string;
+  comments: Array<{
+    id: string;
+    actor_id: string;
+    body: string;
+    created_at: string;
+  }>;
+  decisions: Array<{
+    decision: string;
+    actor_id: string;
+    reason: string;
+    override: boolean;
+    created_at: string;
+  }>;
+  attempts: Array<{
+    sequence: number;
+    actor_id: string;
+    outcome: string;
+    resource_type?: string;
+    resource_id?: string;
+    message: string;
+    created_at: string;
+  }>;
+  recovery_criteria: Array<{
+    name: string;
+    deployment_id: string;
+    event_sequence: number;
+    outcome: string;
+    verified_by_id?: string;
+    verified_at?: string;
+  }>;
+  created_at: string;
+  updated_at: string;
+};
+type IncidentResolution = {
+  impact_summary: string;
+  timeline_summary: string;
+  contributing_factors: string[];
+  conclusion_ids: string[];
+  corrective_work: Array<{
+    proposal_id: string;
+    task_id: string;
+    owner_id: string;
+    due_at?: string;
+    state: string;
+    invalidated: boolean;
+    pull_request_ids?: string[];
+    release_ids?: string[];
+    deployment_ids?: string[];
+    overdue: boolean;
+  }>;
+  resolved_by_id: string;
+  resolved_at: string;
+};
+type Incident = {
+  id: string;
+  repository_id: string;
+  title: string;
+  summary: string;
+  severity: "critical" | "high" | "medium" | "low";
+  status:
+    "declared" | "investigating" | "mitigating" | "monitoring" | "resolved";
+  declared_by_id: string;
+  roles: Record<string, string>;
+  affected: Array<{ repository_id: string; environment_id: string }>;
+  source_signal?: {
+    deployment_id: string;
+    event_sequence: number;
+    stage?: string;
+    signal?: string;
+    outcome?: string;
+  };
+  followers: string[];
+  acknowledgements: Array<{
+    actor_id: string;
+    update_sequence: number;
+    created_at: string;
+  }>;
+  evidence: IncidentEvidence[];
+  findings: IncidentFinding[];
+  mitigations: IncidentMitigation[];
+  resolution?: IncidentResolution;
+  timeline: IncidentEvent[];
+  created_at: string;
+  updated_at: string;
+};
+type IncidentList = { items: Incident[]; total_count: number };
 type UserRecord = { id: string; handle: string; display_name: string };
 type Collaborator = {
   user_id: string;
@@ -463,7 +870,7 @@ async function send<T>(
                         ? "This branch contains independent work and cannot be fast-forwarded. Merge upstream in a local clone instead."
                         : result.error === "upstream_branch_not_found"
                           ? "The upstream repository does not publish this branch."
-                    : "This action is not available to your account.",
+                          : "This action is not available to your account.",
     );
   }
   return response.status === 204 ? (undefined as T) : response.json();
@@ -539,15 +946,15 @@ export default function RepositoryPage({
           ? "pulls"
           : query.view === "queue"
             ? "queue"
-          : query.view === "relationships"
-            ? "relationships"
-          : query.view === "releases"
-            ? "releases"
-          : query.view === "incidents"
-            ? "incidents"
-          : query.view === "people"
-            ? "people"
-            : "code";
+            : query.view === "relationships"
+              ? "relationships"
+              : query.view === "releases"
+                ? "releases"
+                : query.view === "incidents"
+                  ? "incidents"
+                  : query.view === "people"
+                    ? "people"
+                    : "code";
   const [repository, setRepository] = useState<Repository>();
   const [upstream, setUpstream] = useState<Repository>();
   const [branches, setBranches] = useState<Branches>();
@@ -579,7 +986,13 @@ export default function RepositoryPage({
       ]);
       setActor(currentActor);
       setRepository(repo);
-      setUpstream(repo.upstream_repository_id ? await get<Repository>(`/repositories/${repo.upstream_repository_id}`).catch(() => undefined) : undefined);
+      setUpstream(
+        repo.upstream_repository_id
+          ? await get<Repository>(
+              `/repositories/${repo.upstream_repository_id}`,
+            ).catch(() => undefined)
+          : undefined,
+      );
       setBranches(branchData);
       const selected = revision || branchData.default_branch;
       if (
@@ -679,7 +1092,11 @@ export default function RepositoryPage({
       await send(`/repositories/${id}/sync`, "POST", { branch: ref });
       await load();
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : "Could not synchronize this branch.");
+      setActionError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not synchronize this branch.",
+      );
     } finally {
       setSyncing(false);
     }
@@ -734,13 +1151,71 @@ export default function RepositoryPage({
               {copied ? "Copied" : "Clone"}
             </Button>
           </div>
-          {actor && actor !== repository.owner_id && <Button size="sm" onClick={() => setShowFork(true)}><Branch size={14}/>Fork</Button>}
+          {actor && actor !== repository.owner_id && (
+            <Button size="sm" onClick={() => setShowFork(true)}>
+              <Branch size={14} />
+              Fork
+            </Button>
+          )}
         </div>
       </header>
-      {repository.upstream_repository_id && <div className="fork-lineage panel"><Branch size={15}/><span>Forked from <Link href={`/repositories/${repository.upstream_repository_id}`}>{upstream?.name ?? short(repository.upstream_repository_id)}</Link></span>{actor === repository.owner_id && <><Button size="sm" onClick={() => setShowUpstreamPull((value) => !value)}><GitPullRequest size={14}/>Contribute upstream</Button>{ref && <Button variant="secondary" size="sm" disabled={syncing} onClick={() => void synchronize()}>{syncing ? "Synchronizing…" : `Sync ${ref}`}</Button>}</>}</div>}
-      {showUpstreamPull && repository.upstream_repository_id && <UpstreamPullRequestForm fork={repository} upstream={upstream} branches={branches.items} close={() => setShowUpstreamPull(false)} created={(item) => router.push(`/repositories/${repository.upstream_repository_id}?view=pulls&pull=${item.id}`)}/>}
-      {showFork && <ForkRepository repository={repository} close={() => setShowFork(false)} created={(fork) => router.push(`/repositories/${fork.id}`)}/>}
-      {actionError && <p className="form-error fork-action-error" role="alert">{actionError}</p>}
+      {repository.upstream_repository_id && (
+        <div className="fork-lineage panel">
+          <Branch size={15} />
+          <span>
+            Forked from{" "}
+            <Link href={`/repositories/${repository.upstream_repository_id}`}>
+              {upstream?.name ?? short(repository.upstream_repository_id)}
+            </Link>
+          </span>
+          {actor === repository.owner_id && (
+            <>
+              <Button
+                size="sm"
+                onClick={() => setShowUpstreamPull((value) => !value)}
+              >
+                <GitPullRequest size={14} />
+                Contribute upstream
+              </Button>
+              {ref && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={syncing}
+                  onClick={() => void synchronize()}
+                >
+                  {syncing ? "Synchronizing…" : `Sync ${ref}`}
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+      {showUpstreamPull && repository.upstream_repository_id && (
+        <UpstreamPullRequestForm
+          fork={repository}
+          upstream={upstream}
+          branches={branches.items}
+          close={() => setShowUpstreamPull(false)}
+          created={(item) =>
+            router.push(
+              `/repositories/${repository.upstream_repository_id}?view=pulls&pull=${item.id}`,
+            )
+          }
+        />
+      )}
+      {showFork && (
+        <ForkRepository
+          repository={repository}
+          close={() => setShowFork(false)}
+          created={(fork) => router.push(`/repositories/${fork.id}`)}
+        />
+      )}
+      {actionError && (
+        <p className="form-error fork-action-error" role="alert">
+          {actionError}
+        </p>
+      )}
       <nav className="repository-tabs" aria-label="Repository">
         <button
           className={view === "incidents" ? "active" : ""}
@@ -758,7 +1233,9 @@ export default function RepositoryPage({
         </button>
         <button
           className={view === "queue" ? "active" : ""}
-          onClick={() => navigate({ view: "queue", ref: branches.default_branch, path: "" })}
+          onClick={() =>
+            navigate({ view: "queue", ref: branches.default_branch, path: "" })
+          }
         >
           <Branch size={15} />
           Integration queue
@@ -825,13 +1302,30 @@ export default function RepositoryPage({
           section={query.section}
         />
       ) : view === "queue" ? (
-        <IntegrationQueueWorkspace repository={repository} branches={branches.items} initialBranch={revision || branches.default_branch} actor={actor} onBranch={(branch) => navigate({ view: "queue", ref: branch, path: "" })} />
+        <IntegrationQueueWorkspace
+          repository={repository}
+          branches={branches.items}
+          initialBranch={revision || branches.default_branch}
+          actor={actor}
+          onBranch={(branch) =>
+            navigate({ view: "queue", ref: branch, path: "" })
+          }
+        />
       ) : view === "relationships" ? (
         <RelationshipWorkspace repository={repository} actor={actor} />
       ) : view === "releases" ? (
-        <ReleaseWorkspace repository={repository} branches={branches.items} actor={actor} selected={query.release} />
+        <ReleaseWorkspace
+          repository={repository}
+          branches={branches.items}
+          actor={actor}
+          selected={query.release}
+        />
       ) : view === "incidents" ? (
-        <IncidentWorkspace repository={repository} actor={actor} selected={query.incident} />
+        <IncidentWorkspace
+          repository={repository}
+          actor={actor}
+          selected={query.incident}
+        />
       ) : view === "people" && actor === repository.owner_id ? (
         <CollaboratorWorkspace repository={id} />
       ) : repository.empty ? (
@@ -895,7 +1389,15 @@ export default function RepositoryPage({
   );
 }
 
-function ForkRepository({ repository, close, created }: { repository: Repository; close: () => void; created: (fork: Repository) => void }) {
+function ForkRepository({
+  repository,
+  close,
+  created,
+}: {
+  repository: Repository;
+  close: () => void;
+  created: (fork: Repository) => void;
+}) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -904,18 +1406,88 @@ function ForkRepository({ repository, close, created }: { repository: Repository
     setError("");
     const data = new FormData(event.currentTarget);
     try {
-      created(await send<Repository>(`/repositories/${repository.id}/forks`, "POST", { name: data.get("name"), visibility: data.get("visibility") }));
+      created(
+        await send<Repository>(`/repositories/${repository.id}/forks`, "POST", {
+          name: data.get("name"),
+          visibility: data.get("visibility"),
+        }),
+      );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not create this fork.");
+      setError(
+        cause instanceof Error ? cause.message : "Could not create this fork.",
+      );
       setPending(false);
     }
   }
-  return <section className="fork-panel panel" aria-labelledby="fork-title"><div><span className="repo-icon"><Branch/></span><div><h2 id="fork-title">Fork {repository.name}</h2><p>Create an independently owned copy for experiments and contributions.</p></div></div><form className="repository-form" onSubmit={submit}><label>Fork name<input name="name" required pattern="[a-z0-9._-]+" maxLength={100} defaultValue={repository.name}/></label><label>Visibility<select name="visibility" defaultValue="private"><option value="private">Private</option><option value="public">Public</option></select></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="form-actions"><Button type="button" variant="secondary" onClick={close}>Cancel</Button><Button type="submit" disabled={pending}>{pending ? "Forking…" : "Create fork"}</Button></div></form></section>;
+  return (
+    <section className="fork-panel panel" aria-labelledby="fork-title">
+      <div>
+        <span className="repo-icon">
+          <Branch />
+        </span>
+        <div>
+          <h2 id="fork-title">Fork {repository.name}</h2>
+          <p>
+            Create an independently owned copy for experiments and
+            contributions.
+          </p>
+        </div>
+      </div>
+      <form className="repository-form" onSubmit={submit}>
+        <label>
+          Fork name
+          <input
+            name="name"
+            required
+            pattern="[a-z0-9._-]+"
+            maxLength={100}
+            defaultValue={repository.name}
+          />
+        </label>
+        <label>
+          Visibility
+          <select name="visibility" defaultValue="private">
+            <option value="private">Private</option>
+            <option value="public">Public</option>
+          </select>
+        </label>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="form-actions">
+          <Button type="button" variant="secondary" onClick={close}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={pending}>
+            {pending ? "Forking…" : "Create fork"}
+          </Button>
+        </div>
+      </form>
+    </section>
+  );
 }
 
-function UpstreamPullRequestForm({ fork, upstream, branches, close, created }: { fork: Repository; upstream?: Repository; branches: BranchRecord[]; close: () => void; created: (pull: PullRequest) => void }) {
+function UpstreamPullRequestForm({
+  fork,
+  upstream,
+  branches,
+  close,
+  created,
+}: {
+  fork: Repository;
+  upstream?: Repository;
+  branches: BranchRecord[];
+  close: () => void;
+  created: (pull: PullRequest) => void;
+}) {
   const [targets, setTargets] = useState<BranchRecord[]>([]);
-  const [source, setSource] = useState(branches.find((branch) => !branch.is_default)?.name ?? branches[0]?.name ?? "");
+  const [source, setSource] = useState(
+    branches.find((branch) => !branch.is_default)?.name ??
+      branches[0]?.name ??
+      "",
+  );
   const [target, setTarget] = useState("");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -923,24 +1495,113 @@ function UpstreamPullRequestForm({ fork, upstream, branches, close, created }: {
   const [error, setError] = useState("");
   useEffect(() => {
     if (!fork.upstream_repository_id) return;
-    get<Branches>(`/repositories/${fork.upstream_repository_id}/branches`).then((result) => {
-      setTargets(result.items);
-      setTarget(result.default_branch || result.items[0]?.name || "");
-    }).catch(() => setError("Could not read upstream branches."));
+    get<Branches>(`/repositories/${fork.upstream_repository_id}/branches`)
+      .then((result) => {
+        setTargets(result.items);
+        setTarget(result.default_branch || result.items[0]?.name || "");
+      })
+      .catch(() => setError("Could not read upstream branches."));
   }, [fork.upstream_repository_id]);
-  return <form className="pull-form panel" onSubmit={async (event) => {
-    event.preventDefault(); setBusy(true); setError("");
-    try {
-      created(await send<PullRequest>(`/repositories/${fork.upstream_repository_id}/pull-requests`, "POST", { title, body, source_repository_id: fork.id, source_branch: source, target_branch: target }));
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to open the upstream pull request."); setBusy(false); }
-  }}>
-    <div className="pull-form-intro"><GitPullRequest/><span><strong>Contribute to {upstream?.name ?? "upstream"}</strong><small>Your fork branch and both exact revisions will be recorded for upstream review.</small></span></div>
-    <label>Title<input required maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Summarize the contribution"/></label>
-    <label className="pull-body">Description<textarea maxLength={65536} value={body} onChange={(event) => setBody(event.target.value)} placeholder="Explain the change and where feedback would help."/></label>
-    <div className="branch-compare"><label>Fork branch<select value={source} onChange={(event) => setSource(event.target.value)}>{branches.map((branch) => <option key={branch.name}>{branch.name}</option>)}</select></label><span>into</span><label>Upstream branch<select value={target} onChange={(event) => setTarget(event.target.value)}>{targets.map((branch) => <option key={branch.name}>{branch.name}</option>)}</select></label></div>
-    {error && <p className="form-error" role="alert">{error}</p>}
-    <div className="form-actions"><Button type="button" variant="secondary" onClick={close}>Cancel</Button><Button type="submit" disabled={busy || !source || !target}>{busy ? "Opening…" : "Open upstream pull request"}</Button></div>
-  </form>;
+  return (
+    <form
+      className="pull-form panel"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setError("");
+        try {
+          created(
+            await send<PullRequest>(
+              `/repositories/${fork.upstream_repository_id}/pull-requests`,
+              "POST",
+              {
+                title,
+                body,
+                source_repository_id: fork.id,
+                source_branch: source,
+                target_branch: target,
+              },
+            ),
+          );
+        } catch (cause) {
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Unable to open the upstream pull request.",
+          );
+          setBusy(false);
+        }
+      }}
+    >
+      <div className="pull-form-intro">
+        <GitPullRequest />
+        <span>
+          <strong>Contribute to {upstream?.name ?? "upstream"}</strong>
+          <small>
+            Your fork branch and both exact revisions will be recorded for
+            upstream review.
+          </small>
+        </span>
+      </div>
+      <label>
+        Title
+        <input
+          required
+          maxLength={200}
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="Summarize the contribution"
+        />
+      </label>
+      <label className="pull-body">
+        Description
+        <textarea
+          maxLength={65536}
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          placeholder="Explain the change and where feedback would help."
+        />
+      </label>
+      <div className="branch-compare">
+        <label>
+          Fork branch
+          <select
+            value={source}
+            onChange={(event) => setSource(event.target.value)}
+          >
+            {branches.map((branch) => (
+              <option key={branch.name}>{branch.name}</option>
+            ))}
+          </select>
+        </label>
+        <span>into</span>
+        <label>
+          Upstream branch
+          <select
+            value={target}
+            onChange={(event) => setTarget(event.target.value)}
+          >
+            {targets.map((branch) => (
+              <option key={branch.name}>{branch.name}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="form-actions">
+        <Button type="button" variant="secondary" onClick={close}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={busy || !source || !target}>
+          {busy ? "Opening…" : "Open upstream pull request"}
+        </Button>
+      </div>
+    </form>
+  );
 }
 
 function RepositoryFrame({ children }: { children: React.ReactNode }) {
@@ -1243,34 +1904,824 @@ function CollaboratorWorkspace({ repository }: { repository: string }) {
   );
 }
 
-function RelationshipWorkspace({repository,actor}:{repository:Repository;actor:string}) {
-  const [graph,setGraph]=useState<RelationshipGraph>();const [releases,setReleases]=useState<ReleaseCandidate[]>([]);const [plans,setPlans]=useState<EvolutionPlan[]>([]);const [selectedPlan,setSelectedPlan]=useState("");const [creating,setCreating]=useState<"interface"|"dependency"|"evolution"|"">("");const [error,setError]=useState("");const [notice,setNotice]=useState("");const [busy,setBusy]=useState(false);const authorized=Boolean(actor&&graph?.can_write);
-  const load=useCallback(async()=>{try{const [nextGraph,nextReleases,nextPlans]=await Promise.all([get<RelationshipGraph>(`/repositories/${repository.id}/relationships`),get<ReleaseList>(`/repositories/${repository.id}/releases?per_page=100`),get<EvolutionList>(`/repositories/${repository.id}/evolution-plans`)]);setGraph(nextGraph);setReleases(nextReleases.items);setPlans(nextPlans.items);setSelectedPlan((current)=>current||nextPlans.items[0]?.id||"");}catch(cause){setError(cause instanceof Error?cause.message:"Relationship evidence is unavailable.");}},[repository.id]);
-  useEffect(()=>{
+function RelationshipWorkspace({
+  repository,
+  actor,
+}: {
+  repository: Repository;
+  actor: string;
+}) {
+  const [graph, setGraph] = useState<RelationshipGraph>();
+  const [releases, setReleases] = useState<ReleaseCandidate[]>([]);
+  const [plans, setPlans] = useState<EvolutionPlan[]>([]);
+  const [selectedPlan, setSelectedPlan] = useState("");
+  const [verificationDetails, setVerificationDetails] = useState<
+    Record<string, EvolutionVerificationDetail>
+  >({});
+  const [creating, setCreating] = useState<
+    "interface" | "dependency" | "evolution" | ""
+  >("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const authorized = Boolean(actor && graph?.can_write);
+  const load = useCallback(async () => {
+    try {
+      const [nextGraph, nextReleases, nextPlans] = await Promise.all([
+        get<RelationshipGraph>(`/repositories/${repository.id}/relationships`),
+        get<ReleaseList>(
+          `/repositories/${repository.id}/releases?per_page=100`,
+        ),
+        get<EvolutionList>(`/repositories/${repository.id}/evolution-plans`),
+      ]);
+      setGraph(nextGraph);
+      setReleases(nextReleases.items);
+      setPlans(nextPlans.items);
+      setSelectedPlan((current) => current || nextPlans.items[0]?.id || "");
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Relationship evidence is unavailable.",
+      );
+    }
+  }, [repository.id]);
+  useEffect(() => {
     // Relationship state follows the selected repository.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
-  },[load]);
-  async function submitInterface(event:React.FormEvent<HTMLFormElement>){event.preventDefault();setBusy(true);setError("");const data=new FormData(event.currentTarget);try{await send(`/repositories/${repository.id}/interfaces`,"POST",{name:data.get("name"),version:data.get("version"),release_id:data.get("release"),schema_path:data.get("schema")});setCreating("");await load();}catch(cause){setError(cause instanceof Error?cause.message:"Interface could not be published.");}finally{setBusy(false)}}
-  async function submitDependency(event:React.FormEvent<HTMLFormElement>){event.preventDefault();setBusy(true);setError("");const data=new FormData(event.currentTarget);const release=String(data.get("release")||"");try{await send(`/repositories/${repository.id}/dependencies`,"POST",{provider_repository_id:data.get("provider"),interface_name:data.get("name"),constraint:data.get("constraint"),release_id:release||undefined,commit_id:release?undefined:data.get("commit")});setCreating("");await load();}catch(cause){setError(cause instanceof Error?cause.message:"Dependency could not be declared.");}finally{setBusy(false)}}
-  async function submitEvolution(event:React.FormEvent<HTMLFormElement>){event.preventDefault();setBusy(true);setError("");const data=new FormData(event.currentTarget);try{const plan=await send<EvolutionPlan>(`/repositories/${repository.id}/evolution-plans`,"POST",{interface_name:data.get("name"),source_kind:data.get("source_kind"),source_id:data.get("source_id"),candidate_commit_id:data.get("commit"),candidate_schema_path:data.get("schema")});setCreating("");await load();setSelectedPlan(plan.id);}catch(cause){setError(cause instanceof Error?cause.message:"Evolution plan could not be created.");}finally{setBusy(false)}}
-  async function saveContract(event:React.FormEvent<HTMLFormElement>){event.preventDefault();const plan=plans.find((item)=>item.id===selectedPlan);if(!plan)return;setBusy(true);const data=new FormData(event.currentTarget);const steps=String(data.get("steps")||"").split("\n").map((line)=>line.trim()).filter(Boolean);try{await send(`/repositories/${repository.id}/evolution-plans/${plan.id}/contract`,"PUT",{strategy:data.get("strategy"),changes:[{classification:data.get("classification"),area:data.get("area"),summary:data.get("change"),rationale:data.get("rationale")}],steps:steps.map((line)=>{const at=line.indexOf(":");return {owner_id:at>0?line.slice(0,at).trim():repository.owner_id,summary:at>0?line.slice(at+1).trim():line}}),exceptions:String(data.get("exceptions")||"").split("\n").map((reason)=>reason.trim()).filter(Boolean).map((reason)=>({reason}))});await load();}catch(cause){setError(cause instanceof Error?cause.message:"Migration contract could not be saved.");}finally{setBusy(false)}}
-  async function acknowledge(plan:EvolutionPlan,decision:"acknowledge"|"request_changes"){try{await send(`/repositories/${repository.id}/evolution-plans/${plan.id}/acknowledgements`,"POST",{decision,note:decision==="acknowledge"?"Reviewed blast radius and migration contract.":"Migration contract needs revision."});await load();}catch(cause){setError(cause instanceof Error?cause.message:"Acknowledgement was not accepted.");}}
-  async function delegate(plan:EvolutionPlan){try{const result=await send<{worker_credential:string}>(`/repositories/${repository.id}/evolution-plans/${plan.id}/analyses`,"POST",{agent:"codex",mandate:"Analyze selected interface and consumer snapshots; record evidence, risks, and uncertainty.",repository_ids:[repository.id,...plan.affected_consumers.map((item)=>item.repository_id)]});setNotice(`Read-only credential (shown once): ${result.worker_credential}`);await load();}catch(cause){setError(cause instanceof Error?cause.message:"Analysis could not be delegated.");}}
-  const names=new Map(graph?.nodes.map((node)=>[node.repository_id,node.name]));
-  return <section className="relationship-workspace">
-    <header className="release-heading"><div><p className="eyebrow">Cross-repository evidence</p><h2>Interface relationships</h2><p>Inspect released contracts, then agree on blast radius and migration before incompatible code merges.</p></div>{authorized&&<div className="relationship-actions"><Button variant="secondary" onClick={()=>setCreating(creating==="dependency"?"":"dependency")}><Plus size={14}/>Declare dependency</Button><Button variant="secondary" onClick={()=>setCreating(creating==="evolution"?"":"evolution")}><Plus size={14}/>Plan evolution</Button><Button onClick={()=>setCreating(creating==="interface"?"":"interface")}><Plus size={14}/>Publish interface</Button></div>}</header>
-    {creating==="interface"&&<form className="panel relationship-form" onSubmit={submitInterface}><label>Interface name<input name="name" required placeholder="payments-api"/></label><label>Semantic version<input name="version" required placeholder="1.2.0" pattern="v?[0-9]+\.[0-9]+\.[0-9]+"/></label><label>Release<select name="release" required><option value="">Select exact release…</option>{releases.map((item)=><option value={item.id} key={item.id}>{item.version} · {short(item.commit_id)}</option>)}</select></label><label>Schema path (optional)<input name="schema" placeholder="api/openapi.yaml"/></label><div className="release-form-actions"><Button disabled={busy}>{busy?"Publishing…":"Publish version"}</Button></div></form>}
-    {creating==="dependency"&&<form className="panel relationship-form" onSubmit={submitDependency}><label>Provider repository ID<input name="provider" required/></label><label>Interface name<input name="name" required placeholder="payments-api"/></label><label>Compatibility constraint<input name="constraint" required placeholder="^1.2.0"/></label><label>Consumer release<select name="release"><option value="">Unreleased exact commit</option>{releases.map((item)=><option value={item.id} key={item.id}>{item.version} · {short(item.commit_id)}</option>)}</select></label><label>Exact commit when unreleased<input name="commit" placeholder="40-character object ID"/></label><div className="release-form-actions"><Button disabled={busy}>{busy?"Declaring…":"Declare dependency"}</Button></div></form>}
-    {creating==="evolution"&&<form className="panel relationship-form" onSubmit={submitEvolution}><label>Published interface<input name="name" required placeholder="payments-api"/></label><label>Provider source<select name="source_kind"><option value="proposal">Proposal</option><option value="pull_request">Pull request</option></select></label><label>Proposal or pull request ID<input name="source_id" required/></label><label>Candidate commit (proposal)<input name="commit" placeholder="Exact candidate revision"/></label><label>Candidate schema path<input name="schema" required placeholder="api/openapi.yaml"/></label><div className="release-form-actions"><Button disabled={busy}>{busy?"Comparing…":"Create evolution plan"}</Button></div></form>}
-    {error&&<p className="form-error" role="alert">{error}</p>}
-    {notice&&<p className="panel evolution-credential" role="status">{notice}</p>}
-    {graph&&<><div className="relationship-summary">{(["repositories","relationships","resolved","stale","unresolved"] as const).map((key)=><article className="panel" key={key}><strong>{graph.summary[key]}</strong><span>{key}</span></article>)}</div><div className="relationship-graph">{graph.edges.map((edge)=><article className={`panel relationship-edge ${edge.status}`} key={edge.dependency.id}><header><Badge tone={edge.status==="resolved"?"accent":"neutral"}>{edge.status}</Badge><span><Link href={`/repositories/${edge.dependency.repository_id}?view=relationships`}>{names.get(edge.dependency.repository_id)??short(edge.dependency.repository_id)}</Link><small>owned by <Actor id={graph.nodes.find((node)=>node.repository_id===edge.dependency.repository_id)?.owner_id??""}/></small></span><ChevronRight/><span><Link href={`/repositories/${edge.dependency.provider_repository_id}?view=relationships`}>{names.get(edge.dependency.provider_repository_id)??short(edge.dependency.provider_repository_id)}</Link><small>owned by <Actor id={graph.nodes.find((node)=>node.repository_id===edge.dependency.provider_repository_id)?.owner_id??""}/></small></span></header><div className="relationship-contract"><strong>{edge.dependency.interface_name} <code>{edge.dependency.constraint}</code></strong><span>consumer <code>{short(edge.dependency.commit_id)}</code>{edge.consumer_release&&<> · release {edge.consumer_release.version}</>}</span><span>{edge.provider?<>resolved to <b>{edge.provider.version}</b> at <code>{short(edge.provider.commit_id)}</code></>:"No compatible published version"}</span></div>{edge.reasons.length>0&&<ul>{edge.reasons.map((reason)=><li key={reason}>{reason.replaceAll("_"," ")}</li>)}</ul>}<div className="relationship-environments"><span><b>Consumer environments</b>{edge.consumer_environments.length?edge.consumer_environments.map((env)=><small key={env.id}>{env.name||short(env.id)} · {env.state} · {short(env.commit_id)}</small>):<small>No deployment evidence</small>}</span><span><b>Provider environments</b>{edge.provider_environments.length?edge.provider_environments.map((env)=><small key={env.id}>{env.name||short(env.id)} · {env.state} · {short(env.commit_id)}</small>):<small>No deployment evidence</small>}</span></div><footer>Declared by <Actor id={edge.dependency.declared_by_id}/> · {new Date(edge.dependency.declared_at).toLocaleString()}</footer></article>)}{!graph.edges.length&&<article className="panel release-empty"><Book/><h3>No relationships declared</h3><p>Publish an interface from a release or declare this repository&apos;s dependency on another owner&apos;s contract.</p></article>}</div></>}
-    {plans.length>0&&<section className="evolution-plans"><header><div><p className="eyebrow">Shared migration decisions</p><h3>Evolution plans</h3></div><select value={selectedPlan} onChange={(event)=>setSelectedPlan(event.target.value)}>{plans.map((plan)=><option value={plan.id} key={plan.id}>{plan.interface_name} · {plan.source_kind.replace("_"," ")}</option>)}</select></header>{plans.filter((plan)=>plan.id===selectedPlan).map((plan)=><article className="panel evolution-plan" key={plan.id}><div className="evolution-comparison"><span><small>Released predecessor</small><strong>{plan.predecessor.version}</strong><code>{short(plan.predecessor.commit_id)}</code><small>{plan.predecessor.schema_path} · {short(plan.predecessor_schema_sha256)}</small></span><ChevronRight/><span><small>Candidate from {plan.source_kind.replace("_"," ")}</small><strong>{plan.interface_name}</strong><code>{short(plan.candidate_commit_id)}</code><small>{plan.candidate_schema_path} · {short(plan.candidate_schema_sha256)}</small></span></div><div className="evolution-blast"><h4>Affected consumers and owners</h4>{plan.affected_consumers.map((consumer)=><span key={consumer.dependency_id}><Link href={`/repositories/${consumer.repository_id}?view=relationships`}>{names.get(consumer.repository_id)??short(consumer.repository_id)}</Link><Actor id={consumer.owner_id}/><code>{consumer.constraint}</code></span>)}{!plan.affected_consumers.length&&<p>No declared consumers are affected.</p>}</div>{authorized&&<form className="evolution-contract" key={plan.updated_at} onSubmit={saveContract}><label>Migration strategy<textarea name="strategy" required defaultValue={plan.strategy} placeholder="Describe rollout, dual-support window, and completion criteria."/></label><div><label>Classification<select name="classification" defaultValue={plan.changes[0]?.classification??"breaking"}><option value="breaking">Breaking</option><option value="compatible">Compatible</option><option value="behavioral">Behavioral</option><option value="unknown">Unknown</option></select></label><label>Area<input name="area" required defaultValue={plan.changes[0]?.area} placeholder="request schema"/></label></div><label>Change summary<input name="change" required defaultValue={plan.changes[0]?.summary}/></label><label>Rationale<textarea name="rationale" defaultValue={plan.changes[0]?.rationale}/></label><label>Ordered steps <small>one per line as owner-id: outcome</small><textarea name="steps" defaultValue={plan.steps.map((step)=>`${step.owner_id}: ${step.summary}`).join("\n")}/></label><label>Exceptions <small>one reason per line</small><textarea name="exceptions" defaultValue={plan.exceptions.map((item)=>item.reason).join("\n")}/></label><div className="relationship-actions"><Button disabled={busy}>Save migration contract</Button><Button type="button" variant="secondary" onClick={()=>void delegate(plan)}><Sparkles size={14}/>Delegate read-only analysis</Button></div></form>}<div className="evolution-decisions"><h4>Agreement</h4><div className="relationship-actions">{actor&&<><Button variant="secondary" onClick={()=>void acknowledge(plan,"acknowledge")}><Check size={14}/>Acknowledge</Button><Button variant="secondary" onClick={()=>void acknowledge(plan,"request_changes")}>Request changes</Button></>}</div>{plan.acknowledgements.map((item)=><p key={item.actor_id}><Actor id={item.actor_id}/> <b>{item.decision.replace("_"," ")}</b> for {item.owner_for_repository_ids.length} owned repository{item.owner_for_repository_ids.length===1?"":"ies"}: {item.note}</p>)}</div>{plan.findings.length>0&&<div className="evolution-findings"><h4>Agent findings and uncertainty</h4>{plan.findings.map((item)=><blockquote key={item.id}><b>{item.kind}</b> · {item.body}{item.uncertainty&&<small>Uncertainty: {item.uncertainty}</small>}<footer>{item.actor_id} · {item.repository_ids.map(short).join(", ")}</footer></blockquote>)}</div>}</article>)}</section>}
-  </section>
+  }, [load]);
+  async function submitInterface(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    const data = new FormData(event.currentTarget);
+    try {
+      await send(`/repositories/${repository.id}/interfaces`, "POST", {
+        name: data.get("name"),
+        version: data.get("version"),
+        release_id: data.get("release"),
+        schema_path: data.get("schema"),
+      });
+      setCreating("");
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Interface could not be published.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function submitDependency(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    const data = new FormData(event.currentTarget);
+    const release = String(data.get("release") || "");
+    try {
+      await send(`/repositories/${repository.id}/dependencies`, "POST", {
+        provider_repository_id: data.get("provider"),
+        interface_name: data.get("name"),
+        constraint: data.get("constraint"),
+        release_id: release || undefined,
+        commit_id: release ? undefined : data.get("commit"),
+      });
+      setCreating("");
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Dependency could not be declared.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function submitEvolution(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    const data = new FormData(event.currentTarget);
+    try {
+      const plan = await send<EvolutionPlan>(
+        `/repositories/${repository.id}/evolution-plans`,
+        "POST",
+        {
+          interface_name: data.get("name"),
+          source_kind: data.get("source_kind"),
+          source_id: data.get("source_id"),
+          candidate_commit_id: data.get("commit"),
+          candidate_schema_path: data.get("schema"),
+        },
+      );
+      setCreating("");
+      await load();
+      setSelectedPlan(plan.id);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Evolution plan could not be created.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function saveContract(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const plan = plans.find((item) => item.id === selectedPlan);
+    if (!plan) return;
+    setBusy(true);
+    const data = new FormData(event.currentTarget);
+    const steps = String(data.get("steps") || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    try {
+      await send(
+        `/repositories/${repository.id}/evolution-plans/${plan.id}/contract`,
+        "PUT",
+        {
+          strategy: data.get("strategy"),
+          changes: [
+            {
+              classification: data.get("classification"),
+              area: data.get("area"),
+              summary: data.get("change"),
+              rationale: data.get("rationale"),
+            },
+          ],
+          steps: steps.map((line) => {
+            const at = line.indexOf(":");
+            return {
+              owner_id: at > 0 ? line.slice(0, at).trim() : repository.owner_id,
+              summary: at > 0 ? line.slice(at + 1).trim() : line,
+            };
+          }),
+          exceptions: String(data.get("exceptions") || "")
+            .split("\n")
+            .map((reason) => reason.trim())
+            .filter(Boolean)
+            .map((reason) => ({ reason })),
+        },
+      );
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Migration contract could not be saved.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function acknowledge(
+    plan: EvolutionPlan,
+    decision: "acknowledge" | "request_changes",
+  ) {
+    try {
+      await send(
+        `/repositories/${repository.id}/evolution-plans/${plan.id}/acknowledgements`,
+        "POST",
+        {
+          decision,
+          note:
+            decision === "acknowledge"
+              ? "Reviewed blast radius and migration contract."
+              : "Migration contract needs revision.",
+        },
+      );
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Acknowledgement was not accepted.",
+      );
+    }
+  }
+  async function delegate(plan: EvolutionPlan) {
+    try {
+      const result = await send<{ worker_credential: string }>(
+        `/repositories/${repository.id}/evolution-plans/${plan.id}/analyses`,
+        "POST",
+        {
+          agent: "codex",
+          mandate:
+            "Analyze selected interface and consumer snapshots; record evidence, risks, and uncertainty.",
+          repository_ids: [
+            repository.id,
+            ...plan.affected_consumers.map((item) => item.repository_id),
+          ],
+        },
+      );
+      setNotice(
+        `Read-only credential (shown once): ${result.worker_credential}`,
+      );
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Analysis could not be delegated.",
+      );
+    }
+  }
+  async function verifyEvolution(plan: EvolutionPlan) {
+    const tasks = plan.tasks.filter((task) => task.work?.pull_request_id);
+    if (tasks.length < 2) {
+      setError(
+        "Publish provider and consumer task pull requests before verification.",
+      );
+      return;
+    }
+    setBusy(true);
+    try {
+      await send(
+        `/repositories/${repository.id}/evolution-plans/${plan.id}/verifications`,
+        "POST",
+        {
+          task_ids: [...tasks]
+            .sort(
+              (a, b) =>
+                Number(b.target_repository_id === repository.id) -
+                Number(a.target_repository_id === repository.id),
+            )
+            .map((task) => task.id),
+        },
+      );
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Compatibility verification could not start.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function inspectVerification(plan: EvolutionPlan, id: string) {
+    try {
+      const detail = await get<EvolutionVerificationDetail>(
+        `/repositories/${repository.id}/evolution-plans/${plan.id}/verifications/${id}`,
+      );
+      setVerificationDetails((current) => ({ ...current, [id]: detail }));
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Verification evidence is unavailable.",
+      );
+    }
+  }
+  const names = new Map(
+    graph?.nodes.map((node) => [node.repository_id, node.name]),
+  );
+  return (
+    <section className="relationship-workspace">
+      <header className="release-heading">
+        <div>
+          <p className="eyebrow">Cross-repository evidence</p>
+          <h2>Interface relationships</h2>
+          <p>
+            Inspect released contracts, then agree on blast radius and migration
+            before incompatible code merges.
+          </p>
+        </div>
+        {authorized && (
+          <div className="relationship-actions">
+            <Button
+              variant="secondary"
+              onClick={() =>
+                setCreating(creating === "dependency" ? "" : "dependency")
+              }
+            >
+              <Plus size={14} />
+              Declare dependency
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() =>
+                setCreating(creating === "evolution" ? "" : "evolution")
+              }
+            >
+              <Plus size={14} />
+              Plan evolution
+            </Button>
+            <Button
+              onClick={() =>
+                setCreating(creating === "interface" ? "" : "interface")
+              }
+            >
+              <Plus size={14} />
+              Publish interface
+            </Button>
+          </div>
+        )}
+      </header>
+      {creating === "interface" && (
+        <form className="panel relationship-form" onSubmit={submitInterface}>
+          <label>
+            Interface name
+            <input name="name" required placeholder="payments-api" />
+          </label>
+          <label>
+            Semantic version
+            <input
+              name="version"
+              required
+              placeholder="1.2.0"
+              pattern="v?[0-9]+\.[0-9]+\.[0-9]+"
+            />
+          </label>
+          <label>
+            Release
+            <select name="release" required>
+              <option value="">Select exact release…</option>
+              {releases.map((item) => (
+                <option value={item.id} key={item.id}>
+                  {item.version} · {short(item.commit_id)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Schema path (optional)
+            <input name="schema" placeholder="api/openapi.yaml" />
+          </label>
+          <div className="release-form-actions">
+            <Button disabled={busy}>
+              {busy ? "Publishing…" : "Publish version"}
+            </Button>
+          </div>
+        </form>
+      )}
+      {creating === "dependency" && (
+        <form className="panel relationship-form" onSubmit={submitDependency}>
+          <label>
+            Provider repository ID
+            <input name="provider" required />
+          </label>
+          <label>
+            Interface name
+            <input name="name" required placeholder="payments-api" />
+          </label>
+          <label>
+            Compatibility constraint
+            <input name="constraint" required placeholder="^1.2.0" />
+          </label>
+          <label>
+            Consumer release
+            <select name="release">
+              <option value="">Unreleased exact commit</option>
+              {releases.map((item) => (
+                <option value={item.id} key={item.id}>
+                  {item.version} · {short(item.commit_id)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Exact commit when unreleased
+            <input name="commit" placeholder="40-character object ID" />
+          </label>
+          <div className="release-form-actions">
+            <Button disabled={busy}>
+              {busy ? "Declaring…" : "Declare dependency"}
+            </Button>
+          </div>
+        </form>
+      )}
+      {creating === "evolution" && (
+        <form className="panel relationship-form" onSubmit={submitEvolution}>
+          <label>
+            Published interface
+            <input name="name" required placeholder="payments-api" />
+          </label>
+          <label>
+            Provider source
+            <select name="source_kind">
+              <option value="proposal">Proposal</option>
+              <option value="pull_request">Pull request</option>
+            </select>
+          </label>
+          <label>
+            Proposal or pull request ID
+            <input name="source_id" required />
+          </label>
+          <label>
+            Candidate commit (proposal)
+            <input name="commit" placeholder="Exact candidate revision" />
+          </label>
+          <label>
+            Candidate schema path
+            <input name="schema" required placeholder="api/openapi.yaml" />
+          </label>
+          <div className="release-form-actions">
+            <Button disabled={busy}>
+              {busy ? "Comparing…" : "Create evolution plan"}
+            </Button>
+          </div>
+        </form>
+      )}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="panel evolution-credential" role="status">
+          {notice}
+        </p>
+      )}
+      {graph && (
+        <>
+          <div className="relationship-summary">
+            {(
+              [
+                "repositories",
+                "relationships",
+                "resolved",
+                "stale",
+                "unresolved",
+              ] as const
+            ).map((key) => (
+              <article className="panel" key={key}>
+                <strong>{graph.summary[key]}</strong>
+                <span>{key}</span>
+              </article>
+            ))}
+          </div>
+          <div className="relationship-graph">
+            {graph.edges.map((edge) => (
+              <article
+                className={`panel relationship-edge ${edge.status}`}
+                key={edge.dependency.id}
+              >
+                <header>
+                  <Badge
+                    tone={edge.status === "resolved" ? "accent" : "neutral"}
+                  >
+                    {edge.status}
+                  </Badge>
+                  <span>
+                    <Link
+                      href={`/repositories/${edge.dependency.repository_id}?view=relationships`}
+                    >
+                      {names.get(edge.dependency.repository_id) ??
+                        short(edge.dependency.repository_id)}
+                    </Link>
+                    <small>
+                      owned by{" "}
+                      <Actor
+                        id={
+                          graph.nodes.find(
+                            (node) =>
+                              node.repository_id ===
+                              edge.dependency.repository_id,
+                          )?.owner_id ?? ""
+                        }
+                      />
+                    </small>
+                  </span>
+                  <ChevronRight />
+                  <span>
+                    <Link
+                      href={`/repositories/${edge.dependency.provider_repository_id}?view=relationships`}
+                    >
+                      {names.get(edge.dependency.provider_repository_id) ??
+                        short(edge.dependency.provider_repository_id)}
+                    </Link>
+                    <small>
+                      owned by{" "}
+                      <Actor
+                        id={
+                          graph.nodes.find(
+                            (node) =>
+                              node.repository_id ===
+                              edge.dependency.provider_repository_id,
+                          )?.owner_id ?? ""
+                        }
+                      />
+                    </small>
+                  </span>
+                </header>
+                <div className="relationship-contract">
+                  <strong>
+                    {edge.dependency.interface_name}{" "}
+                    <code>{edge.dependency.constraint}</code>
+                  </strong>
+                  <span>
+                    consumer <code>{short(edge.dependency.commit_id)}</code>
+                    {edge.consumer_release && (
+                      <> · release {edge.consumer_release.version}</>
+                    )}
+                  </span>
+                  <span>
+                    {edge.provider ? (
+                      <>
+                        resolved to <b>{edge.provider.version}</b> at{" "}
+                        <code>{short(edge.provider.commit_id)}</code>
+                      </>
+                    ) : (
+                      "No compatible published version"
+                    )}
+                  </span>
+                </div>
+                {edge.reasons.length > 0 && (
+                  <ul>
+                    {edge.reasons.map((reason) => (
+                      <li key={reason}>{reason.replaceAll("_", " ")}</li>
+                    ))}
+                  </ul>
+                )}
+                <div className="relationship-environments">
+                  <span>
+                    <b>Consumer environments</b>
+                    {edge.consumer_environments.length ? (
+                      edge.consumer_environments.map((env) => (
+                        <small key={env.id}>
+                          {env.name || short(env.id)} · {env.state} ·{" "}
+                          {short(env.commit_id)}
+                        </small>
+                      ))
+                    ) : (
+                      <small>No deployment evidence</small>
+                    )}
+                  </span>
+                  <span>
+                    <b>Provider environments</b>
+                    {edge.provider_environments.length ? (
+                      edge.provider_environments.map((env) => (
+                        <small key={env.id}>
+                          {env.name || short(env.id)} · {env.state} ·{" "}
+                          {short(env.commit_id)}
+                        </small>
+                      ))
+                    ) : (
+                      <small>No deployment evidence</small>
+                    )}
+                  </span>
+                </div>
+                <footer>
+                  Declared by <Actor id={edge.dependency.declared_by_id} /> ·{" "}
+                  {new Date(edge.dependency.declared_at).toLocaleString()}
+                </footer>
+              </article>
+            ))}
+            {!graph.edges.length && (
+              <article className="panel release-empty">
+                <Book />
+                <h3>No relationships declared</h3>
+                <p>
+                  Publish an interface from a release or declare this
+                  repository&apos;s dependency on another owner&apos;s contract.
+                </p>
+              </article>
+            )}
+          </div>
+        </>
+      )}
+      {plans.length > 0 && (
+        <section className="evolution-plans">
+          <header>
+            <div>
+              <p className="eyebrow">Shared migration decisions</p>
+              <h3>Evolution plans</h3>
+            </div>
+            <select
+              value={selectedPlan}
+              onChange={(event) => setSelectedPlan(event.target.value)}
+            >
+              {plans.map((plan) => (
+                <option value={plan.id} key={plan.id}>
+                  {plan.interface_name} · {plan.source_kind.replace("_", " ")}
+                </option>
+              ))}
+            </select>
+          </header>
+          {plans
+            .filter((plan) => plan.id === selectedPlan)
+            .map((plan) => (
+              <article className="panel evolution-plan" key={plan.id}>
+                <div className="evolution-comparison">
+                  <span>
+                    <small>Released predecessor</small>
+                    <strong>{plan.predecessor.version}</strong>
+                    <code>{short(plan.predecessor.commit_id)}</code>
+                    <small>
+                      {plan.predecessor.schema_path} ·{" "}
+                      {short(plan.predecessor_schema_sha256)}
+                    </small>
+                  </span>
+                  <ChevronRight />
+                  <span>
+                    <small>
+                      Candidate from {plan.source_kind.replace("_", " ")}
+                    </small>
+                    <strong>{plan.interface_name}</strong>
+                    <code>{short(plan.candidate_commit_id)}</code>
+                    <small>
+                      {plan.candidate_schema_path} ·{" "}
+                      {short(plan.candidate_schema_sha256)}
+                    </small>
+                  </span>
+                </div>
+                <div className="evolution-blast">
+                  <h4>Affected consumers and owners</h4>
+                  {plan.affected_consumers.map((consumer) => (
+                    <span key={consumer.dependency_id}>
+                      <Link
+                        href={`/repositories/${consumer.repository_id}?view=relationships`}
+                      >
+                        {names.get(consumer.repository_id) ??
+                          short(consumer.repository_id)}
+                      </Link>
+                      <Actor id={consumer.owner_id} />
+                      <code>{consumer.constraint}</code>
+                    </span>
+                  ))}
+                  {!plan.affected_consumers.length && (
+                    <p>No declared consumers are affected.</p>
+                  )}
+                </div>
+                {authorized && (
+                  <form
+                    className="evolution-contract"
+                    key={plan.updated_at}
+                    onSubmit={saveContract}
+                  >
+                    <label>
+                      Migration strategy
+                      <textarea
+                        name="strategy"
+                        required
+                        defaultValue={plan.strategy}
+                        placeholder="Describe rollout, dual-support window, and completion criteria."
+                      />
+                    </label>
+                    <div>
+                      <label>
+                        Classification
+                        <select
+                          name="classification"
+                          defaultValue={
+                            plan.changes[0]?.classification ?? "breaking"
+                          }
+                        >
+                          <option value="breaking">Breaking</option>
+                          <option value="compatible">Compatible</option>
+                          <option value="behavioral">Behavioral</option>
+                          <option value="unknown">Unknown</option>
+                        </select>
+                      </label>
+                      <label>
+                        Area
+                        <input
+                          name="area"
+                          required
+                          defaultValue={plan.changes[0]?.area}
+                          placeholder="request schema"
+                        />
+                      </label>
+                    </div>
+                    <label>
+                      Change summary
+                      <input
+                        name="change"
+                        required
+                        defaultValue={plan.changes[0]?.summary}
+                      />
+                    </label>
+                    <label>
+                      Rationale
+                      <textarea
+                        name="rationale"
+                        defaultValue={plan.changes[0]?.rationale}
+                      />
+                    </label>
+                    <label>
+                      Ordered steps{" "}
+                      <small>one per line as owner-id: outcome</small>
+                      <textarea
+                        name="steps"
+                        defaultValue={plan.steps
+                          .map((step) => `${step.owner_id}: ${step.summary}`)
+                          .join("\n")}
+                      />
+                    </label>
+                    <label>
+                      Exceptions <small>one reason per line</small>
+                      <textarea
+                        name="exceptions"
+                        defaultValue={plan.exceptions
+                          .map((item) => item.reason)
+                          .join("\n")}
+                      />
+                    </label>
+                    <div className="relationship-actions">
+                      <Button disabled={busy}>Save migration contract</Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => void delegate(plan)}
+                      >
+                        <Sparkles size={14} />
+                        Delegate read-only analysis
+                      </Button>
+                    </div>
+                  </form>
+                )}
+                <div className="evolution-decisions">
+                  <h4>Agreement</h4>
+                  <div className="relationship-actions">
+                    {actor && (
+                      <>
+                        <Button
+                          variant="secondary"
+                          onClick={() => void acknowledge(plan, "acknowledge")}
+                        >
+                          <Check size={14} />
+                          Acknowledge
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          onClick={() =>
+                            void acknowledge(plan, "request_changes")
+                          }
+                        >
+                          Request changes
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                  {plan.acknowledgements.map((item) => (
+                    <p key={item.actor_id}>
+                      <Actor id={item.actor_id} />{" "}
+                      <b>{item.decision.replace("_", " ")}</b> for{" "}
+                      {item.owner_for_repository_ids.length} owned repository
+                      {item.owner_for_repository_ids.length === 1 ? "" : "ies"}:{" "}
+                      {item.note}
+                    </p>
+                  ))}
+                </div>
+                {plan.findings.length > 0 && (
+                  <div className="evolution-findings">
+                    <h4>Agent findings and uncertainty</h4>
+                    {plan.findings.map((item) => (
+                      <blockquote key={item.id}>
+                        <b>{item.kind}</b> · {item.body}
+                        {item.uncertainty && (
+                          <small>Uncertainty: {item.uncertainty}</small>
+                        )}
+                        <footer>
+                          {item.actor_id} ·{" "}
+                          {item.repository_ids.map(short).join(", ")}
+                        </footer>
+                      </blockquote>
+                    ))}
+                  </div>
+                )}
+                <div className="evolution-findings">
+                  <header className="release-heading">
+                    <div><h4>Compatibility matrix</h4><p>Evidence stays bound to exact linked pull request revisions.</p></div>
+                    {authorized && <Button type="button" disabled={busy} onClick={() => void verifyEvolution(plan)}><Check size={14}/>Verify current combination</Button>}
+                  </header>
+                  {plan.verifications.map((attempt) => {
+                    const detail = verificationDetails[attempt.id];
+                    return <article className="panel" key={attempt.id}>
+                      <header><Badge tone={detail?.attested ? "accent" : "neutral"}>{detail ? detail.attested ? "attested" : detail.current ? "not passing" : "superseded" : "inspect evidence"}</Badge><span>{attempt.revisions.length} repositories · {attempt.run_ids.length} checks</span><Button type="button" variant="secondary" onClick={() => void inspectVerification(plan, attempt.id)}>Refresh evidence</Button></header>
+                      <div className="relationship-contract">{attempt.revisions.map((revision) => <span key={revision.repository_id}><b>{names.get(revision.repository_id) ?? short(revision.repository_id)}</b> <code>{short(revision.commit_id)}</code> · pull <code>{short(revision.pull_request_id)}</code></span>)}</div>
+                      {detail?.runs.map((run) => <div key={run.id}><Badge tone={run.state === "succeeded" ? "accent" : "neutral"}>{run.state}</Badge> <b>{run.definition.kind} · {run.definition.name}</b>{run.events.filter((event) => event.type === "log").map((event) => <pre key={event.sequence}>{event.stream}: {event.message}</pre>)}{run.events.flatMap((event) => event.artifact ? [event.artifact] : []).map((artifact) => <a key={artifact.id} href={`/api/repositories/${repository.id}/evolution-plans/${plan.id}/verifications/${attempt.id}/runs/${run.id}/artifacts/${artifact.id}`}>{artifact.path} · {short(artifact.sha256)}</a>)}</div>)}
+                    </article>;
+                  })}
+                  {!plan.verifications.length && <p>No exact cross-repository combination has been tested yet.</p>}
+                </div>
+              </article>
+            ))}
+        </section>
+      )}
+    </section>
+  );
 }
 
-function ReleaseWorkspace({ repository, branches, actor, selected }: { repository: Repository; branches: BranchRecord[]; actor: string; selected?: string }) {
+function ReleaseWorkspace({
+  repository,
+  branches,
+  actor,
+  selected,
+}: {
+  repository: Repository;
+  branches: BranchRecord[];
+  actor: string;
+  selected?: string;
+}) {
   const [items, setItems] = useState<ReleaseCandidate[]>([]);
   const [current, setCurrent] = useState<ReleaseCandidate>();
   const [creating, setCreating] = useState(false);
@@ -1281,13 +2732,23 @@ function ReleaseWorkspace({ repository, branches, actor, selected }: { repositor
   const [environments, setEnvironments] = useState<DeliveryEnvironment[]>([]);
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [deliveryBusy, setDeliveryBusy] = useState("");
-  const authorized = actor === repository.owner_id || repository.collaborator_ids?.includes(actor);
+  const authorized =
+    actor === repository.owner_id ||
+    repository.collaborator_ids?.includes(actor);
   const load = useCallback(async () => {
     try {
-      const result = await get<ReleaseList>(`/repositories/${repository.id}/releases?per_page=100`);
+      const result = await get<ReleaseList>(
+        `/repositories/${repository.id}/releases?per_page=100`,
+      );
       setItems(result.items);
-      setCurrent(result.items.find((item) => item.id === selected) ?? result.items[0]);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Releases unavailable."); }
+      setCurrent(
+        result.items.find((item) => item.id === selected) ?? result.items[0],
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Releases unavailable.",
+      );
+    }
   }, [repository.id, selected]);
   useEffect(() => {
     // Release state follows the shareable selected-release URL.
@@ -1295,113 +2756,2173 @@ function ReleaseWorkspace({ repository, branches, actor, selected }: { repositor
     void load();
   }, [load]);
   const loadAttestation = useCallback(async () => {
-    if (!current) { setAttestation(undefined); return; }
-    try { setAttestation(await get<ReleaseAttestation>(`/repositories/${repository.id}/releases/${current.id}/attestation`)); } catch { setError("Build attestation unavailable."); }
+    if (!current) {
+      setAttestation(undefined);
+      return;
+    }
+    try {
+      setAttestation(
+        await get<ReleaseAttestation>(
+          `/repositories/${repository.id}/releases/${current.id}/attestation`,
+        ),
+      );
+    } catch {
+      setError("Build attestation unavailable.");
+    }
   }, [current, repository.id]);
   useEffect(() => {
     // Build attempts are durable server state; poll only while work is active.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadAttestation();
-    if (!attestation?.attempts.some((run) => run.state === "queued" || run.state === "running")) return;
+    if (
+      !attestation?.attempts.some(
+        (run) => run.state === "queued" || run.state === "running",
+      )
+    )
+      return;
     const timer = window.setInterval(() => void loadAttestation(), 1500);
     return () => window.clearInterval(timer);
   }, [loadAttestation, attestation?.attempts]);
   const loadDelivery = useCallback(async () => {
-    try { const [environmentData, deploymentData] = await Promise.all([get<EnvironmentList>(`/repositories/${repository.id}/environments`), get<DeploymentList>(`/repositories/${repository.id}/deployments`)]); setEnvironments(environmentData.items); setDeployments(deploymentData.items); } catch { setError("Delivery state unavailable."); }
+    try {
+      const [environmentData, deploymentData] = await Promise.all([
+        get<EnvironmentList>(`/repositories/${repository.id}/environments`),
+        get<DeploymentList>(`/repositories/${repository.id}/deployments`),
+      ]);
+      setEnvironments(environmentData.items);
+      setDeployments(deploymentData.items);
+    } catch {
+      setError("Delivery state unavailable.");
+    }
   }, [repository.id]);
-  useEffect(() => { // Delivery records are durable server state and may advance asynchronously.
+  useEffect(() => {
+    // Delivery records are durable server state and may advance asynchronously.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadDelivery(); const timer = window.setInterval(() => void loadDelivery(), 2000); return () => window.clearInterval(timer); }, [loadDelivery]);
+    void loadDelivery();
+    const timer = window.setInterval(() => void loadDelivery(), 2000);
+    return () => window.clearInterval(timer);
+  }, [loadDelivery]);
   async function rerun(run: ReleaseBuild) {
-    setRerunning(run.id); setError("");
-    try { await send(`/repositories/${repository.id}/releases/${current?.id}/builds/${run.id}/rerun`, "POST", {}); await loadAttestation(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not rerun build."); }
-    finally { setRerunning(""); }
+    setRerunning(run.id);
+    setError("");
+    try {
+      await send(
+        `/repositories/${repository.id}/releases/${current?.id}/builds/${run.id}/rerun`,
+        "POST",
+        {},
+      );
+      await loadAttestation();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not rerun build.",
+      );
+    } finally {
+      setRerunning("");
+    }
   }
   async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setPending(true); setError("");
+    event.preventDefault();
+    setPending(true);
+    setError("");
     const data = new FormData(event.currentTarget);
     try {
-      const item = await send<ReleaseCandidate>(`/repositories/${repository.id}/releases`, "POST", { version: data.get("version"), notes: data.get("notes"), commit_id: data.get("commit"), prior_release_id: data.get("prior") || "" });
-      setCreating(false); await load(); setCurrent(item);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not define release."); } finally { setPending(false); }
+      const item = await send<ReleaseCandidate>(
+        `/repositories/${repository.id}/releases`,
+        "POST",
+        {
+          version: data.get("version"),
+          notes: data.get("notes"),
+          commit_id: data.get("commit"),
+          prior_release_id: data.get("prior") || "",
+        },
+      );
+      setCreating(false);
+      await load();
+      setCurrent(item);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not define release.",
+      );
+    } finally {
+      setPending(false);
+    }
   }
   async function saveEnvironment(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setDeliveryBusy("environment"); setError(""); const data = new FormData(event.currentTarget); const configuration = Object.fromEntries(String(data.get("configuration") || "").split("\n").filter(Boolean).map((line) => { const at=line.indexOf("="); return at<1?[line.trim(),""]:[line.slice(0,at).trim(),line.slice(at+1)]; })); const secrets = Object.fromEntries(String(data.get("secrets") || "").split("\n").filter(Boolean).map((line) => { const at=line.indexOf("="); return at<1?[line.trim(),""]:[line.slice(0,at).trim(),line.slice(at+1)]; }));
-    try { await send(`/repositories/${repository.id}/environments`, "POST", { name:data.get("name"), position:Number(data.get("position")), command:data.get("command"), configuration, secrets, required_approvals:Number(data.get("approvals")), concurrency:Number(data.get("concurrency")) }); event.currentTarget.reset(); await loadDelivery(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save environment."); } finally { setDeliveryBusy(""); }
+    event.preventDefault();
+    setDeliveryBusy("environment");
+    setError("");
+    const data = new FormData(event.currentTarget);
+    const configuration = Object.fromEntries(
+      String(data.get("configuration") || "")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          const at = line.indexOf("=");
+          return at < 1
+            ? [line.trim(), ""]
+            : [line.slice(0, at).trim(), line.slice(at + 1)];
+        }),
+    );
+    const secrets = Object.fromEntries(
+      String(data.get("secrets") || "")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          const at = line.indexOf("=");
+          return at < 1
+            ? [line.trim(), ""]
+            : [line.slice(0, at).trim(), line.slice(at + 1)];
+        }),
+    );
+    try {
+      await send(`/repositories/${repository.id}/environments`, "POST", {
+        name: data.get("name"),
+        position: Number(data.get("position")),
+        command: data.get("command"),
+        configuration,
+        secrets,
+        required_approvals: Number(data.get("approvals")),
+        concurrency: Number(data.get("concurrency")),
+      });
+      event.currentTarget.reset();
+      await loadDelivery();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not save environment.",
+      );
+    } finally {
+      setDeliveryBusy("");
+    }
   }
-  async function promote(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); if(!current)return;setDeliveryBusy("promote");const data=new FormData(event.currentTarget);const [run,artifact]=String(data.get("artifact")).split(":");try{await send(`/repositories/${repository.id}/deployments`,"POST",{environment_id:data.get("environment"),release_id:current.id,build_run_id:run,artifact_id:artifact});await loadDelivery();}catch(cause){setError(cause instanceof Error?cause.message:"Promotion was not accepted.");}finally{setDeliveryBusy("");} }
-  async function approve(deployment:Deployment){setDeliveryBusy(deployment.id);try{await send(`/repositories/${repository.id}/deployments/${deployment.id}/approvals`,"POST",{});await loadDelivery();}catch(cause){setError(cause instanceof Error?cause.message:"Approval was not accepted.");}finally{setDeliveryBusy("");}}
-  async function control(deployment:Deployment,action:"pause"|"resume"|"cancel"|"fail"){setDeliveryBusy(deployment.id);try{await send(`/repositories/${repository.id}/deployments/${deployment.id}/control`,"POST",{action,reason:action==="fail"?"Collaborator marked the observed rollout unhealthy.":`Collaborator requested rollout ${action}.`});await loadDelivery();}catch(cause){setError(cause instanceof Error?cause.message:"Rollout decision was not accepted.");}finally{setDeliveryBusy("");}}
-  async function recover(deployment:Deployment,action:"rollback"|"repair"){setDeliveryBusy(`${deployment.id}:${action}`);setError("");try{const result=await send<{pull_request?:{id:string}}>(`/repositories/${repository.id}/deployments/${deployment.id}/recovery`,"POST",{action,context_paths:[".komodo"]});if(result.pull_request){window.location.assign(`/repositories/${repository.id}?view=pulls&pull=${result.pull_request.id}&section=sessions`);return;}await loadDelivery();}catch(cause){setError(cause instanceof Error?cause.message:"Recovery could not be started.");}finally{setDeliveryBusy("");}}
-  return <div className="release-workspace">
-    <header className="release-heading"><div><p className="eyebrow">Immutable delivery candidates</p><h2>Releases</h2><p>Capture exactly what will ship and the integrated work it contains before build or promotion begins.</p></div>{authorized && <Button onClick={() => setCreating((value) => !value)}><Plus size={14}/>Define release</Button>}</header>
-    {creating && <form className="panel release-form" onSubmit={submit}>
-      <label>Version<input name="version" required maxLength={100} placeholder="v1.0.0" /></label>
-      <label>Exact repository state<select name="commit" required defaultValue={branches.find((branch) => branch.is_default)?.commit_id ?? branches[0]?.commit_id}>{branches.map((branch) => <option value={branch.commit_id} key={branch.name}>{branch.name} · {short(branch.commit_id)}</option>)}</select></label>
-      <label>Compare since<select name="prior" defaultValue=""><option value="">Beginning of history</option>{items.map((item) => <option value={item.id} key={item.id}>{item.version} · {short(item.commit_id)}</option>)}</select></label>
-      <label className="release-notes">Release notes<textarea name="notes" rows={5} maxLength={65536} placeholder="Explain why this state is ready to deliver and what participants should know." /></label>
-      {error && <p className="form-error" role="alert">{error}</p>}<div className="release-form-actions"><Button variant="secondary" type="button" onClick={() => setCreating(false)}>Cancel</Button><Button disabled={pending}>{pending ? "Capturing…" : "Capture candidate"}</Button></div>
-    </form>}
-    {!creating && error && <p className="form-error" role="alert">{error}</p>}
-    {items.length === 0 && !creating ? <section className="panel release-empty"><Sparkles/><h3>No release candidates yet</h3><p>Select an exact branch tip and capture the work that led to it.</p></section> : <div className="release-layout">
-      <aside className="panel release-list">{items.map((item) => <Link className={current?.id === item.id ? "active" : ""} href={`/repositories/${repository.id}?view=releases&release=${item.id}`} key={item.id}><span><strong>{item.version}</strong><small>{new Date(item.created_at).toLocaleString()}</small></span><Badge tone="accent">{item.status}</Badge><code>{short(item.commit_id)}</code></Link>)}</aside>
-      {current && <section className="panel release-detail"><header><div><p className="eyebrow">Release candidate</p><h2>{current.version}</h2></div><Badge tone="accent">{current.status}</Badge></header><div className="release-source"><span><small>Exact source commit</small><code>{current.commit_id}</code></span><span><small>Defined by</small><strong><Actor id={current.created_by_id}/></strong></span><span><small>Captured</small><strong>{new Date(current.created_at).toLocaleString()}</strong></span>{current.prior_release_id && <span><small>Changes since</small><Link href={`/repositories/${repository.id}?view=releases&release=${current.prior_release_id}`}>{items.find((item) => item.id === current.prior_release_id)?.version ?? short(current.prior_release_id)}</Link></span>}</div>
-      <article className="release-copy"><h3>Release notes</h3><p>{current.notes || "No release notes were supplied."}</p></article>
-      <article className="release-inclusions release-attestation"><header><div><h3>Build attestation</h3><p>Repository-defined commands executed against <code>{short(current.commit_id)}</code> in an isolated workspace.</p></div><Badge tone={attestation?.verified ? "accent" : "neutral"}>{attestation?.verified ? "verified" : "not verified"}</Badge></header>
-      {!attestation ? <p>Loading retained build evidence…</p> : attestation.attempts.map((run) => { const artifacts = run.events.flatMap((event) => event.artifact ? [event.artifact] : []); const logs = run.events.filter((event) => event.type === "log"); return <details className={`release-build ${run.state}`} key={run.id} open={run.state === "failed"}><summary><span><strong>{run.definition.name}</strong><small>{run.retry_of_id ? "Rerun" : "Initial attempt"} · by <Actor id={run.triggered_by_id || attestation.created_by_id}/></small></span><Badge tone={run.state === "succeeded" ? "accent" : "neutral"}>{run.state}</Badge></summary><div className="release-build-body"><dl><div><dt>Command</dt><dd><code>{run.definition.command}</code></dd></div><div><dt>Dependencies</dt><dd>{run.definition.dependencies?.join(", ") || "None"}</dd></div><div><dt>Source</dt><dd><code>{run.commit_id}</code></dd></div></dl>{logs.length > 0 && <pre aria-label={`${run.definition.name} build logs`}>{logs.map((event) => event.message).join("")}</pre>}{artifacts.map((artifact) => <a className="release-artifact" href={`/api/repositories/${repository.id}/releases/${current.id}/builds/${run.id}/artifacts/${artifact.id}`} key={artifact.id}><span><strong>{artifact.path}</strong><small>{artifact.size} bytes · SHA-256</small></span><code>{artifact.sha256}</code></a>)}{authorized && (run.state === "failed" || run.state === "canceled" || run.state === "succeeded") && <Button variant="secondary" disabled={rerunning === run.id} onClick={() => void rerun(run)}>{rerunning === run.id ? "Queuing…" : "Rerun exact attempt"}</Button>}</div></details>; })}</article>
-      <article className="release-inclusions delivery"><header><div><h3>Governed delivery</h3><p>Promote one verified artifact through ordered shared environments.</p></div></header>
-      {repository.owner_id===actor&&<details><summary>Define environment policy</summary><form className="delivery-policy" onSubmit={saveEnvironment}><label>Name<input name="name" required placeholder="Production"/></label><label>Order<input name="position" type="number" min="1" defaultValue={environments.length+1} required/></label><label>Required approvals<input name="approvals" type="number" min="0" max="20" defaultValue="1"/></label><label>Concurrency<input name="concurrency" type="number" min="1" max="20" defaultValue="1"/></label><label className="wide">Deployment command<input name="command" required placeholder="$KOMODO_ARTIFACT_PATH --deploy"/></label><label className="wide">Scoped configuration<textarea name="configuration" rows={3} placeholder={'REGION=us-east-1\nSERVICE=api'}/></label><label className="wide">Protected credentials<textarea name="secrets" rows={3} placeholder={'DEPLOY_TOKEN=…'}/><small>Values are encrypted at rest, injected only for the command, and never returned.</small></label><Button disabled={deliveryBusy==="environment"}>{deliveryBusy==="environment"?"Saving…":"Save environment"}</Button></form></details>}
-      {environments.length===0?<p>No delivery environments are configured.</p>:<><div className="environment-chain">{environments.map((environment)=><span key={environment.id}><strong>{environment.position}. {environment.name}</strong><small>{environment.required_approvals} approvals · {environment.concurrency} at once · {environment.secret_names.length} protected</small></span>)}</div>{authorized&&attestation?.verified&&<form className="promotion-form" onSubmit={promote}><label>Environment<select name="environment">{environments.map((environment)=><option value={environment.id} key={environment.id}>{environment.position}. {environment.name}</option>)}</select></label><label>Exact artifact<select name="artifact" required>{attestation.attempts.filter((run)=>run.state==="succeeded").flatMap((run)=>run.events.flatMap((event)=>event.artifact?[<option value={`${run.id}:${event.artifact.id}`} key={`${run.id}:${event.artifact.id}`}>{event.artifact.path} · {short(event.artifact.sha256)}</option>]:[]))}</select></label><Button disabled={deliveryBusy==="promote"}>{deliveryBusy==="promote"?"Requesting…":"Request promotion"}</Button></form>}</>}
-      {deployments.filter((deployment)=>deployment.release_id===current.id).map((deployment)=>{const environment=environments.find((item)=>item.id===deployment.environment_id);const logs=deployment.events.filter((event)=>event.type==="log");const active=["pending","queued","running","paused"].includes(deployment.state);return <details id={`deployment-${deployment.id}`} className="deployment-record" open={active||deployment.state==="failed"} key={deployment.id}><summary><span><strong>{environment?.name??"Environment"}{deployment.current_stage?` · ${deployment.current_stage}`:""}</strong><small>{deployment.artifact_path} · initiated by <Actor id={deployment.initiated_by_id}/></small></span><Badge tone={deployment.state==="succeeded"?"accent":"neutral"}>{deployment.state}</Badge></summary><div><p>Affected revision <code>{deployment.source_commit_id}</code></p><p>Artifact <code>{deployment.artifact_sha256}</code></p>{deployment.recovery_of_id&&<p>{deployment.recovery_action==="rollback"?"Known-good rollback for":"Recovery for"} <a href={`#deployment-${deployment.recovery_of_id}`}><code>{short(deployment.recovery_of_id)}</code></a></p>}<p>Approvals: {deployment.approvals.length?deployment.approvals.map((approval)=><Actor id={approval.actor_id} key={approval.actor_id}/>):"None yet"}</p>{deployment.state==="pending"&&deployment.initiated_by_id!==actor&&authorized&&<Button variant="secondary" disabled={deliveryBusy===deployment.id} onClick={()=>void approve(deployment)}>Approve exact artifact</Button>}{authorized&&active&&<div className="release-actions">{deployment.state==="running"&&<Button variant="secondary" disabled={deliveryBusy===deployment.id} onClick={()=>void control(deployment,"pause")}>Pause rollout</Button>}{deployment.state==="paused"&&<Button variant="secondary" disabled={deliveryBusy===deployment.id} onClick={()=>void control(deployment,"resume")}>Resume rollout</Button>}<Button variant="secondary" disabled={deliveryBusy===deployment.id} onClick={()=>void control(deployment,"cancel")}>Cancel</Button>{(deployment.state==="running"||deployment.state==="paused")&&<Button variant="danger" disabled={deliveryBusy===deployment.id} onClick={()=>void control(deployment,"fail")}>Mark unsuccessful</Button>}</div>}{authorized&&deployment.state==="failed"&&<div className="release-actions" aria-label="Deployment recovery"><Button variant="danger" disabled={deliveryBusy.startsWith(deployment.id)} onClick={()=>void recover(deployment,"rollback")}>Restore last known good</Button><Button variant="secondary" disabled={deliveryBusy.startsWith(deployment.id)} onClick={()=>void recover(deployment,"repair")}>Open agent repair</Button></div>}{deployment.decision_by_id&&<p>Latest decision by <Actor id={deployment.decision_by_id}/>{deployment.decision_reason?`: ${deployment.decision_reason}`:""}</p>}{logs.length>0&&<pre aria-label="Deployment logs">{logs.map((event)=>event.message).join("")}</pre>}<ol className="deployment-timeline">{deployment.events.filter((event)=>event.type!=="log").map((event)=><li key={event.sequence}><strong>{event.type}{event.stage?` · ${event.stage}`:""}{event.signal?` · ${event.signal}`:""}{event.outcome?` · ${event.outcome}`:""}{event.state?` · ${event.state}`:""}</strong>{event.actor_id&&<> by <Actor id={event.actor_id}/></>}{event.message&&<span>{event.message}</span>}<small>{new Date(event.created_at).toLocaleString()}</small></li>)}</ol></div></details>})}</article>
-      <article className="release-inclusions"><h3>Included collaboration</h3><div className="release-counts"><span><strong>{current.pull_requests.length}</strong> pull requests</span><span><strong>{current.proposal_ids.length}</strong> proposals</span><span><strong>{current.task_ids.length}</strong> tasks</span><span><strong>{current.contributor_ids.length}</strong> contributors</span></div>{current.pull_requests.length > 0 ? current.pull_requests.map((pull) => <div className="release-pull" key={pull.id}><GitPullRequest size={15}/><span><Link href={`/repositories/${repository.id}?view=pulls&pull=${pull.id}`}>{pull.title}</Link><small>by <Actor id={pull.author_id}/> · merge <code>{short(pull.merge_commit_id)}</code></small></span></div>) : <p>No merged pull requests fall within this history range.</p>}
-      {(current.proposal_ids.length > 0 || current.task_ids.length > 0) && <small className="release-links">Proposal links: {current.proposal_ids.map((id, index) => <span key={id}>{index > 0 ? ", " : ""}<Link href={`/repositories/${repository.id}?view=proposals&proposal=${id}`}>{short(id)}</Link></span>)}{current.task_ids.length > 0 && ` · ${current.task_ids.length} linked delivery ${current.task_ids.length === 1 ? "task" : "tasks"}`}</small>}</article></section>}
-    </div>}
-  </div>;
+  async function promote(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!current) return;
+    setDeliveryBusy("promote");
+    const data = new FormData(event.currentTarget);
+    const [run, artifact] = String(data.get("artifact")).split(":");
+    try {
+      await send(`/repositories/${repository.id}/deployments`, "POST", {
+        environment_id: data.get("environment"),
+        release_id: current.id,
+        build_run_id: run,
+        artifact_id: artifact,
+      });
+      await loadDelivery();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Promotion was not accepted.",
+      );
+    } finally {
+      setDeliveryBusy("");
+    }
+  }
+  async function approve(deployment: Deployment) {
+    setDeliveryBusy(deployment.id);
+    try {
+      await send(
+        `/repositories/${repository.id}/deployments/${deployment.id}/approvals`,
+        "POST",
+        {},
+      );
+      await loadDelivery();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Approval was not accepted.",
+      );
+    } finally {
+      setDeliveryBusy("");
+    }
+  }
+  async function control(
+    deployment: Deployment,
+    action: "pause" | "resume" | "cancel" | "fail",
+  ) {
+    setDeliveryBusy(deployment.id);
+    try {
+      await send(
+        `/repositories/${repository.id}/deployments/${deployment.id}/control`,
+        "POST",
+        {
+          action,
+          reason:
+            action === "fail"
+              ? "Collaborator marked the observed rollout unhealthy."
+              : `Collaborator requested rollout ${action}.`,
+        },
+      );
+      await loadDelivery();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Rollout decision was not accepted.",
+      );
+    } finally {
+      setDeliveryBusy("");
+    }
+  }
+  async function recover(
+    deployment: Deployment,
+    action: "rollback" | "repair",
+  ) {
+    setDeliveryBusy(`${deployment.id}:${action}`);
+    setError("");
+    try {
+      const result = await send<{ pull_request?: { id: string } }>(
+        `/repositories/${repository.id}/deployments/${deployment.id}/recovery`,
+        "POST",
+        { action, context_paths: [".komodo"] },
+      );
+      if (result.pull_request) {
+        window.location.assign(
+          `/repositories/${repository.id}?view=pulls&pull=${result.pull_request.id}&section=sessions`,
+        );
+        return;
+      }
+      await loadDelivery();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Recovery could not be started.",
+      );
+    } finally {
+      setDeliveryBusy("");
+    }
+  }
+  return (
+    <div className="release-workspace">
+      <header className="release-heading">
+        <div>
+          <p className="eyebrow">Immutable delivery candidates</p>
+          <h2>Releases</h2>
+          <p>
+            Capture exactly what will ship and the integrated work it contains
+            before build or promotion begins.
+          </p>
+        </div>
+        {authorized && (
+          <Button onClick={() => setCreating((value) => !value)}>
+            <Plus size={14} />
+            Define release
+          </Button>
+        )}
+      </header>
+      {creating && (
+        <form className="panel release-form" onSubmit={submit}>
+          <label>
+            Version
+            <input
+              name="version"
+              required
+              maxLength={100}
+              placeholder="v1.0.0"
+            />
+          </label>
+          <label>
+            Exact repository state
+            <select
+              name="commit"
+              required
+              defaultValue={
+                branches.find((branch) => branch.is_default)?.commit_id ??
+                branches[0]?.commit_id
+              }
+            >
+              {branches.map((branch) => (
+                <option value={branch.commit_id} key={branch.name}>
+                  {branch.name} · {short(branch.commit_id)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Compare since
+            <select name="prior" defaultValue="">
+              <option value="">Beginning of history</option>
+              {items.map((item) => (
+                <option value={item.id} key={item.id}>
+                  {item.version} · {short(item.commit_id)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="release-notes">
+            Release notes
+            <textarea
+              name="notes"
+              rows={5}
+              maxLength={65536}
+              placeholder="Explain why this state is ready to deliver and what participants should know."
+            />
+          </label>
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="release-form-actions">
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => setCreating(false)}
+            >
+              Cancel
+            </Button>
+            <Button disabled={pending}>
+              {pending ? "Capturing…" : "Capture candidate"}
+            </Button>
+          </div>
+        </form>
+      )}
+      {!creating && error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      {items.length === 0 && !creating ? (
+        <section className="panel release-empty">
+          <Sparkles />
+          <h3>No release candidates yet</h3>
+          <p>Select an exact branch tip and capture the work that led to it.</p>
+        </section>
+      ) : (
+        <div className="release-layout">
+          <aside className="panel release-list">
+            {items.map((item) => (
+              <Link
+                className={current?.id === item.id ? "active" : ""}
+                href={`/repositories/${repository.id}?view=releases&release=${item.id}`}
+                key={item.id}
+              >
+                <span>
+                  <strong>{item.version}</strong>
+                  <small>{new Date(item.created_at).toLocaleString()}</small>
+                </span>
+                <Badge tone="accent">{item.status}</Badge>
+                <code>{short(item.commit_id)}</code>
+              </Link>
+            ))}
+          </aside>
+          {current && (
+            <section className="panel release-detail">
+              <header>
+                <div>
+                  <p className="eyebrow">Release candidate</p>
+                  <h2>{current.version}</h2>
+                </div>
+                <Badge tone="accent">{current.status}</Badge>
+              </header>
+              <div className="release-source">
+                <span>
+                  <small>Exact source commit</small>
+                  <code>{current.commit_id}</code>
+                </span>
+                <span>
+                  <small>Defined by</small>
+                  <strong>
+                    <Actor id={current.created_by_id} />
+                  </strong>
+                </span>
+                <span>
+                  <small>Captured</small>
+                  <strong>
+                    {new Date(current.created_at).toLocaleString()}
+                  </strong>
+                </span>
+                {current.prior_release_id && (
+                  <span>
+                    <small>Changes since</small>
+                    <Link
+                      href={`/repositories/${repository.id}?view=releases&release=${current.prior_release_id}`}
+                    >
+                      {items.find(
+                        (item) => item.id === current.prior_release_id,
+                      )?.version ?? short(current.prior_release_id)}
+                    </Link>
+                  </span>
+                )}
+              </div>
+              <article className="release-copy">
+                <h3>Release notes</h3>
+                <p>{current.notes || "No release notes were supplied."}</p>
+              </article>
+              <article className="release-inclusions release-attestation">
+                <header>
+                  <div>
+                    <h3>Build attestation</h3>
+                    <p>
+                      Repository-defined commands executed against{" "}
+                      <code>{short(current.commit_id)}</code> in an isolated
+                      workspace.
+                    </p>
+                  </div>
+                  <Badge tone={attestation?.verified ? "accent" : "neutral"}>
+                    {attestation?.verified ? "verified" : "not verified"}
+                  </Badge>
+                </header>
+                {!attestation ? (
+                  <p>Loading retained build evidence…</p>
+                ) : (
+                  attestation.attempts.map((run) => {
+                    const artifacts = run.events.flatMap((event) =>
+                      event.artifact ? [event.artifact] : [],
+                    );
+                    const logs = run.events.filter(
+                      (event) => event.type === "log",
+                    );
+                    return (
+                      <details
+                        className={`release-build ${run.state}`}
+                        key={run.id}
+                        open={run.state === "failed"}
+                      >
+                        <summary>
+                          <span>
+                            <strong>{run.definition.name}</strong>
+                            <small>
+                              {run.retry_of_id ? "Rerun" : "Initial attempt"} ·
+                              by{" "}
+                              <Actor
+                                id={
+                                  run.triggered_by_id ||
+                                  attestation.created_by_id
+                                }
+                              />
+                            </small>
+                          </span>
+                          <Badge
+                            tone={
+                              run.state === "succeeded" ? "accent" : "neutral"
+                            }
+                          >
+                            {run.state}
+                          </Badge>
+                        </summary>
+                        <div className="release-build-body">
+                          <dl>
+                            <div>
+                              <dt>Command</dt>
+                              <dd>
+                                <code>{run.definition.command}</code>
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>Dependencies</dt>
+                              <dd>
+                                {run.definition.dependencies?.join(", ") ||
+                                  "None"}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>Source</dt>
+                              <dd>
+                                <code>{run.commit_id}</code>
+                              </dd>
+                            </div>
+                          </dl>
+                          {logs.length > 0 && (
+                            <pre
+                              aria-label={`${run.definition.name} build logs`}
+                            >
+                              {logs.map((event) => event.message).join("")}
+                            </pre>
+                          )}
+                          {artifacts.map((artifact) => (
+                            <a
+                              className="release-artifact"
+                              href={`/api/repositories/${repository.id}/releases/${current.id}/builds/${run.id}/artifacts/${artifact.id}`}
+                              key={artifact.id}
+                            >
+                              <span>
+                                <strong>{artifact.path}</strong>
+                                <small>{artifact.size} bytes · SHA-256</small>
+                              </span>
+                              <code>{artifact.sha256}</code>
+                            </a>
+                          ))}
+                          {authorized &&
+                            (run.state === "failed" ||
+                              run.state === "canceled" ||
+                              run.state === "succeeded") && (
+                              <Button
+                                variant="secondary"
+                                disabled={rerunning === run.id}
+                                onClick={() => void rerun(run)}
+                              >
+                                {rerunning === run.id
+                                  ? "Queuing…"
+                                  : "Rerun exact attempt"}
+                              </Button>
+                            )}
+                        </div>
+                      </details>
+                    );
+                  })
+                )}
+              </article>
+              <article className="release-inclusions delivery">
+                <header>
+                  <div>
+                    <h3>Governed delivery</h3>
+                    <p>
+                      Promote one verified artifact through ordered shared
+                      environments.
+                    </p>
+                  </div>
+                </header>
+                {repository.owner_id === actor && (
+                  <details>
+                    <summary>Define environment policy</summary>
+                    <form
+                      className="delivery-policy"
+                      onSubmit={saveEnvironment}
+                    >
+                      <label>
+                        Name
+                        <input name="name" required placeholder="Production" />
+                      </label>
+                      <label>
+                        Order
+                        <input
+                          name="position"
+                          type="number"
+                          min="1"
+                          defaultValue={environments.length + 1}
+                          required
+                        />
+                      </label>
+                      <label>
+                        Required approvals
+                        <input
+                          name="approvals"
+                          type="number"
+                          min="0"
+                          max="20"
+                          defaultValue="1"
+                        />
+                      </label>
+                      <label>
+                        Concurrency
+                        <input
+                          name="concurrency"
+                          type="number"
+                          min="1"
+                          max="20"
+                          defaultValue="1"
+                        />
+                      </label>
+                      <label className="wide">
+                        Deployment command
+                        <input
+                          name="command"
+                          required
+                          placeholder="$KOMODO_ARTIFACT_PATH --deploy"
+                        />
+                      </label>
+                      <label className="wide">
+                        Scoped configuration
+                        <textarea
+                          name="configuration"
+                          rows={3}
+                          placeholder={"REGION=us-east-1\nSERVICE=api"}
+                        />
+                      </label>
+                      <label className="wide">
+                        Protected credentials
+                        <textarea
+                          name="secrets"
+                          rows={3}
+                          placeholder={"DEPLOY_TOKEN=…"}
+                        />
+                        <small>
+                          Values are encrypted at rest, injected only for the
+                          command, and never returned.
+                        </small>
+                      </label>
+                      <Button disabled={deliveryBusy === "environment"}>
+                        {deliveryBusy === "environment"
+                          ? "Saving…"
+                          : "Save environment"}
+                      </Button>
+                    </form>
+                  </details>
+                )}
+                {environments.length === 0 ? (
+                  <p>No delivery environments are configured.</p>
+                ) : (
+                  <>
+                    <div className="environment-chain">
+                      {environments.map((environment) => (
+                        <span key={environment.id}>
+                          <strong>
+                            {environment.position}. {environment.name}
+                          </strong>
+                          <small>
+                            {environment.required_approvals} approvals ·{" "}
+                            {environment.concurrency} at once ·{" "}
+                            {environment.secret_names.length} protected
+                          </small>
+                        </span>
+                      ))}
+                    </div>
+                    {authorized && attestation?.verified && (
+                      <form className="promotion-form" onSubmit={promote}>
+                        <label>
+                          Environment
+                          <select name="environment">
+                            {environments.map((environment) => (
+                              <option
+                                value={environment.id}
+                                key={environment.id}
+                              >
+                                {environment.position}. {environment.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Exact artifact
+                          <select name="artifact" required>
+                            {attestation.attempts
+                              .filter((run) => run.state === "succeeded")
+                              .flatMap((run) =>
+                                run.events.flatMap((event) =>
+                                  event.artifact
+                                    ? [
+                                        <option
+                                          value={`${run.id}:${event.artifact.id}`}
+                                          key={`${run.id}:${event.artifact.id}`}
+                                        >
+                                          {event.artifact.path} ·{" "}
+                                          {short(event.artifact.sha256)}
+                                        </option>,
+                                      ]
+                                    : [],
+                                ),
+                              )}
+                          </select>
+                        </label>
+                        <Button disabled={deliveryBusy === "promote"}>
+                          {deliveryBusy === "promote"
+                            ? "Requesting…"
+                            : "Request promotion"}
+                        </Button>
+                      </form>
+                    )}
+                  </>
+                )}
+                {deployments
+                  .filter((deployment) => deployment.release_id === current.id)
+                  .map((deployment) => {
+                    const environment = environments.find(
+                      (item) => item.id === deployment.environment_id,
+                    );
+                    const logs = deployment.events.filter(
+                      (event) => event.type === "log",
+                    );
+                    const active = [
+                      "pending",
+                      "queued",
+                      "running",
+                      "paused",
+                    ].includes(deployment.state);
+                    return (
+                      <details
+                        id={`deployment-${deployment.id}`}
+                        className="deployment-record"
+                        open={active || deployment.state === "failed"}
+                        key={deployment.id}
+                      >
+                        <summary>
+                          <span>
+                            <strong>
+                              {environment?.name ?? "Environment"}
+                              {deployment.current_stage
+                                ? ` · ${deployment.current_stage}`
+                                : ""}
+                            </strong>
+                            <small>
+                              {deployment.artifact_path} · initiated by{" "}
+                              <Actor id={deployment.initiated_by_id} />
+                            </small>
+                          </span>
+                          <Badge
+                            tone={
+                              deployment.state === "succeeded"
+                                ? "accent"
+                                : "neutral"
+                            }
+                          >
+                            {deployment.state}
+                          </Badge>
+                        </summary>
+                        <div>
+                          <p>
+                            Affected revision{" "}
+                            <code>{deployment.source_commit_id}</code>
+                          </p>
+                          <p>
+                            Artifact <code>{deployment.artifact_sha256}</code>
+                          </p>
+                          {deployment.recovery_of_id && (
+                            <p>
+                              {deployment.recovery_action === "rollback"
+                                ? "Known-good rollback for"
+                                : "Recovery for"}{" "}
+                              <a
+                                href={`#deployment-${deployment.recovery_of_id}`}
+                              >
+                                <code>{short(deployment.recovery_of_id)}</code>
+                              </a>
+                            </p>
+                          )}
+                          <p>
+                            Approvals:{" "}
+                            {deployment.approvals.length
+                              ? deployment.approvals.map((approval) => (
+                                  <Actor
+                                    id={approval.actor_id}
+                                    key={approval.actor_id}
+                                  />
+                                ))
+                              : "None yet"}
+                          </p>
+                          {deployment.state === "pending" &&
+                            deployment.initiated_by_id !== actor &&
+                            authorized && (
+                              <Button
+                                variant="secondary"
+                                disabled={deliveryBusy === deployment.id}
+                                onClick={() => void approve(deployment)}
+                              >
+                                Approve exact artifact
+                              </Button>
+                            )}
+                          {authorized && active && (
+                            <div className="release-actions">
+                              {deployment.state === "running" && (
+                                <Button
+                                  variant="secondary"
+                                  disabled={deliveryBusy === deployment.id}
+                                  onClick={() =>
+                                    void control(deployment, "pause")
+                                  }
+                                >
+                                  Pause rollout
+                                </Button>
+                              )}
+                              {deployment.state === "paused" && (
+                                <Button
+                                  variant="secondary"
+                                  disabled={deliveryBusy === deployment.id}
+                                  onClick={() =>
+                                    void control(deployment, "resume")
+                                  }
+                                >
+                                  Resume rollout
+                                </Button>
+                              )}
+                              <Button
+                                variant="secondary"
+                                disabled={deliveryBusy === deployment.id}
+                                onClick={() =>
+                                  void control(deployment, "cancel")
+                                }
+                              >
+                                Cancel
+                              </Button>
+                              {(deployment.state === "running" ||
+                                deployment.state === "paused") && (
+                                <Button
+                                  variant="danger"
+                                  disabled={deliveryBusy === deployment.id}
+                                  onClick={() =>
+                                    void control(deployment, "fail")
+                                  }
+                                >
+                                  Mark unsuccessful
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                          {authorized && deployment.state === "failed" && (
+                            <div
+                              className="release-actions"
+                              aria-label="Deployment recovery"
+                            >
+                              <Button
+                                variant="danger"
+                                disabled={deliveryBusy.startsWith(
+                                  deployment.id,
+                                )}
+                                onClick={() =>
+                                  void recover(deployment, "rollback")
+                                }
+                              >
+                                Restore last known good
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                disabled={deliveryBusy.startsWith(
+                                  deployment.id,
+                                )}
+                                onClick={() =>
+                                  void recover(deployment, "repair")
+                                }
+                              >
+                                Open agent repair
+                              </Button>
+                            </div>
+                          )}
+                          {deployment.decision_by_id && (
+                            <p>
+                              Latest decision by{" "}
+                              <Actor id={deployment.decision_by_id} />
+                              {deployment.decision_reason
+                                ? `: ${deployment.decision_reason}`
+                                : ""}
+                            </p>
+                          )}
+                          {logs.length > 0 && (
+                            <pre aria-label="Deployment logs">
+                              {logs.map((event) => event.message).join("")}
+                            </pre>
+                          )}
+                          <ol className="deployment-timeline">
+                            {deployment.events
+                              .filter((event) => event.type !== "log")
+                              .map((event) => (
+                                <li key={event.sequence}>
+                                  <strong>
+                                    {event.type}
+                                    {event.stage ? ` · ${event.stage}` : ""}
+                                    {event.signal ? ` · ${event.signal}` : ""}
+                                    {event.outcome ? ` · ${event.outcome}` : ""}
+                                    {event.state ? ` · ${event.state}` : ""}
+                                  </strong>
+                                  {event.actor_id && (
+                                    <>
+                                      {" "}
+                                      by <Actor id={event.actor_id} />
+                                    </>
+                                  )}
+                                  {event.message && (
+                                    <span>{event.message}</span>
+                                  )}
+                                  <small>
+                                    {new Date(
+                                      event.created_at,
+                                    ).toLocaleString()}
+                                  </small>
+                                </li>
+                              ))}
+                          </ol>
+                        </div>
+                      </details>
+                    );
+                  })}
+              </article>
+              <article className="release-inclusions">
+                <h3>Included collaboration</h3>
+                <div className="release-counts">
+                  <span>
+                    <strong>{current.pull_requests.length}</strong> pull
+                    requests
+                  </span>
+                  <span>
+                    <strong>{current.proposal_ids.length}</strong> proposals
+                  </span>
+                  <span>
+                    <strong>{current.task_ids.length}</strong> tasks
+                  </span>
+                  <span>
+                    <strong>{current.contributor_ids.length}</strong>{" "}
+                    contributors
+                  </span>
+                </div>
+                {current.pull_requests.length > 0 ? (
+                  current.pull_requests.map((pull) => (
+                    <div className="release-pull" key={pull.id}>
+                      <GitPullRequest size={15} />
+                      <span>
+                        <Link
+                          href={`/repositories/${repository.id}?view=pulls&pull=${pull.id}`}
+                        >
+                          {pull.title}
+                        </Link>
+                        <small>
+                          by <Actor id={pull.author_id} /> · merge{" "}
+                          <code>{short(pull.merge_commit_id)}</code>
+                        </small>
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <p>No merged pull requests fall within this history range.</p>
+                )}
+                {(current.proposal_ids.length > 0 ||
+                  current.task_ids.length > 0) && (
+                  <small className="release-links">
+                    Proposal links:{" "}
+                    {current.proposal_ids.map((id, index) => (
+                      <span key={id}>
+                        {index > 0 ? ", " : ""}
+                        <Link
+                          href={`/repositories/${repository.id}?view=proposals&proposal=${id}`}
+                        >
+                          {short(id)}
+                        </Link>
+                      </span>
+                    ))}
+                    {current.task_ids.length > 0 &&
+                      ` · ${current.task_ids.length} linked delivery ${current.task_ids.length === 1 ? "task" : "tasks"}`}
+                  </small>
+                )}
+              </article>
+            </section>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
-function IncidentWorkspace({repository,actor,selected}:{repository:Repository;actor:string;selected?:string}) {
-  const [items,setItems]=useState<Incident[]>([]); const [environments,setEnvironments]=useState<DeliveryEnvironment[]>([]); const [deployments,setDeployments]=useState<Deployment[]>([]); const [baseRevision,setBaseRevision]=useState(""); const [creating,setCreating]=useState(false); const [busy,setBusy]=useState(""); const [error,setError]=useState("");
-  const current=items.find((item)=>item.id===selected)??items[0]; const authorized=Boolean(actor&&(actor===repository.owner_id||repository.collaborator_ids?.includes(actor))); const responders=[repository.owner_id,...(repository.collaborator_ids??[])];
-  const load=useCallback(async()=>{try{const [incidentData,environmentData,deploymentData,branches]=await Promise.all([get<IncidentList>(`/repositories/${repository.id}/incidents`),get<EnvironmentList>(`/repositories/${repository.id}/environments`),get<DeploymentList>(`/repositories/${repository.id}/deployments`),get<Branches>(`/repositories/${repository.id}/branches`)]);setItems(incidentData.items);setEnvironments(environmentData.items);setDeployments(deploymentData.items);setBaseRevision(branches.items.find((branch)=>branch.is_default)?.commit_id??"");}catch{setError("Incident state unavailable.");}},[repository.id]);
-  useEffect(()=>{
+function IncidentWorkspace({
+  repository,
+  actor,
+  selected,
+}: {
+  repository: Repository;
+  actor: string;
+  selected?: string;
+}) {
+  const [items, setItems] = useState<Incident[]>([]);
+  const [environments, setEnvironments] = useState<DeliveryEnvironment[]>([]);
+  const [deployments, setDeployments] = useState<Deployment[]>([]);
+  const [baseRevision, setBaseRevision] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const current = items.find((item) => item.id === selected) ?? items[0];
+  const authorized = Boolean(
+    actor &&
+    (actor === repository.owner_id ||
+      repository.collaborator_ids?.includes(actor)),
+  );
+  const responders = [
+    repository.owner_id,
+    ...(repository.collaborator_ids ?? []),
+  ];
+  const load = useCallback(async () => {
+    try {
+      const [incidentData, environmentData, deploymentData, branches] =
+        await Promise.all([
+          get<IncidentList>(`/repositories/${repository.id}/incidents`),
+          get<EnvironmentList>(`/repositories/${repository.id}/environments`),
+          get<DeploymentList>(`/repositories/${repository.id}/deployments`),
+          get<Branches>(`/repositories/${repository.id}/branches`),
+        ]);
+      setItems(incidentData.items);
+      setEnvironments(environmentData.items);
+      setDeployments(deploymentData.items);
+      setBaseRevision(
+        branches.items.find((branch) => branch.is_default)?.commit_id ?? "",
+      );
+    } catch {
+      setError("Incident state unavailable.");
+    }
+  }, [repository.id]);
+  useEffect(() => {
     // Incident state follows the shareable selected-incident URL.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
-  },[load]);
-  async function declare(event:React.FormEvent<HTMLFormElement>){event.preventDefault();setBusy("create");setError("");const data=new FormData(event.currentTarget);const environment=String(data.get("environment"));const deploymentID=String(data.get("deployment"));const deployment=deployments.find((item)=>item.id===deploymentID);const signal=deployment?.events.findLast((item)=>item.signal&&["failed","unhealthy"].includes(item.outcome??""));const additional=String(data.get("affected")??"").split("\n").map((line)=>line.trim()).filter(Boolean).map((line)=>{const [repository_id,environment_id=""]=line.split(":");return {repository_id,environment_id};});try{const item=await send<Incident>(`/repositories/${repository.id}/incidents`,"POST",{title:data.get("title"),summary:data.get("summary"),severity:data.get("severity"),roles:{commander:data.get("commander"),operations:data.get("operations")||undefined,communications:data.get("communications")||undefined},affected:[{repository_id:repository.id,environment_id:environment},...additional],source_signal:deployment&&signal?{repository_id:repository.id,deployment_id:deployment.id,event_sequence:signal.sequence}:undefined});window.location.assign(`/repositories/${repository.id}?view=incidents&incident=${item.id}`);}catch(cause){setError(cause instanceof Error?cause.message:"Incident could not be declared.");}finally{setBusy("");}}
-  async function mutate(path:string,method:string,body?:unknown){if(!current)return;setBusy(path);setError("");try{await send(`/repositories/${repository.id}/incidents/${current.id}${path}`,method,body);await load();}catch(cause){setError(cause instanceof Error?cause.message:"Incident change was not accepted.");}finally{setBusy("");}}
-  async function attachEvidence(event:React.FormEvent<HTMLFormElement>){event.preventDefault();const form=event.currentTarget;const data=new FormData(form);const kind=String(data.get("kind"));const start=String(data.get("start_at")||"");const end=String(data.get("end_at")||"");await mutate("/evidence","POST",{kind,repository_id:repository.id,resource_id:data.get("resource_id"),event_sequence:Number(data.get("event_sequence"))||undefined,start_at:start?new Date(start).toISOString():undefined,end_at:end?new Date(end).toISOString():undefined,title:data.get("title"),audience:data.get("audience")});form.reset();}
-  async function addFinding(event:React.FormEvent<HTMLFormElement>){event.preventDefault();const form=event.currentTarget;const data=new FormData(form);await mutate("/findings","POST",{kind:data.get("kind"),body:data.get("body"),query:data.get("query"),audience:data.get("audience"),evidence_ids:data.getAll("evidence")});form.reset();}
-  async function proposeMitigation(event:React.FormEvent<HTMLFormElement>){event.preventDefault();const form=event.currentTarget;const data=new FormData(form);const deployment=deployments.find((item)=>item.id===data.get("deployment"));if(!deployment){setError("Choose the affected deployment.");return;}await mutate("/mitigations","POST",{kind:data.get("kind"),title:data.get("title"),description:data.get("description"),repository_id:repository.id,environment_id:deployment.environment_id,deployment_id:deployment.id,evidence_ids:data.getAll("evidence"),recovery_criteria:[{name:data.get("criterion")}]});form.reset();}
-  async function executeMitigation(item:IncidentMitigation){if(!item.deployment_id)return;setBusy(item.id);setError("");try{if(item.kind==="pause_rollout"){await send(`/repositories/${repository.id}/incidents/${current!.id}/mitigations/${item.id}/execution`,"POST",{outcome:"started",message:"Authorized responder paused the governed rollout"});}else{const recovery=await send<{deployment?:Deployment;pull_request?:{id:string}}>(`/repositories/${repository.id}/deployments/${item.deployment_id}/recovery`,"POST",{action:item.kind==="restore_release"?"rollback":"repair",instructions:item.description,context_paths:[]});const resourceType=item.kind==="restore_release"?"deployment":"pull_request";const resourceID=recovery.deployment?.id??recovery.pull_request?.id;await send(`/repositories/${repository.id}/incidents/${current!.id}/mitigations/${item.id}/execution`,"POST",{outcome:"started",resource_type:resourceType,resource_id:resourceID,message:item.kind==="restore_release"?"Governed attested rollback started":"Draft emergency repair entered the ordinary change workflow"});}await load();}catch(cause){setError(cause instanceof Error?cause.message:"Mitigation execution was not accepted.");}finally{setBusy("");}}
-  async function verifyMitigation(item:IncidentMitigation){const candidate=deployments.find((deployment)=>deployment.environment_id===item.environment_id&&deployment.events.some((event)=>event.signal&&["healthy","passed"].includes(event.outcome??"")));const signal=candidate?.events.findLast((event)=>event.signal&&["healthy","passed"].includes(event.outcome??""));if(!candidate||!signal){setError("No successful health signal is available for this environment yet.");return;}await mutate(`/mitigations/${item.id}/verification`,"POST",{results:item.recovery_criteria.map((criterion)=>({name:criterion.name,deployment_id:candidate.id,event_sequence:signal.sequence}))});}
-  async function resolve(event:React.FormEvent<HTMLFormElement>){event.preventDefault();const form=event.currentTarget;const data=new FormData(form);const due=String(data.get("due_at")||"");await mutate("/resolution","POST",{impact_summary:data.get("impact"),timeline_summary:data.get("timeline"),contributing_factors:String(data.get("factors")).split("\n").map((value)=>value.trim()).filter(Boolean),conclusion_ids:data.getAll("conclusion"),proposal_title:data.get("proposal_title"),proposal_body:data.get("proposal_body"),commitments:[{title:data.get("task_title"),outcome:data.get("outcome"),owner_id:data.get("owner"),kind:"human",mandate:data.get("mandate"),base_revision:baseRevision,due_at:due?new Date(due).toISOString():undefined}]});form.reset();}
-  const latestUpdate=current?.timeline.filter((event)=>event.type==="update").at(-1); const acknowledged=latestUpdate&&current?.acknowledgements.some((item)=>item.actor_id===actor&&item.update_sequence===latestUpdate.sequence);
-  return <div className="incident-workspace">
-    <header className="release-heading"><div><p className="eyebrow">Shared operating picture</p><h2>Incidents</h2><p>Establish response ownership, affected scope, and one attributable source of truth while service is at risk.</p></div>{authorized&&<Button onClick={()=>setCreating((value)=>!value)}><Plus size={14}/>Declare incident</Button>}</header>
-    {error&&<p className="form-error" role="alert">{error}</p>}
-    {creating&&<form className="panel incident-form" onSubmit={declare}><label>Incident title<input name="title" required maxLength={200}/></label><label>Severity<select name="severity" defaultValue="high"><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label><label>Affected environment<select name="environment" required><option value="">Choose environment</option>{environments.map((item)=><option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>Deployment health signal (optional)<select name="deployment"><option value="">Manual declaration</option>{deployments.filter((item)=>item.events.some((event)=>event.signal&&["failed","unhealthy"].includes(event.outcome??""))).map((item)=><option value={item.id} key={item.id}>{environments.find((environment)=>environment.id===item.environment_id)?.name} · {short(item.id)}</option>)}</select></label><label>Incident commander<select name="commander" defaultValue={actor}>{responders.map((id)=><option value={id} key={id}>{id===actor?"Me":short(id)}</option>)}</select></label><label>Operations lead<select name="operations" defaultValue={actor}><option value="">Unassigned</option>{responders.map((id)=><option value={id} key={id}>{id===actor?"Me":short(id)}</option>)}</select></label><label>Communications lead<select name="communications"><option value="">Unassigned</option>{responders.map((id)=><option value={id} key={id}>{id===actor?"Me":short(id)}</option>)}</select></label><label className="incident-summary">Additional affected scopes <small>One authorized repository ID and environment ID per line: repository:environment</small><textarea name="affected" rows={2}/></label><label className="incident-summary">Current impact and known facts<textarea name="summary" required rows={4}/></label><div className="release-form-actions"><Button variant="secondary" type="button" onClick={()=>setCreating(false)}>Cancel</Button><Button disabled={busy==="create"} type="submit">Declare and notify responders</Button></div></form>}
-    <div className="incident-layout"><aside className="panel incident-list">{items.map((item)=><Link className={current?.id===item.id?"active":""} href={`/repositories/${repository.id}?view=incidents&incident=${item.id}`} key={item.id}><span><strong>{item.title}</strong><small>{new Date(item.updated_at).toLocaleString()}</small></span><Badge tone={item.status==="resolved"?"neutral":"accent"}>{item.severity} · {item.status}</Badge></Link>)}{!items.length&&<p>No incidents have been declared.</p>}</aside>
-    {current&&<article className="panel incident-detail"><header><div><p className="eyebrow">{current.severity} severity</p><h2>{current.title}</h2></div><Badge tone={current.status==="resolved"?"neutral":"accent"}>{current.status}</Badge></header><section className="incident-picture"><p>{current.summary}</p><dl><div><dt>Commander</dt><dd><Actor id={current.roles.commander}/></dd></div>{Object.entries(current.roles).filter(([role])=>role!=="commander").map(([role,id])=><div key={role}><dt>{role}</dt><dd><Actor id={id}/></dd></div>)}<div><dt>Affected</dt><dd>{current.affected.map((scope)=><span key={`${scope.repository_id}:${scope.environment_id}`}>{repository.name} · {environments.find((item)=>item.id===scope.environment_id)?.name??"repository"}</span>)}</dd></div>{current.source_signal&&<div><dt>Declared from</dt><dd>Health signal {current.source_signal.signal} · {current.source_signal.outcome} in {current.source_signal.stage}</dd></div>}</dl></section>
-    {authorized&&current.status!=="resolved"&&<section className="incident-controls"><label>Current status<select value={current.status} onChange={(event)=>void mutate("","PATCH",{status:event.target.value})}><option value="declared">Declared</option><option value="investigating">Investigating</option><option value="mitigating">Mitigating</option><option value="monitoring">Monitoring</option></select></label><Button variant="secondary" disabled={Boolean(busy)} onClick={()=>void mutate("/follow",current.followers.includes(actor)?"DELETE":"PUT")}>{current.followers.includes(actor)?"Unfollow":"Follow updates"}</Button>{latestUpdate&&!acknowledged&&<Button variant="secondary" disabled={Boolean(busy)} onClick={()=>void mutate("/acknowledgements","POST",{update_sequence:latestUpdate.sequence})}>Acknowledge latest</Button>}</section>}
-    <section className="incident-investigation"><header><div><h3>Connected evidence</h3><p>Durable source pointers and time windows let responders inspect live state while retaining the exact historical context behind a claim.</p></div><Badge tone="neutral">{current.evidence?.length??0} sources</Badge></header>
-    {authorized&&current.status!=="resolved"&&<form className="incident-evidence-form" onSubmit={(event)=>void attachEvidence(event)}><label>Source type<select name="kind"><option value="logs">Time-bounded deployment logs</option><option value="health_signal">Health signal</option><option value="deployment">Deployment</option><option value="release">Release</option><option value="commit">Commit</option><option value="pull_request">Pull request</option><option value="incident">Prior incident</option></select></label><label>Source ID<input name="resource_id" required list="incident-sources" placeholder="Exact resource ID"/><datalist id="incident-sources">{deployments.map((item)=><option value={item.id} key={item.id}/>)}</datalist></label><label>Event sequence <small>Required for a health signal</small><input name="event_sequence" type="number" min="1"/></label><label>Window start<input name="start_at" type="datetime-local"/></label><label>Window end<input name="end_at" type="datetime-local"/></label><label className="incident-summary">What this source shows<input name="title" required maxLength={300}/></label><label>Access<select name="audience"><option value="participants">Participants</option><option value="public">Public</option></select></label><Button disabled={Boolean(busy)} type="submit">Attach evidence</Button></form>}
-    <div className="incident-evidence-list">{(current.evidence??[]).map((item)=>{const href=item.kind==="deployment"||item.kind==="logs"||item.kind==="health_signal"?`/repositories/${item.repository_id}?view=releases`:item.kind==="release"?`/repositories/${item.repository_id}?view=releases&release=${item.resource_id}`:item.kind==="pull_request"?`/repositories/${item.repository_id}?view=pulls&pull=${item.resource_id}`:item.kind==="incident"?`/repositories/${item.repository_id}?view=incidents&incident=${item.resource_id}`:item.kind==="commit"?`/repositories/${item.repository_id}?view=commits&ref=${item.resource_id}`:"#";return <article key={item.id}><span><Badge tone={item.audience==="public"?"accent":"neutral"}>{item.kind.replaceAll("_"," ")}</Badge><strong>{item.title}</strong></span><p><Link href={href}>Inspect source {short(item.resource_id)}</Link>{item.event_sequence?` · event ${item.event_sequence}`:""}</p>{item.start_at&&<small>{new Date(item.start_at).toLocaleString()} → {item.end_at&&new Date(item.end_at).toLocaleString()}</small>}<small>Attached by <Actor id={item.attached_by_id}/> · {new Date(item.captured_at).toLocaleString()}</small></article>})}{!(current.evidence?.length)&&<p>No evidence has been attached yet.</p>}</div></section>
-    <section className="incident-investigation"><header><div><h3>Investigation notebook</h3><p>Separate observations, testable hypotheses, reproducible queries, and conclusions—and cite the evidence each relies on.</p></div></header>{authorized&&current.status!=="resolved"&&<form className="incident-finding-form" onSubmit={(event)=>void addFinding(event)}><label>Entry type<select name="kind"><option value="observation">Observation</option><option value="hypothesis">Hypothesis</option><option value="query">Query</option><option value="conclusion">Conclusion</option></select></label><label>Access<select name="audience"><option value="participants">Participants</option><option value="public">Public</option></select></label><label className="incident-summary">Finding<textarea name="body" required rows={3}/></label><label className="incident-summary">Reproducible query or command<textarea name="query" rows={2} placeholder="Optional query, command, or procedure"/></label>{current.evidence?.length>0&&<fieldset><legend>Supporting evidence</legend>{current.evidence.map((item)=><label key={item.id}><input type="checkbox" name="evidence" value={item.id}/>{item.title}</label>)}</fieldset>}<Button disabled={Boolean(busy)} type="submit">Record finding</Button></form>}
-    <ol className="incident-findings">{[...(current.findings??[])].reverse().map((item)=><li key={item.id}><span><Badge tone="accent">{item.kind}</Badge><Badge tone="neutral">{item.audience}</Badge></span><p>{item.body}</p>{item.query&&<pre><code>{item.query}</code></pre>}{item.evidence_ids.length>0&&<small>Sources: {item.evidence_ids.map((id)=><a href={`#evidence-${id}`} key={id}>{current.evidence.find((e)=>e.id===id)?.title??short(id)}</a>)}</small>}<small><Actor id={item.author_id}/> · {new Date(item.created_at).toLocaleString()}</small></li>)}</ol></section>
-    <section className="incident-investigation"><header><div><h3>Mitigation decisions</h3><p>Propose an evidence-backed intervention, authorize it independently, track governed execution, and verify the declared recovery signal.</p></div><Badge tone="neutral">{current.mitigations?.length??0} actions</Badge></header>
-    {authorized&&current.status!=="resolved"&&<form className="incident-finding-form" onSubmit={(event)=>void proposeMitigation(event)}><label>Intervention<select name="kind"><option value="pause_rollout">Pause rollout</option><option value="restore_release">Restore attested release</option><option value="emergency_repair">Emergency repair</option></select></label><label>Target deployment<select name="deployment" required><option value="">Choose deployment</option>{deployments.map((item)=><option value={item.id} key={item.id}>{environments.find((environment)=>environment.id===item.environment_id)?.name} · {short(item.id)} · {item.state}</option>)}</select></label><label className="incident-summary">Decision title<input name="title" required maxLength={300}/></label><label className="incident-summary">Expected change and risk<textarea name="description" required rows={3}/></label><label className="incident-summary">Recovery criterion<input name="criterion" required placeholder="Availability probe is healthy"/></label><fieldset><legend>Exact supporting evidence</legend>{current.evidence.map((item)=><label key={item.id}><input type="checkbox" name="evidence" value={item.id}/>{item.title}</label>)}</fieldset><Button disabled={Boolean(busy)} type="submit">Propose mitigation</Button></form>}
-    <ol className="incident-findings">{[...(current.mitigations??[])].reverse().map((item)=><li key={item.id}><span><Badge tone={item.state==="recovered"?"accent":"neutral"}>{item.state}</Badge><Badge tone="neutral">{item.kind.replaceAll("_"," ")}</Badge></span><h4>{item.title}</h4><p>{item.description}</p><small>Proposed by <Actor id={item.proposed_by_id}/> · sources {item.evidence_ids.map(short).join(", ")}</small>{item.decisions.map((decision)=><p key={decision.created_at}><strong>{decision.override?"Override ":""}{decision.decision}</strong> by <Actor id={decision.actor_id}/>: {decision.reason}</p>)}{item.attempts.map((attempt)=><p key={attempt.sequence}>Attempt {attempt.sequence} · {attempt.outcome} by <Actor id={attempt.actor_id}/> · {attempt.message}{attempt.resource_id&&<> · <code>{short(attempt.resource_id)}</code></>}</p>)}{item.recovery_criteria.map((criterion)=><p key={criterion.name}>Recovery: {criterion.name}{criterion.event_sequence?` · event ${criterion.event_sequence}`:""} · <strong>{criterion.outcome}</strong>{criterion.verified_by_id&&<> verified by <Actor id={criterion.verified_by_id}/></>}</p>)}{authorized&&item.state==="proposed"&&item.proposed_by_id!==actor&&<div className="release-actions"><Button onClick={()=>void mutate(`/mitigations/${item.id}/decision`,"POST",{decision:"approve",reason:"Reviewed evidence and authorized this exact intervention"})}>Approve</Button><Button variant="danger" onClick={()=>void mutate(`/mitigations/${item.id}/decision`,"POST",{decision:"reject",reason:"Risk or evidence does not support execution"})}>Reject</Button></div>}{authorized&&item.state==="approved"&&<Button disabled={busy===item.id} onClick={()=>void executeMitigation(item)}>Execute through governed workflow</Button>}{authorized&&["verifying","failed"].includes(item.state)&&<Button variant="secondary" disabled={Boolean(busy)} onClick={()=>void verifyMitigation(item)}>Verify latest healthy signal</Button>}</li>)}</ol></section>
-    <section className="incident-investigation"><header><div><h3>Review and corrective ownership</h3><p>Close response with a durable account of impact and causes, then carry prevention work into an assigned proposal plan.</p></div>{current.resolution&&<Button variant="secondary" disabled={Boolean(busy)} onClick={()=>void mutate("/resolution/reconcile","POST")}>Refresh delivery progress</Button>}</header>
-    {authorized&&current.status!=="resolved"&&current.findings.some((finding)=>finding.kind==="conclusion")&&baseRevision&&<form className="incident-finding-form" onSubmit={(event)=>void resolve(event)}><label className="incident-summary">Impact summary<textarea name="impact" required rows={3}/></label><label className="incident-summary">Timeline summary<textarea name="timeline" required rows={3}/></label><label className="incident-summary">Contributing factors <small>One factor per line</small><textarea name="factors" required rows={3}/></label><fieldset><legend>Reviewable conclusions</legend>{current.findings.filter((finding)=>finding.kind==="conclusion").map((finding)=><label key={finding.id}><input type="checkbox" name="conclusion" value={finding.id} required/>{finding.body}</label>)}</fieldset><label>Corrective proposal title<input name="proposal_title" required maxLength={200}/></label><label className="incident-summary">Proposal context<textarea name="proposal_body" rows={3}/></label><label>Owned task<input name="task_title" required maxLength={200}/></label><label className="incident-summary">Observable outcome<textarea name="outcome" required rows={2}/></label><label>Owner<select name="owner" defaultValue={actor}>{responders.map((id)=><option value={id} key={id}>{id===actor?"Me":short(id)}</option>)}</select></label><label className="incident-summary">Mandate<textarea name="mandate" required rows={2}/></label><label>Due date<input name="due_at" type="datetime-local" required/></label><Button disabled={Boolean(busy)} type="submit">Resolve and assign follow-up</Button></form>}
-    {current.resolution&&<article className="incident-picture"><p>{current.resolution.impact_summary}</p><p><strong>Timeline:</strong> {current.resolution.timeline_summary}</p><ul>{current.resolution.contributing_factors.map((factor)=><li key={factor}>{factor}</li>)}</ul><small>Resolved by <Actor id={current.resolution.resolved_by_id}/> · {new Date(current.resolution.resolved_at).toLocaleString()}</small>{current.resolution.corrective_work.map((work)=><div key={work.task_id}><span><Badge tone={work.overdue||work.invalidated?"neutral":"accent"}>{work.invalidated?"invalidated":work.overdue?"overdue":work.state}</Badge> <Link href={`/repositories/${repository.id}?view=proposals&proposal=${work.proposal_id}`}>Corrective task {short(work.task_id)}</Link></span><small>Owned by <Actor id={work.owner_id}/>{work.due_at&&<> · due {new Date(work.due_at).toLocaleString()}</>}</small>{work.pull_request_ids?.map((id)=><Link key={id} href={`/repositories/${repository.id}?view=pulls&pull=${id}`}>Pull request {short(id)}</Link>)}{Boolean(work.release_ids?.length)&&<small>{work.release_ids?.length} release candidate(s) · {work.deployment_ids?.length??0} deployment(s)</small>}</div>)}</article>}</section>
-    {authorized&&current.status!=="resolved"&&<form className="incident-update" onSubmit={(event)=>{event.preventDefault();const form=event.currentTarget;const data=new FormData(form);void mutate("/updates","POST",{audience:data.get("audience"),message:data.get("message")}).then(()=>form.reset());}}><label>Audience<select name="audience"><option value="participants">Responders and participants</option><option value="public">Audience-safe update</option></select></label><label>Timeline update<textarea name="message" required rows={3} placeholder="What changed, what responders know, and what happens next"/></label><Button disabled={Boolean(busy)} type="submit">Publish update</Button></form>}
-    <ol className="incident-timeline">{[...current.timeline].reverse().map((event)=><li key={event.sequence}><span><strong>{event.type.replaceAll("."," ")}</strong>{event.audience&&<Badge tone={event.audience==="public"?"accent":"neutral"}>{event.audience}</Badge>}</span>{event.actor_id&&<small><Actor id={event.actor_id}/> · {new Date(event.created_at).toLocaleString()}</small>}{event.message&&<p>{event.message}</p>}{event.status&&<p>Status: <b>{event.status}</b></p>}{event.type==="update"&&<small>{current.acknowledgements.filter((item)=>item.update_sequence===event.sequence).length} acknowledged</small>}</li>)}</ol></article>}</div>
-  </div>
+  }, [load]);
+  async function declare(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy("create");
+    setError("");
+    const data = new FormData(event.currentTarget);
+    const environment = String(data.get("environment"));
+    const deploymentID = String(data.get("deployment"));
+    const deployment = deployments.find((item) => item.id === deploymentID);
+    const signal = deployment?.events.findLast(
+      (item) =>
+        item.signal && ["failed", "unhealthy"].includes(item.outcome ?? ""),
+    );
+    const additional = String(data.get("affected") ?? "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [repository_id, environment_id = ""] = line.split(":");
+        return { repository_id, environment_id };
+      });
+    try {
+      const item = await send<Incident>(
+        `/repositories/${repository.id}/incidents`,
+        "POST",
+        {
+          title: data.get("title"),
+          summary: data.get("summary"),
+          severity: data.get("severity"),
+          roles: {
+            commander: data.get("commander"),
+            operations: data.get("operations") || undefined,
+            communications: data.get("communications") || undefined,
+          },
+          affected: [
+            { repository_id: repository.id, environment_id: environment },
+            ...additional,
+          ],
+          source_signal:
+            deployment && signal
+              ? {
+                  repository_id: repository.id,
+                  deployment_id: deployment.id,
+                  event_sequence: signal.sequence,
+                }
+              : undefined,
+        },
+      );
+      window.location.assign(
+        `/repositories/${repository.id}?view=incidents&incident=${item.id}`,
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Incident could not be declared.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
+  async function mutate(path: string, method: string, body?: unknown) {
+    if (!current) return;
+    setBusy(path);
+    setError("");
+    try {
+      await send(
+        `/repositories/${repository.id}/incidents/${current.id}${path}`,
+        method,
+        body,
+      );
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Incident change was not accepted.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
+  async function attachEvidence(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const kind = String(data.get("kind"));
+    const start = String(data.get("start_at") || "");
+    const end = String(data.get("end_at") || "");
+    await mutate("/evidence", "POST", {
+      kind,
+      repository_id: repository.id,
+      resource_id: data.get("resource_id"),
+      event_sequence: Number(data.get("event_sequence")) || undefined,
+      start_at: start ? new Date(start).toISOString() : undefined,
+      end_at: end ? new Date(end).toISOString() : undefined,
+      title: data.get("title"),
+      audience: data.get("audience"),
+    });
+    form.reset();
+  }
+  async function addFinding(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    await mutate("/findings", "POST", {
+      kind: data.get("kind"),
+      body: data.get("body"),
+      query: data.get("query"),
+      audience: data.get("audience"),
+      evidence_ids: data.getAll("evidence"),
+    });
+    form.reset();
+  }
+  async function proposeMitigation(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const deployment = deployments.find(
+      (item) => item.id === data.get("deployment"),
+    );
+    if (!deployment) {
+      setError("Choose the affected deployment.");
+      return;
+    }
+    await mutate("/mitigations", "POST", {
+      kind: data.get("kind"),
+      title: data.get("title"),
+      description: data.get("description"),
+      repository_id: repository.id,
+      environment_id: deployment.environment_id,
+      deployment_id: deployment.id,
+      evidence_ids: data.getAll("evidence"),
+      recovery_criteria: [{ name: data.get("criterion") }],
+    });
+    form.reset();
+  }
+  async function executeMitigation(item: IncidentMitigation) {
+    if (!item.deployment_id) return;
+    setBusy(item.id);
+    setError("");
+    try {
+      if (item.kind === "pause_rollout") {
+        await send(
+          `/repositories/${repository.id}/incidents/${current!.id}/mitigations/${item.id}/execution`,
+          "POST",
+          {
+            outcome: "started",
+            message: "Authorized responder paused the governed rollout",
+          },
+        );
+      } else {
+        const recovery = await send<{
+          deployment?: Deployment;
+          pull_request?: { id: string };
+        }>(
+          `/repositories/${repository.id}/deployments/${item.deployment_id}/recovery`,
+          "POST",
+          {
+            action: item.kind === "restore_release" ? "rollback" : "repair",
+            instructions: item.description,
+            context_paths: [],
+          },
+        );
+        const resourceType =
+          item.kind === "restore_release" ? "deployment" : "pull_request";
+        const resourceID = recovery.deployment?.id ?? recovery.pull_request?.id;
+        await send(
+          `/repositories/${repository.id}/incidents/${current!.id}/mitigations/${item.id}/execution`,
+          "POST",
+          {
+            outcome: "started",
+            resource_type: resourceType,
+            resource_id: resourceID,
+            message:
+              item.kind === "restore_release"
+                ? "Governed attested rollback started"
+                : "Draft emergency repair entered the ordinary change workflow",
+          },
+        );
+      }
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Mitigation execution was not accepted.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
+  async function verifyMitigation(item: IncidentMitigation) {
+    const candidate = deployments.find(
+      (deployment) =>
+        deployment.environment_id === item.environment_id &&
+        deployment.events.some(
+          (event) =>
+            event.signal && ["healthy", "passed"].includes(event.outcome ?? ""),
+        ),
+    );
+    const signal = candidate?.events.findLast(
+      (event) =>
+        event.signal && ["healthy", "passed"].includes(event.outcome ?? ""),
+    );
+    if (!candidate || !signal) {
+      setError(
+        "No successful health signal is available for this environment yet.",
+      );
+      return;
+    }
+    await mutate(`/mitigations/${item.id}/verification`, "POST", {
+      results: item.recovery_criteria.map((criterion) => ({
+        name: criterion.name,
+        deployment_id: candidate.id,
+        event_sequence: signal.sequence,
+      })),
+    });
+  }
+  async function resolve(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const due = String(data.get("due_at") || "");
+    await mutate("/resolution", "POST", {
+      impact_summary: data.get("impact"),
+      timeline_summary: data.get("timeline"),
+      contributing_factors: String(data.get("factors"))
+        .split("\n")
+        .map((value) => value.trim())
+        .filter(Boolean),
+      conclusion_ids: data.getAll("conclusion"),
+      proposal_title: data.get("proposal_title"),
+      proposal_body: data.get("proposal_body"),
+      commitments: [
+        {
+          title: data.get("task_title"),
+          outcome: data.get("outcome"),
+          owner_id: data.get("owner"),
+          kind: "human",
+          mandate: data.get("mandate"),
+          base_revision: baseRevision,
+          due_at: due ? new Date(due).toISOString() : undefined,
+        },
+      ],
+    });
+    form.reset();
+  }
+  const latestUpdate = current?.timeline
+    .filter((event) => event.type === "update")
+    .at(-1);
+  const acknowledged =
+    latestUpdate &&
+    current?.acknowledgements.some(
+      (item) =>
+        item.actor_id === actor &&
+        item.update_sequence === latestUpdate.sequence,
+    );
+  return (
+    <div className="incident-workspace">
+      <header className="release-heading">
+        <div>
+          <p className="eyebrow">Shared operating picture</p>
+          <h2>Incidents</h2>
+          <p>
+            Establish response ownership, affected scope, and one attributable
+            source of truth while service is at risk.
+          </p>
+        </div>
+        {authorized && (
+          <Button onClick={() => setCreating((value) => !value)}>
+            <Plus size={14} />
+            Declare incident
+          </Button>
+        )}
+      </header>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      {creating && (
+        <form className="panel incident-form" onSubmit={declare}>
+          <label>
+            Incident title
+            <input name="title" required maxLength={200} />
+          </label>
+          <label>
+            Severity
+            <select name="severity" defaultValue="high">
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </label>
+          <label>
+            Affected environment
+            <select name="environment" required>
+              <option value="">Choose environment</option>
+              {environments.map((item) => (
+                <option value={item.id} key={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Deployment health signal (optional)
+            <select name="deployment">
+              <option value="">Manual declaration</option>
+              {deployments
+                .filter((item) =>
+                  item.events.some(
+                    (event) =>
+                      event.signal &&
+                      ["failed", "unhealthy"].includes(event.outcome ?? ""),
+                  ),
+                )
+                .map((item) => (
+                  <option value={item.id} key={item.id}>
+                    {
+                      environments.find(
+                        (environment) => environment.id === item.environment_id,
+                      )?.name
+                    }{" "}
+                    · {short(item.id)}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label>
+            Incident commander
+            <select name="commander" defaultValue={actor}>
+              {responders.map((id) => (
+                <option value={id} key={id}>
+                  {id === actor ? "Me" : short(id)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Operations lead
+            <select name="operations" defaultValue={actor}>
+              <option value="">Unassigned</option>
+              {responders.map((id) => (
+                <option value={id} key={id}>
+                  {id === actor ? "Me" : short(id)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Communications lead
+            <select name="communications">
+              <option value="">Unassigned</option>
+              {responders.map((id) => (
+                <option value={id} key={id}>
+                  {id === actor ? "Me" : short(id)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="incident-summary">
+            Additional affected scopes{" "}
+            <small>
+              One authorized repository ID and environment ID per line:
+              repository:environment
+            </small>
+            <textarea name="affected" rows={2} />
+          </label>
+          <label className="incident-summary">
+            Current impact and known facts
+            <textarea name="summary" required rows={4} />
+          </label>
+          <div className="release-form-actions">
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => setCreating(false)}
+            >
+              Cancel
+            </Button>
+            <Button disabled={busy === "create"} type="submit">
+              Declare and notify responders
+            </Button>
+          </div>
+        </form>
+      )}
+      <div className="incident-layout">
+        <aside className="panel incident-list">
+          {items.map((item) => (
+            <Link
+              className={current?.id === item.id ? "active" : ""}
+              href={`/repositories/${repository.id}?view=incidents&incident=${item.id}`}
+              key={item.id}
+            >
+              <span>
+                <strong>{item.title}</strong>
+                <small>{new Date(item.updated_at).toLocaleString()}</small>
+              </span>
+              <Badge tone={item.status === "resolved" ? "neutral" : "accent"}>
+                {item.severity} · {item.status}
+              </Badge>
+            </Link>
+          ))}
+          {!items.length && <p>No incidents have been declared.</p>}
+        </aside>
+        {current && (
+          <article className="panel incident-detail">
+            <header>
+              <div>
+                <p className="eyebrow">{current.severity} severity</p>
+                <h2>{current.title}</h2>
+              </div>
+              <Badge
+                tone={current.status === "resolved" ? "neutral" : "accent"}
+              >
+                {current.status}
+              </Badge>
+            </header>
+            <section className="incident-picture">
+              <p>{current.summary}</p>
+              <dl>
+                <div>
+                  <dt>Commander</dt>
+                  <dd>
+                    <Actor id={current.roles.commander} />
+                  </dd>
+                </div>
+                {Object.entries(current.roles)
+                  .filter(([role]) => role !== "commander")
+                  .map(([role, id]) => (
+                    <div key={role}>
+                      <dt>{role}</dt>
+                      <dd>
+                        <Actor id={id} />
+                      </dd>
+                    </div>
+                  ))}
+                <div>
+                  <dt>Affected</dt>
+                  <dd>
+                    {current.affected.map((scope) => (
+                      <span
+                        key={`${scope.repository_id}:${scope.environment_id}`}
+                      >
+                        {repository.name} ·{" "}
+                        {environments.find(
+                          (item) => item.id === scope.environment_id,
+                        )?.name ?? "repository"}
+                      </span>
+                    ))}
+                  </dd>
+                </div>
+                {current.source_signal && (
+                  <div>
+                    <dt>Declared from</dt>
+                    <dd>
+                      Health signal {current.source_signal.signal} ·{" "}
+                      {current.source_signal.outcome} in{" "}
+                      {current.source_signal.stage}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            </section>
+            {authorized && current.status !== "resolved" && (
+              <section className="incident-controls">
+                <label>
+                  Current status
+                  <select
+                    value={current.status}
+                    onChange={(event) =>
+                      void mutate("", "PATCH", { status: event.target.value })
+                    }
+                  >
+                    <option value="declared">Declared</option>
+                    <option value="investigating">Investigating</option>
+                    <option value="mitigating">Mitigating</option>
+                    <option value="monitoring">Monitoring</option>
+                  </select>
+                </label>
+                <Button
+                  variant="secondary"
+                  disabled={Boolean(busy)}
+                  onClick={() =>
+                    void mutate(
+                      "/follow",
+                      current.followers.includes(actor) ? "DELETE" : "PUT",
+                    )
+                  }
+                >
+                  {current.followers.includes(actor)
+                    ? "Unfollow"
+                    : "Follow updates"}
+                </Button>
+                {latestUpdate && !acknowledged && (
+                  <Button
+                    variant="secondary"
+                    disabled={Boolean(busy)}
+                    onClick={() =>
+                      void mutate("/acknowledgements", "POST", {
+                        update_sequence: latestUpdate.sequence,
+                      })
+                    }
+                  >
+                    Acknowledge latest
+                  </Button>
+                )}
+              </section>
+            )}
+            <section className="incident-investigation">
+              <header>
+                <div>
+                  <h3>Connected evidence</h3>
+                  <p>
+                    Durable source pointers and time windows let responders
+                    inspect live state while retaining the exact historical
+                    context behind a claim.
+                  </p>
+                </div>
+                <Badge tone="neutral">
+                  {current.evidence?.length ?? 0} sources
+                </Badge>
+              </header>
+              {authorized && current.status !== "resolved" && (
+                <form
+                  className="incident-evidence-form"
+                  onSubmit={(event) => void attachEvidence(event)}
+                >
+                  <label>
+                    Source type
+                    <select name="kind">
+                      <option value="logs">Time-bounded deployment logs</option>
+                      <option value="health_signal">Health signal</option>
+                      <option value="deployment">Deployment</option>
+                      <option value="release">Release</option>
+                      <option value="commit">Commit</option>
+                      <option value="pull_request">Pull request</option>
+                      <option value="incident">Prior incident</option>
+                    </select>
+                  </label>
+                  <label>
+                    Source ID
+                    <input
+                      name="resource_id"
+                      required
+                      list="incident-sources"
+                      placeholder="Exact resource ID"
+                    />
+                    <datalist id="incident-sources">
+                      {deployments.map((item) => (
+                        <option value={item.id} key={item.id} />
+                      ))}
+                    </datalist>
+                  </label>
+                  <label>
+                    Event sequence <small>Required for a health signal</small>
+                    <input name="event_sequence" type="number" min="1" />
+                  </label>
+                  <label>
+                    Window start
+                    <input name="start_at" type="datetime-local" />
+                  </label>
+                  <label>
+                    Window end
+                    <input name="end_at" type="datetime-local" />
+                  </label>
+                  <label className="incident-summary">
+                    What this source shows
+                    <input name="title" required maxLength={300} />
+                  </label>
+                  <label>
+                    Access
+                    <select name="audience">
+                      <option value="participants">Participants</option>
+                      <option value="public">Public</option>
+                    </select>
+                  </label>
+                  <Button disabled={Boolean(busy)} type="submit">
+                    Attach evidence
+                  </Button>
+                </form>
+              )}
+              <div className="incident-evidence-list">
+                {(current.evidence ?? []).map((item) => {
+                  const href =
+                    item.kind === "deployment" ||
+                    item.kind === "logs" ||
+                    item.kind === "health_signal"
+                      ? `/repositories/${item.repository_id}?view=releases`
+                      : item.kind === "release"
+                        ? `/repositories/${item.repository_id}?view=releases&release=${item.resource_id}`
+                        : item.kind === "pull_request"
+                          ? `/repositories/${item.repository_id}?view=pulls&pull=${item.resource_id}`
+                          : item.kind === "incident"
+                            ? `/repositories/${item.repository_id}?view=incidents&incident=${item.resource_id}`
+                            : item.kind === "commit"
+                              ? `/repositories/${item.repository_id}?view=commits&ref=${item.resource_id}`
+                              : "#";
+                  return (
+                    <article key={item.id}>
+                      <span>
+                        <Badge
+                          tone={
+                            item.audience === "public" ? "accent" : "neutral"
+                          }
+                        >
+                          {item.kind.replaceAll("_", " ")}
+                        </Badge>
+                        <strong>{item.title}</strong>
+                      </span>
+                      <p>
+                        <Link href={href}>
+                          Inspect source {short(item.resource_id)}
+                        </Link>
+                        {item.event_sequence
+                          ? ` · event ${item.event_sequence}`
+                          : ""}
+                      </p>
+                      {item.start_at && (
+                        <small>
+                          {new Date(item.start_at).toLocaleString()} →{" "}
+                          {item.end_at &&
+                            new Date(item.end_at).toLocaleString()}
+                        </small>
+                      )}
+                      <small>
+                        Attached by <Actor id={item.attached_by_id} /> ·{" "}
+                        {new Date(item.captured_at).toLocaleString()}
+                      </small>
+                    </article>
+                  );
+                })}
+                {!current.evidence?.length && (
+                  <p>No evidence has been attached yet.</p>
+                )}
+              </div>
+            </section>
+            <section className="incident-investigation">
+              <header>
+                <div>
+                  <h3>Investigation notebook</h3>
+                  <p>
+                    Separate observations, testable hypotheses, reproducible
+                    queries, and conclusions—and cite the evidence each relies
+                    on.
+                  </p>
+                </div>
+              </header>
+              {authorized && current.status !== "resolved" && (
+                <form
+                  className="incident-finding-form"
+                  onSubmit={(event) => void addFinding(event)}
+                >
+                  <label>
+                    Entry type
+                    <select name="kind">
+                      <option value="observation">Observation</option>
+                      <option value="hypothesis">Hypothesis</option>
+                      <option value="query">Query</option>
+                      <option value="conclusion">Conclusion</option>
+                    </select>
+                  </label>
+                  <label>
+                    Access
+                    <select name="audience">
+                      <option value="participants">Participants</option>
+                      <option value="public">Public</option>
+                    </select>
+                  </label>
+                  <label className="incident-summary">
+                    Finding
+                    <textarea name="body" required rows={3} />
+                  </label>
+                  <label className="incident-summary">
+                    Reproducible query or command
+                    <textarea
+                      name="query"
+                      rows={2}
+                      placeholder="Optional query, command, or procedure"
+                    />
+                  </label>
+                  {current.evidence?.length > 0 && (
+                    <fieldset>
+                      <legend>Supporting evidence</legend>
+                      {current.evidence.map((item) => (
+                        <label key={item.id}>
+                          <input
+                            type="checkbox"
+                            name="evidence"
+                            value={item.id}
+                          />
+                          {item.title}
+                        </label>
+                      ))}
+                    </fieldset>
+                  )}
+                  <Button disabled={Boolean(busy)} type="submit">
+                    Record finding
+                  </Button>
+                </form>
+              )}
+              <ol className="incident-findings">
+                {[...(current.findings ?? [])].reverse().map((item) => (
+                  <li key={item.id}>
+                    <span>
+                      <Badge tone="accent">{item.kind}</Badge>
+                      <Badge tone="neutral">{item.audience}</Badge>
+                    </span>
+                    <p>{item.body}</p>
+                    {item.query && (
+                      <pre>
+                        <code>{item.query}</code>
+                      </pre>
+                    )}
+                    {item.evidence_ids.length > 0 && (
+                      <small>
+                        Sources:{" "}
+                        {item.evidence_ids.map((id) => (
+                          <a href={`#evidence-${id}`} key={id}>
+                            {current.evidence.find((e) => e.id === id)?.title ??
+                              short(id)}
+                          </a>
+                        ))}
+                      </small>
+                    )}
+                    <small>
+                      <Actor id={item.author_id} /> ·{" "}
+                      {new Date(item.created_at).toLocaleString()}
+                    </small>
+                  </li>
+                ))}
+              </ol>
+            </section>
+            <section className="incident-investigation">
+              <header>
+                <div>
+                  <h3>Mitigation decisions</h3>
+                  <p>
+                    Propose an evidence-backed intervention, authorize it
+                    independently, track governed execution, and verify the
+                    declared recovery signal.
+                  </p>
+                </div>
+                <Badge tone="neutral">
+                  {current.mitigations?.length ?? 0} actions
+                </Badge>
+              </header>
+              {authorized && current.status !== "resolved" && (
+                <form
+                  className="incident-finding-form"
+                  onSubmit={(event) => void proposeMitigation(event)}
+                >
+                  <label>
+                    Intervention
+                    <select name="kind">
+                      <option value="pause_rollout">Pause rollout</option>
+                      <option value="restore_release">
+                        Restore attested release
+                      </option>
+                      <option value="emergency_repair">Emergency repair</option>
+                    </select>
+                  </label>
+                  <label>
+                    Target deployment
+                    <select name="deployment" required>
+                      <option value="">Choose deployment</option>
+                      {deployments.map((item) => (
+                        <option value={item.id} key={item.id}>
+                          {
+                            environments.find(
+                              (environment) =>
+                                environment.id === item.environment_id,
+                            )?.name
+                          }{" "}
+                          · {short(item.id)} · {item.state}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="incident-summary">
+                    Decision title
+                    <input name="title" required maxLength={300} />
+                  </label>
+                  <label className="incident-summary">
+                    Expected change and risk
+                    <textarea name="description" required rows={3} />
+                  </label>
+                  <label className="incident-summary">
+                    Recovery criterion
+                    <input
+                      name="criterion"
+                      required
+                      placeholder="Availability probe is healthy"
+                    />
+                  </label>
+                  <fieldset>
+                    <legend>Exact supporting evidence</legend>
+                    {current.evidence.map((item) => (
+                      <label key={item.id}>
+                        <input
+                          type="checkbox"
+                          name="evidence"
+                          value={item.id}
+                        />
+                        {item.title}
+                      </label>
+                    ))}
+                  </fieldset>
+                  <Button disabled={Boolean(busy)} type="submit">
+                    Propose mitigation
+                  </Button>
+                </form>
+              )}
+              <ol className="incident-findings">
+                {[...(current.mitigations ?? [])].reverse().map((item) => (
+                  <li key={item.id}>
+                    <span>
+                      <Badge
+                        tone={item.state === "recovered" ? "accent" : "neutral"}
+                      >
+                        {item.state}
+                      </Badge>
+                      <Badge tone="neutral">
+                        {item.kind.replaceAll("_", " ")}
+                      </Badge>
+                    </span>
+                    <h4>{item.title}</h4>
+                    <p>{item.description}</p>
+                    <small>
+                      Proposed by <Actor id={item.proposed_by_id} /> · sources{" "}
+                      {item.evidence_ids.map(short).join(", ")}
+                    </small>
+                    {item.decisions.map((decision) => (
+                      <p key={decision.created_at}>
+                        <strong>
+                          {decision.override ? "Override " : ""}
+                          {decision.decision}
+                        </strong>{" "}
+                        by <Actor id={decision.actor_id} />: {decision.reason}
+                      </p>
+                    ))}
+                    {item.attempts.map((attempt) => (
+                      <p key={attempt.sequence}>
+                        Attempt {attempt.sequence} · {attempt.outcome} by{" "}
+                        <Actor id={attempt.actor_id} /> · {attempt.message}
+                        {attempt.resource_id && (
+                          <>
+                            {" "}
+                            · <code>{short(attempt.resource_id)}</code>
+                          </>
+                        )}
+                      </p>
+                    ))}
+                    {item.recovery_criteria.map((criterion) => (
+                      <p key={criterion.name}>
+                        Recovery: {criterion.name}
+                        {criterion.event_sequence
+                          ? ` · event ${criterion.event_sequence}`
+                          : ""}{" "}
+                        · <strong>{criterion.outcome}</strong>
+                        {criterion.verified_by_id && (
+                          <>
+                            {" "}
+                            verified by <Actor id={criterion.verified_by_id} />
+                          </>
+                        )}
+                      </p>
+                    ))}
+                    {authorized &&
+                      item.state === "proposed" &&
+                      item.proposed_by_id !== actor && (
+                        <div className="release-actions">
+                          <Button
+                            onClick={() =>
+                              void mutate(
+                                `/mitigations/${item.id}/decision`,
+                                "POST",
+                                {
+                                  decision: "approve",
+                                  reason:
+                                    "Reviewed evidence and authorized this exact intervention",
+                                },
+                              )
+                            }
+                          >
+                            Approve
+                          </Button>
+                          <Button
+                            variant="danger"
+                            onClick={() =>
+                              void mutate(
+                                `/mitigations/${item.id}/decision`,
+                                "POST",
+                                {
+                                  decision: "reject",
+                                  reason:
+                                    "Risk or evidence does not support execution",
+                                },
+                              )
+                            }
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      )}
+                    {authorized && item.state === "approved" && (
+                      <Button
+                        disabled={busy === item.id}
+                        onClick={() => void executeMitigation(item)}
+                      >
+                        Execute through governed workflow
+                      </Button>
+                    )}
+                    {authorized &&
+                      ["verifying", "failed"].includes(item.state) && (
+                        <Button
+                          variant="secondary"
+                          disabled={Boolean(busy)}
+                          onClick={() => void verifyMitigation(item)}
+                        >
+                          Verify latest healthy signal
+                        </Button>
+                      )}
+                  </li>
+                ))}
+              </ol>
+            </section>
+            <section className="incident-investigation">
+              <header>
+                <div>
+                  <h3>Review and corrective ownership</h3>
+                  <p>
+                    Close response with a durable account of impact and causes,
+                    then carry prevention work into an assigned proposal plan.
+                  </p>
+                </div>
+                {current.resolution && (
+                  <Button
+                    variant="secondary"
+                    disabled={Boolean(busy)}
+                    onClick={() => void mutate("/resolution/reconcile", "POST")}
+                  >
+                    Refresh delivery progress
+                  </Button>
+                )}
+              </header>
+              {authorized &&
+                current.status !== "resolved" &&
+                current.findings.some(
+                  (finding) => finding.kind === "conclusion",
+                ) &&
+                baseRevision && (
+                  <form
+                    className="incident-finding-form"
+                    onSubmit={(event) => void resolve(event)}
+                  >
+                    <label className="incident-summary">
+                      Impact summary
+                      <textarea name="impact" required rows={3} />
+                    </label>
+                    <label className="incident-summary">
+                      Timeline summary
+                      <textarea name="timeline" required rows={3} />
+                    </label>
+                    <label className="incident-summary">
+                      Contributing factors <small>One factor per line</small>
+                      <textarea name="factors" required rows={3} />
+                    </label>
+                    <fieldset>
+                      <legend>Reviewable conclusions</legend>
+                      {current.findings
+                        .filter((finding) => finding.kind === "conclusion")
+                        .map((finding) => (
+                          <label key={finding.id}>
+                            <input
+                              type="checkbox"
+                              name="conclusion"
+                              value={finding.id}
+                              required
+                            />
+                            {finding.body}
+                          </label>
+                        ))}
+                    </fieldset>
+                    <label>
+                      Corrective proposal title
+                      <input name="proposal_title" required maxLength={200} />
+                    </label>
+                    <label className="incident-summary">
+                      Proposal context
+                      <textarea name="proposal_body" rows={3} />
+                    </label>
+                    <label>
+                      Owned task
+                      <input name="task_title" required maxLength={200} />
+                    </label>
+                    <label className="incident-summary">
+                      Observable outcome
+                      <textarea name="outcome" required rows={2} />
+                    </label>
+                    <label>
+                      Owner
+                      <select name="owner" defaultValue={actor}>
+                        {responders.map((id) => (
+                          <option value={id} key={id}>
+                            {id === actor ? "Me" : short(id)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="incident-summary">
+                      Mandate
+                      <textarea name="mandate" required rows={2} />
+                    </label>
+                    <label>
+                      Due date
+                      <input name="due_at" type="datetime-local" required />
+                    </label>
+                    <Button disabled={Boolean(busy)} type="submit">
+                      Resolve and assign follow-up
+                    </Button>
+                  </form>
+                )}
+              {current.resolution && (
+                <article className="incident-picture">
+                  <p>{current.resolution.impact_summary}</p>
+                  <p>
+                    <strong>Timeline:</strong>{" "}
+                    {current.resolution.timeline_summary}
+                  </p>
+                  <ul>
+                    {current.resolution.contributing_factors.map((factor) => (
+                      <li key={factor}>{factor}</li>
+                    ))}
+                  </ul>
+                  <small>
+                    Resolved by <Actor id={current.resolution.resolved_by_id} />{" "}
+                    ·{" "}
+                    {new Date(current.resolution.resolved_at).toLocaleString()}
+                  </small>
+                  {current.resolution.corrective_work.map((work) => (
+                    <div key={work.task_id}>
+                      <span>
+                        <Badge
+                          tone={
+                            work.overdue || work.invalidated
+                              ? "neutral"
+                              : "accent"
+                          }
+                        >
+                          {work.invalidated
+                            ? "invalidated"
+                            : work.overdue
+                              ? "overdue"
+                              : work.state}
+                        </Badge>{" "}
+                        <Link
+                          href={`/repositories/${repository.id}?view=proposals&proposal=${work.proposal_id}`}
+                        >
+                          Corrective task {short(work.task_id)}
+                        </Link>
+                      </span>
+                      <small>
+                        Owned by <Actor id={work.owner_id} />
+                        {work.due_at && (
+                          <> · due {new Date(work.due_at).toLocaleString()}</>
+                        )}
+                      </small>
+                      {work.pull_request_ids?.map((id) => (
+                        <Link
+                          key={id}
+                          href={`/repositories/${repository.id}?view=pulls&pull=${id}`}
+                        >
+                          Pull request {short(id)}
+                        </Link>
+                      ))}
+                      {Boolean(work.release_ids?.length) && (
+                        <small>
+                          {work.release_ids?.length} release candidate(s) ·{" "}
+                          {work.deployment_ids?.length ?? 0} deployment(s)
+                        </small>
+                      )}
+                    </div>
+                  ))}
+                </article>
+              )}
+            </section>
+            {authorized && current.status !== "resolved" && (
+              <form
+                className="incident-update"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const form = event.currentTarget;
+                  const data = new FormData(form);
+                  void mutate("/updates", "POST", {
+                    audience: data.get("audience"),
+                    message: data.get("message"),
+                  }).then(() => form.reset());
+                }}
+              >
+                <label>
+                  Audience
+                  <select name="audience">
+                    <option value="participants">
+                      Responders and participants
+                    </option>
+                    <option value="public">Audience-safe update</option>
+                  </select>
+                </label>
+                <label>
+                  Timeline update
+                  <textarea
+                    name="message"
+                    required
+                    rows={3}
+                    placeholder="What changed, what responders know, and what happens next"
+                  />
+                </label>
+                <Button disabled={Boolean(busy)} type="submit">
+                  Publish update
+                </Button>
+              </form>
+            )}
+            <ol className="incident-timeline">
+              {[...current.timeline].reverse().map((event) => (
+                <li key={event.sequence}>
+                  <span>
+                    <strong>{event.type.replaceAll(".", " ")}</strong>
+                    {event.audience && (
+                      <Badge
+                        tone={
+                          event.audience === "public" ? "accent" : "neutral"
+                        }
+                      >
+                        {event.audience}
+                      </Badge>
+                    )}
+                  </span>
+                  {event.actor_id && (
+                    <small>
+                      <Actor id={event.actor_id} /> ·{" "}
+                      {new Date(event.created_at).toLocaleString()}
+                    </small>
+                  )}
+                  {event.message && <p>{event.message}</p>}
+                  {event.status && (
+                    <p>
+                      Status: <b>{event.status}</b>
+                    </p>
+                  )}
+                  {event.type === "update" && (
+                    <small>
+                      {
+                        current.acknowledgements.filter(
+                          (item) => item.update_sequence === event.sequence,
+                        ).length
+                      }{" "}
+                      acknowledged
+                    </small>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </article>
+        )}
+      </div>
+    </div>
+  );
 }
 
-function IntegrationQueueWorkspace({ repository, branches, initialBranch, actor, onBranch }: { repository: Repository; branches: BranchRecord[]; initialBranch: string; actor: string; onBranch: (branch: string) => void }) {
+function IntegrationQueueWorkspace({
+  repository,
+  branches,
+  initialBranch,
+  actor,
+  onBranch,
+}: {
+  repository: Repository;
+  branches: BranchRecord[];
+  initialBranch: string;
+  actor: string;
+  onBranch: (branch: string) => void;
+}) {
   const [data, setData] = useState<IntegrationQueueEntries>();
   const [pulls, setPulls] = useState<PullRequest[]>([]);
   const [busy, setBusy] = useState("");
@@ -1410,45 +4931,275 @@ function IntegrationQueueWorkspace({ repository, branches, initialBranch, actor,
     setError("");
     try {
       const [queue, requests] = await Promise.all([
-        get<IntegrationQueueEntries>(`/repositories/${repository.id}/integration-queue/entries?branch=${encodeURIComponent(initialBranch)}`),
-        get<PullRequestList>(`/repositories/${repository.id}/pull-requests?per_page=100`),
+        get<IntegrationQueueEntries>(
+          `/repositories/${repository.id}/integration-queue/entries?branch=${encodeURIComponent(initialBranch)}`,
+        ),
+        get<PullRequestList>(
+          `/repositories/${repository.id}/pull-requests?per_page=100`,
+        ),
       ]);
-      setData(queue); setPulls(requests.items);
-    } catch { setError("The integration queue could not be loaded."); }
+      setData(queue);
+      setPulls(requests.items);
+    } catch {
+      setError("The integration queue could not be loaded.");
+    }
   }, [repository.id, initialBranch]);
   useEffect(() => {
     // Queue state follows the shareable target-branch URL.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
-  async function operate(entry: IntegrationQueueEntry, action: string, position?: number) {
-    setBusy(entry.id + action); setError("");
-    try { await send(`/repositories/${repository.id}/integration-queue/entries/${entry.id}`, "PATCH", { action, position }); await load(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "The queue action could not be completed."); }
-    finally { setBusy(""); }
+  async function operate(
+    entry: IntegrationQueueEntry,
+    action: string,
+    position?: number,
+  ) {
+    setBusy(entry.id + action);
+    setError("");
+    try {
+      await send(
+        `/repositories/${repository.id}/integration-queue/entries/${entry.id}`,
+        "PATCH",
+        { action, position },
+      );
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "The queue action could not be completed.",
+      );
+    } finally {
+      setBusy("");
+    }
   }
   const active = data?.items.filter((entry) => !entry.completed_at) ?? [];
   const completed = data?.items.filter((entry) => entry.completed_at) ?? [];
-  const title = (id: string) => pulls.find((pull) => pull.id === id)?.title ?? `Pull request ${short(id)}`;
-  return <section className="queue-workspace">
-    <header className="proposal-toolbar"><div><p className="eyebrow"><Branch size={14}/>Shared integration workflow</p><h2>{initialBranch} queue</h2><p>See why every change is waiting, the exact candidate evidence, and the next available intervention.</p></div><label className="queue-branch">Target branch<select value={initialBranch} onChange={(event) => onBranch(event.target.value)}>{branches.map((branch) => <option key={branch.name}>{branch.name}</option>)}</select></label></header>
-    {error && <p className="form-error" role="alert">{error}</p>}
-    <div className="queue-policy-banner panel"><span><strong>{data?.policy.enabled ? "Queue protection active" : "Queue protection disabled"}</strong><small>{data?.policy.concurrency ?? 1} concurrent candidate {(data?.policy.concurrency ?? 1) === 1 ? "slot" : "slots"} · failures {data?.policy.failure_behavior === "remove" ? "leave the queue" : "pause for intervention"}</small></span><Badge tone={data?.policy.enabled ? "accent" : "neutral"}>{active.length} active</Badge></div>
-    <div className="queue-board">
-      {active.map((entry, index) => <article className={`queue-card panel ${entry.state}`} key={entry.id}>
-        <div className="queue-order"><strong>#{entry.position}</strong><span>{entry.state}</span></div>
-        <div className="queue-card-body"><header><div><p className="eyebrow">Pull request</p><Link href={`/repositories/${repository.id}?view=pulls&pull=${entry.pull_request_id}`}>{title(entry.pull_request_id)}</Link></div><code>{short(entry.candidate_commit_id)}</code></header>
-          <p className="queue-next"><strong>Next:</strong> {entry.next_action}</p>
-          {entry.blocker && <p className="queue-blocker"><Clock size={13}/>{entry.blocker.replaceAll("_", " ")}</p>}
-          <div className="queue-checks">{entry.checks.requirements.length ? entry.checks.requirements.map((check) => <span className={check.status} key={check.name}><Check size={11}/>{check.name} · {check.status}</span>) : <span className="succeeded"><Check size={11}/>No required checks</span>}</div>
-          <details><summary>{entry.attempt_history.length} retained candidate {entry.attempt_history.length === 1 ? "attempt" : "attempts"}</summary>{entry.attempt_history.map((attempt) => <div className="queue-attempt" key={attempt.generation}><span>Generation {attempt.generation} · <code>{short(attempt.candidate_commit_id)}</code></span><small>Base {short(attempt.target_commit_id)} · {attempt.checks.satisfied ? "passed" : "not passed"} · {new Date(attempt.created_at).toLocaleString()}</small></div>)}</details>
-          {actor === repository.owner_id && <div className="queue-controls">{entry.state === "paused" ? <Button size="sm" variant="secondary" disabled={Boolean(busy)} onClick={() => void operate(entry, "resume")}>Resume</Button> : <Button size="sm" variant="secondary" disabled={Boolean(busy)} onClick={() => void operate(entry, "pause")}>Pause</Button>}{entry.state === "blocked" && <Button size="sm" variant="secondary" disabled={Boolean(busy)} onClick={() => void operate(entry, "retry")}>Retry checks</Button>}<Button size="sm" variant="secondary" disabled={Boolean(busy) || index === 0} onClick={() => void operate(entry, "reprioritize", entry.position - 1)}>Move up</Button><Button size="sm" variant="secondary" disabled={Boolean(busy) || index === active.length - 1} onClick={() => void operate(entry, "reprioritize", entry.position + 1)}>Move down</Button><button className="withdraw-review" disabled={Boolean(busy)} onClick={() => void operate(entry, "remove")}>Remove</button></div>}
+  const title = (id: string) =>
+    pulls.find((pull) => pull.id === id)?.title ?? `Pull request ${short(id)}`;
+  return (
+    <section className="queue-workspace">
+      <header className="proposal-toolbar">
+        <div>
+          <p className="eyebrow">
+            <Branch size={14} />
+            Shared integration workflow
+          </p>
+          <h2>{initialBranch} queue</h2>
+          <p>
+            See why every change is waiting, the exact candidate evidence, and
+            the next available intervention.
+          </p>
         </div>
-      </article>)}
-      {!active.length && <div className="proposal-empty panel"><Branch/><h3>No changes are waiting</h3><p>Ready pull requests admitted to this branch will appear here in policy order.</p></div>}
-    </div>
-    {completed.length > 0 && <section className="queue-history"><h3>Recent outcomes</h3>{completed.map((entry) => <article className="panel" key={entry.id}><span className={`pull-status ${entry.state}`}>{entry.state}</span><div><Link href={`/repositories/${repository.id}?view=pulls&pull=${entry.pull_request_id}`}>{title(entry.pull_request_id)}</Link><small>{entry.blocker ? entry.blocker.replaceAll("_", " ") : `Candidate ${short(entry.candidate_commit_id)}`} · operated by <Actor id={entry.events.at(-1)?.actor_id || entry.enqueued_by_id} compact /></small></div><time>{new Date(entry.completed_at ?? entry.created_at).toLocaleString()}</time></article>)}</section>}
-  </section>;
+        <label className="queue-branch">
+          Target branch
+          <select
+            value={initialBranch}
+            onChange={(event) => onBranch(event.target.value)}
+          >
+            {branches.map((branch) => (
+              <option key={branch.name}>{branch.name}</option>
+            ))}
+          </select>
+        </label>
+      </header>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="queue-policy-banner panel">
+        <span>
+          <strong>
+            {data?.policy.enabled
+              ? "Queue protection active"
+              : "Queue protection disabled"}
+          </strong>
+          <small>
+            {data?.policy.concurrency ?? 1} concurrent candidate{" "}
+            {(data?.policy.concurrency ?? 1) === 1 ? "slot" : "slots"} ·
+            failures{" "}
+            {data?.policy.failure_behavior === "remove"
+              ? "leave the queue"
+              : "pause for intervention"}
+          </small>
+        </span>
+        <Badge tone={data?.policy.enabled ? "accent" : "neutral"}>
+          {active.length} active
+        </Badge>
+      </div>
+      <div className="queue-board">
+        {active.map((entry, index) => (
+          <article className={`queue-card panel ${entry.state}`} key={entry.id}>
+            <div className="queue-order">
+              <strong>#{entry.position}</strong>
+              <span>{entry.state}</span>
+            </div>
+            <div className="queue-card-body">
+              <header>
+                <div>
+                  <p className="eyebrow">Pull request</p>
+                  <Link
+                    href={`/repositories/${repository.id}?view=pulls&pull=${entry.pull_request_id}`}
+                  >
+                    {title(entry.pull_request_id)}
+                  </Link>
+                </div>
+                <code>{short(entry.candidate_commit_id)}</code>
+              </header>
+              <p className="queue-next">
+                <strong>Next:</strong> {entry.next_action}
+              </p>
+              {entry.blocker && (
+                <p className="queue-blocker">
+                  <Clock size={13} />
+                  {entry.blocker.replaceAll("_", " ")}
+                </p>
+              )}
+              <div className="queue-checks">
+                {entry.checks.requirements.length ? (
+                  entry.checks.requirements.map((check) => (
+                    <span className={check.status} key={check.name}>
+                      <Check size={11} />
+                      {check.name} · {check.status}
+                    </span>
+                  ))
+                ) : (
+                  <span className="succeeded">
+                    <Check size={11} />
+                    No required checks
+                  </span>
+                )}
+              </div>
+              <details>
+                <summary>
+                  {entry.attempt_history.length} retained candidate{" "}
+                  {entry.attempt_history.length === 1 ? "attempt" : "attempts"}
+                </summary>
+                {entry.attempt_history.map((attempt) => (
+                  <div className="queue-attempt" key={attempt.generation}>
+                    <span>
+                      Generation {attempt.generation} ·{" "}
+                      <code>{short(attempt.candidate_commit_id)}</code>
+                    </span>
+                    <small>
+                      Base {short(attempt.target_commit_id)} ·{" "}
+                      {attempt.checks.satisfied ? "passed" : "not passed"} ·{" "}
+                      {new Date(attempt.created_at).toLocaleString()}
+                    </small>
+                  </div>
+                ))}
+              </details>
+              {actor === repository.owner_id && (
+                <div className="queue-controls">
+                  {entry.state === "paused" ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={Boolean(busy)}
+                      onClick={() => void operate(entry, "resume")}
+                    >
+                      Resume
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={Boolean(busy)}
+                      onClick={() => void operate(entry, "pause")}
+                    >
+                      Pause
+                    </Button>
+                  )}
+                  {entry.state === "blocked" && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={Boolean(busy)}
+                      onClick={() => void operate(entry, "retry")}
+                    >
+                      Retry checks
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={Boolean(busy) || index === 0}
+                    onClick={() =>
+                      void operate(entry, "reprioritize", entry.position - 1)
+                    }
+                  >
+                    Move up
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={Boolean(busy) || index === active.length - 1}
+                    onClick={() =>
+                      void operate(entry, "reprioritize", entry.position + 1)
+                    }
+                  >
+                    Move down
+                  </Button>
+                  <button
+                    className="withdraw-review"
+                    disabled={Boolean(busy)}
+                    onClick={() => void operate(entry, "remove")}
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+            </div>
+          </article>
+        ))}
+        {!active.length && (
+          <div className="proposal-empty panel">
+            <Branch />
+            <h3>No changes are waiting</h3>
+            <p>
+              Ready pull requests admitted to this branch will appear here in
+              policy order.
+            </p>
+          </div>
+        )}
+      </div>
+      {completed.length > 0 && (
+        <section className="queue-history">
+          <h3>Recent outcomes</h3>
+          {completed.map((entry) => (
+            <article className="panel" key={entry.id}>
+              <span className={`pull-status ${entry.state}`}>
+                {entry.state}
+              </span>
+              <div>
+                <Link
+                  href={`/repositories/${repository.id}?view=pulls&pull=${entry.pull_request_id}`}
+                >
+                  {title(entry.pull_request_id)}
+                </Link>
+                <small>
+                  {entry.blocker
+                    ? entry.blocker.replaceAll("_", " ")
+                    : `Candidate ${short(entry.candidate_commit_id)}`}{" "}
+                  · operated by{" "}
+                  <Actor
+                    id={entry.events.at(-1)?.actor_id || entry.enqueued_by_id}
+                    compact
+                  />
+                </small>
+              </div>
+              <time>
+                {new Date(
+                  entry.completed_at ?? entry.created_at,
+                ).toLocaleString()}
+              </time>
+            </article>
+          ))}
+        </section>
+      )}
+    </section>
+  );
 }
 
 function ProposalWorkspace({
@@ -1993,7 +5744,9 @@ function ProposalPlanView({
   const [assigning, setAssigning] = useState<string>();
   const [publishing, setPublishing] = useState<string>();
   const [error, setError] = useState("");
-  const completed = plan.tasks.filter((task) => task.status === "completed").length;
+  const completed = plan.tasks.filter(
+    (task) => task.status === "completed",
+  ).length;
   async function update(task: ProposalTask, changes: Partial<ProposalTask>) {
     setError("");
     try {
@@ -2013,22 +5766,39 @@ function ProposalPlanView({
       setEditing(undefined);
       onChanged();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to update task.");
+      setError(
+        cause instanceof Error ? cause.message : "Unable to update task.",
+      );
     }
   }
   return (
     <section className="proposal-plan">
       <header className="plan-heading">
         <div>
-          <p className="eyebrow"><Check size={14} />Executable plan</p>
+          <p className="eyebrow">
+            <Check size={14} />
+            Executable plan
+          </p>
           <h3>Delivery tasks</h3>
-          <p>{plan.tasks.length ? `${completed} of ${plan.tasks.length} outcomes completed` : "Turn the agreed idea into work collaborators can start."}</p>
+          <p>
+            {plan.tasks.length
+              ? `${completed} of ${plan.tasks.length} outcomes completed`
+              : "Turn the agreed idea into work collaborators can start."}
+          </p>
         </div>
         <div>
-          <Button variant="secondary" size="sm" onClick={() => setHistoryOpen(!historyOpen)}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setHistoryOpen(!historyOpen)}
+          >
             <Clock size={13} /> History ({plan.history.length})
           </Button>
-          {canEdit && <Button size="sm" onClick={() => setCreating(!creating)}><Plus size={13} /> Add task</Button>}
+          {canEdit && (
+            <Button size="sm" onClick={() => setCreating(!creating)}>
+              <Plus size={13} /> Add task
+            </Button>
+          )}
         </div>
       </header>
       {error && <p className="form-error">{error}</p>}
@@ -2039,67 +5809,414 @@ function ProposalPlanView({
           submit="Add task"
           onCancel={() => setCreating(false)}
           onSubmit={async (input) => {
-            await send(`/repositories/${repository}/proposals/${proposal}/plan/tasks`, "POST", input);
+            await send(
+              `/repositories/${repository}/proposals/${proposal}/plan/tasks`,
+              "POST",
+              input,
+            );
             setCreating(false);
             onChanged();
           }}
         />
       )}
       <div className="plan-tasks">
-        {plan.tasks.map((task) => editing === task.id ? (
-          <TaskForm key={task.id} task={task} tasks={plan.tasks} comments={comments} submit="Save task" onCancel={() => setEditing(undefined)} onSubmit={(input) => update(task, input as Partial<ProposalTask>)} />
-        ) : (
-          <article className={`plan-task panel ${task.ready ? "ready" : ""}`} key={task.id}>
-            <span className="task-position">{task.position}</span>
-            <div className="task-content">
-              <div className="task-title"><strong>{task.title}</strong><span className={`task-status ${task.status}`}>{task.status.replace("_", " ")}</span>{task.ready && <span className="ready-label">Can start now</span>}</div>
-              <p><b>Expected outcome</b>{task.outcome}</p>
-              {task.depends_on.length > 0 && <small>After {task.depends_on.map((id) => plan.tasks.find((candidate) => candidate.id === id)?.title ?? id).join(", ")}</small>}
-              {task.discussion_comment_ids.length > 0 && <small><MessageCircle size={11} /> Linked to {task.discussion_comment_ids.length} discussion {task.discussion_comment_ids.length === 1 ? "decision" : "decisions"}</small>}
-              <small>Last changed by <Actor id={task.updated_by_id} /> · {new Date(task.updated_at).toLocaleString()}</small>
-              {task.assignment && <div className="task-assignment"><strong>{task.assignment.kind === "agent" ? task.assignment.assignee_id : <Actor id={task.assignment.assignee_id} />} owns this task</strong><span>{task.assignment.mandate}</span><small>Base <code>{short(task.assignment.base_revision)}</code> in this repository · {task.assignment.permissions.join(" + ")} · no credential issued</small><small>Assigned by <Actor id={task.assignment.assigned_by_id} /> · {new Date(task.assignment.assigned_at).toLocaleString()}</small></div>}
-              {task.contributions?.map((contribution) => <div className="task-assignment" key={contribution.pull_request_id}><strong><Link href={`/repositories/${repository}?view=pulls&pull=${contribution.pull_request_id}`}>Pull request {short(contribution.pull_request_id)}</Link> · {contribution.status}</strong><span>Exact candidate <code>{short(contribution.source_commit_id)}</code>{contribution.session_id ? " with linked execution evidence" : ""}</span><small>Published by <Actor id={contribution.published_by_id} /> · {new Date(contribution.published_at).toLocaleString()}</small></div>)}
-              {assigning === task.id && <TaskAssignmentForm task={task} repository={assignmentRepository} branches={branches} actor={actor} onCancel={() => setAssigning(undefined)} onAssigned={() => { setAssigning(undefined); onChanged(); }} />}
-              {publishing === task.id && <TaskContributionForm task={task} repository={repository} branches={branches} onCancel={() => setPublishing(undefined)} onPublished={() => { setPublishing(undefined); onChanged(); }} />}
-            </div>
-            {canEdit && <div className="task-actions">
-              {task.ready && <button aria-label={`${task.assignment ? "Reassign" : "Assign"} ${task.title}`} onClick={() => setAssigning(assigning === task.id ? undefined : task.id)}><User size={13} /></button>}
-              {task.assignment?.kind === "human" && task.assignment.assignee_id === actor && <button aria-label={`Publish ${task.title} for review`} onClick={() => setPublishing(publishing === task.id ? undefined : task.id)}><GitPullRequest size={13} /></button>}
-              {task.assignment && <button aria-label={`Revoke assignment for ${task.title}`} onClick={async () => { try { await send(`/repositories/${repository}/proposals/${proposal}/plan/tasks/${task.id}/assignment?expected_assignment_id=${task.assignment?.id}`, "DELETE"); onChanged(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to revoke assignment."); } }}><Trash size={13} /></button>}
-              {!["draft", "review", "merged", "closed", "superseded"].includes(task.status) && <select aria-label={`Status for ${task.title}`} value={task.status} onChange={(event) => void update(task, {status: event.target.value as ProposalTask["status"]})}>
-                <option value="planned">Planned</option><option value="in_progress">In progress</option><option value="completed">Completed</option><option value="canceled">Canceled</option>
-              </select>}
-              <button aria-label={`Edit ${task.title}`} onClick={() => setEditing(task.id)}><Edit size={13} /></button>
-              <button aria-label={`Move ${task.title} up`} disabled={task.position === 1} onClick={() => void update(task, {position: task.position - 1})}>↑</button>
-              <button aria-label={`Move ${task.title} down`} disabled={task.position === plan.tasks.length} onClick={() => void update(task, {position: task.position + 1})}>↓</button>
-            </div>}
-          </article>
-        ))}
-        {!plan.tasks.length && <div className="plan-empty panel"><Check /><h4>No delivery tasks yet</h4><p>Add outcomes in dependency order so the next collaborator knows where to begin.</p></div>}
+        {plan.tasks.map((task) =>
+          editing === task.id ? (
+            <TaskForm
+              key={task.id}
+              task={task}
+              tasks={plan.tasks}
+              comments={comments}
+              submit="Save task"
+              onCancel={() => setEditing(undefined)}
+              onSubmit={(input) => update(task, input as Partial<ProposalTask>)}
+            />
+          ) : (
+            <article
+              className={`plan-task panel ${task.ready ? "ready" : ""}`}
+              key={task.id}
+            >
+              <span className="task-position">{task.position}</span>
+              <div className="task-content">
+                <div className="task-title">
+                  <strong>{task.title}</strong>
+                  <span className={`task-status ${task.status}`}>
+                    {task.status.replace("_", " ")}
+                  </span>
+                  {task.ready && (
+                    <span className="ready-label">Can start now</span>
+                  )}
+                </div>
+                <p>
+                  <b>Expected outcome</b>
+                  {task.outcome}
+                </p>
+                {task.depends_on.length > 0 && (
+                  <small>
+                    After{" "}
+                    {task.depends_on
+                      .map(
+                        (id) =>
+                          plan.tasks.find((candidate) => candidate.id === id)
+                            ?.title ?? id,
+                      )
+                      .join(", ")}
+                  </small>
+                )}
+                {task.discussion_comment_ids.length > 0 && (
+                  <small>
+                    <MessageCircle size={11} /> Linked to{" "}
+                    {task.discussion_comment_ids.length} discussion{" "}
+                    {task.discussion_comment_ids.length === 1
+                      ? "decision"
+                      : "decisions"}
+                  </small>
+                )}
+                <small>
+                  Last changed by <Actor id={task.updated_by_id} /> ·{" "}
+                  {new Date(task.updated_at).toLocaleString()}
+                </small>
+                {task.assignment && (
+                  <div className="task-assignment">
+                    <strong>
+                      {task.assignment.kind === "agent" ? (
+                        task.assignment.assignee_id
+                      ) : (
+                        <Actor id={task.assignment.assignee_id} />
+                      )}{" "}
+                      owns this task
+                    </strong>
+                    <span>{task.assignment.mandate}</span>
+                    <small>
+                      Base <code>{short(task.assignment.base_revision)}</code>{" "}
+                      in this repository ·{" "}
+                      {task.assignment.permissions.join(" + ")} · no credential
+                      issued
+                    </small>
+                    <small>
+                      Assigned by <Actor id={task.assignment.assigned_by_id} />{" "}
+                      · {new Date(task.assignment.assigned_at).toLocaleString()}
+                    </small>
+                  </div>
+                )}
+                {task.contributions?.map((contribution) => (
+                  <div
+                    className="task-assignment"
+                    key={contribution.pull_request_id}
+                  >
+                    <strong>
+                      <Link
+                        href={`/repositories/${repository}?view=pulls&pull=${contribution.pull_request_id}`}
+                      >
+                        Pull request {short(contribution.pull_request_id)}
+                      </Link>{" "}
+                      · {contribution.status}
+                    </strong>
+                    <span>
+                      Exact candidate{" "}
+                      <code>{short(contribution.source_commit_id)}</code>
+                      {contribution.session_id
+                        ? " with linked execution evidence"
+                        : ""}
+                    </span>
+                    <small>
+                      Published by <Actor id={contribution.published_by_id} /> ·{" "}
+                      {new Date(contribution.published_at).toLocaleString()}
+                    </small>
+                  </div>
+                ))}
+                {assigning === task.id && (
+                  <TaskAssignmentForm
+                    task={task}
+                    repository={assignmentRepository}
+                    branches={branches}
+                    actor={actor}
+                    onCancel={() => setAssigning(undefined)}
+                    onAssigned={() => {
+                      setAssigning(undefined);
+                      onChanged();
+                    }}
+                  />
+                )}
+                {publishing === task.id && (
+                  <TaskContributionForm
+                    task={task}
+                    repository={repository}
+                    branches={branches}
+                    onCancel={() => setPublishing(undefined)}
+                    onPublished={() => {
+                      setPublishing(undefined);
+                      onChanged();
+                    }}
+                  />
+                )}
+              </div>
+              {canEdit && (
+                <div className="task-actions">
+                  {task.ready && (
+                    <button
+                      aria-label={`${task.assignment ? "Reassign" : "Assign"} ${task.title}`}
+                      onClick={() =>
+                        setAssigning(
+                          assigning === task.id ? undefined : task.id,
+                        )
+                      }
+                    >
+                      <User size={13} />
+                    </button>
+                  )}
+                  {task.assignment?.kind === "human" &&
+                    task.assignment.assignee_id === actor && (
+                      <button
+                        aria-label={`Publish ${task.title} for review`}
+                        onClick={() =>
+                          setPublishing(
+                            publishing === task.id ? undefined : task.id,
+                          )
+                        }
+                      >
+                        <GitPullRequest size={13} />
+                      </button>
+                    )}
+                  {task.assignment && (
+                    <button
+                      aria-label={`Revoke assignment for ${task.title}`}
+                      onClick={async () => {
+                        try {
+                          await send(
+                            `/repositories/${repository}/proposals/${proposal}/plan/tasks/${task.id}/assignment?expected_assignment_id=${task.assignment?.id}`,
+                            "DELETE",
+                          );
+                          onChanged();
+                        } catch (cause) {
+                          setError(
+                            cause instanceof Error
+                              ? cause.message
+                              : "Unable to revoke assignment.",
+                          );
+                        }
+                      }}
+                    >
+                      <Trash size={13} />
+                    </button>
+                  )}
+                  {![
+                    "draft",
+                    "review",
+                    "merged",
+                    "closed",
+                    "superseded",
+                  ].includes(task.status) && (
+                    <select
+                      aria-label={`Status for ${task.title}`}
+                      value={task.status}
+                      onChange={(event) =>
+                        void update(task, {
+                          status: event.target.value as ProposalTask["status"],
+                        })
+                      }
+                    >
+                      <option value="planned">Planned</option>
+                      <option value="in_progress">In progress</option>
+                      <option value="completed">Completed</option>
+                      <option value="canceled">Canceled</option>
+                    </select>
+                  )}
+                  <button
+                    aria-label={`Edit ${task.title}`}
+                    onClick={() => setEditing(task.id)}
+                  >
+                    <Edit size={13} />
+                  </button>
+                  <button
+                    aria-label={`Move ${task.title} up`}
+                    disabled={task.position === 1}
+                    onClick={() =>
+                      void update(task, { position: task.position - 1 })
+                    }
+                  >
+                    ↑
+                  </button>
+                  <button
+                    aria-label={`Move ${task.title} down`}
+                    disabled={task.position === plan.tasks.length}
+                    onClick={() =>
+                      void update(task, { position: task.position + 1 })
+                    }
+                  >
+                    ↓
+                  </button>
+                </div>
+              )}
+            </article>
+          ),
+        )}
+        {!plan.tasks.length && (
+          <div className="plan-empty panel">
+            <Check />
+            <h4>No delivery tasks yet</h4>
+            <p>
+              Add outcomes in dependency order so the next collaborator knows
+              where to begin.
+            </p>
+          </div>
+        )}
       </div>
-      {historyOpen && <div className="plan-history panel"><h4>Plan history</h4>{[...plan.history].reverse().map((event) => <div key={event.id}><span className="avatar sm"><User size={12} /></span><p><strong><Actor id={event.actor_id} /></strong> {event.action.replace("task.", "").replaceAll("_", " ")} <b>{event.task.title}</b><small>{event.task.status.replace("_", " ")} · {new Date(event.created_at).toLocaleString()}</small></p></div>)}</div>}
+      {historyOpen && (
+        <div className="plan-history panel">
+          <h4>Plan history</h4>
+          {[...plan.history].reverse().map((event) => (
+            <div key={event.id}>
+              <span className="avatar sm">
+                <User size={12} />
+              </span>
+              <p>
+                <strong>
+                  <Actor id={event.actor_id} />
+                </strong>{" "}
+                {event.action.replace("task.", "").replaceAll("_", " ")}{" "}
+                <b>{event.task.title}</b>
+                <small>
+                  {event.task.status.replace("_", " ")} ·{" "}
+                  {new Date(event.created_at).toLocaleString()}
+                </small>
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
-function TaskContributionForm({ task, repository, branches, onCancel, onPublished }: { task: ProposalTask; repository: string; branches: BranchRecord[]; onCancel: () => void; onPublished: () => void }) {
-  const defaultBranch = branches.find((branch) => branch.is_default)?.name ?? "main";
+function TaskContributionForm({
+  task,
+  repository,
+  branches,
+  onCancel,
+  onPublished,
+}: {
+  task: ProposalTask;
+  repository: string;
+  branches: BranchRecord[];
+  onCancel: () => void;
+  onPublished: () => void;
+}) {
+  const defaultBranch =
+    branches.find((branch) => branch.is_default)?.name ?? "main";
   const candidates = branches.filter((branch) => branch.name !== defaultBranch);
-  const [source, setSource] = useState(task.assignment?.working_branch ?? candidates[0]?.name ?? "");
+  const [source, setSource] = useState(
+    task.assignment?.working_branch ?? candidates[0]?.name ?? "",
+  );
   const [title, setTitle] = useState(task.title);
   const [body, setBody] = useState(`Delivers proposal task: ${task.outcome}`);
   const [draft, setDraft] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  return <form className="assignment-form" onSubmit={async (event) => { event.preventDefault(); setBusy(true); setError(""); try { await send(`/repositories/${repository}/proposals/${task.proposal_id}/plan/tasks/${task.id}/contributions`, "POST", { expected_assignment_id: task.assignment?.id, source_branch: source, target_branch: defaultBranch, title, body, draft }); onPublished(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to publish task work."); setBusy(false); } }}>
-    <div><label>Candidate branch<select required value={source} onChange={(event) => setSource(event.target.value)}>{candidates.map((branch) => <option key={branch.name} value={branch.name}>{branch.name} · {short(branch.commit_id)}</option>)}</select></label><label>Pull request title<input required maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} /></label></div>
-    <label>Review context<textarea maxLength={65536} value={body} onChange={(event) => setBody(event.target.value)} /></label>
-    <label><input type="checkbox" checked={draft} onChange={(event) => setDraft(event.target.checked)} /> Publish as draft</label>
-    {error && <p className="form-error" role="alert">{error}</p>}<div className="form-actions"><Button type="button" variant="secondary" size="sm" onClick={onCancel}>Cancel</Button><Button type="submit" size="sm" disabled={busy || !source}>{busy ? "Publishing…" : draft ? "Publish draft" : "Request review"}</Button></div>
-  </form>;
+  return (
+    <form
+      className="assignment-form"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setError("");
+        try {
+          await send(
+            `/repositories/${repository}/proposals/${task.proposal_id}/plan/tasks/${task.id}/contributions`,
+            "POST",
+            {
+              expected_assignment_id: task.assignment?.id,
+              source_branch: source,
+              target_branch: defaultBranch,
+              title,
+              body,
+              draft,
+            },
+          );
+          onPublished();
+        } catch (cause) {
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Unable to publish task work.",
+          );
+          setBusy(false);
+        }
+      }}
+    >
+      <div>
+        <label>
+          Candidate branch
+          <select
+            required
+            value={source}
+            onChange={(event) => setSource(event.target.value)}
+          >
+            {candidates.map((branch) => (
+              <option key={branch.name} value={branch.name}>
+                {branch.name} · {short(branch.commit_id)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Pull request title
+          <input
+            required
+            maxLength={200}
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+          />
+        </label>
+      </div>
+      <label>
+        Review context
+        <textarea
+          maxLength={65536}
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+        />
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          checked={draft}
+          onChange={(event) => setDraft(event.target.checked)}
+        />{" "}
+        Publish as draft
+      </label>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="form-actions">
+        <Button type="button" variant="secondary" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="submit" size="sm" disabled={busy || !source}>
+          {busy ? "Publishing…" : draft ? "Publish draft" : "Request review"}
+        </Button>
+      </div>
+    </form>
+  );
 }
 
-function TaskForm({ task, tasks, comments, submit, onCancel, onSubmit }: { task?: ProposalTask; tasks: ProposalTask[]; comments: ProposalComment[]; submit: string; onCancel: () => void; onSubmit: (input: Record<string, unknown>) => Promise<void> }) {
+function TaskForm({
+  task,
+  tasks,
+  comments,
+  submit,
+  onCancel,
+  onSubmit,
+}: {
+  task?: ProposalTask;
+  tasks: ProposalTask[];
+  comments: ProposalComment[];
+  submit: string;
+  onCancel: () => void;
+  onSubmit: (input: Record<string, unknown>) => Promise<void>;
+}) {
   const [title, setTitle] = useState(task?.title ?? "");
   const [outcome, setOutcome] = useState(task?.outcome ?? "");
   const [dependencies, setDependencies] = useState(task?.depends_on ?? []);
@@ -2107,35 +6224,257 @@ function TaskForm({ task, tasks, comments, submit, onCancel, onSubmit }: { task?
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const choices = tasks.filter((candidate) => candidate.id !== task?.id);
-  return <form className="task-form panel" onSubmit={async (event) => { event.preventDefault(); setBusy(true); setError(""); try { await onSubmit({title, outcome, position: task?.position ?? tasks.length + 1, status: task?.status ?? "planned", depends_on: dependencies, discussion_comment_ids: links}); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save task."); setBusy(false); } }}>
-    <label>Task<input required maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="What work should happen?" /></label>
-    <label>Expected outcome<textarea required maxLength={4096} value={outcome} onChange={(event) => setOutcome(event.target.value)} placeholder="Describe the observable result, not just the activity." /></label>
-    {choices.length > 0 && <fieldset><legend>Depends on</legend>{choices.map((candidate) => <label key={candidate.id}><input type="checkbox" checked={dependencies.includes(candidate.id)} onChange={() => setDependencies((current) => current.includes(candidate.id) ? current.filter((id) => id !== candidate.id) : [...current, candidate.id])} />{candidate.position}. {candidate.title}</label>)}</fieldset>}
-    {comments.length > 0 && <fieldset><legend>Motivating discussion</legend>{comments.map((comment, index) => <label key={comment.id}><input type="checkbox" checked={links.includes(comment.id)} onChange={() => setLinks((current) => current.includes(comment.id) ? current.filter((id) => id !== comment.id) : [...current, comment.id])} />Reply {index + 1} by <Actor id={comment.author_id} /></label>)}</fieldset>}
-    {error && <p className="form-error">{error}</p>}<div className="form-actions"><Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Saving…" : submit}</Button></div>
-  </form>;
+  return (
+    <form
+      className="task-form panel"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setError("");
+        try {
+          await onSubmit({
+            title,
+            outcome,
+            position: task?.position ?? tasks.length + 1,
+            status: task?.status ?? "planned",
+            depends_on: dependencies,
+            discussion_comment_ids: links,
+          });
+        } catch (cause) {
+          setError(
+            cause instanceof Error ? cause.message : "Unable to save task.",
+          );
+          setBusy(false);
+        }
+      }}
+    >
+      <label>
+        Task
+        <input
+          required
+          maxLength={200}
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="What work should happen?"
+        />
+      </label>
+      <label>
+        Expected outcome
+        <textarea
+          required
+          maxLength={4096}
+          value={outcome}
+          onChange={(event) => setOutcome(event.target.value)}
+          placeholder="Describe the observable result, not just the activity."
+        />
+      </label>
+      {choices.length > 0 && (
+        <fieldset>
+          <legend>Depends on</legend>
+          {choices.map((candidate) => (
+            <label key={candidate.id}>
+              <input
+                type="checkbox"
+                checked={dependencies.includes(candidate.id)}
+                onChange={() =>
+                  setDependencies((current) =>
+                    current.includes(candidate.id)
+                      ? current.filter((id) => id !== candidate.id)
+                      : [...current, candidate.id],
+                  )
+                }
+              />
+              {candidate.position}. {candidate.title}
+            </label>
+          ))}
+        </fieldset>
+      )}
+      {comments.length > 0 && (
+        <fieldset>
+          <legend>Motivating discussion</legend>
+          {comments.map((comment, index) => (
+            <label key={comment.id}>
+              <input
+                type="checkbox"
+                checked={links.includes(comment.id)}
+                onChange={() =>
+                  setLinks((current) =>
+                    current.includes(comment.id)
+                      ? current.filter((id) => id !== comment.id)
+                      : [...current, comment.id],
+                  )
+                }
+              />
+              Reply {index + 1} by <Actor id={comment.author_id} />
+            </label>
+          ))}
+        </fieldset>
+      )}
+      {error && <p className="form-error">{error}</p>}
+      <div className="form-actions">
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={busy}>
+          {busy ? "Saving…" : submit}
+        </Button>
+      </div>
+    </form>
+  );
 }
 
-function TaskAssignmentForm({ task, repository, branches, actor, onCancel, onAssigned }: { task: ProposalTask; repository: Repository; branches: BranchRecord[]; actor: string; onCancel: () => void; onAssigned: () => void }) {
-  const [kind, setKind] = useState<"human" | "agent">(task.assignment?.kind ?? "human");
-  const members = Array.from(new Set([repository.owner_id, ...(repository.collaborator_ids ?? []), actor].filter(Boolean)));
-  const [assignee, setAssignee] = useState(task.assignment?.assignee_id ?? actor);
-  const [revision, setRevision] = useState(task.assignment?.base_revision ?? branches.find((branch) => branch.is_default)?.commit_id ?? branches[0]?.commit_id ?? "");
-  const [mandate, setMandate] = useState(task.assignment?.mandate ?? task.outcome);
+function TaskAssignmentForm({
+  task,
+  repository,
+  branches,
+  actor,
+  onCancel,
+  onAssigned,
+}: {
+  task: ProposalTask;
+  repository: Repository;
+  branches: BranchRecord[];
+  actor: string;
+  onCancel: () => void;
+  onAssigned: () => void;
+}) {
+  const [kind, setKind] = useState<"human" | "agent">(
+    task.assignment?.kind ?? "human",
+  );
+  const members = Array.from(
+    new Set(
+      [
+        repository.owner_id,
+        ...(repository.collaborator_ids ?? []),
+        actor,
+      ].filter(Boolean),
+    ),
+  );
+  const [assignee, setAssignee] = useState(
+    task.assignment?.assignee_id ?? actor,
+  );
+  const [revision, setRevision] = useState(
+    task.assignment?.base_revision ??
+      branches.find((branch) => branch.is_default)?.commit_id ??
+      branches[0]?.commit_id ??
+      "",
+  );
+  const [mandate, setMandate] = useState(
+    task.assignment?.mandate ?? task.outcome,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  return <form className="assignment-form" onSubmit={async (event) => {
-    event.preventDefault(); setBusy(true); setError("");
-    try {
-      await send(`/repositories/${repository.id}/proposals/${task.proposal_id}/plan/tasks/${task.id}/assignment`, "PUT", { kind, assignee_id: kind === "agent" ? "codex" : assignee, mandate, repository_id: repository.id, base_revision: revision, expected_assignment_id: task.assignment?.id ?? "" });
-      onAssigned();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to assign task."); setBusy(false); }
-  }}>
-    <div><label>Owner type<select value={kind} onChange={(event) => { const next = event.target.value as "human" | "agent"; setKind(next); setAssignee(next === "agent" ? "codex" : actor); }}><option value="human">Human collaborator</option><option value="agent">Available agent</option></select></label><label>Accountable owner<select value={kind === "agent" ? "codex" : assignee} onChange={(event) => setAssignee(event.target.value)}>{kind === "agent" ? <option value="codex">Codex</option> : members.map((id) => <option key={id} value={id}>{id === actor ? "Claim for me" : id}</option>)}</select></label><label>Base revision<select required value={revision} onChange={(event) => setRevision(event.target.value)}>{branches.map((branch) => <option key={branch.name} value={branch.commit_id}>{branch.name} · {short(branch.commit_id)}</option>)}</select></label></div>
-    <label>Mandate<textarea required maxLength={4096} value={mandate} onChange={(event) => setMandate(event.target.value)} /></label>
-    <p><strong>Authority preview:</strong> read repository contents and write only the future candidate branch created for this task. No credential is issued until work starts.</p>
-    {error && <p className="form-error" role="alert">{error}</p>}<div className="form-actions"><Button type="button" variant="secondary" size="sm" onClick={onCancel}>Cancel</Button><Button type="submit" size="sm" disabled={busy || !revision}>{busy ? "Assigning…" : task.assignment ? "Reassign" : kind === "human" && assignee === actor ? "Claim task" : "Assign task"}</Button></div>
-  </form>;
+  return (
+    <form
+      className="assignment-form"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setError("");
+        try {
+          await send(
+            `/repositories/${repository.id}/proposals/${task.proposal_id}/plan/tasks/${task.id}/assignment`,
+            "PUT",
+            {
+              kind,
+              assignee_id: kind === "agent" ? "codex" : assignee,
+              mandate,
+              repository_id: repository.id,
+              base_revision: revision,
+              expected_assignment_id: task.assignment?.id ?? "",
+            },
+          );
+          onAssigned();
+        } catch (cause) {
+          setError(
+            cause instanceof Error ? cause.message : "Unable to assign task.",
+          );
+          setBusy(false);
+        }
+      }}
+    >
+      <div>
+        <label>
+          Owner type
+          <select
+            value={kind}
+            onChange={(event) => {
+              const next = event.target.value as "human" | "agent";
+              setKind(next);
+              setAssignee(next === "agent" ? "codex" : actor);
+            }}
+          >
+            <option value="human">Human collaborator</option>
+            <option value="agent">Available agent</option>
+          </select>
+        </label>
+        <label>
+          Accountable owner
+          <select
+            value={kind === "agent" ? "codex" : assignee}
+            onChange={(event) => setAssignee(event.target.value)}
+          >
+            {kind === "agent" ? (
+              <option value="codex">Codex</option>
+            ) : (
+              members.map((id) => (
+                <option key={id} value={id}>
+                  {id === actor ? "Claim for me" : id}
+                </option>
+              ))
+            )}
+          </select>
+        </label>
+        <label>
+          Base revision
+          <select
+            required
+            value={revision}
+            onChange={(event) => setRevision(event.target.value)}
+          >
+            {branches.map((branch) => (
+              <option key={branch.name} value={branch.commit_id}>
+                {branch.name} · {short(branch.commit_id)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label>
+        Mandate
+        <textarea
+          required
+          maxLength={4096}
+          value={mandate}
+          onChange={(event) => setMandate(event.target.value)}
+        />
+      </label>
+      <p>
+        <strong>Authority preview:</strong> read repository contents and write
+        only the future candidate branch created for this task. No credential is
+        issued until work starts.
+      </p>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="form-actions">
+        <Button type="button" variant="secondary" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="submit" size="sm" disabled={busy || !revision}>
+          {busy
+            ? "Assigning…"
+            : task.assignment
+              ? "Reassign"
+              : kind === "human" && assignee === actor
+                ? "Claim task"
+                : "Assign task"}
+        </Button>
+      </div>
+    </form>
+  );
 }
 
 function PullRequestWorkspace({
@@ -2322,7 +6661,12 @@ function PullRequestGroup({
             <strong>{item.title}</strong>
             <p>{item.body || "No description was added."}</p>
             <small>
-              {item.source_repository_id !== item.repository_id && <>fork <code>{short(item.source_repository_id)}</code> · </>}<code>{item.source_branch}</code> into{" "}
+              {item.source_repository_id !== item.repository_id && (
+                <>
+                  fork <code>{short(item.source_repository_id)}</code> ·{" "}
+                </>
+              )}
+              <code>{item.source_branch}</code> into{" "}
               <code>{item.target_branch}</code> · opened{" "}
               {new Date(item.created_at).toLocaleDateString()}
               {item.proposal_id ? " · linked proposal" : ""}
@@ -2511,7 +6855,7 @@ function PullRequestDetail({
             ? "sessions"
             : section === "checks"
               ? "checks"
-            : "overview";
+              : "overview";
   const [item, setItem] = useState<PullRequest>();
   const [commits, setCommits] = useState<PullRequestCommit[]>([]);
   const [files, setFiles] = useState<PullRequestFile[]>([]);
@@ -2540,7 +6884,9 @@ function PullRequestDetail({
         sessionData,
         checkData,
         readyData,
-        linked, policy, queue,
+        linked,
+        policy,
+        queue,
       ] = await Promise.all([
         get<PullRequestCommitList>(
           `/repositories/${repository}/pull-requests/${id}/commits?per_page=100`,
@@ -2568,8 +6914,12 @@ function PullRequestDetail({
               `/repositories/${repository}/proposals/${pull.proposal_id}`,
             ).catch(() => undefined)
           : Promise.resolve(undefined),
-        get<IntegrationQueuePolicy>(`/repositories/${repository}/integration-queue?branch=${encodeURIComponent(pull.target_branch)}`),
-        get<IntegrationQueueEntries>(`/repositories/${repository}/integration-queue/entries?branch=${encodeURIComponent(pull.target_branch)}`),
+        get<IntegrationQueuePolicy>(
+          `/repositories/${repository}/integration-queue?branch=${encodeURIComponent(pull.target_branch)}`,
+        ),
+        get<IntegrationQueueEntries>(
+          `/repositories/${repository}/integration-queue/entries?branch=${encodeURIComponent(pull.target_branch)}`,
+        ),
       ]);
       setItem(pull);
       setCommits(commitData.items);
@@ -2608,11 +6958,16 @@ function PullRequestDetail({
         </Button>
       </section>
     );
-  const source = item.source_repository_id === item.repository_id
-    ? branches.find((branch) => branch.name === item.source_branch)
-    : readiness?.source_branch.exists
-      ? { name: item.source_branch, commit_id: readiness.source_branch.commit_id ?? "", is_default: false }
-      : undefined;
+  const source =
+    item.source_repository_id === item.repository_id
+      ? branches.find((branch) => branch.name === item.source_branch)
+      : readiness?.source_branch.exists
+        ? {
+            name: item.source_branch,
+            commit_id: readiness.source_branch.commit_id ?? "",
+            is_default: false,
+          }
+        : undefined;
   const target = branches.find((branch) => branch.name === item.target_branch);
   const additions = files.reduce((total, file) => total + file.additions, 0);
   const deletions = files.reduce((total, file) => total + file.deletions, 0);
@@ -2629,7 +6984,15 @@ function PullRequestDetail({
           </span>
           <h2>{item.title}</h2>
           <p>
-            {item.source_repository_id !== item.repository_id && <><Link href={`/repositories/${item.source_repository_id}`}>Fork {short(item.source_repository_id)}</Link>{" · "}</>}<code>{item.source_branch}</code> proposes {commits.length}{" "}
+            {item.source_repository_id !== item.repository_id && (
+              <>
+                <Link href={`/repositories/${item.source_repository_id}`}>
+                  Fork {short(item.source_repository_id)}
+                </Link>
+                {" · "}
+              </>
+            )}
+            <code>{item.source_branch}</code> proposes {commits.length}{" "}
             {commits.length === 1 ? "commit" : "commits"} into{" "}
             <code>{item.target_branch}</code>
           </p>
@@ -2841,7 +7204,9 @@ function PullChecks({
       setDetail(next);
       onChanged();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Check control failed.");
+      setError(
+        cause instanceof Error ? cause.message : "Check control failed.",
+      );
     } finally {
       setBusy(false);
     }
@@ -2859,13 +7224,19 @@ function PullChecks({
       );
       onRepair();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Repair session could not be started.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Repair session could not be started.",
+      );
     } finally {
       setBusy(false);
     }
   };
 
-  const availableNames = Array.from(new Set(runs.map((run) => run.definition.name))).sort();
+  const availableNames = Array.from(
+    new Set(runs.map((run) => run.definition.name)),
+  ).sort();
   const savePolicy = async () => {
     setSavingPolicy(true);
     setError("");
@@ -2876,7 +7247,11 @@ function PullChecks({
       });
       onChanged();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Required checks could not be saved.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Required checks could not be saved.",
+      );
     } finally {
       setSavingPolicy(false);
     }
@@ -2884,64 +7259,240 @@ function PullChecks({
 
   const policy = readiness?.can_merge ? (
     <section className="check-policy panel">
-      <div><p className="eyebrow">Target branch policy</p><h3>Required checks for <code>{pull.target_branch}</code></h3><p>Only successful attempts for revision <code>{short(pull.source_commit_id)}</code> satisfy this policy.</p></div>
-      <div className="check-policy-options">
-        {availableNames.length ? availableNames.map((name) => (
-          <label key={name}><input type="checkbox" checked={required.includes(name)} onChange={(event) => setRequired((current) => event.target.checked ? [...current, name] : current.filter((item) => item !== name))}/><span>{name}</span></label>
-        )) : <p>No declared check names are available on this pull request.</p>}
+      <div>
+        <p className="eyebrow">Target branch policy</p>
+        <h3>
+          Required checks for <code>{pull.target_branch}</code>
+        </h3>
+        <p>
+          Only successful attempts for revision{" "}
+          <code>{short(pull.source_commit_id)}</code> satisfy this policy.
+        </p>
       </div>
-      <Button variant="secondary" size="sm" disabled={savingPolicy} onClick={() => void savePolicy()}>{savingPolicy ? "Saving…" : "Save requirements"}</Button>
+      <div className="check-policy-options">
+        {availableNames.length ? (
+          availableNames.map((name) => (
+            <label key={name}>
+              <input
+                type="checkbox"
+                checked={required.includes(name)}
+                onChange={(event) =>
+                  setRequired((current) =>
+                    event.target.checked
+                      ? [...current, name]
+                      : current.filter((item) => item !== name),
+                  )
+                }
+              />
+              <span>{name}</span>
+            </label>
+          ))
+        ) : (
+          <p>No declared check names are available on this pull request.</p>
+        )}
+      </div>
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={savingPolicy}
+        onClick={() => void savePolicy()}
+      >
+        {savingPolicy ? "Saving…" : "Save requirements"}
+      </Button>
     </section>
   ) : null;
 
   if (!runs.length)
     return (
-      <>{policy}<section className="checks-empty panel">
-        <Check size={20} />
-        <h3>No verification configured</h3>
-        <p>This revision does not declare checks in <code>.komodo/checks.json</code>.</p>
-      </section></>
+      <>
+        {policy}
+        <section className="checks-empty panel">
+          <Check size={20} />
+          <h3>No verification configured</h3>
+          <p>
+            This revision does not declare checks in{" "}
+            <code>.komodo/checks.json</code>.
+          </p>
+        </section>
+      </>
     );
 
   const shown = detail?.id === current?.id ? detail : current;
   const logs = shown?.events.filter((event) => event.type === "log") ?? [];
-  const artifacts = shown?.events.flatMap((event) => event.artifact ? [event.artifact] : []) ?? [];
+  const artifacts =
+    shown?.events.flatMap((event) =>
+      event.artifact ? [event.artifact] : [],
+    ) ?? [];
   const active = shown?.state === "queued" || shown?.state === "running";
   return (
-    <>{policy}<section className="checks-workspace">
-      <aside className="check-attempts panel" aria-label="Check attempts">
-        <header><div><h3>Verification attempts</h3><p>Live and historical runs for every revision.</p></div><Badge>{runs.length}</Badge></header>
-        {runs.map((run) => (
-          <button key={run.id} className={run.id === shown?.id ? "selected" : ""} onClick={() => { setSelected(run.id); setDetail(run); }}>
-            <span className={`check-state ${run.state}`}>{run.state === "succeeded" ? <Check size={14} /> : <Clock size={14} />}</span>
-            <span><strong>{run.definition.name}</strong><small>{short(run.commit_id)} · {new Date(run.created_at).toLocaleString()}</small></span>
-            <Badge tone={run.state === "succeeded" ? "accent" : "neutral"}>{run.state}</Badge>
-          </button>
-        ))}
-      </aside>
-      {shown && <article className="check-detail panel">
-        <header>
-          <div><p className="eyebrow">{shown.retry_of_id ? "Rerun attempt" : "Automatic attempt"}</p><h3>{shown.definition.name}</h3><code>{shown.definition.command}</code></div>
-          <span className={`check-status ${shown.state}`}>{shown.state}</span>
-        </header>
-        <dl className="check-meta">
-          <div><dt>Revision</dt><dd><code>{short(shown.commit_id)}</code></dd></div>
-          <div><dt>Started</dt><dd>{shown.started_at ? new Date(shown.started_at).toLocaleString() : "Waiting"}</dd></div>
-          <div><dt>Requested by</dt><dd>{shown.triggered_by_id ? <Actor id={shown.triggered_by_id} compact /> : "Automatic trigger"}</dd></div>
-          {shown.canceled_by_id && <div><dt>Canceled by</dt><dd><Actor id={shown.canceled_by_id} compact /></dd></div>}
-        </dl>
-        <div className="check-controls">
-          {actor && active && <Button variant="secondary" disabled={busy} onClick={() => void control("cancel")}>Cancel check</Button>}
-          {actor && !active && <Button variant="secondary" disabled={busy} onClick={() => void control("rerun")}>Rerun check</Button>}
-          {actor && shown.state === "failed" && shown.commit_id === pull.source_commit_id && pull.status === "open" && <Button disabled={busy} onClick={() => void startRepair()}><Sparkles size={14} />Start agent repair</Button>}
-          {active && <span className="live-indicator">Live · refreshing output</span>}
-        </div>
-        {error && <p className="form-error" role="alert">{error}</p>}
-        <div className="check-log-heading"><h4>Logs</h4><span>{logs.length} chunks</span></div>
-        <pre className="check-log" aria-live="polite">{logs.length ? logs.map((event) => <span className={event.stream} key={event.sequence}>{event.message}</span>) : <span className="quiet">No output captured.</span>}</pre>
-        <div className="check-artifacts"><h4>Artifacts</h4>{artifacts.length ? artifacts.map((artifact) => <a className="artifact-row" key={artifact.id} href={`/api/repositories/${repository}/pull-requests/${pull.id}/check-runs/${shown.id}/artifacts/${artifact.id}`}><File size={15}/><span><strong>{artifact.path}</strong><small>{formatSize(artifact.size)} · SHA-256 {short(artifact.sha256)}</small></span><span>Download</span></a>) : <p>No artifacts retained for this attempt.</p>}</div>
-      </article>}
-    </section></>
+    <>
+      {policy}
+      <section className="checks-workspace">
+        <aside className="check-attempts panel" aria-label="Check attempts">
+          <header>
+            <div>
+              <h3>Verification attempts</h3>
+              <p>Live and historical runs for every revision.</p>
+            </div>
+            <Badge>{runs.length}</Badge>
+          </header>
+          {runs.map((run) => (
+            <button
+              key={run.id}
+              className={run.id === shown?.id ? "selected" : ""}
+              onClick={() => {
+                setSelected(run.id);
+                setDetail(run);
+              }}
+            >
+              <span className={`check-state ${run.state}`}>
+                {run.state === "succeeded" ? (
+                  <Check size={14} />
+                ) : (
+                  <Clock size={14} />
+                )}
+              </span>
+              <span>
+                <strong>{run.definition.name}</strong>
+                <small>
+                  {short(run.commit_id)} ·{" "}
+                  {new Date(run.created_at).toLocaleString()}
+                </small>
+              </span>
+              <Badge tone={run.state === "succeeded" ? "accent" : "neutral"}>
+                {run.state}
+              </Badge>
+            </button>
+          ))}
+        </aside>
+        {shown && (
+          <article className="check-detail panel">
+            <header>
+              <div>
+                <p className="eyebrow">
+                  {shown.retry_of_id ? "Rerun attempt" : "Automatic attempt"}
+                </p>
+                <h3>{shown.definition.name}</h3>
+                <code>{shown.definition.command}</code>
+              </div>
+              <span className={`check-status ${shown.state}`}>
+                {shown.state}
+              </span>
+            </header>
+            <dl className="check-meta">
+              <div>
+                <dt>Revision</dt>
+                <dd>
+                  <code>{short(shown.commit_id)}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>Started</dt>
+                <dd>
+                  {shown.started_at
+                    ? new Date(shown.started_at).toLocaleString()
+                    : "Waiting"}
+                </dd>
+              </div>
+              <div>
+                <dt>Requested by</dt>
+                <dd>
+                  {shown.triggered_by_id ? (
+                    <Actor id={shown.triggered_by_id} compact />
+                  ) : (
+                    "Automatic trigger"
+                  )}
+                </dd>
+              </div>
+              {shown.canceled_by_id && (
+                <div>
+                  <dt>Canceled by</dt>
+                  <dd>
+                    <Actor id={shown.canceled_by_id} compact />
+                  </dd>
+                </div>
+              )}
+            </dl>
+            <div className="check-controls">
+              {actor && active && (
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => void control("cancel")}
+                >
+                  Cancel check
+                </Button>
+              )}
+              {actor && !active && (
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => void control("rerun")}
+                >
+                  Rerun check
+                </Button>
+              )}
+              {actor &&
+                shown.state === "failed" &&
+                shown.commit_id === pull.source_commit_id &&
+                pull.status === "open" && (
+                  <Button disabled={busy} onClick={() => void startRepair()}>
+                    <Sparkles size={14} />
+                    Start agent repair
+                  </Button>
+                )}
+              {active && (
+                <span className="live-indicator">Live · refreshing output</span>
+              )}
+            </div>
+            {error && (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="check-log-heading">
+              <h4>Logs</h4>
+              <span>{logs.length} chunks</span>
+            </div>
+            <pre className="check-log" aria-live="polite">
+              {logs.length ? (
+                logs.map((event) => (
+                  <span className={event.stream} key={event.sequence}>
+                    {event.message}
+                  </span>
+                ))
+              ) : (
+                <span className="quiet">No output captured.</span>
+              )}
+            </pre>
+            <div className="check-artifacts">
+              <h4>Artifacts</h4>
+              {artifacts.length ? (
+                artifacts.map((artifact) => (
+                  <a
+                    className="artifact-row"
+                    key={artifact.id}
+                    href={`/api/repositories/${repository}/pull-requests/${pull.id}/check-runs/${shown.id}/artifacts/${artifact.id}`}
+                  >
+                    <File size={15} />
+                    <span>
+                      <strong>{artifact.path}</strong>
+                      <small>
+                        {formatSize(artifact.size)} · SHA-256{" "}
+                        {short(artifact.sha256)}
+                      </small>
+                    </span>
+                    <span>Download</span>
+                  </a>
+                ))
+              ) : (
+                <p>No artifacts retained for this attempt.</p>
+              )}
+            </div>
+          </article>
+        )}
+      </section>
+    </>
   );
 }
 
@@ -3142,11 +7693,52 @@ function ChangeSessions({
                   <div>
                     <p className="eyebrow">Repair context</p>
                     <h4>Failed check · {current.check_failure.name}</h4>
-                    <p>Evidence captured from revision <code>{short(current.check_failure.commit_id)}</code>, exit {current.check_failure.exit_code}{current.check_failure.timed_out ? " (timed out)" : ""}.</p>
-                    <code>{current.check_failure.working_directory ? `${current.check_failure.working_directory} · ` : ""}{current.check_failure.command}</code>
+                    <p>
+                      Evidence captured from revision{" "}
+                      <code>{short(current.check_failure.commit_id)}</code>,
+                      exit {current.check_failure.exit_code}
+                      {current.check_failure.timed_out ? " (timed out)" : ""}.
+                    </p>
+                    <code>
+                      {current.check_failure.working_directory
+                        ? `${current.check_failure.working_directory} · `
+                        : ""}
+                      {current.check_failure.command}
+                    </code>
                   </div>
-                  <pre className="check-log">{current.check_failure.logs.length ? current.check_failure.logs.map((log) => <span className={log.stream} key={log.sequence}>{log.message}</span>) : <span className="quiet">No output captured.</span>}</pre>
-                  {current.check_failure.artifacts.length > 0 && <div className="check-artifacts"><h4>Captured artifacts</h4>{current.check_failure.artifacts.map((artifact) => <a className="artifact-row" key={artifact.id} href={`/api/repositories/${repository}/pull-requests/${pull.id}/check-runs/${current.check_failure!.run_id}/artifacts/${artifact.id}`}><File size={15}/><span><strong>{artifact.path}</strong><small>{formatSize(artifact.size)} · SHA-256 {short(artifact.sha256)}</small></span><span>Download</span></a>)}</div>}
+                  <pre className="check-log">
+                    {current.check_failure.logs.length ? (
+                      current.check_failure.logs.map((log) => (
+                        <span className={log.stream} key={log.sequence}>
+                          {log.message}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="quiet">No output captured.</span>
+                    )}
+                  </pre>
+                  {current.check_failure.artifacts.length > 0 && (
+                    <div className="check-artifacts">
+                      <h4>Captured artifacts</h4>
+                      {current.check_failure.artifacts.map((artifact) => (
+                        <a
+                          className="artifact-row"
+                          key={artifact.id}
+                          href={`/api/repositories/${repository}/pull-requests/${pull.id}/check-runs/${current.check_failure!.run_id}/artifacts/${artifact.id}`}
+                        >
+                          <File size={15} />
+                          <span>
+                            <strong>{artifact.path}</strong>
+                            <small>
+                              {formatSize(artifact.size)} · SHA-256{" "}
+                              {short(artifact.sha256)}
+                            </small>
+                          </span>
+                          <span>Download</span>
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </section>
               )}
               {current.state === "awaiting_instructions" &&
@@ -3542,9 +8134,13 @@ function ReviewWorkflow({
     readiness.source_branch.exists &&
     !readiness.source_branch.matches_pull_request;
   const blockers = readiness.blockers;
-  const queued = queueEntries.find((entry) => entry.pull_request_id === pull.id && !entry.completed_at);
+  const queued = queueEntries.find(
+    (entry) => entry.pull_request_id === pull.id && !entry.completed_at,
+  );
   const [concurrency, setConcurrency] = useState(queuePolicy?.concurrency ?? 1);
-  const [failureBehavior, setFailureBehavior] = useState<"pause" | "remove">(queuePolicy?.failure_behavior ?? "pause");
+  const [failureBehavior, setFailureBehavior] = useState<"pause" | "remove">(
+    queuePolicy?.failure_behavior ?? "pause",
+  );
   async function act(
     name: string,
     path: string,
@@ -3634,10 +8230,23 @@ function ReviewWorkflow({
       </div>
       {readiness.checks.requirements.length > 0 && (
         <div className="required-check-summary">
-          <strong>Quality policy for <code>{readiness.checks.target_branch}</code></strong>
-          <small>Evaluated revision <code>{short(readiness.checks.commit_id)}</code></small>
+          <strong>
+            Quality policy for <code>{readiness.checks.target_branch}</code>
+          </strong>
+          <small>
+            Evaluated revision <code>{short(readiness.checks.commit_id)}</code>
+          </small>
           {readiness.checks.requirements.map((requirement) => (
-            <span className={requirement.status} key={requirement.name}><b>{requirement.name}</b> {requirement.status}{requirement.commit_id && requirement.commit_id !== readiness.checks.commit_id ? <> · result from <code>{short(requirement.commit_id)}</code></> : null}</span>
+            <span className={requirement.status} key={requirement.name}>
+              <b>{requirement.name}</b> {requirement.status}
+              {requirement.commit_id &&
+              requirement.commit_id !== readiness.checks.commit_id ? (
+                <>
+                  {" "}
+                  · result from <code>{short(requirement.commit_id)}</code>
+                </>
+              ) : null}
+            </span>
           ))}
         </div>
       )}
@@ -3679,7 +8288,14 @@ function ReviewWorkflow({
           <Button
             size="sm"
             disabled={Boolean(busy)}
-            onClick={() => void act("request-review", `/repositories/${repository}/pull-requests/${pull.id}/request-review`, "POST", {})}
+            onClick={() =>
+              void act(
+                "request-review",
+                `/repositories/${repository}/pull-requests/${pull.id}/request-review`,
+                "POST",
+                {},
+              )
+            }
           >
             {busy === "request-review" ? "Requesting…" : "Request review"}
           </Button>
@@ -3756,56 +8372,176 @@ function ReviewWorkflow({
             {busy === "sync" ? "Synchronizing…" : "Synchronize updated work"}
           </Button>
         )}
-        {pull.status === "open" && readiness.can_merge && queuePolicy?.enabled && (
-          <Button size="sm" disabled={!readiness.ready || Boolean(busy) || Boolean(queued)} onClick={() => void act("queue", `/repositories/${repository}/pull-requests/${pull.id}/queue`, "POST", {})}>
-            {busy === "queue" ? "Adding…" : queued ? `Queued #${queued.position}` : "Add to integration queue"}
-          </Button>
-        )}
-        {pull.status === "open" && readiness.can_merge && !queuePolicy?.enabled && (
-          <Button
-            size="sm"
-            disabled={!readiness.ready || Boolean(busy)}
-            onClick={() => {
-              if (
-                window.confirm(
-                  `Merge ${pull.source_branch} into ${pull.target_branch}?`,
-                )
-              )
+        {pull.status === "open" &&
+          readiness.can_merge &&
+          queuePolicy?.enabled && (
+            <Button
+              size="sm"
+              disabled={!readiness.ready || Boolean(busy) || Boolean(queued)}
+              onClick={() =>
                 void act(
-                  "merge",
-                  `/repositories/${repository}/pull-requests/${pull.id}/merge`,
+                  "queue",
+                  `/repositories/${repository}/pull-requests/${pull.id}/queue`,
                   "POST",
                   {},
-                );
-            }}
-          >
-            {busy === "merge" ? "Merging…" : "Merge pull request"}
-          </Button>
-        )}
+                )
+              }
+            >
+              {busy === "queue"
+                ? "Adding…"
+                : queued
+                  ? `Queued #${queued.position}`
+                  : "Add to integration queue"}
+            </Button>
+          )}
+        {pull.status === "open" &&
+          readiness.can_merge &&
+          !queuePolicy?.enabled && (
+            <Button
+              size="sm"
+              disabled={!readiness.ready || Boolean(busy)}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Merge ${pull.source_branch} into ${pull.target_branch}?`,
+                  )
+                )
+                  void act(
+                    "merge",
+                    `/repositories/${repository}/pull-requests/${pull.id}/merge`,
+                    "POST",
+                    {},
+                  );
+              }}
+            >
+              {busy === "merge" ? "Merging…" : "Merge pull request"}
+            </Button>
+          )}
       </div>
       {queued && (
         <div className="required-check-summary">
-          <strong>Queue candidate #{queued.position} · {queued.state}</strong>
+          <strong>
+            Queue candidate #{queued.position} · {queued.state}
+          </strong>
           <small>
-            Prospective merge <code>{short(queued.candidate_commit_id)}</code> combines base <code>{short(queued.target_commit_id)}</code> with reviewed source <code>{short(queued.source_commit_id)}</code>.
+            Prospective merge <code>{short(queued.candidate_commit_id)}</code>{" "}
+            combines base <code>{short(queued.target_commit_id)}</code> with
+            reviewed source <code>{short(queued.source_commit_id)}</code>.
           </small>
-          {queued.checks.requirements.length ? queued.checks.requirements.map((requirement) => (
-            <span className={requirement.status} key={requirement.name}>
-              <b>{requirement.name}</b> {requirement.status}
-              {requirement.run_id ? <> · <a href={`?view=pulls&pull=${pull.id}&section=checks`}>logs and artifacts</a></> : null}
+          {queued.checks.requirements.length ? (
+            queued.checks.requirements.map((requirement) => (
+              <span className={requirement.status} key={requirement.name}>
+                <b>{requirement.name}</b> {requirement.status}
+                {requirement.run_id ? (
+                  <>
+                    {" "}
+                    ·{" "}
+                    <a href={`?view=pulls&pull=${pull.id}&section=checks`}>
+                      logs and artifacts
+                    </a>
+                  </>
+                ) : null}
+              </span>
+            ))
+          ) : (
+            <span className="succeeded">No required candidate checks</span>
+          )}
+          {queued.blocker && (
+            <span className="failed">
+              <b>Blocker</b> {queued.blocker.replaceAll("_", " ")}
             </span>
-          )) : <span className="succeeded">No required candidate checks</span>}
-          {queued.blocker && <span className="failed"><b>Blocker</b> {queued.blocker.replaceAll("_", " ")}</span>}
-          <small><b>Next:</b> {queued.next_action} <Link href={`/repositories/${repository}?view=queue&ref=${encodeURIComponent(pull.target_branch)}`}>Open the branch queue and retained attempts →</Link></small>
+          )}
+          <small>
+            <b>Next:</b> {queued.next_action}{" "}
+            <Link
+              href={`/repositories/${repository}?view=queue&ref=${encodeURIComponent(pull.target_branch)}`}
+            >
+              Open the branch queue and retained attempts →
+            </Link>
+          </small>
         </div>
       )}
-      {readiness.can_merge && pull.status === "open" && <section className="queue-policy">
-        <div><strong>Integration policy for <code>{pull.target_branch}</code></strong><small>Admission still requires the current maintainer approval, no change requests or conflicts, and {queuePolicy?.required_checks?.length ?? 0} required checks.</small></div>
-        <label><input type="checkbox" checked={queuePolicy?.enabled ?? false} onChange={(event) => void act("policy", `/repositories/${repository}/integration-queue`, "PUT", {branch: pull.target_branch, enabled: event.target.checked, concurrency, failure_behavior: failureBehavior})}/> Require queue</label>
-        <label>Concurrency <select value={concurrency} onChange={(event) => setConcurrency(Number(event.target.value))}>{Array.from({length: 10}, (_, index) => index + 1).map((value) => <option key={value}>{value}</option>)}</select></label>
-        <label>On failure <select value={failureBehavior} onChange={(event) => setFailureBehavior(event.target.value as "pause" | "remove")}><option value="pause">Pause queue</option><option value="remove">Remove failed item</option></select></label>
-        {queuePolicy?.enabled && <Button variant="secondary" size="sm" disabled={Boolean(busy)} onClick={() => void act("policy", `/repositories/${repository}/integration-queue`, "PUT", {branch: pull.target_branch, enabled: true, concurrency, failure_behavior: failureBehavior})}>{busy === "policy" ? "Saving…" : "Save queue policy"}</Button>}
-      </section>}
+      {readiness.can_merge && pull.status === "open" && (
+        <section className="queue-policy">
+          <div>
+            <strong>
+              Integration policy for <code>{pull.target_branch}</code>
+            </strong>
+            <small>
+              Admission still requires the current maintainer approval, no
+              change requests or conflicts, and{" "}
+              {queuePolicy?.required_checks?.length ?? 0} required checks.
+            </small>
+          </div>
+          <label>
+            <input
+              type="checkbox"
+              checked={queuePolicy?.enabled ?? false}
+              onChange={(event) =>
+                void act(
+                  "policy",
+                  `/repositories/${repository}/integration-queue`,
+                  "PUT",
+                  {
+                    branch: pull.target_branch,
+                    enabled: event.target.checked,
+                    concurrency,
+                    failure_behavior: failureBehavior,
+                  },
+                )
+              }
+            />{" "}
+            Require queue
+          </label>
+          <label>
+            Concurrency{" "}
+            <select
+              value={concurrency}
+              onChange={(event) => setConcurrency(Number(event.target.value))}
+            >
+              {Array.from({ length: 10 }, (_, index) => index + 1).map(
+                (value) => (
+                  <option key={value}>{value}</option>
+                ),
+              )}
+            </select>
+          </label>
+          <label>
+            On failure{" "}
+            <select
+              value={failureBehavior}
+              onChange={(event) =>
+                setFailureBehavior(event.target.value as "pause" | "remove")
+              }
+            >
+              <option value="pause">Pause queue</option>
+              <option value="remove">Remove failed item</option>
+            </select>
+          </label>
+          {queuePolicy?.enabled && (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={Boolean(busy)}
+              onClick={() =>
+                void act(
+                  "policy",
+                  `/repositories/${repository}/integration-queue`,
+                  "PUT",
+                  {
+                    branch: pull.target_branch,
+                    enabled: true,
+                    concurrency,
+                    failure_behavior: failureBehavior,
+                  },
+                )
+              }
+            >
+              {busy === "policy" ? "Saving…" : "Save queue policy"}
+            </Button>
+          )}
+        </section>
+      )}
       {!actor && pull.status === "open" && (
         <p className="review-note">
           Sign in as a repository participant to leave a review decision.

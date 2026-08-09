@@ -422,6 +422,14 @@ whenever dependencies change or the web job fails before it starts.
   fork. A linked pull request must be merged before the task completes and
   dependent work becomes ready; never infer consumer write authority from plan
   authorship.
+  Cross-repository verification is defined by the provider candidate's
+  `.komodo/evolution-checks.json` manifest (schema version `1`). Contract and
+  integration checks run against an immutable matrix of exact linked pull-
+  request source revisions beneath `repositories/{repository_id}` with no Git
+  metadata, credentials, host filesystem, or network. Plans retain every
+  attempt, matrix, log, artifact checksum, and actor; a moved task head
+  supersedes only evidence containing that revision, and passing evidence is
+  attested only while every captured task head remains current.
   Governed delivery is stored beneath `$DEPLOYMENT_ROOT` (default
   `apps/api/data/deployments`). Owners define ordered environments with
   commands, scoped configuration, encrypted write-only credentials, required

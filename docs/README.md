@@ -132,6 +132,28 @@ declared target. The plan tracks branch head and review state, and marks work
 complete—and unblocks dependent tasks—only after the linked pull request is
 merged. Plan authors receive no credential or implicit consumer write access.
 
+### Cross-repository compatibility verification
+
+Once provider and consumer migration tasks have linked open pull requests,
+participants can start verification from the evolution plan. The provider task
+is first, each repository appears once, and the platform stores every exact
+repository, source commit, task, pull request, and dependency identity before
+execution begins.
+
+The provider revision defines `.komodo/evolution-checks.json` with schema
+version `1` and an `evolution_checks` array. Checks are classified as `contract`
+or `integration` and use the bounded check fields for command, working
+directory, timeout, environment, and artifact paths. Bubblewrap materializes
+the matrix beneath `/workspace/repositories/{repository_id}`, runs from the
+provider snapshot, and exposes no Git metadata, credentials, host filesystem,
+or network.
+
+Plan surfaces retain matrices, actors, ordered logs and lifecycle events,
+artifact checksums/downloads, and failed or superseded attempts. Evidence is
+attested only when every run succeeds and every captured task still names the
+same head. A later task commit therefore supersedes only matrices containing
+that revision while unrelated retained evidence remains current.
+
 ## Release builds and attestations
 
 A release candidate is an immutable source and collaboration snapshot. Its

@@ -28,12 +28,18 @@ var ErrInvalidTransition = errors.New("invalid check run transition")
 
 type Definition struct {
 	Name             string            `json:"name"`
+	Kind             string            `json:"kind,omitempty"`
 	Command          string            `json:"command"`
 	WorkingDirectory string            `json:"working_directory,omitempty"`
 	TimeoutSeconds   int               `json:"timeout_seconds"`
 	Environment      map[string]string `json:"environment,omitempty"`
 	Artifacts        []string          `json:"artifacts,omitempty"`
 	Dependencies     []string          `json:"dependencies,omitempty"`
+}
+
+type Revision struct {
+	RepositoryID string `json:"repository_id"`
+	CommitID     string `json:"commit_id"`
 }
 
 type Event struct {
@@ -68,6 +74,7 @@ type Run struct {
 	PullRequestID      string     `json:"pull_request_id"`
 	CommitID           string     `json:"commit_id"`
 	Definition         Definition `json:"definition"`
+	Revisions          []Revision `json:"revisions,omitempty"`
 	TriggeredByID      string     `json:"triggered_by_id,omitempty"`
 	RetryOfID          string     `json:"retry_of_id,omitempty"`
 	CanceledByID       string     `json:"canceled_by_id,omitempty"`

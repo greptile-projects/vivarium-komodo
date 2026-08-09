@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-09T09:37:26Z: Added exact cross-repository evolution verification from linked provider/consumer pull request revisions using provider-defined contract and integration checks in credential-free Bubblewrap matrices. Plans retain current, failed, and superseded logs, artifacts, checksums, dependency identities, and attestation state through the API and relationship workspace.
+
 2026-08-09T04:49:34Z: Added maintainer-scheduled atomic security disclosure with attested-line prerequisites, exact repaired-branch publication, rollback and private paused progress on partial failure, redacted anonymous advisories, explicit upgrade guidance and credits, and targeted affected-participant notifications.
 
 2026-08-08T21:56:27Z: Added bounded incident-agent investigations with responder-validated evidence and exact revisions, allowlisted read-only deployment context, attributable findings/tool/questions/uncertainty, and guide/pause/resume/cancel controls. Worker credentials expire after 24 hours, revoke on cancellation, and cannot authorize Git, repository writes, deployment controls, or secret management.
