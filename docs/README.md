@@ -51,6 +51,41 @@ npm config set //kanso.example/api/package-registry/:_authToken "$PACKAGE_TOKEN"
 npm install @publisher/sdk@1.2.3
 ```
 
+### Commit-derived dependency inventories
+
+A repository records what code and environments actually use by committing two
+schema-version `1` files. `.komodo/packages.json` contains a
+`direct_dependencies` array of owner-scoped package identities.
+`.komodo/packages.lock.json` contains the complete resolved `packages` graph;
+each entry names an immutable `package_version_id`, its matching identity and
+version, and dependency package-version IDs. This keeps human intent distinct
+from exact direct and transitive resolution.
+
+`POST /repositories/{repository}/dependency-inventories` reads both files from
+the supplied exact commit through Git storage. Callers cannot upload replacement
+manifest contents or claim resolutions. The durable snapshot retains both file
+digests, creator, direct/transitive classification, and explicit gaps for absent
+direct locks, unavailable package IDs, mismatched identity/version data, and
+missing transitive nodes. Repeating the same code and evidence tuple is a
+conflict rather than silently rewriting history.
+
+An inventory may link a release, successful release-build attempt, and
+successful deployment. The API verifies every supplied resource belongs to the
+consumer repository and names the same source commit. This gives owners a path
+from reviewed source to a build artifact and running environment while keeping
+source-only inventory useful before delivery. Data is rooted at
+`$DEPENDENCY_INVENTORY_ROOT`, defaulting to
+`apps/api/data/dependency-inventories` under the documented root command.
+
+Repository-policy readers use `GET /repositories/{repository}/dependency-inventories`.
+Public package inspection
+uses `GET /packages/{version}/consumers`; it includes only public consuming
+repositories and reports exact commits, direct or transitive use, linked build,
+release and deployment evidence, and remaining provenance gaps. Private
+repository identities and usage are never revealed by this anonymous reverse
+index. Package publication also accepts immutable `license` and `support_url`
+metadata, displayed alongside reverse consumer evidence in the package catalog.
+
 ## Embargoed security repairs
 
 Security repairs are advisory-owned workspaces, not private-flavored ordinary

@@ -65,6 +65,8 @@ func publishPackage(packages packageStore, releaseStore releaseStore, builds rel
 			Platform      packagecatalog.Platform `json:"platform"`
 			Dependencies  map[string]string       `json:"dependencies"`
 			Documentation string                  `json:"documentation"`
+			License       string                  `json:"license"`
+			SupportURL    string                  `json:"support_url"`
 			Visibility    string                  `json:"visibility"`
 		}
 		if !readJSON(w, r, &input, 64<<10) {
@@ -115,7 +117,7 @@ func publishPackage(packages packageStore, releaseStore releaseStore, builds rel
 		if selected.CompletedAt != nil {
 			completed = *selected.CompletedAt
 		}
-		item, err := packages.Publish(packagecatalog.PublishParams{OwnerID: repository.OwnerID, Name: input.Name, Version: input.Version, RepositoryID: string(repository.ID), ReleaseID: release.ID, SourceCommitID: release.CommitID, ArtifactID: artifact.ID, ArtifactPath: artifact.Path, ArtifactMediaType: artifact.MediaType, ArtifactSize: artifact.Size, ExpectedSHA256: artifact.SHA256, Build: packagecatalog.BuildAttestation{RunID: selected.ID, BuildName: selected.Definition.Name, Command: selected.Definition.Command, CompletedAt: completed}, Platform: input.Platform, Dependencies: input.Dependencies, Documentation: input.Documentation, PublisherID: actor.UserID, Visibility: input.Visibility}, file)
+		item, err := packages.Publish(packagecatalog.PublishParams{OwnerID: repository.OwnerID, Name: input.Name, Version: input.Version, RepositoryID: string(repository.ID), ReleaseID: release.ID, SourceCommitID: release.CommitID, ArtifactID: artifact.ID, ArtifactPath: artifact.Path, ArtifactMediaType: artifact.MediaType, ArtifactSize: artifact.Size, ExpectedSHA256: artifact.SHA256, Build: packagecatalog.BuildAttestation{RunID: selected.ID, BuildName: selected.Definition.Name, Command: selected.Definition.Command, CompletedAt: completed}, Platform: input.Platform, Dependencies: input.Dependencies, Documentation: input.Documentation, License: input.License, SupportURL: input.SupportURL, PublisherID: actor.UserID, Visibility: input.Visibility}, file)
 		switch {
 		case errors.Is(err, packagecatalog.ErrInvalid):
 			writeJSON(w, 422, map[string]string{"error": "invalid_package"})

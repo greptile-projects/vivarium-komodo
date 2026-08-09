@@ -36,7 +36,7 @@ func TestPackagePublicationRetainsVerifiedProvenance(t *testing.T) {
 	collaborator := issueAccess(t, credentials, "collaborator", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	mux := http.NewServeMux()
 	registerPackagesHTTP(mux, packages, releaseStore, builds, catalog, credentials)
-	body := map[string]any{"name": "sdk", "version": "1.2.3", "release_id": release.ID, "build_run_id": run.ID, "artifact_id": artifact.ID, "platform": map[string]string{"os": "linux", "arch": "amd64", "runtime": "go1.24"}, "dependencies": map[string]string{"@owner/core": "^1.0.0"}, "documentation": "# SDK\n\nVerified client library.", "visibility": "public"}
+	body := map[string]any{"name": "sdk", "version": "1.2.3", "release_id": release.ID, "build_run_id": run.ID, "artifact_id": artifact.ID, "platform": map[string]string{"os": "linux", "arch": "amd64", "runtime": "go1.24"}, "dependencies": map[string]string{"@owner/core": "^1.0.0"}, "documentation": "# SDK\n\nVerified client library.", "license": "Apache-2.0", "support_url": "https://example.test/support", "visibility": "public"}
 	request := func(token string, payload map[string]any) *httptest.ResponseRecorder {
 		data, _ := json.Marshal(payload)
 		req := httptest.NewRequest(http.MethodPost, "/repositories/"+string(repository.ID)+"/packages", bytes.NewReader(data))
@@ -54,7 +54,7 @@ func TestPackagePublicationRetainsVerifiedProvenance(t *testing.T) {
 	}
 	var item packagecatalog.Version
 	_ = json.Unmarshal(response.Body.Bytes(), &item)
-	if item.Identity != "@owner/sdk" || item.SourceCommitID != release.CommitID || item.Build.RunID != run.ID || item.SHA256 != artifact.SHA256 || item.PublisherID != "owner" || item.Visibility != "public" || item.DocumentationSHA256 == "" {
+	if item.Identity != "@owner/sdk" || item.SourceCommitID != release.CommitID || item.Build.RunID != run.ID || item.SHA256 != artifact.SHA256 || item.PublisherID != "owner" || item.Visibility != "public" || item.DocumentationSHA256 == "" || item.License != "Apache-2.0" || item.SupportURL != "https://example.test/support" {
 		t.Fatalf("package = %#v", item)
 	}
 	if response = request(owner, body); response.Code != 409 {

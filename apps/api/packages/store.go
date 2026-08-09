@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -66,6 +67,8 @@ type Version struct {
 	PublisherID         string            `json:"publisher_id"`
 	Visibility          string            `json:"visibility"`
 	Lifecycle           string            `json:"lifecycle"`
+	License             string            `json:"license,omitempty"`
+	SupportURL          string            `json:"support_url,omitempty"`
 	PublishedAt         time.Time         `json:"published_at"`
 }
 
@@ -78,6 +81,7 @@ type PublishParams struct {
 	Dependencies                                                    map[string]string
 	Documentation                                                   string
 	PublisherID, Visibility                                         string
+	License, SupportURL                                             string
 }
 
 type Store struct {
@@ -108,7 +112,8 @@ func (s *Store) Publish(p PublishParams, source io.Reader) (Version, error) {
 	p.Name, p.Version = strings.ToLower(strings.TrimSpace(p.Name)), strings.TrimSpace(p.Version)
 	p.Visibility = strings.ToLower(strings.TrimSpace(p.Visibility))
 	p.Documentation = strings.TrimSpace(p.Documentation)
-	if p.OwnerID == "" || p.RepositoryID == "" || p.ReleaseID == "" || p.SourceCommitID == "" || p.PublisherID == "" || p.ArtifactID == "" || !namePattern.MatchString(p.Name) || !versionPattern.MatchString(p.Version) || (p.Visibility != "public" && p.Visibility != "private") || !validPlatform(p.Platform) || !validDependencies(p.Dependencies) || len(p.Documentation) > 64<<10 || len(p.ExpectedSHA256) != 64 || source == nil {
+	p.License, p.SupportURL = strings.TrimSpace(p.License), strings.TrimSpace(p.SupportURL)
+	if p.OwnerID == "" || p.RepositoryID == "" || p.ReleaseID == "" || p.SourceCommitID == "" || p.PublisherID == "" || p.ArtifactID == "" || !namePattern.MatchString(p.Name) || !versionPattern.MatchString(p.Version) || (p.Visibility != "public" && p.Visibility != "private") || !validPlatform(p.Platform) || !validDependencies(p.Dependencies) || len(p.Documentation) > 64<<10 || len(p.License) > 100 || !validSupportURL(p.SupportURL) || len(p.ExpectedSHA256) != 64 || source == nil {
 		return Version{}, ErrInvalid
 	}
 	identity := "@" + strings.ToLower(p.OwnerID) + "/" + p.Name
@@ -157,7 +162,7 @@ func (s *Store) Publish(p PublishParams, source io.Reader) (Version, error) {
 		sum := sha256.Sum256([]byte(p.Documentation))
 		documentationDigest = hex.EncodeToString(sum[:])
 	}
-	item := Version{ID: id, Identity: identity, Name: p.Name, Version: p.Version, RepositoryID: p.RepositoryID, ReleaseID: p.ReleaseID, SourceCommitID: p.SourceCommitID, ArtifactID: p.ArtifactID, ArtifactPath: p.ArtifactPath, ArtifactMediaType: p.ArtifactMediaType, ArtifactSize: size, SHA256: digest, Build: p.Build, Platform: p.Platform, Dependencies: cloneMap(p.Dependencies), Documentation: p.Documentation, DocumentationSHA256: documentationDigest, PublisherID: p.PublisherID, Visibility: p.Visibility, Lifecycle: "active", PublishedAt: s.now().UTC()}
+	item := Version{ID: id, Identity: identity, Name: p.Name, Version: p.Version, RepositoryID: p.RepositoryID, ReleaseID: p.ReleaseID, SourceCommitID: p.SourceCommitID, ArtifactID: p.ArtifactID, ArtifactPath: p.ArtifactPath, ArtifactMediaType: p.ArtifactMediaType, ArtifactSize: size, SHA256: digest, Build: p.Build, Platform: p.Platform, Dependencies: cloneMap(p.Dependencies), Documentation: p.Documentation, DocumentationSHA256: documentationDigest, PublisherID: p.PublisherID, Visibility: p.Visibility, Lifecycle: "active", License: p.License, SupportURL: p.SupportURL, PublishedAt: s.now().UTC()}
 	if err := s.write(item); err != nil {
 		_ = os.Remove(filepath.Join(s.root, "artifacts", artifactName))
 		return Version{}, err
@@ -307,6 +312,16 @@ func validDependencies(values map[string]string) bool {
 		}
 	}
 	return true
+}
+func validSupportURL(value string) bool {
+	if value == "" {
+		return true
+	}
+	if len(value) > 500 {
+		return false
+	}
+	parsed, err := url.Parse(value)
+	return err == nil && (parsed.Scheme == "https" || parsed.Scheme == "http") && parsed.Host != ""
 }
 func cloneMap(values map[string]string) map[string]string {
 	out := map[string]string{}
