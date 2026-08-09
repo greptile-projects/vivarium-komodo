@@ -344,6 +344,8 @@ func (s *Store) GetPublicAdvisory(advisoryID string) (Report, error) {
 		}
 		r, err := s.read(strings.TrimSuffix(entry.Name(), ".json"))
 		if err == nil && r.Disclosure != nil && r.Disclosure.AdvisoryID == advisoryID && r.Disclosure.State == "published" {
+			r.ID = ""
+			r.Title = ""
 			r.Summary = ""
 			r.ReporterID = ""
 			r.Contact = Contact{}
@@ -353,9 +355,11 @@ func (s *Store) GetPublicAdvisory(advisoryID string) (Report, error) {
 			r.Audit = nil
 			r.ResourceLinks = nil
 			r.Findings = nil
+			r.ImpactMatrix = nil
 			r.Investigations = nil
 			r.Repairs = nil
 			for i := range r.Disclosure.Branches {
+				r.Disclosure.Branches[i].RepairID = ""
 				r.Disclosure.Branches[i].SourceRef = ""
 				r.Disclosure.Branches[i].Error = ""
 			}

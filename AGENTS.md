@@ -544,7 +544,13 @@ whenever dependencies change or the web job fails before it starts.
   before lifting the embargo; a failed attempt rolls back its new refs and
   retains private remaining-work state. Anonymous security-advisory reads must
   never expose reporter identity, contact, evidence, embargo refs, findings,
-  sessions, or audit records.
+  sessions, impact rationale or citations, internal report or repair IDs, or
+  audit records. `security_remediation_workflow_test.go` is the black-box
+  regression boundary for the complete confidential-report-to-public-upgrade
+  lifecycle. It uses public HTTP and stock Git to prove supported-line human
+  and agent repairs, exact-candidate verification and attestations, atomic
+  disclosure, and negative pre-disclosure checks across Git advertisement,
+  exact-commit browsing, public advisory, and ordinary activity surfaces.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 
