@@ -426,6 +426,17 @@ whenever dependencies change or the web job fails before it starts.
   repository policy; anonymous package consumer reads expose only public
   consuming repositories. Published versions may retain immutable license and
   support metadata beside their provenance.
+  Consumer-owned dependency update policy and evaluation live beneath
+  `$DEPENDENCY_UPDATE_ROOT` (default `apps/api/data/dependency-updates`). Owners
+  bound each direct package to patch, minor, or major updates on a target branch;
+  an authenticated repository writer explicitly evaluates an immutable inventory.
+  Eligible active readable releases create an attributable proposal and ready
+  delivery task containing proposed manifest/lock documents, publisher release
+  and build provenance, checksum, compatibility caveats, and affected dependency
+  paths. Repeated evaluation of the same base/package/candidate is idempotent.
+  Assignment, scoped agent execution, contribution, checks, review, queueing,
+  release, and deployment then use the ordinary proposal workflow; package
+  publication and update discovery never confer consumer repository authority.
   Versioned cross-repository relationships live beneath `$RELATIONSHIP_ROOT`
   (default `apps/api/data/relationships`). A repository participant publishes
   an interface only from an existing immutable release, which binds its name,

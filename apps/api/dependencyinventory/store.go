@@ -115,6 +115,20 @@ func (s *Store) List(repositoryID string) ([]Inventory, error) {
 	}
 	return o, e
 }
+func (s *Store) Get(repositoryID, id string) (Inventory, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, e := s.listAll()
+	if e != nil {
+		return Inventory{}, e
+	}
+	for _, v := range a {
+		if v.RepositoryID == repositoryID && v.ID == id {
+			return v, nil
+		}
+	}
+	return Inventory{}, ErrNotFound
+}
 func (s *Store) Consumers(packageVersionID string) ([]Inventory, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -86,6 +86,35 @@ repository identities and usage are never revealed by this anonymous reverse
 index. Package publication also accepts immutable `license` and `support_url`
 metadata, displayed alongside reverse consumer evidence in the package catalog.
 
+### Verified dependency updates
+
+Repository owners define direct-package update policy with `PUT
+/repositories/{repository}/dependency-update-policies/{identity}`, choosing a
+target branch and the largest accepted semantic-version change (`patch`,
+`minor`, or `major`). Policy is consumer state beneath
+`$DEPENDENCY_UPDATE_ROOT`; publishing a package does not run consumer code or
+grant its publisher access to consumer repositories.
+
+An authenticated consumer writer explicitly evaluates an immutable inventory
+with `POST /repositories/{repository}/dependency-updates`. The service selects
+the newest active, readable release allowed by policy and opens a proposal with
+a ready delivery task. The retained update evidence includes the old and new
+immutable package IDs, proposed `.komodo/packages.json` and
+`.komodo/packages.lock.json` documents, release notes, publisher source and
+build identities, artifact checksum, compatibility caveats, and every affected
+direct-to-transitive dependency path. The same base commit, dependency, and
+candidate cannot generate duplicate adoption work.
+
+The proposal task is deliberately the handoff into the existing collaboration
+contract. A repository participant can assign a human or Codex at an exact
+consumer commit, investigate compatibility or check failures through its scoped
+change session, and publish the result as an ordinary pull request. Required
+checks, owner review, protected integration queues, releases, and deployments
+therefore apply unchanged; neither the package publisher nor update evidence
+can bypass consumer permissions. Policy and retained adoption work are readable
+at the corresponding `GET /dependency-update-policies` and
+`GET /dependency-updates` collections under repository visibility rules.
+
 ## Embargoed security repairs
 
 Security repairs are advisory-owned workspaces, not private-flavored ordinary
