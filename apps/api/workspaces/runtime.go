@@ -24,6 +24,7 @@ type File struct {
 	Size      int64  `json:"size,omitempty"`
 	Content   string `json:"content,omitempty"`
 	Binary    bool   `json:"binary,omitempty"`
+	Digest    string `json:"digest,omitempty"`
 }
 type Match struct {
 	Path string `json:"path"`
@@ -84,7 +85,8 @@ func (r *Runner) Files(w Workspace, path string) ([]File, error) {
 		if len(data) > 1<<20 {
 			data = data[:1<<20]
 		}
-		return []File{{Path: filepath.ToSlash(strings.TrimPrefix(target, r.store.Environment(w.ID)+string(filepath.Separator))), Size: info.Size(), Content: string(data), Binary: bytes.IndexByte(data, 0) >= 0}}, nil
+		digest := sha256.Sum256(data)
+		return []File{{Path: filepath.ToSlash(strings.TrimPrefix(target, r.store.Environment(w.ID)+string(filepath.Separator))), Size: info.Size(), Content: string(data), Binary: bytes.IndexByte(data, 0) >= 0, Digest: hex.EncodeToString(digest[:])}}, nil
 	}
 	entries, err := os.ReadDir(target)
 	if err != nil {
@@ -105,10 +107,25 @@ func (r *Runner) Files(w Workspace, path string) ([]File, error) {
 	return out, nil
 }
 
-func (r *Runner) WriteFile(w Workspace, actor, path string, content []byte, deleted bool) (Workspace, error) {
+func (r *Runner) WriteFile(w Workspace, actor, path string, content []byte, deleted bool, baseDigest *string) (Workspace, error) {
+	r.mutationMu.Lock()
+	defer r.mutationMu.Unlock()
 	target, err := r.resolve(w.ID, path)
 	if err != nil || path == "" {
 		return Workspace{}, ErrUnsafePath
+	}
+	if baseDigest != nil {
+		current, readErr := os.ReadFile(target)
+		currentDigest := ""
+		if readErr == nil {
+			sum := sha256.Sum256(current)
+			currentDigest = hex.EncodeToString(sum[:])
+		} else if !os.IsNotExist(readErr) {
+			return Workspace{}, readErr
+		}
+		if currentDigest != *baseDigest {
+			return Workspace{}, ErrConflict
+		}
 	}
 	if deleted {
 		err = os.Remove(target)
@@ -170,6 +187,8 @@ func (r *Runner) Search(w Workspace, query string) ([]Match, error) {
 }
 
 func (r *Runner) Command(w Workspace, actor, command, directory string, timeoutSeconds int) (CommandResult, error) {
+	r.mutationMu.Lock()
+	defer r.mutationMu.Unlock()
 	command = strings.TrimSpace(command)
 	if command == "" || len(command) > 4000 {
 		return CommandResult{}, errors.New("invalid command")
@@ -207,14 +226,10 @@ func (r *Runner) Command(w Workspace, actor, command, directory string, timeoutS
 		}
 	}
 	result := CommandResult{Command: command, Directory: filepath.ToSlash(rel), ExitCode: code, Stdout: stdout.String(), Stderr: stderr.String(), StartedAt: start, CompletedAt: time.Now().UTC()}
-	message := result.Stdout
-	if result.Stderr != "" {
-		if message != "" {
-			message += "\n"
-		}
-		message += result.Stderr
-	}
-	_, recordErr := r.store.RecordActivity(w.RepositoryID, w.ID, Event{Type: "command", Command: command, ExitCode: &code, Message: message, ActorID: actor})
+	// The caller receives its output, but shared durable activity deliberately
+	// records only execution metadata. Raw terminal input and output can contain
+	// secrets and never become collaboration history implicitly.
+	_, recordErr := r.store.RecordActivity(w.RepositoryID, w.ID, Event{Type: "command", Kind: "execution", Surface: "terminal", ExitCode: &code, Message: "private command completed", ActorID: actor})
 	if recordErr != nil {
 		return result, recordErr
 	}

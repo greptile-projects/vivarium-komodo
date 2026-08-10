@@ -3,6 +3,32 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Live workspace collaboration
+
+Every ready development workspace is also a permission-aware shared room.
+Repository participants renew presence through `POST
+/repositories/{repository}/workspaces/{workspace}/presence`; the lease expires
+after 45 seconds, so a lost connection disappears without manufacturing a
+durable leave event. Presence reports the active files, terminal, command,
+preview, or discussion surface. The workspace record retains an ordered
+activity stream whose `kind` distinguishes observation, instruction,
+authorship, and execution.
+
+Participants discuss work through `/messages` and create explicit `/controls`
+grants. A grant names a repository-participant human or an agent approved by
+the repository-owning organization, an `observe`, `edit`, or `execute` mode,
+and a nonempty subset of `files`, `terminal`, and `preview`. Guide, pause,
+resume, take-over, and revoke interventions require the grant's current version;
+stale concurrent decisions return a conflict. Revocation is terminal.
+
+File reads return a SHA-256 digest. Sending it as `base_digest` on a file write
+turns concurrent modification into a visible conflict instead of silently
+overwriting another collaborator. File and command mutations are serialized so
+overlapping actions have one durable order. Shared command activity intentionally stores
+only actor, timing, surface, and exit status. The raw command, stdin, stdout,
+and stderr remain private to the invoking response because terminal input often
+contains credentials or other context that was never offered to the room.
+
 ## Attested packages
 
 A package version is a reusable view of bytes that already passed the release

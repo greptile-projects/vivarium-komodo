@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -25,6 +26,7 @@ type repositoryOpener interface {
 type Runner struct {
 	store        *Store
 	repositories repositoryOpener
+	mutationMu   sync.Mutex
 }
 
 func NewRunner(store *Store, repositories repositoryOpener) *Runner {

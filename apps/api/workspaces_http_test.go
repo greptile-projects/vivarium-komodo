@@ -80,6 +80,39 @@ func TestCollaboratorLaunchesSuspendsAndResumesExactWorkspace(t *testing.T) {
 	if current.State != workspaces.Ready || len(current.Events) < 4 {
 		t.Fatalf("setup = %#v", current)
 	}
+	if _, err = catalog.AddCollaborator("owner", repository.ID, "peer"); err != nil {
+		t.Fatal(err)
+	}
+	peerToken := issueAccess(t, credentials, "peer", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
+	for _, collaboration := range []struct{ path, body string }{
+		{"presence", `{"surface":"files","path":"README.md"}`},
+		{"messages", `{"message":"Please keep the compatibility behavior."}`},
+		{"controls", `{"subject_id":"peer","subject_kind":"human","mode":"edit","scopes":["files","preview"]}`},
+	} {
+		request, _ = http.NewRequest(http.MethodPost, base+"/"+created.ID+"/"+collaboration.path, strings.NewReader(collaboration.body))
+		request.Header.Set("Authorization", "Bearer "+peerToken)
+		response, _ = http.DefaultClient.Do(request)
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("%s status = %d", collaboration.path, response.StatusCode)
+		}
+		_ = json.NewDecoder(response.Body).Decode(&current)
+		response.Body.Close()
+	}
+	if len(current.Presence) != 1 || len(current.Controls) != 1 || current.Activity[len(current.Activity)-2].Kind != "instruction" {
+		t.Fatalf("collaboration = %#v", current)
+	}
+	grant := current.Controls[0]
+	request, _ = http.NewRequest(http.MethodPost, base+"/"+created.ID+"/controls/"+grant.ID+"/interventions", strings.NewReader(`{"action":"pause","version":1}`))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, _ = http.DefaultClient.Do(request)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("pause control status = %d", response.StatusCode)
+	}
+	_ = json.NewDecoder(response.Body).Decode(&current)
+	response.Body.Close()
+	if current.Controls[0].State != "paused" || current.Controls[0].Version != 2 {
+		t.Fatalf("paused control = %#v", current.Controls[0])
+	}
 	if err = os.Symlink("/etc/passwd", workspaceStore.Environment(created.ID)+"/escape"); err != nil {
 		t.Fatal(err)
 	}
@@ -95,6 +128,26 @@ func TestCollaboratorLaunchesSuspendsAndResumesExactWorkspace(t *testing.T) {
 	response, _ = http.DefaultClient.Do(request)
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("file status = %d", response.StatusCode)
+	}
+	var fileResult struct {
+		Items []workspaces.File `json:"items"`
+	}
+	_ = json.NewDecoder(response.Body).Decode(&fileResult)
+	response.Body.Close()
+	baseDigest := fileResult.Items[0].Digest
+	editBody, _ := json.Marshal(map[string]any{"path": "README.md", "content": "peer edit\n", "base_digest": baseDigest})
+	request, _ = http.NewRequest(http.MethodPut, base+"/"+created.ID+"/files", strings.NewReader(string(editBody)))
+	request.Header.Set("Authorization", "Bearer "+peerToken)
+	response, _ = http.DefaultClient.Do(request)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("digest edit status = %d", response.StatusCode)
+	}
+	response.Body.Close()
+	request, _ = http.NewRequest(http.MethodPut, base+"/"+created.ID+"/files", strings.NewReader(string(editBody)))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, _ = http.DefaultClient.Do(request)
+	if response.StatusCode != http.StatusConflict {
+		t.Fatalf("stale edit status = %d", response.StatusCode)
 	}
 	response.Body.Close()
 	request, _ = http.NewRequest(http.MethodPut, base+"/"+created.ID+"/files", strings.NewReader(`{"path":"public/index.html","content":"<h1>workspace preview</h1>"}`))
@@ -118,6 +171,15 @@ func TestCollaboratorLaunchesSuspendsAndResumesExactWorkspace(t *testing.T) {
 		t.Fatalf("command status = %d", response.StatusCode)
 	}
 	response.Body.Close()
+	request, _ = http.NewRequest(http.MethodGet, base+"/"+created.ID, nil)
+	request.Header.Set("Authorization", "Bearer "+peerToken)
+	response, _ = http.DefaultClient.Do(request)
+	_ = json.NewDecoder(response.Body).Decode(&current)
+	response.Body.Close()
+	got := current.Activity[len(current.Activity)-1]
+	if got.Type != "command" || got.Kind != "execution" || got.Command != "" || got.Message != "private command completed" {
+		t.Fatalf("private terminal data leaked: %#v", got)
+	}
 	request, _ = http.NewRequest(http.MethodGet, base+"/"+created.ID+"/preview/3000/index.html", nil)
 	request.Header.Set("Authorization", "Bearer "+token)
 	response, _ = http.DefaultClient.Do(request)
