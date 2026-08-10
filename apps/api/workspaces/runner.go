@@ -55,8 +55,17 @@ func (r *Runner) Definition(repositoryID, revision string) (Definition, string, 
 }
 func digest(raw []byte) string { sum := sha256.Sum256(raw); return fmt.Sprintf("%x", sum[:]) }
 func validate(d Definition) error {
-	if d.Version != 1 || len(d.Setup) == 0 || len(d.Setup) > 20 || len(d.Tools) > 50 || len(d.Dependencies) > 100 || len(d.Ports) > 20 {
+	if d.Version != 1 || len(d.Setup) == 0 || len(d.Setup) > 20 || len(d.Tools) > 50 || len(d.Dependencies) > 100 || len(d.Ports) > 20 || len(d.Commands) > 50 {
 		return errors.New("invalid workspace definition")
+	}
+	seenCommands := map[string]bool{}
+	for _, v := range d.Commands {
+		name, command := strings.TrimSpace(v.Name), strings.TrimSpace(v.Command)
+		clean := filepath.Clean(v.Directory)
+		if name == "" || command == "" || len(name) > 100 || len(command) > 4000 || seenCommands[name] || v.TimeoutSeconds < 0 || v.TimeoutSeconds > 3600 || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return errors.New("invalid named command")
+		}
+		seenCommands[name] = true
 	}
 	if d.Resources.CPUSeconds < 1 || d.Resources.CPUSeconds > 3600 || d.Resources.MemoryMB < 128 || d.Resources.MemoryMB > 16384 || d.Resources.DiskMB < 128 || d.Resources.DiskMB > 20480 || d.Resources.SetupTimeoutSeconds < 1 || d.Resources.SetupTimeoutSeconds > 3600 {
 		return errors.New("invalid workspace resources")
@@ -90,6 +99,24 @@ func validate(d Definition) error {
 	return nil
 }
 func (r *Runner) Start(w Workspace) { go r.setup(w) }
+
+// StartNamed sets up the exact revision and then runs one repository-declared
+// command. It is intentionally evidence-only: it never invokes publication.
+func (r *Runner) StartNamed(w Workspace, actor, name string) {
+	go func() {
+		r.setup(w)
+		ready, err := r.store.Get(w.RepositoryID, w.ID)
+		if err != nil || ready.State != Ready {
+			return
+		}
+		for _, command := range ready.Definition.Commands {
+			if command.Name == name {
+				_, _ = r.Command(ready, actor, command.Command, command.Directory, command.TimeoutSeconds)
+				return
+			}
+		}
+	}()
+}
 func (r *Runner) setup(w Workspace) {
 	repo, err := r.repositories.Open(storage.ID(w.RepositoryID))
 	root := r.store.Environment(w.ID)

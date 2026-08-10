@@ -38,6 +38,20 @@ repository-write authority. The Decisions web surface presents the common
 comparison first and retains the complete claims, citations, uncertainty, and
 supersession record below it.
 
+Decision participants prototype an active alternative at its `/experiments`
+collection. Every experiment names a full commit, a dependency fingerprint, and
+one named command declared by that revision's `.komodo/workspaces.json`; the API
+creates a policy-bounded shared workspace, runs setup followed by only that
+command, and records that the experiment has no publication authority.
+Reproduction creates another experiment with `reproduces_experiment_id`.
+
+Experiment checkpoints cite an existing safe workspace checkpoint, ordered
+workspace log events, and artifact paths actually present in its diff. Resource
+use is derived from the workspace ledger. Posting current code, dependency, and
+environment fingerprints to `/validity` reports `code_changed`,
+`dependencies_changed`, or `environment_changed` without deleting evidence.
+Experiments never publish, open a pull request, or merge implicitly.
+
 ## Proactive agent stewardship
 
 An organization owner can define long-running responsibility without turning a

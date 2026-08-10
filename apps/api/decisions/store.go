@@ -79,15 +79,47 @@ type Finding struct {
 	CreatedAt   time.Time  `json:"created_at"`
 }
 type Alternative struct {
-	ID          string     `json:"id"`
-	Title       string     `json:"title"`
-	State       string     `json:"state"`
-	CreatedByID string     `json:"created_by_id"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	Claims      []Claim    `json:"claims"`
-	Evidence    []Evidence `json:"evidence"`
-	Findings    []Finding  `json:"agent_findings"`
+	ID          string       `json:"id"`
+	Title       string       `json:"title"`
+	State       string       `json:"state"`
+	CreatedByID string       `json:"created_by_id"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+	Claims      []Claim      `json:"claims"`
+	Evidence    []Evidence   `json:"evidence"`
+	Findings    []Finding    `json:"agent_findings"`
+	Experiments []Experiment `json:"experiments"`
+}
+type Measurement struct {
+	Name  string  `json:"name"`
+	Value float64 `json:"value"`
+	Unit  string  `json:"unit"`
+}
+type ExperimentCheckpoint struct {
+	ID                    string           `json:"id"`
+	ActorID               string           `json:"actor_id"`
+	WorkspaceCheckpointID string           `json:"workspace_checkpoint_id"`
+	Summary               string           `json:"summary"`
+	Measurements          []Measurement    `json:"measurements,omitempty"`
+	LogSequences          []int64          `json:"log_sequences,omitempty"`
+	ArtifactPaths         []string         `json:"artifact_paths,omitempty"`
+	ResourceUse           map[string]int64 `json:"resource_use,omitempty"`
+	CreatedAt             time.Time        `json:"created_at"`
+}
+type Experiment struct {
+	ID                     string                 `json:"id"`
+	WorkspaceID            string                 `json:"workspace_id"`
+	Revision               string                 `json:"revision"`
+	CommandName            string                 `json:"command_name"`
+	DefinitionDigest       string                 `json:"environment_digest"`
+	DependencyDigest       string                 `json:"dependency_digest"`
+	CreatedByID            string                 `json:"created_by_id"`
+	ReproducesExperimentID string                 `json:"reproduces_experiment_id,omitempty"`
+	State                  string                 `json:"state"`
+	InvalidatedBy          []string               `json:"invalidated_by,omitempty"`
+	Checkpoints            []ExperimentCheckpoint `json:"checkpoints"`
+	CreatedAt              time.Time              `json:"created_at"`
+	UpdatedAt              time.Time              `json:"updated_at"`
 }
 type Comparison struct {
 	AlternativeID    string            `json:"alternative_id"`
@@ -330,11 +362,119 @@ func (s *Store) AddAlternative(repo, decision, actor, title string, claims []Cla
 	if title == "" || len(title) > 200 || !prepareClaims(claims, actor, now, nil) || !prepareEvidence(evidence) {
 		return Decision{}, ErrInvalid
 	}
-	a := Alternative{ID: newID(), Title: title, State: "active", CreatedByID: actor, CreatedAt: now, UpdatedAt: now, Claims: claims, Evidence: evidence, Findings: []Finding{}}
+	a := Alternative{ID: newID(), Title: title, State: "active", CreatedByID: actor, CreatedAt: now, UpdatedAt: now, Claims: claims, Evidence: evidence, Findings: []Finding{}, Experiments: []Experiment{}}
 	v.Alternatives = append(v.Alternatives, a)
 	v.UpdatedAt = now
 	s.compare(&v)
 	return v, s.write(v)
+}
+func (s *Store) StartExperiment(repo, decision, alternative, actor string, x Experiment) (Decision, Experiment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(repo, decision)
+	if e != nil || !contains(v.Scope.ParticipantIDs, actor) {
+		return Decision{}, Experiment{}, ErrNotFound
+	}
+	if x.WorkspaceID == "" || len(x.Revision) != 40 || x.CommandName == "" || x.DefinitionDigest == "" || x.DependencyDigest == "" {
+		return Decision{}, Experiment{}, ErrInvalid
+	}
+	for i := range v.Alternatives {
+		if v.Alternatives[i].ID == alternative && v.Alternatives[i].State == "active" {
+			if x.ReproducesExperimentID != "" {
+				found := false
+				for _, prior := range v.Alternatives[i].Experiments {
+					if prior.ID == x.ReproducesExperimentID && prior.Revision == x.Revision && prior.CommandName == x.CommandName {
+						found = true
+					}
+				}
+				if !found {
+					return Decision{}, Experiment{}, ErrInvalid
+				}
+			}
+			now := s.now().UTC()
+			x.ID = newID()
+			x.CreatedByID = actor
+			x.State = "running"
+			x.Checkpoints = []ExperimentCheckpoint{}
+			x.CreatedAt = now
+			x.UpdatedAt = now
+			v.Alternatives[i].Experiments = append(v.Alternatives[i].Experiments, x)
+			v.Alternatives[i].UpdatedAt = now
+			v.UpdatedAt = now
+			return v, x, s.write(v)
+		}
+	}
+	return Decision{}, Experiment{}, ErrNotFound
+}
+func (s *Store) AddExperimentCheckpoint(repo, decision, alternative, experiment, actor string, c ExperimentCheckpoint) (Decision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(repo, decision)
+	if e != nil || !contains(v.Scope.ParticipantIDs, actor) {
+		return Decision{}, ErrNotFound
+	}
+	if c.WorkspaceCheckpointID == "" || strings.TrimSpace(c.Summary) == "" || len(c.Summary) > 4000 {
+		return Decision{}, ErrInvalid
+	}
+	for _, m := range c.Measurements {
+		if strings.TrimSpace(m.Name) == "" || strings.TrimSpace(m.Unit) == "" {
+			return Decision{}, ErrInvalid
+		}
+	}
+	for i := range v.Alternatives {
+		if v.Alternatives[i].ID == alternative {
+			for j := range v.Alternatives[i].Experiments {
+				x := &v.Alternatives[i].Experiments[j]
+				if x.ID == experiment {
+					now := s.now().UTC()
+					c.ID = newID()
+					c.ActorID = actor
+					c.CreatedAt = now
+					x.Checkpoints = append(x.Checkpoints, c)
+					x.State = "completed"
+					x.UpdatedAt = now
+					v.UpdatedAt = now
+					return v, s.write(v)
+				}
+			}
+		}
+	}
+	return Decision{}, ErrNotFound
+}
+func (s *Store) AssessExperiment(repo, decision, alternative, experiment, actor, revision, dependencyDigest, environmentDigest string) (Decision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(repo, decision)
+	if e != nil || !contains(v.Scope.ParticipantIDs, actor) {
+		return Decision{}, ErrNotFound
+	}
+	for i := range v.Alternatives {
+		if v.Alternatives[i].ID == alternative {
+			for j := range v.Alternatives[i].Experiments {
+				x := &v.Alternatives[i].Experiments[j]
+				if x.ID == experiment {
+					reasons := []string{}
+					if revision != x.Revision {
+						reasons = append(reasons, "code_changed")
+					}
+					if dependencyDigest != x.DependencyDigest {
+						reasons = append(reasons, "dependencies_changed")
+					}
+					if environmentDigest != x.DefinitionDigest {
+						reasons = append(reasons, "environment_changed")
+					}
+					x.InvalidatedBy = reasons
+					if len(reasons) > 0 {
+						x.State = "invalidated"
+					}
+					x.UpdatedAt = s.now().UTC()
+					v.UpdatedAt = x.UpdatedAt
+					return v, s.write(v)
+				}
+			}
+		}
+	}
+	return Decision{}, ErrNotFound
 }
 func prepareClaims(v []Claim, actor string, now time.Time, existing map[string]bool) bool {
 	if len(v) == 0 {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/decisions"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
 )
 
 type decisionStore interface {
@@ -20,9 +21,12 @@ type decisionStore interface {
 	StartResearch(string, string, string, string) (decisions.Decision, string, error)
 	ResearchContext(string) (decisions.Decision, decisions.Alternative, error)
 	AddFinding(string, string, string, []decisions.Evidence) (decisions.Decision, error)
+	StartExperiment(string, string, string, string, decisions.Experiment) (decisions.Decision, decisions.Experiment, error)
+	AddExperimentCheckpoint(string, string, string, string, string, decisions.ExperimentCheckpoint) (decisions.Decision, error)
+	AssessExperiment(string, string, string, string, string, string, string, string) (decisions.Decision, error)
 }
 
-func registerDecisionsHTTP(mux *http.ServeMux, s decisionStore, repos proposalRepositoryStore, c authStore) {
+func registerDecisionsHTTP(mux *http.ServeMux, s decisionStore, repos proposalRepositoryStore, c authStore, ws workspaceStore, runner workspaceRunner) {
 	base := "/repositories/{repository}/decisions"
 	mux.HandleFunc("POST "+base, createDecision(s, repos, c))
 	mux.HandleFunc("GET "+base, listDecisions(s, repos, c))
@@ -32,8 +36,179 @@ func registerDecisionsHTTP(mux *http.ServeMux, s decisionStore, repos proposalRe
 	mux.HandleFunc("POST "+base+"/{decision}/alternatives", addDecisionAlternative(s, repos, c))
 	mux.HandleFunc("POST "+base+"/{decision}/alternatives/{alternative}/claims", addDecisionClaims(s, repos, c))
 	mux.HandleFunc("POST "+base+"/{decision}/alternatives/{alternative}/agent-runs", startDecisionResearch(s, repos, c))
+	mux.HandleFunc("POST "+base+"/{decision}/alternatives/{alternative}/experiments", startDecisionExperiment(s, repos, c, ws, runner))
+	mux.HandleFunc("POST "+base+"/{decision}/alternatives/{alternative}/experiments/{experiment}/checkpoints", checkpointDecisionExperiment(s, repos, c, ws, runner))
+	mux.HandleFunc("POST "+base+"/{decision}/alternatives/{alternative}/experiments/{experiment}/validity", assessDecisionExperiment(s, repos, c))
 	mux.HandleFunc("GET /decision-research-agent/context", decisionResearchContext(s))
 	mux.HandleFunc("POST /decision-research-agent/findings", decisionResearchFinding(s))
+}
+func startDecisionExperiment(s decisionStore, repos proposalRepositoryStore, c authStore, ws workspaceStore, runner workspaceRunner) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Revision               string `json:"revision"`
+			CommandName            string `json:"command_name"`
+			DependencyDigest       string `json:"dependency_digest"`
+			ReproducesExperimentID string `json:"reproduces_experiment_id"`
+		}
+		if !readJSON(w, r, &in, 8<<10) {
+			return
+		}
+		d, err := s.Get(string(repo.ID), r.PathValue("decision"))
+		if err != nil || !containsDecisionActor(d.Scope.ParticipantIDs, actor.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if len(in.Revision) != 40 {
+			writeJSON(w, 422, map[string]string{"error": "exact_revision_required"})
+			return
+		}
+		if strings.TrimSpace(in.DependencyDigest) == "" {
+			writeJSON(w, 422, map[string]string{"error": "dependency_digest_required"})
+			return
+		}
+		if in.ReproducesExperimentID != "" {
+			validReproduction := false
+			for _, alternative := range d.Alternatives {
+				if alternative.ID != r.PathValue("alternative") {
+					continue
+				}
+				for _, prior := range alternative.Experiments {
+					if prior.ID == in.ReproducesExperimentID && prior.Revision == in.Revision && prior.CommandName == strings.TrimSpace(in.CommandName) {
+						validReproduction = true
+					}
+				}
+			}
+			if !validReproduction {
+				writeJSON(w, 422, map[string]string{"error": "invalid_reproduction"})
+				return
+			}
+		}
+		def, digest, err := runner.Definition(string(repo.ID), in.Revision)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_workspace_definition"})
+			return
+		}
+		found := false
+		for _, cmd := range def.Commands {
+			if cmd.Name == strings.TrimSpace(in.CommandName) {
+				found = true
+			}
+		}
+		if !found {
+			writeJSON(w, 422, map[string]string{"error": "undeclared_experiment_command"})
+			return
+		}
+		policy, _ := ws.EffectivePolicy(string(repo.ID), repo.OrganizationID)
+		item, err := ws.CreateWithPolicy(string(repo.ID), in.Revision, actor.UserID, workspaces.SourceContext{Type: "decision", ID: d.ID, ParentID: r.PathValue("alternative")}, workspaces.Access{RepositoryID: string(repo.ID), ActorID: actor.UserID, Permission: "experiment:execute"}, def, digest, policy)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		_, x, err := s.StartExperiment(string(repo.ID), d.ID, r.PathValue("alternative"), actor.UserID, decisions.Experiment{WorkspaceID: item.ID, Revision: in.Revision, CommandName: strings.TrimSpace(in.CommandName), DefinitionDigest: digest, DependencyDigest: strings.TrimSpace(in.DependencyDigest), ReproducesExperimentID: strings.TrimSpace(in.ReproducesExperimentID)})
+		if err != nil {
+			writeDecision(w, decisions.Decision{}, err, 201)
+			return
+		}
+		if named, ok := runner.(interface {
+			StartNamed(workspaces.Workspace, string, string)
+		}); ok {
+			named.StartNamed(item, actor.UserID, strings.TrimSpace(in.CommandName))
+		} else {
+			runner.Start(item)
+		}
+		writeJSON(w, 201, map[string]any{"experiment": x, "workspace": item, "publication_authority": false})
+	}
+}
+func checkpointDecisionExperiment(s decisionStore, repos proposalRepositoryStore, c authStore, ws workspaceStore, runner workspaceRunner) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		d, err := s.Get(string(repo.ID), r.PathValue("decision"))
+		if err != nil || !containsDecisionActor(d.Scope.ParticipantIDs, actor.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var in decisions.ExperimentCheckpoint
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		var x *decisions.Experiment
+		for i := range d.Alternatives {
+			if d.Alternatives[i].ID == r.PathValue("alternative") {
+				for j := range d.Alternatives[i].Experiments {
+					if d.Alternatives[i].Experiments[j].ID == r.PathValue("experiment") {
+						x = &d.Alternatives[i].Experiments[j]
+					}
+				}
+			}
+		}
+		if x == nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		workspace, err := ws.Get(string(repo.ID), x.WorkspaceID)
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		cp, err := runner.InspectCheckpoint(workspace, in.WorkspaceCheckpointID)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_workspace_checkpoint"})
+			return
+		}
+		validSeq := map[int64]bool{}
+		for _, e := range workspace.Activity {
+			validSeq[e.Sequence] = true
+		}
+		for _, seq := range in.LogSequences {
+			if !validSeq[seq] {
+				writeJSON(w, 422, map[string]string{"error": "invalid_log_sequence"})
+				return
+			}
+		}
+		for _, p := range in.ArtifactPaths {
+			found := false
+			for _, ch := range cp.Changes {
+				if ch.Path == p {
+					found = true
+				}
+			}
+			if !found {
+				writeJSON(w, 422, map[string]string{"error": "invalid_artifact_path"})
+				return
+			}
+		}
+		in.ResourceUse = map[string]int64{}
+		for _, use := range workspace.Consumption {
+			in.ResourceUse[use.Kind+"_"+use.Unit] += use.Quantity
+		}
+		v, err := s.AddExperimentCheckpoint(string(repo.ID), d.ID, r.PathValue("alternative"), x.ID, actor.UserID, in)
+		writeDecision(w, v, err, 201)
+	}
+}
+func assessDecisionExperiment(s decisionStore, repos proposalRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Revision          string `json:"revision"`
+			DependencyDigest  string `json:"dependency_digest"`
+			EnvironmentDigest string `json:"environment_digest"`
+		}
+		if !readJSON(w, r, &in, 8<<10) {
+			return
+		}
+		v, e := s.AssessExperiment(string(repo.ID), r.PathValue("decision"), r.PathValue("alternative"), r.PathValue("experiment"), actor.UserID, in.Revision, in.DependencyDigest, in.EnvironmentDigest)
+		writeDecision(w, v, e, 200)
+	}
 }
 func addDecisionAlternative(s decisionStore, repos proposalRepositoryStore, c authStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
