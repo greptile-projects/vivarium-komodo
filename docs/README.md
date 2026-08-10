@@ -1728,6 +1728,26 @@ ordinary exact-commit blob browser at the cited line, while dependency links
 lead to the permitted provider's own map. Branch changes create a fresh request
 instead of carrying analysis forward to a new revision.
 
+## Grounded codebase questions
+
+Authenticated collaborators ask from repository, file, proposal, task, pull
+request, incident, or development-workspace context with `POST
+/repositories/{repository}/questions`. The request carries a question, optional
+branch or commit in `revision`, and typed `context`. The server resolves that
+revision once and durably records the initiating user, immutable commit, answer,
+structured claims, citations, and ordered events beneath `$QUESTION_ROOT`
+(default `apps/api/data/questions`).
+
+Every citation names its repository and exact commit. Source and documentation
+citations also retain blob object, path, and line; history and
+permission-filtered dependency citations retain immutable evidence identities.
+Claims classify themselves as `evidence`, `inference`, or `uncertainty`, making
+permission gaps explicit. `GET .../questions/{conversation}/events?after={sequence}`
+replays server-sent events, while ordinary conversation reads remain
+reproducible after a branch moves. The repository web surface derives context
+from the current file, proposal, pull request, incident, or workspace and links
+citations back to the exact-commit browser.
+
 ## Reproducible development workspaces
 
 Development environments are repository collaboration resources rather than

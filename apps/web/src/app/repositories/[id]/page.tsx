@@ -4,6 +4,7 @@ import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button } from "@/components/ui";
+import { GroundedQuestions } from "@/components/grounded-questions";
 import {
   Book,
   Branch,
@@ -1651,6 +1652,7 @@ export default function RepositoryPage({
           )}
         </>
       )}
+      {!repository.empty && actor && <GroundedQuestions repository={repository.id} revision={ref} context={query.workspace?{type:"workspace",id:query.workspace}:query.incident?{type:"incident",id:query.incident}:query.pull?{type:"pull_request",id:query.pull}:query.proposal?{type:"proposal",id:query.proposal}:path?{type:"file",path}:{type:"repository"}} />}
     </RepositoryFrame>
   );
 }
