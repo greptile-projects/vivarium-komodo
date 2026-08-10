@@ -29,6 +29,11 @@ type Tool struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
 }
+type Port struct {
+	Number int    `json:"number"`
+	Label  string `json:"label"`
+	Path   string `json:"path"`
+}
 type ResourceLimits struct {
 	CPUSeconds          int `json:"cpu_seconds"`
 	MemoryMB            int `json:"memory_mb"`
@@ -40,6 +45,7 @@ type Definition struct {
 	Tools        []Tool         `json:"tools"`
 	Dependencies []string       `json:"dependencies"`
 	Setup        []string       `json:"setup"`
+	Ports        []Port         `json:"ports,omitempty"`
 	Resources    ResourceLimits `json:"resources"`
 }
 type SourceContext struct {
@@ -63,6 +69,14 @@ type Event struct {
 	ActorID   string    `json:"actor_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
+type FileChange struct {
+	Sequence  int64     `json:"sequence"`
+	Path      string    `json:"path"`
+	ActorID   string    `json:"actor_id"`
+	Digest    string    `json:"digest,omitempty"`
+	Deleted   bool      `json:"deleted,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
 type Workspace struct {
 	ID               string        `json:"id"`
 	RepositoryID     string        `json:"repository_id"`
@@ -78,6 +92,44 @@ type Workspace struct {
 	SuspendedAt      *time.Time    `json:"suspended_at,omitempty"`
 	ReadyAt          *time.Time    `json:"ready_at,omitempty"`
 	Events           []Event       `json:"setup_evidence"`
+	Activity         []Event       `json:"activity"`
+	Changes          []FileChange  `json:"changes"`
+}
+
+func (s *Store) RecordActivity(repositoryID, id string, event Event) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, err := s.read(id)
+	if err != nil || w.RepositoryID != repositoryID {
+		return Workspace{}, ErrNotFound
+	}
+	if w.State != Ready {
+		return Workspace{}, ErrInvalidTransition
+	}
+	event.Sequence = int64(len(w.Activity) + 1)
+	event.CreatedAt = s.now().UTC()
+	if len(event.Message) > 1<<20 {
+		event.Message = event.Message[:1<<20]
+	}
+	w.Activity = append(w.Activity, event)
+	w.UpdatedAt = event.CreatedAt
+	return w, s.write(w)
+}
+
+func (s *Store) RecordChange(repositoryID, id, actor, path, digest string, deleted bool) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, err := s.read(id)
+	if err != nil || w.RepositoryID != repositoryID {
+		return Workspace{}, ErrNotFound
+	}
+	if w.State != Ready {
+		return Workspace{}, ErrInvalidTransition
+	}
+	now := s.now().UTC()
+	w.Changes = append(w.Changes, FileChange{Sequence: int64(len(w.Changes) + 1), Path: path, ActorID: actor, Digest: digest, Deleted: deleted, CreatedAt: now})
+	w.UpdatedAt = now
+	return w, s.write(w)
 }
 
 type Store struct {

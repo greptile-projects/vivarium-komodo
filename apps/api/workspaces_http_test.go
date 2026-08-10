@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -35,7 +36,7 @@ func TestCollaboratorLaunchesSuspendsAndResumesExactWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	opened, _ := catalog.Open(repository.ID)
-	manifest := `{"version":1,"tools":[{"name":"go","version":"1.25"}],"dependencies":["go modules"],"setup":["printf ready > .workspace-ready"],"resources":{"cpu_seconds":30,"memory_mb":256,"disk_mb":256,"setup_timeout_seconds":30}}`
+	manifest := `{"version":1,"tools":[{"name":"go","version":"1.25"}],"dependencies":["go modules"],"setup":["printf ready > .workspace-ready"],"ports":[{"number":3000,"label":"docs","path":"public"}],"resources":{"cpu_seconds":30,"memory_mb":256,"disk_mb":256,"setup_timeout_seconds":30}}`
 	manifestBlob := writeObject(t, opened, storage.BlobObject, []byte(manifest))
 	komodoTree := writeObject(t, opened, storage.TreeObject, treeEntry("100644", "workspaces.json", manifestBlob))
 	readme := writeObject(t, opened, storage.BlobObject, []byte("shared state\n"))
@@ -79,6 +80,51 @@ func TestCollaboratorLaunchesSuspendsAndResumesExactWorkspace(t *testing.T) {
 	if current.State != workspaces.Ready || len(current.Events) < 4 {
 		t.Fatalf("setup = %#v", current)
 	}
+	if err = os.Symlink("/etc/passwd", workspaceStore.Environment(created.ID)+"/escape"); err != nil {
+		t.Fatal(err)
+	}
+	request, _ = http.NewRequest(http.MethodGet, base+"/"+created.ID+"/files?path=escape", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, _ = http.DefaultClient.Do(request)
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("symlink read status = %d", response.StatusCode)
+	}
+	response.Body.Close()
+	request, _ = http.NewRequest(http.MethodGet, base+"/"+created.ID+"/files?path=README.md", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, _ = http.DefaultClient.Do(request)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("file status = %d", response.StatusCode)
+	}
+	response.Body.Close()
+	request, _ = http.NewRequest(http.MethodPut, base+"/"+created.ID+"/files", strings.NewReader(`{"path":"public/index.html","content":"<h1>workspace preview</h1>"}`))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, _ = http.DefaultClient.Do(request)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("edit status = %d", response.StatusCode)
+	}
+	response.Body.Close()
+	request, _ = http.NewRequest(http.MethodGet, base+"/"+created.ID+"/search?q=preview", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, _ = http.DefaultClient.Do(request)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("search status = %d", response.StatusCode)
+	}
+	response.Body.Close()
+	request, _ = http.NewRequest(http.MethodPost, base+"/"+created.ID+"/commands", strings.NewReader(`{"command":"printf command-result","timeout_seconds":10}`))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, _ = http.DefaultClient.Do(request)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("command status = %d", response.StatusCode)
+	}
+	response.Body.Close()
+	request, _ = http.NewRequest(http.MethodGet, base+"/"+created.ID+"/preview/3000/index.html", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, _ = http.DefaultClient.Do(request)
+	if response.StatusCode != http.StatusOK || response.Header.Get("X-Workspace-Revision") != string(commit) {
+		t.Fatalf("preview status = %d revision = %q", response.StatusCode, response.Header.Get("X-Workspace-Revision"))
+	}
+	response.Body.Close()
 	for _, action := range []string{"suspend", "resume"} {
 		request, _ = http.NewRequest(http.MethodPost, base+"/"+created.ID+"/"+action, strings.NewReader(`{}`))
 		request.Header.Set("Authorization", "Bearer "+token)

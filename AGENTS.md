@@ -726,6 +726,16 @@ whenever dependencies change or the web job fails before it starts.
   foundation; resume revalidates the captured definition at the captured commit
   and must never resolve a moving branch or rebuild silently. The shareable web
   surface is `view=workspaces&workspace={id}`.
+  Ready workspaces expose path-safe file browse/edit/delete, bounded text search,
+  and credential-free Bubblewrap commands through repository-scoped APIs.
+  Mutations require repository write access; retained file evidence records
+  actor, path, deletion, and digest, while command evidence records actor,
+  revision, bounded output, and outcome. Optional schema-version `1` `ports`
+  entries map a port number and label to a relative static-output directory;
+  previews serve declared text assets through repository read policy with
+  restrictive CSP and the workspace revision header. Never turn previews into
+  host-network forwarding or inject general repository credentials into setup,
+  commands, snapshots, logs, or preview responses.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 
