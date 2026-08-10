@@ -746,6 +746,19 @@ whenever dependencies change or the web job fails before it starts.
   File saves may carry the digest returned by the file read and conflict if the
   live file changed. Never place raw terminal commands, stdin, stdout, or stderr
   in shared workspace activity; only the invoking response may contain them.
+  Repository owners configure the workspace resource, network, idle, retention,
+  expiry-notice, sharing, and approved-agent envelope at `/workspace-policy`;
+  organization owners have the corresponding organization policy resource.
+  Each workspace snapshots its effective envelope, caps repository-declared
+  resources, and attributes command runtime consumption. Policy tightening
+  marks retained environments for an explicit rebuild and immediately revokes
+  newly forbidden sharing or agent controls. Idle work suspends automatically;
+  retention expiry is announced before terminal expiry. Owners may stop or
+  expire an environment without deleting checkpoints or publication evidence,
+  and creators may download a secret-filtered archive of authored unpublished
+  paths during an announced-expiry window. A changed or unavailable exact
+  environment definition is a visible rebuild requirement, never a silent
+  resume.
   Workspace checkpoints capture only explicitly declared repository paths as
   content-addressed changes against the immutable workspace revision. They
   retain creator, parent lineage, environment definition, dependency and

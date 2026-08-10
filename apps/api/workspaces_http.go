@@ -19,6 +19,8 @@ import (
 
 type workspaceStore interface {
 	Create(string, string, string, workspaces.SourceContext, workspaces.Access, workspaces.Definition, string) (workspaces.Workspace, error)
+	CreateWithPolicy(string, string, string, workspaces.SourceContext, workspaces.Access, workspaces.Definition, string, workspaces.Policy) (workspaces.Workspace, error)
+	EffectivePolicy(string, string) (workspaces.Policy, error)
 	Get(string, string) (workspaces.Workspace, error)
 	List(string) ([]workspaces.Workspace, error)
 	Suspend(string, string, string) (workspaces.Workspace, error)
@@ -29,6 +31,11 @@ type workspaceStore interface {
 	Intervene(string, string, string, string, string, string, int64) (workspaces.Workspace, error)
 	RecordPublication(string, string, string, workspaces.Publication) (workspaces.Workspace, error)
 	LinkPublicationPullRequest(string, string, string, string) (workspaces.Workspace, error)
+	SetPolicy(string, string, workspaces.Policy) (workspaces.Policy, error)
+	Policy(string, string) (workspaces.Policy, error)
+	AnnounceExpiry(string, string, string, time.Time) (workspaces.Workspace, error)
+	Stop(string, string, string, string, bool) (workspaces.Workspace, error)
+	RequireRebuild(string, string, string) (workspaces.Workspace, error)
 }
 type workspaceRunner interface {
 	Definition(string, string) (workspaces.Definition, string, error)
@@ -41,6 +48,7 @@ type workspaceRunner interface {
 	Restore(workspaces.Workspace, string, string) (workspaces.Workspace, workspaces.CheckpointStatus, error)
 	InspectCheckpoint(workspaces.Workspace, string) (workspaces.Checkpoint, error)
 	Publish(workspaces.Workspace, string, string, workspaces.PublishRequest) (storage.ObjectID, []string, error)
+	Export(workspaces.Workspace) ([]byte, error)
 }
 type workspaceOrganizationStore interface {
 	Get(string) (organizations.Organization, error)
@@ -53,6 +61,11 @@ func registerWorkspacesHTTP(mux *http.ServeMux, store workspaceStore, runner wor
 	mux.HandleFunc("GET "+base+"/{workspace}", getWorkspace(store, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/suspend", suspendWorkspace(store, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/resume", resumeWorkspace(store, runner, repositories, credentials))
+	mux.HandleFunc("POST "+base+"/{workspace}/expiry", announceWorkspaceExpiry(store, repositories, credentials))
+	mux.HandleFunc("POST "+base+"/{workspace}/stop", stopWorkspace(store, repositories, credentials))
+	mux.HandleFunc("GET "+base+"/{workspace}/export", exportWorkspace(store, runner, repositories, credentials))
+	mux.HandleFunc("GET /repositories/{repository}/workspace-policy", repositoryWorkspacePolicy(store, repositories, credentials, false))
+	mux.HandleFunc("PUT /repositories/{repository}/workspace-policy", repositoryWorkspacePolicy(store, repositories, credentials, true))
 	mux.HandleFunc("GET "+base+"/{workspace}/files", workspaceFiles(store, runner, repositories, credentials))
 	mux.HandleFunc("PUT "+base+"/{workspace}/files", workspaceWriteFile(store, runner, repositories, credentials))
 	mux.HandleFunc("GET "+base+"/{workspace}/search", workspaceSearch(store, runner, repositories, credentials))
@@ -73,9 +86,158 @@ func registerWorkspacesHTTP(mux *http.ServeMux, store workspaceStore, runner wor
 			organizationStore = value
 		}
 	}
+	if organizationStore != nil {
+		mux.HandleFunc("GET /organizations/{organization}/workspace-policy", organizationWorkspacePolicy(store, credentials, organizationStore, false))
+		mux.HandleFunc("PUT /organizations/{organization}/workspace-policy", organizationWorkspacePolicy(store, credentials, organizationStore, true))
+	}
 	mux.HandleFunc("POST "+base+"/{workspace}/controls", workspaceGrantControl(store, repositories, credentials, organizationStore))
 	mux.HandleFunc("POST "+base+"/{workspace}/controls/{control}/interventions", workspaceIntervention(store, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/checkpoints/{checkpoint}/publication", publishWorkspaceCheckpoint(store, runner, repositories, credentials, plans, pulls, checks))
+}
+
+func organizationWorkspacePolicy(store workspaceStore, credentials authStore, orgs workspaceOrganizationStore, update bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, map[bool]auth.Scope{true: auth.RepositoryWrite, false: auth.RepositoryRead}[update])
+		if !ok {
+			return
+		}
+		org, err := orgs.Get(r.PathValue("organization"))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		member := false
+		owner := false
+		for _, m := range org.Members {
+			if m.UserID == actor.UserID && !m.AcceptedAt.IsZero() {
+				member = true
+				owner = m.Role == "owner"
+			}
+		}
+		if !member || update && !owner {
+			writeJSON(w, 403, map[string]string{"error": "organization_owner_required"})
+			return
+		}
+		if update {
+			var p workspaces.Policy
+			if !readJSON(w, r, &p, 16<<10) {
+				return
+			}
+			saved, e := store.SetPolicy("organization", org.ID, p)
+			if e != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_workspace_policy"})
+				return
+			}
+			writeJSON(w, 200, saved)
+			return
+		}
+		p, e := store.Policy("organization", org.ID)
+		if e != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, 200, p)
+	}
+}
+
+func repositoryWorkspacePolicy(store workspaceStore, repositories taskSessionRepositoryStore, credentials authStore, update bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, map[bool]auth.Scope{true: auth.RepositoryWrite, false: auth.RepositoryRead}[update], update)
+		if !ok {
+			return
+		}
+		if update && actor.UserID != repository.OwnerID {
+			writeJSON(w, 403, map[string]string{"error": "owner_required"})
+			return
+		}
+		if update {
+			var p workspaces.Policy
+			if !readJSON(w, r, &p, 16<<10) {
+				return
+			}
+			saved, err := store.SetPolicy("repository", string(repository.ID), p)
+			if err != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_workspace_policy"})
+				return
+			}
+			writeJSON(w, 200, saved)
+			return
+		}
+		p, err := store.EffectivePolicy(string(repository.ID), repository.OrganizationID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, 200, p)
+	}
+}
+
+func announceWorkspaceExpiry(store workspaceStore, repositories taskSessionRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if actor.UserID != repository.OwnerID {
+			writeJSON(w, 403, map[string]string{"error": "owner_required"})
+			return
+		}
+		var in struct {
+			ExpiresAt time.Time `json:"expires_at"`
+		}
+		if !readJSON(w, r, &in, 8<<10) {
+			return
+		}
+		item, err := store.AnnounceExpiry(string(repository.ID), r.PathValue("workspace"), actor.UserID, in.ExpiresAt.UTC())
+		writeWorkspaceResult(w, item, err)
+	}
+}
+func stopWorkspace(store workspaceStore, repositories taskSessionRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if actor.UserID != repository.OwnerID {
+			writeJSON(w, 403, map[string]string{"error": "owner_required"})
+			return
+		}
+		var in struct {
+			Reason string `json:"reason"`
+			Expire bool   `json:"expire"`
+		}
+		if !readJSON(w, r, &in, 8<<10) {
+			return
+		}
+		item, err := store.Stop(string(repository.ID), r.PathValue("workspace"), actor.UserID, in.Reason, in.Expire)
+		writeWorkspaceResult(w, item, err)
+	}
+}
+func exportWorkspace(store workspaceStore, runner workspaceRunner, repositories taskSessionRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		item, err := store.Get(string(repository.ID), r.PathValue("workspace"))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if item.State != workspaces.Ready || item.ExpiresAt == nil || (actor.UserID != item.CreatorID && actor.UserID != repository.OwnerID) {
+			writeJSON(w, 409, map[string]string{"error": "export_unavailable"})
+			return
+		}
+		data, err := runner.Export(item)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "unsafe_export"})
+			return
+		}
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", "attachment; filename=workspace-"+item.ID+".zip")
+		w.WriteHeader(200)
+		_, _ = w.Write(data)
+	}
 }
 
 func publishWorkspaceCheckpoint(store workspaceStore, runner workspaceRunner, repositories taskSessionRepositoryStore, credentials authStore, plans proposalStore, pulls pullRequestStore, checks checkRunStarter) http.HandlerFunc {
@@ -498,7 +660,8 @@ func createWorkspace(store workspaceStore, runner workspaceRunner, repositories 
 			writeJSON(w, 422, map[string]string{"error": "invalid_workspace_definition"})
 			return
 		}
-		item, err := store.Create(string(repository.ID), input.Revision, actor.UserID, input.SourceContext, workspaces.Access{RepositoryID: string(repository.ID), ActorID: actor.UserID, Permission: "repository:write"}, definition, digest)
+		policy, _ := store.EffectivePolicy(string(repository.ID), repository.OrganizationID)
+		item, err := store.CreateWithPolicy(string(repository.ID), input.Revision, actor.UserID, input.SourceContext, workspaces.Access{RepositoryID: string(repository.ID), ActorID: actor.UserID, Permission: "repository:write"}, definition, digest, policy)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
@@ -613,7 +776,13 @@ func resumeWorkspace(store workspaceStore, runner workspaceRunner, repositories 
 		}
 		_, digest, err := runner.Definition(string(repository.ID), current.Revision)
 		if err != nil {
+			_, _ = store.RequireRebuild(string(repository.ID), current.ID, "base revision or environment definition is unavailable")
 			writeJSON(w, 409, map[string]string{"error": "workspace_foundation_unavailable"})
+			return
+		}
+		if digest != current.DefinitionDigest {
+			_, _ = store.RequireRebuild(string(repository.ID), current.ID, "environment definition changed")
+			writeJSON(w, 409, map[string]string{"error": "workspace_rebuild_required"})
 			return
 		}
 		item, err := store.Resume(string(repository.ID), current.ID, actor.UserID, digest)

@@ -1,6 +1,7 @@
 package workspaces
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -39,6 +40,48 @@ type CommandResult struct {
 	Stderr      string    `json:"stderr"`
 	StartedAt   time.Time `json:"started_at"`
 	CompletedAt time.Time `json:"completed_at"`
+}
+
+// Export returns only collaborator-authored paths and applies the same secret
+// exclusions as checkpoints. It is available during an announced expiry, but
+// never after the environment has stopped.
+func (r *Runner) Export(w Workspace) ([]byte, error) {
+	var out bytes.Buffer
+	zw := zip.NewWriter(&out)
+	seen := map[string]bool{}
+	for _, change := range w.Changes {
+		if change.Deleted || seen[change.Path] || sensitiveCheckpointPath(change.Path) {
+			continue
+		}
+		seen[change.Path] = true
+		path, err := r.resolve(w.ID, change.Path)
+		if err != nil {
+			_ = zw.Close()
+			return nil, err
+		}
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() || info.Size() > 5<<20 {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil || sensitiveCheckpointContent(data) {
+			_ = zw.Close()
+			return nil, ErrUnsafeCheckpoint
+		}
+		entry, err := zw.Create(change.Path)
+		if err != nil {
+			_ = zw.Close()
+			return nil, err
+		}
+		if _, err = entry.Write(data); err != nil {
+			_ = zw.Close()
+			return nil, err
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
 }
 
 func (r *Runner) resolve(id, path string) (string, error) {
@@ -233,6 +276,7 @@ func (r *Runner) Command(w Workspace, actor, command, directory string, timeoutS
 	if recordErr != nil {
 		return result, recordErr
 	}
+	_, _ = r.store.RecordConsumption(w.RepositoryID, w.ID, actor, "command_runtime", result.CompletedAt.Sub(start).Milliseconds(), "milliseconds")
 	if size, e := directorySize(r.store.Environment(w.ID)); e != nil || size > int64(w.Definition.Resources.DiskMB)<<20 {
 		return result, errors.New("workspace disk limit exceeded")
 	}

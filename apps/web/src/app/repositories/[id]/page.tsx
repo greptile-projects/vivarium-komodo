@@ -93,9 +93,12 @@ type DevelopmentWorkspace = {
     };
   };
   definition_digest: string;
-  state: "setting_up" | "ready" | "failed" | "suspended";
+  state: "setting_up" | "ready" | "failed" | "suspended" | "stopped" | "expired";
   created_at: string;
   updated_at: string;
+  effective_policy:{cpu_seconds:number;memory_mb:number;disk_mb:number;network:string;idle_minutes:number;retention_days:number;expiry_notice_hours:number;sharing:string;agent_execution:boolean};
+  expires_at?:string; expiry_announced_at?:string; stopped_at?:string; rebuild_required:boolean; rebuild_reasons?:string[];
+  consumption?:Array<{actor_id:string;kind:string;quantity:number;unit:string;recorded_at:string}>;
   setup_evidence: Array<{
     sequence: number;
     type: string;
@@ -1892,6 +1895,7 @@ function DevelopmentWorkspaces({ repository, branches, actor, selected }: { repo
   const [checkpointDependencies, setCheckpointDependencies] = useState("");
   const [checkpointCommands, setCheckpointCommands] = useState("");
   const [checkpointParent, setCheckpointParent] = useState("");
+  const [policy, setPolicy] = useState<DevelopmentWorkspace["effective_policy"]>();
   const load = useCallback(async () => {
     try { setItems((await get<{ items: DevelopmentWorkspace[] }>(`/repositories/${repository.id}/workspaces`)).items); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Workspaces unavailable."); }
@@ -1903,6 +1907,7 @@ function DevelopmentWorkspaces({ repository, branches, actor, selected }: { repo
     const timer = setInterval(() => void load(), 2500);
     return () => clearInterval(timer);
   }, [load]);
+  useEffect(()=>{get<DevelopmentWorkspace["effective_policy"]>(`/repositories/${repository.id}/workspace-policy`).then(setPolicy).catch(()=>undefined)},[repository.id]);
   const inspected = items.find((item) => item.id === selected) ?? items[0];
   const presenceWorkspaceID = inspected?.id;
   const presenceWorkspaceState = inspected?.state;
@@ -1919,6 +1924,7 @@ function DevelopmentWorkspaces({ repository, branches, actor, selected }: { repo
   }
   return <section className="development-workspaces">
     <header className="proposal-toolbar"><div><p className="eyebrow">Exact-revision environments</p><h2>Development workspaces</h2><p>Enter the repository-defined project state with retained setup evidence.</p></div></header>
+    {actor===repository.owner_id&&policy&&<form className="panel workspace-policy" onSubmit={async(e)=>{e.preventDefault();setBusy(true);try{setPolicy(await send(`/repositories/${repository.id}/workspace-policy`,"PUT",policy));}catch(cause){setError(cause instanceof Error?cause.message:"Unable to update workspace policy.")}finally{setBusy(false)}}}><h3>Workspace governance</h3><p>Bound every new environment; running work retains its captured policy and evidence.</p><label>CPU seconds<input type="number" min="1" max="3600" value={policy.cpu_seconds} onChange={e=>setPolicy({...policy,cpu_seconds:Number(e.target.value)})}/></label><label>Memory MB<input type="number" min="128" max="32768" value={policy.memory_mb} onChange={e=>setPolicy({...policy,memory_mb:Number(e.target.value)})}/></label><label>Disk MB<input type="number" min="128" max="102400" value={policy.disk_mb} onChange={e=>setPolicy({...policy,disk_mb:Number(e.target.value)})}/></label><label>Idle minutes<input type="number" min="5" value={policy.idle_minutes} onChange={e=>setPolicy({...policy,idle_minutes:Number(e.target.value)})}/></label><label>Retention days<input type="number" min="1" value={policy.retention_days} onChange={e=>setPolicy({...policy,retention_days:Number(e.target.value)})}/></label><label>Sharing<select value={policy.sharing} onChange={e=>setPolicy({...policy,sharing:e.target.value})}><option value="private">Creator only</option><option value="participants">Repository participants</option></select></label><label><input type="checkbox" checked={policy.agent_execution} onChange={e=>setPolicy({...policy,agent_execution:e.target.checked})}/> Approved agent execution</label><Button disabled={busy}>Save policy</Button></form>}
     {actor && <form className="workspace-launch panel" onSubmit={async (event) => {
       event.preventDefault(); setBusy(true); setError("");
       try { await send(`/repositories/${repository.id}/workspaces`, "POST", { revision, source_context: { type: contextType, ...(contextID ? { id: contextID } : {}), ...(parentID ? { parent_id: parentID } : {}) } }); await load(); }
@@ -1936,7 +1942,8 @@ function DevelopmentWorkspaces({ repository, branches, actor, selected }: { repo
       <aside className="workspace-runtime-list panel">{items.map((item) => <Link key={item.id} className={item.id === inspected?.id ? "active" : ""} href={`/repositories/${repository.id}?view=workspaces&workspace=${item.id}`}><span><strong>{item.source_context.type.replaceAll("_", " ")}</strong><Badge>{item.state}</Badge></span><code>{short(item.revision)}</code><small>by <Actor id={item.creator_id} /></small></Link>)}{!items.length && <p>No environments have been launched yet.</p>}</aside>
       {inspected && <article className="workspace-runtime panel"><header><div><p className="eyebrow">Foundation {short(inspected.definition_digest)}</p><h3>{inspected.source_context.type.replaceAll("_", " ")} workspace</h3></div><Badge>{inspected.state}</Badge></header>
         <dl><div><dt>Revision</dt><dd><code>{inspected.revision}</code></dd></div><div><dt>Effective access</dt><dd>{inspected.effective_access.permission} · <Actor id={inspected.effective_access.actor_id} /></dd></div><div><dt>Resources</dt><dd>{inspected.definition.resources.memory_mb} MB memory · {inspected.definition.resources.disk_mb} MB disk · {inspected.definition.resources.cpu_seconds}s CPU</dd></div><div><dt>Tools</dt><dd>{inspected.definition.tools.map((tool) => `${tool.name} ${tool.version}`).join(", ") || "System runtime"}</dd></div></dl>
-        <div className="workspace-controls">{inspected.state === "ready" && <Button disabled={busy} variant="secondary" onClick={() => void control(inspected, "suspend")}>Suspend</Button>}{inspected.state === "suspended" && <Button disabled={busy} onClick={() => void control(inspected, "resume")}>Resume retained foundation</Button>}</div>
+        <div className="workspace-controls">{inspected.state === "ready" && <Button disabled={busy} variant="secondary" onClick={() => void control(inspected, "suspend")}>Suspend</Button>}{inspected.state === "suspended" && <Button disabled={busy} onClick={() => void control(inspected, "resume")}>Resume retained foundation</Button>}{actor===repository.owner_id&&(inspected.state==="ready"||inspected.state==="suspended")&&<><Button size="sm" variant="secondary" onClick={async()=>{await send(`/repositories/${repository.id}/workspaces/${inspected.id}/expiry`,"POST",{expires_at:new Date(Date.now()+Math.max(inspected.effective_policy.expiry_notice_hours,24)*3600000).toISOString()});await load()}}>Announce expiry</Button><Button size="sm" variant="secondary" onClick={async()=>{await send(`/repositories/${repository.id}/workspaces/${inspected.id}/stop`,"POST",{reason:"stopped by repository owner",expire:false});await load()}}>Stop environment</Button></>}{inspected.expires_at&&inspected.state==="ready"&&<a href={`/api/repositories/${repository.id}/workspaces/${inspected.id}/export`}>Export unpublished work</a>}</div>
+        <p>Policy: {inspected.effective_policy.memory_mb} MB memory · {inspected.effective_policy.disk_mb} MB disk · network {inspected.effective_policy.network} · {inspected.effective_policy.sharing} sharing · agents {inspected.effective_policy.agent_execution?"allowed":"blocked"}.</p>{inspected.expires_at&&<p className="form-error">Expiry announced for {new Date(inspected.expires_at).toLocaleString()}. Export or checkpoint unpublished work before then.</p>}{inspected.rebuild_required&&<p className="form-error">Rebuild required: {inspected.rebuild_reasons?.join(", ")}</p>}{inspected.consumption?.length?<p>Attributed consumption: {inspected.consumption.map(c=><span key={`${c.actor_id}-${c.recorded_at}`}><Actor id={c.actor_id} compact/> {c.quantity} {c.unit} {c.kind}; </span>)}</p>:null}
         {inspected.state === "ready" && <section className="workspace-collaboration"><h4>Live collaboration</h4><div className="workspace-presence">{inspected.presence?.map((presence)=><span key={presence.actor_id}><Actor id={presence.actor_id} compact /> · {presence.surface}{presence.path?` / ${presence.path}`:""}</span>)}{!inspected.presence?.length&&<span>No collaborators connected.</span>}</div>
           <form onSubmit={async(e)=>{e.preventDefault();await send(`/repositories/${repository.id}/workspaces/${inspected.id}/messages`,"POST",{message});setMessage("");await load();}}><label>Discuss the running work<input value={message} onChange={(e)=>setMessage(e.target.value)} /></label><Button size="sm" disabled={!message}>Send</Button></form>
           <form onSubmit={async(e)=>{e.preventDefault();await send(`/repositories/${repository.id}/workspaces/${inspected.id}/controls`,"POST",{subject_id:controlSubject,subject_kind:"human",mode:"edit",scopes:["files","preview"]});setControlSubject("");await load();}}><label>Grant collaborator edit control<input placeholder="User ID" value={controlSubject} onChange={(e)=>setControlSubject(e.target.value)} /></label><Button size="sm" disabled={!controlSubject}>Grant</Button></form>
