@@ -177,6 +177,7 @@ func TestParallelIntegrationQueueWorkflow(t *testing.T) {
 func waitForQueueOutcomes(t *testing.T, origin, repositoryID, actor string, want map[string]string) map[string]integrationQueueEntryResponse {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
+	last := map[string]integrationQueueEntryResponse{}
 	for time.Now().Before(deadline) {
 		var collection struct {
 			Items []integrationQueueEntryResponse `json:"items"`
@@ -186,6 +187,7 @@ func waitForQueueOutcomes(t *testing.T, origin, repositoryID, actor string, want
 		for _, entry := range collection.Items {
 			found[entry.PullRequestID] = entry
 		}
+		last = found
 		complete := true
 		for pullID, state := range want {
 			complete = complete && found[pullID].State == state
@@ -195,7 +197,7 @@ func waitForQueueOutcomes(t *testing.T, origin, repositoryID, actor string, want
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatal("integration queue did not reach the expected outcomes")
+	t.Fatalf("integration queue did not reach the expected outcomes: want %#v, got %#v", want, last)
 	return nil
 }
 

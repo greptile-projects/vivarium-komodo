@@ -773,7 +773,14 @@ whenever dependencies change or the web job fails before it starts.
   summarizes declared commands, and starts ordinary commit-bound checks. Keep
   mutable workspace files, private command output, credentials, and activity
   outside the commit; later review, required-check, queue, and stale-revision
-  behavior belongs to the established pull-request workflow.
+  behavior belongs to the established pull-request workflow. A proposal-task
+  publication must also register the pull request as that task's ordinary
+  contribution so queue reconciliation can mark the task merged. Terminal stop
+  or expiry removes the mutable environment while retaining workspace records,
+  checkpoint blobs, publications, Git commits, and review evidence.
+  `workspace_collaboration_workflow_test.go` is the black-box regression for
+  the complete planned-task-to-expired-environment loop across public HTTP,
+  stock Git, checks, review, and protected integration.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 
