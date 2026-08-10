@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -24,6 +25,7 @@ const (
 
 var ErrNotFound = errors.New("workspace not found")
 var ErrInvalidTransition = errors.New("invalid workspace transition")
+var ErrConflict = errors.New("workspace version conflict")
 
 type Tool struct {
 	Name    string `json:"name"`
@@ -67,7 +69,30 @@ type Event struct {
 	Stream    string    `json:"stream,omitempty"`
 	Message   string    `json:"message,omitempty"`
 	ActorID   string    `json:"actor_id,omitempty"`
+	Kind      string    `json:"kind,omitempty"`
+	Surface   string    `json:"surface,omitempty"`
+	Path      string    `json:"path,omitempty"`
+	TargetID  string    `json:"target_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+}
+type Presence struct {
+	ActorID    string    `json:"actor_id"`
+	Surface    string    `json:"surface"`
+	Path       string    `json:"path,omitempty"`
+	ObservedAt time.Time `json:"observed_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
+}
+type ControlGrant struct {
+	ID          string    `json:"id"`
+	SubjectID   string    `json:"subject_id"`
+	SubjectKind string    `json:"subject_kind"`
+	Mode        string    `json:"mode"`
+	Scopes      []string  `json:"scopes"`
+	State       string    `json:"state"`
+	GrantedBy   string    `json:"granted_by"`
+	Version     int64     `json:"version"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 type FileChange struct {
 	Sequence  int64     `json:"sequence"`
@@ -78,22 +103,145 @@ type FileChange struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 type Workspace struct {
-	ID               string        `json:"id"`
-	RepositoryID     string        `json:"repository_id"`
-	Revision         string        `json:"revision"`
-	CreatorID        string        `json:"creator_id"`
-	Context          SourceContext `json:"source_context"`
-	Access           Access        `json:"effective_access"`
-	Definition       Definition    `json:"definition"`
-	DefinitionDigest string        `json:"definition_digest"`
-	State            State         `json:"state"`
-	CreatedAt        time.Time     `json:"created_at"`
-	UpdatedAt        time.Time     `json:"updated_at"`
-	SuspendedAt      *time.Time    `json:"suspended_at,omitempty"`
-	ReadyAt          *time.Time    `json:"ready_at,omitempty"`
-	Events           []Event       `json:"setup_evidence"`
-	Activity         []Event       `json:"activity"`
-	Changes          []FileChange  `json:"changes"`
+	ID               string         `json:"id"`
+	RepositoryID     string         `json:"repository_id"`
+	Revision         string         `json:"revision"`
+	CreatorID        string         `json:"creator_id"`
+	Context          SourceContext  `json:"source_context"`
+	Access           Access         `json:"effective_access"`
+	Definition       Definition     `json:"definition"`
+	DefinitionDigest string         `json:"definition_digest"`
+	State            State          `json:"state"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+	SuspendedAt      *time.Time     `json:"suspended_at,omitempty"`
+	ReadyAt          *time.Time     `json:"ready_at,omitempty"`
+	Events           []Event        `json:"setup_evidence"`
+	Activity         []Event        `json:"activity"`
+	Changes          []FileChange   `json:"changes"`
+	Presence         []Presence     `json:"presence"`
+	Controls         []ControlGrant `json:"controls"`
+}
+
+func newID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// Observe refreshes an intentionally short presence lease. Disconnects disappear
+// predictably without rewriting the durable activity ledger.
+func (s *Store) Observe(repositoryID, id, actor, surface, path string) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, err := s.read(id)
+	if err != nil || w.RepositoryID != repositoryID {
+		return Workspace{}, ErrNotFound
+	}
+	if w.State != Ready {
+		return Workspace{}, ErrInvalidTransition
+	}
+	now := s.now().UTC()
+	kept := w.Presence[:0]
+	for _, p := range w.Presence {
+		if p.ExpiresAt.After(now) && p.ActorID != actor {
+			kept = append(kept, p)
+		}
+	}
+	w.Presence = append(kept, Presence{ActorID: actor, Surface: surface, Path: path, ObservedAt: now, ExpiresAt: now.Add(45 * time.Second)})
+	w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: "presence", Kind: "observation", Surface: surface, Path: path, ActorID: actor, CreatedAt: now})
+	w.UpdatedAt = now
+	return w, s.write(w)
+}
+
+func (s *Store) AddMessage(repositoryID, id, actor, message string) (Workspace, error) {
+	message = strings.TrimSpace(message)
+	if message == "" || len(message) > 4000 {
+		return Workspace{}, ErrConflict
+	}
+	return s.RecordActivity(repositoryID, id, Event{Type: "message", Kind: "instruction", Surface: "discussion", Message: message, ActorID: actor})
+}
+
+func (s *Store) Grant(repositoryID, id, actor, subject, kind, mode string, scopes []string) (Workspace, error) {
+	validMode := mode == "observe" || mode == "edit" || mode == "execute"
+	if subject == "" || (kind != "human" && kind != "approved_agent") || !validMode || len(scopes) == 0 {
+		return Workspace{}, ErrConflict
+	}
+	allowed := map[string]bool{"files": true, "terminal": true, "preview": true}
+	seen := map[string]bool{}
+	for _, scope := range scopes {
+		if !allowed[scope] || seen[scope] {
+			return Workspace{}, ErrConflict
+		}
+		seen[scope] = true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, err := s.read(id)
+	if err != nil || w.RepositoryID != repositoryID {
+		return Workspace{}, ErrNotFound
+	}
+	if w.State != Ready {
+		return Workspace{}, ErrInvalidTransition
+	}
+	now := s.now().UTC()
+	grantID, err := newID()
+	if err != nil {
+		return Workspace{}, err
+	}
+	g := ControlGrant{ID: grantID, SubjectID: subject, SubjectKind: kind, Mode: mode, Scopes: append([]string(nil), scopes...), State: "active", GrantedBy: actor, Version: 1, CreatedAt: now, UpdatedAt: now}
+	w.Controls = append(w.Controls, g)
+	w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: "control_granted", Kind: "instruction", ActorID: actor, TargetID: subject, Message: mode + ":" + strings.Join(scopes, ","), CreatedAt: now})
+	w.UpdatedAt = now
+	return w, s.write(w)
+}
+
+func (s *Store) Intervene(repositoryID, id, actor, grantID, action, message string, version int64) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, err := s.read(id)
+	if err != nil || w.RepositoryID != repositoryID {
+		return Workspace{}, ErrNotFound
+	}
+	if w.State != Ready {
+		return Workspace{}, ErrInvalidTransition
+	}
+	index := -1
+	for i := range w.Controls {
+		if w.Controls[i].ID == grantID {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return Workspace{}, ErrNotFound
+	}
+	g := &w.Controls[index]
+	if g.Version != version || g.State == "revoked" {
+		return Workspace{}, ErrConflict
+	}
+	switch action {
+	case "guide":
+		if strings.TrimSpace(message) == "" {
+			return Workspace{}, ErrConflict
+		}
+	case "pause":
+		g.State = "paused"
+	case "resume", "take_over":
+		g.State = "active"
+	case "revoke":
+		g.State = "revoked"
+	default:
+		return Workspace{}, ErrConflict
+	}
+	now := s.now().UTC()
+	g.Version++
+	g.UpdatedAt = now
+	w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: action, Kind: "instruction", ActorID: actor, TargetID: g.SubjectID, Message: strings.TrimSpace(message), CreatedAt: now})
+	w.UpdatedAt = now
+	return w, s.write(w)
 }
 
 func (s *Store) RecordActivity(repositoryID, id string, event Event) (Workspace, error) {
@@ -128,6 +276,7 @@ func (s *Store) RecordChange(repositoryID, id, actor, path, digest string, delet
 	}
 	now := s.now().UTC()
 	w.Changes = append(w.Changes, FileChange{Sequence: int64(len(w.Changes) + 1), Path: path, ActorID: actor, Digest: digest, Deleted: deleted, CreatedAt: now})
+	w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: "file", Kind: "authorship", Surface: "files", Path: path, ActorID: actor, Message: map[bool]string{true: "deleted", false: "saved"}[deleted], CreatedAt: now})
 	w.UpdatedAt = now
 	return w, s.write(w)
 }
@@ -172,6 +321,7 @@ func (s *Store) Get(repositoryID, id string) (Workspace, error) {
 	if err != nil || w.RepositoryID != repositoryID {
 		return Workspace{}, ErrNotFound
 	}
+	w.Presence = activePresence(w.Presence, s.now().UTC())
 	return w, nil
 }
 func (s *Store) List(repositoryID string) ([]Workspace, error) {
@@ -188,11 +338,21 @@ func (s *Store) List(repositoryID string) ([]Workspace, error) {
 		}
 		w, e := s.read(entry.Name()[:len(entry.Name())-5])
 		if e == nil && w.RepositoryID == repositoryID {
+			w.Presence = activePresence(w.Presence, s.now().UTC())
 			out = append(out, w)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
 	return out, nil
+}
+func activePresence(items []Presence, now time.Time) []Presence {
+	out := make([]Presence, 0, len(items))
+	for _, item := range items {
+		if item.ExpiresAt.After(now) {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 func (s *Store) Append(id string, event Event) error {
 	s.mu.Lock()

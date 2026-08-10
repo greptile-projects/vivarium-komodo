@@ -730,12 +730,22 @@ whenever dependencies change or the web job fails before it starts.
   and credential-free Bubblewrap commands through repository-scoped APIs.
   Mutations require repository write access; retained file evidence records
   actor, path, deletion, and digest, while command evidence records actor,
-  revision, bounded output, and outcome. Optional schema-version `1` `ports`
+  revision, and outcome without terminal input or output. Optional schema-version `1` `ports`
   entries map a port number and label to a relative static-output directory;
   previews serve declared text assets through repository read policy with
   restrictive CSP and the workspace revision header. Never turn previews into
   host-network forwarding or inject general repository credentials into setup,
   commands, snapshots, logs, or preview responses.
+  Ready workspaces are shared collaboration records: participant presence is a
+  renewable 45-second lease, while discussion, file authorship, command
+  execution metadata, control grants, and interventions are durable ordered
+  activity. Human control targets must remain repository participants and agent
+  targets must be approved by the repository-owning organization. Grants use
+  explicit observe/edit/execute modes, files/terminal/preview scopes, and a
+  version concurrency token for guide, pause, resume, take-over, and revoke.
+  File saves may carry the digest returned by the file read and conflict if the
+  live file changed. Never place raw terminal commands, stdin, stdout, or stderr
+  in shared workspace activity; only the invoking response may contain them.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 

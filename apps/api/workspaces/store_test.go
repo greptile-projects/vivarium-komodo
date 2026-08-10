@@ -3,6 +3,7 @@ package workspaces
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestResumeRejectsChangedFoundation(t *testing.T) {
@@ -33,6 +34,39 @@ func TestResumeRejectsChangedFoundation(t *testing.T) {
 	resumed, err := store.Resume("repository", item.ID, "actor", "digest-a")
 	if err != nil || resumed.State != Ready {
 		t.Fatalf("resume = %#v, %v", resumed, err)
+	}
+}
+
+func TestPresenceExpiresAndControlInterventionsUseVersions(t *testing.T) {
+	store, _ := New(t.TempDir())
+	now := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return now }
+	item, err := store.Create("repository", "revision", "owner", SourceContext{Type: "repository"}, Access{}, Definition{}, "digest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Finish(item.ID, true, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Observe("repository", item.ID, "peer", "files", "README.md"); err != nil {
+		t.Fatal(err)
+	}
+	item, err = store.Grant("repository", item.ID, "owner", "peer", "human", "edit", []string{"files"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant := item.Controls[0]
+	item, err = store.Intervene("repository", item.ID, "owner", grant.ID, "pause", "", grant.Version)
+	if err != nil || item.Controls[0].State != "paused" {
+		t.Fatalf("pause = %#v, %v", item.Controls, err)
+	}
+	if _, err = store.Intervene("repository", item.ID, "owner", grant.ID, "revoke", "", grant.Version); err != ErrConflict {
+		t.Fatalf("stale intervention error = %v", err)
+	}
+	now = now.Add(46 * time.Second)
+	item, err = store.Get("repository", item.ID)
+	if err != nil || len(item.Presence) != 0 {
+		t.Fatalf("expired presence = %#v, %v", item.Presence, err)
 	}
 }
 

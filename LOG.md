@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-10T01:19:02Z: Added live shared workspace collaboration with expiring presence, discussion, privacy-safe role-tagged activity, versioned scoped human/approved-agent control and interventions, serialized mutations, and digest-conflict file edits. The repository workbench now exposes participants, controls, intervention actions, and the durable timeline without sharing private terminal input or output.
+
 2026-08-09T21:30:38Z: Added organization portfolio initiatives that connect verified proposal, evolution, incident, and security sources to ordered cross-repository work, accountable teams/humans/agents, contribution and release evidence, policy exceptions, blockers, and next decisions. Live initiative reads turn membership, scoped-access, agent-operation, or repository-ownership loss into explicit reassignment instead of orphaned work, with creation and inspection in the organization web workspace.
 
 2026-08-09T13:16:19Z: Added public package search and provenance/documentation inspection plus npm-compatible immutable resolution. Consumer-repository credentials now carry only package:read and an exact version allowlist, so isolated builds can install authorized private dependencies without publisher or unrelated-package access.

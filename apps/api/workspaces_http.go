@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
 )
@@ -20,17 +21,24 @@ type workspaceStore interface {
 	List(string) ([]workspaces.Workspace, error)
 	Suspend(string, string, string) (workspaces.Workspace, error)
 	Resume(string, string, string, string) (workspaces.Workspace, error)
+	Observe(string, string, string, string, string) (workspaces.Workspace, error)
+	AddMessage(string, string, string, string) (workspaces.Workspace, error)
+	Grant(string, string, string, string, string, string, []string) (workspaces.Workspace, error)
+	Intervene(string, string, string, string, string, string, int64) (workspaces.Workspace, error)
 }
 type workspaceRunner interface {
 	Definition(string, string) (workspaces.Definition, string, error)
 	Start(workspaces.Workspace)
 	Files(workspaces.Workspace, string) ([]workspaces.File, error)
-	WriteFile(workspaces.Workspace, string, string, []byte, bool) (workspaces.Workspace, error)
+	WriteFile(workspaces.Workspace, string, string, []byte, bool, *string) (workspaces.Workspace, error)
 	Search(workspaces.Workspace, string) ([]workspaces.Match, error)
 	Command(workspaces.Workspace, string, string, string, int) (workspaces.CommandResult, error)
 }
+type workspaceOrganizationStore interface {
+	Get(string) (organizations.Organization, error)
+}
 
-func registerWorkspacesHTTP(mux *http.ServeMux, store workspaceStore, runner workspaceRunner, repositories taskSessionRepositoryStore, credentials authStore, plans proposalStore, pulls pullRequestStore, incidentStore incidentStore) {
+func registerWorkspacesHTTP(mux *http.ServeMux, store workspaceStore, runner workspaceRunner, repositories taskSessionRepositoryStore, credentials authStore, plans proposalStore, pulls pullRequestStore, incidentStore incidentStore, orgs ...workspaceOrganizationStore) {
 	base := "/repositories/{repository}/workspaces"
 	mux.HandleFunc("POST "+base, createWorkspace(store, runner, repositories, credentials, plans, pulls, incidentStore))
 	mux.HandleFunc("GET "+base, listWorkspaces(store, repositories, credentials))
@@ -42,6 +50,115 @@ func registerWorkspacesHTTP(mux *http.ServeMux, store workspaceStore, runner wor
 	mux.HandleFunc("GET "+base+"/{workspace}/search", workspaceSearch(store, runner, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/commands", workspaceCommand(store, runner, repositories, credentials))
 	mux.HandleFunc("GET "+base+"/{workspace}/preview/{port}/{path...}", workspacePreview(store, runner, repositories, credentials))
+	mux.HandleFunc("POST "+base+"/{workspace}/presence", workspacePresence(store, repositories, credentials))
+	mux.HandleFunc("POST "+base+"/{workspace}/messages", workspaceMessage(store, repositories, credentials))
+	var organizationStore workspaceOrganizationStore
+	if len(orgs) > 0 {
+		organizationStore = orgs[0]
+	}
+	mux.HandleFunc("POST "+base+"/{workspace}/controls", workspaceGrantControl(store, repositories, credentials, organizationStore))
+	mux.HandleFunc("POST "+base+"/{workspace}/controls/{control}/interventions", workspaceIntervention(store, repositories, credentials))
+}
+
+func workspacePresence(store workspaceStore, repositories taskSessionRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		var in struct {
+			Surface string `json:"surface"`
+			Path    string `json:"path"`
+		}
+		if !readJSON(w, r, &in, 4<<10) {
+			return
+		}
+		if in.Surface != "files" && in.Surface != "terminal" && in.Surface != "commands" && in.Surface != "preview" && in.Surface != "discussion" {
+			writeJSON(w, 422, map[string]string{"error": "invalid_presence"})
+			return
+		}
+		item, err := store.Observe(string(repository.ID), r.PathValue("workspace"), actor.UserID, in.Surface, strings.TrimSpace(in.Path))
+		writeWorkspaceResult(w, item, err)
+	}
+}
+func workspaceMessage(store workspaceStore, repositories taskSessionRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Message string `json:"message"`
+		}
+		if !readJSON(w, r, &in, 8<<10) {
+			return
+		}
+		item, err := store.AddMessage(string(repository.ID), r.PathValue("workspace"), actor.UserID, in.Message)
+		writeWorkspaceResult(w, item, err)
+	}
+}
+func workspaceGrantControl(store workspaceStore, repositories taskSessionRepositoryStore, credentials authStore, orgs workspaceOrganizationStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			SubjectID   string   `json:"subject_id"`
+			SubjectKind string   `json:"subject_kind"`
+			Mode        string   `json:"mode"`
+			Scopes      []string `json:"scopes"`
+		}
+		if !readJSON(w, r, &in, 8<<10) {
+			return
+		}
+		if in.SubjectKind == "human" {
+			participant := in.SubjectID == repository.OwnerID
+			if !participant {
+				participant, _ = repositories.IsCollaborator(repository.ID, in.SubjectID)
+			}
+			if !participant {
+				writeJSON(w, 422, map[string]string{"error": "subject_not_authorized"})
+				return
+			}
+		} else if in.SubjectKind == "approved_agent" {
+			approved := false
+			if orgs != nil {
+				if org, err := orgs.Get(repository.OwnerID); err == nil {
+					for _, agent := range org.Agents {
+						if agent.ID == in.SubjectID {
+							approved = true
+							break
+						}
+					}
+				}
+			}
+			if !approved {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "agent_not_approved"})
+				return
+			}
+		}
+		item, err := store.Grant(string(repository.ID), r.PathValue("workspace"), actor.UserID, in.SubjectID, in.SubjectKind, in.Mode, in.Scopes)
+		writeWorkspaceResult(w, item, err)
+	}
+}
+func workspaceIntervention(store workspaceStore, repositories taskSessionRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Action  string `json:"action"`
+			Message string `json:"message"`
+			Version int64  `json:"version"`
+		}
+		if !readJSON(w, r, &in, 8<<10) {
+			return
+		}
+		item, err := store.Intervene(string(repository.ID), r.PathValue("workspace"), actor.UserID, r.PathValue("control"), in.Action, in.Message, in.Version)
+		writeWorkspaceResult(w, item, err)
+	}
 }
 
 func readyWorkspace(w http.ResponseWriter, r *http.Request, store workspaceStore, repositories taskSessionRepositoryStore, credentials authStore, scope auth.Scope, write bool) (workspaces.Workspace, auth.Grant, bool) {
@@ -86,14 +203,15 @@ func workspaceWriteFile(store workspaceStore, runner workspaceRunner, repositori
 			return
 		}
 		var input struct {
-			Path    string `json:"path"`
-			Content string `json:"content"`
-			Deleted bool   `json:"deleted"`
+			Path       string  `json:"path"`
+			Content    string  `json:"content"`
+			Deleted    bool    `json:"deleted"`
+			BaseDigest *string `json:"base_digest"`
 		}
 		if !readJSON(w, r, &input, 2<<20) {
 			return
 		}
-		updated, err := runner.WriteFile(item, actor.UserID, input.Path, []byte(input.Content), input.Deleted)
+		updated, err := runner.WriteFile(item, actor.UserID, input.Path, []byte(input.Content), input.Deleted, input.BaseDigest)
 		writeWorkspaceResult(w, updated, err)
 	}
 }
@@ -333,6 +451,10 @@ func writeWorkspaceResult(w http.ResponseWriter, item workspaces.Workspace, err 
 	}
 	if errors.Is(err, workspaces.ErrInvalidTransition) {
 		writeJSON(w, 409, map[string]string{"error": "workspace_state_conflict"})
+		return
+	}
+	if errors.Is(err, workspaces.ErrConflict) {
+		writeJSON(w, 409, map[string]string{"error": "workspace_version_conflict"})
 		return
 	}
 	if err != nil {
