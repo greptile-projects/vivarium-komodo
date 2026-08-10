@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-10T05:00:16Z: Added repository/organization workspace governance for bounded resources, network, idle suspension, retention, sharing, and agent execution, with effective-policy snapshots, attributed consumption, rebuild/revocation evidence, announced expiry, safe unpublished-work export, and terminal stop/expiry that retains checkpoints and published Git evidence.
+
 2026-08-10T03:36:54Z: Connected safe workspace checkpoints to Git branch and pull-request publication with base-checked refs, immutable checkpoint-only trees, commit trailers, workspace/task/session/contributor links, summarized declared commands, and ordinary commit-bound checks. Publication evidence excludes unselected runtime files, credentials, and private command activity.
 
 2026-08-10T01:19:02Z: Added live shared workspace collaboration with expiring presence, discussion, privacy-safe role-tagged activity, versioned scoped human/approved-agent control and interventions, serialized mutations, and digest-conflict file edits. The repository workbench now exposes participants, controls, intervention actions, and the durable timeline without sharing private terminal input or output.

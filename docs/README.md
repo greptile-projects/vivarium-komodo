@@ -1794,3 +1794,30 @@ copying private command output or activity. New requests enter existing checks,
 reviews, required-check, integration-queue, and stale-revision governance.
 Credentials, unselected files, setup products, terminal data, and runtime state
 are never inferred into repository content.
+
+### Workspace governance and expiry
+
+Repository owners manage the default envelope at `GET|PUT
+/repositories/{repository}/workspace-policy`; organization owners can maintain
+their organization envelope at `GET|PUT
+/organizations/{organization}/workspace-policy`. Policies bound CPU, memory,
+disk, network mode, idle suspension, retention, advance expiry notice, sharing,
+and approved-agent execution. A launch snapshots its effective policy and caps
+the revision's declared resource limits. Workspace reads expose active presence,
+the captured envelope, and actor-attributed command-runtime consumption.
+
+Tightened repository policy marks existing environments as requiring rebuild
+and revokes controls that now violate private-sharing or agent-execution rules.
+Resume also records a rebuild requirement when the exact base definition is
+missing or changed. Idle environments suspend automatically. Retention produces
+an `expiry_announced` lifecycle event before terminal expiry, giving the creator
+time to checkpoint or download a ZIP containing only safe collaborator-authored
+paths from `GET .../{workspace}/export`. Credential-like paths and content use
+the same fail-closed exclusions as checkpoints.
+
+Repository owners can announce an explicit expiry with `POST .../{workspace}/expiry`
+or stop/expire immediately with `POST .../{workspace}/stop`. Terminal lifecycle
+transitions revoke live controls and presence and prevent further compute, but
+the workspace record, activity, checkpoints, checkpoint blobs, published Git
+commits, and pull-request links remain inspectable under ordinary repository
+read policy.

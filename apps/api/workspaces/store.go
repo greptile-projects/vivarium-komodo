@@ -21,6 +21,8 @@ const (
 	Ready     State = "ready"
 	Failed    State = "failed"
 	Suspended State = "suspended"
+	Stopping  State = "stopped"
+	Expired   State = "expired"
 )
 
 var ErrNotFound = errors.New("workspace not found")
@@ -149,25 +151,60 @@ type Publication struct {
 	PublishedAt    time.Time `json:"published_at"`
 }
 type Workspace struct {
-	ID               string         `json:"id"`
-	RepositoryID     string         `json:"repository_id"`
-	Revision         string         `json:"revision"`
-	CreatorID        string         `json:"creator_id"`
-	Context          SourceContext  `json:"source_context"`
-	Access           Access         `json:"effective_access"`
-	Definition       Definition     `json:"definition"`
-	DefinitionDigest string         `json:"definition_digest"`
-	State            State          `json:"state"`
-	CreatedAt        time.Time      `json:"created_at"`
-	UpdatedAt        time.Time      `json:"updated_at"`
-	SuspendedAt      *time.Time     `json:"suspended_at,omitempty"`
-	ReadyAt          *time.Time     `json:"ready_at,omitempty"`
-	Events           []Event        `json:"setup_evidence"`
-	Activity         []Event        `json:"activity"`
-	Changes          []FileChange   `json:"changes"`
-	Presence         []Presence     `json:"presence"`
-	Controls         []ControlGrant `json:"controls"`
-	Checkpoints      []Checkpoint   `json:"checkpoints"`
+	ID                string         `json:"id"`
+	RepositoryID      string         `json:"repository_id"`
+	Revision          string         `json:"revision"`
+	CreatorID         string         `json:"creator_id"`
+	Context           SourceContext  `json:"source_context"`
+	Access            Access         `json:"effective_access"`
+	Definition        Definition     `json:"definition"`
+	DefinitionDigest  string         `json:"definition_digest"`
+	State             State          `json:"state"`
+	CreatedAt         time.Time      `json:"created_at"`
+	UpdatedAt         time.Time      `json:"updated_at"`
+	SuspendedAt       *time.Time     `json:"suspended_at,omitempty"`
+	ReadyAt           *time.Time     `json:"ready_at,omitempty"`
+	Events            []Event        `json:"setup_evidence"`
+	Activity          []Event        `json:"activity"`
+	Changes           []FileChange   `json:"changes"`
+	Presence          []Presence     `json:"presence"`
+	Controls          []ControlGrant `json:"controls"`
+	Checkpoints       []Checkpoint   `json:"checkpoints"`
+	Policy            Policy         `json:"effective_policy"`
+	ExpiresAt         *time.Time     `json:"expires_at,omitempty"`
+	ExpiryAnnouncedAt *time.Time     `json:"expiry_announced_at,omitempty"`
+	StoppedAt         *time.Time     `json:"stopped_at,omitempty"`
+	RebuildRequired   bool           `json:"rebuild_required"`
+	RebuildReasons    []string       `json:"rebuild_reasons,omitempty"`
+	Consumption       []Consumption  `json:"consumption,omitempty"`
+}
+
+// Policy is the complete owner-controlled authority and cost envelope. Zero
+// values from old records are upgraded to DefaultPolicy when read.
+type Policy struct {
+	CPUSeconds        int    `json:"cpu_seconds"`
+	MemoryMB          int    `json:"memory_mb"`
+	DiskMB            int    `json:"disk_mb"`
+	Network           string `json:"network"`
+	IdleMinutes       int    `json:"idle_minutes"`
+	RetentionDays     int    `json:"retention_days"`
+	ExpiryNoticeHours int    `json:"expiry_notice_hours"`
+	Sharing           string `json:"sharing"`
+	AgentExecution    bool   `json:"agent_execution"`
+}
+type Consumption struct {
+	ActorID    string    `json:"actor_id"`
+	Kind       string    `json:"kind"`
+	Quantity   int64     `json:"quantity"`
+	Unit       string    `json:"unit"`
+	RecordedAt time.Time `json:"recorded_at"`
+}
+
+func DefaultPolicy() Policy {
+	return Policy{CPUSeconds: 300, MemoryMB: 2048, DiskMB: 4096, Network: "none", IdleMinutes: 120, RetentionDays: 30, ExpiryNoticeHours: 24, Sharing: "participants", AgentExecution: true}
+}
+func (p Policy) Valid() bool {
+	return p.CPUSeconds >= 1 && p.CPUSeconds <= 3600 && p.MemoryMB >= 128 && p.MemoryMB <= 32768 && p.DiskMB >= 128 && p.DiskMB <= 102400 && (p.Network == "none" || p.Network == "restricted") && p.IdleMinutes >= 5 && p.IdleMinutes <= 10080 && p.RetentionDays >= 1 && p.RetentionDays <= 365 && p.ExpiryNoticeHours >= 1 && p.ExpiryNoticeHours <= 168 && (p.Sharing == "private" || p.Sharing == "participants")
 }
 
 func newID() (string, error) {
@@ -232,6 +269,12 @@ func (s *Store) Grant(repositoryID, id, actor, subject, kind, mode string, scope
 	}
 	if w.State != Ready {
 		return Workspace{}, ErrInvalidTransition
+	}
+	if w.Policy.Sharing == "private" && subject != w.CreatorID {
+		return Workspace{}, ErrConflict
+	}
+	if kind == "approved_agent" && !w.Policy.AgentExecution {
+		return Workspace{}, ErrConflict
 	}
 	now := s.now().UTC()
 	grantID, err := newID()
@@ -387,6 +430,9 @@ func New(root string) (*Store, error) {
 	if err = os.MkdirAll(filepath.Join(abs, "checkpoint-blobs"), 0o750); err != nil {
 		return nil, err
 	}
+	if err = os.MkdirAll(filepath.Join(abs, "policies"), 0o750); err != nil {
+		return nil, err
+	}
 	return &Store{root: abs, now: time.Now}, nil
 }
 
@@ -439,6 +485,10 @@ func (s *Store) Blob(digest string) ([]byte, error) {
 func (s *Store) Environment(id string) string { return filepath.Join(s.root, "environments", id) }
 
 func (s *Store) Create(repositoryID, revision, creatorID string, context SourceContext, access Access, definition Definition, digest string) (Workspace, error) {
+	policy, _ := s.EffectivePolicy(repositoryID, "")
+	return s.CreateWithPolicy(repositoryID, revision, creatorID, context, access, definition, digest, policy)
+}
+func (s *Store) CreateWithPolicy(repositoryID, revision, creatorID string, context SourceContext, access Access, definition Definition, digest string, policy Policy) (Workspace, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	b := make([]byte, 16)
@@ -446,9 +496,29 @@ func (s *Store) Create(repositoryID, revision, creatorID string, context SourceC
 		return Workspace{}, err
 	}
 	now := s.now().UTC()
-	w := Workspace{ID: hex.EncodeToString(b), RepositoryID: repositoryID, Revision: revision, CreatorID: creatorID, Context: context, Access: access, Definition: definition, DefinitionDigest: digest, State: SettingUp, CreatedAt: now, UpdatedAt: now}
+	if !policy.Valid() {
+		policy = DefaultPolicy()
+	}
+	definition.Resources.CPUSeconds = min(definition.Resources.CPUSeconds, policy.CPUSeconds)
+	definition.Resources.MemoryMB = min(definition.Resources.MemoryMB, policy.MemoryMB)
+	definition.Resources.DiskMB = min(definition.Resources.DiskMB, policy.DiskMB)
+	w := Workspace{ID: hex.EncodeToString(b), RepositoryID: repositoryID, Revision: revision, CreatorID: creatorID, Context: context, Access: access, Definition: definition, DefinitionDigest: digest, Policy: policy, State: SettingUp, CreatedAt: now, UpdatedAt: now}
 	w.append(Event{Type: "state", State: SettingUp, ActorID: creatorID, CreatedAt: now})
 	return w, s.write(w)
+}
+
+func (s *Store) EffectivePolicy(repositoryID, organizationID string) (Policy, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p, err := s.readPolicy("repository", repositoryID); err == nil {
+		return p, nil
+	}
+	if organizationID != "" {
+		if p, err := s.readPolicy("organization", organizationID); err == nil {
+			return p, nil
+		}
+	}
+	return DefaultPolicy(), nil
 }
 func (s *Store) Get(repositoryID, id string) (Workspace, error) {
 	s.mu.Lock()
@@ -456,6 +526,9 @@ func (s *Store) Get(repositoryID, id string) (Workspace, error) {
 	w, err := s.read(id)
 	if err != nil || w.RepositoryID != repositoryID {
 		return Workspace{}, ErrNotFound
+	}
+	if changed := s.applyLifecycle(&w); changed {
+		_ = s.write(w)
 	}
 	w.Presence = activePresence(w.Presence, s.now().UTC())
 	return w, nil
@@ -474,12 +547,74 @@ func (s *Store) List(repositoryID string) ([]Workspace, error) {
 		}
 		w, e := s.read(entry.Name()[:len(entry.Name())-5])
 		if e == nil && w.RepositoryID == repositoryID {
+			if changed := s.applyLifecycle(&w); changed {
+				_ = s.write(w)
+			}
 			w.Presence = activePresence(w.Presence, s.now().UTC())
 			out = append(out, w)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
 	return out, nil
+}
+func (s *Store) applyLifecycle(w *Workspace) bool {
+	now := s.now().UTC()
+	changed := false
+	deadline := w.CreatedAt.Add(time.Duration(w.Policy.RetentionDays) * 24 * time.Hour)
+	noticeAt := deadline.Add(-time.Duration(w.Policy.ExpiryNoticeHours) * time.Hour)
+	if w.ExpiresAt == nil && (now.After(noticeAt) || now.Equal(noticeAt)) && w.State != Expired && w.State != Stopping {
+		at := deadline
+		if at.Before(now.Add(time.Duration(w.Policy.ExpiryNoticeHours) * time.Hour)) {
+			at = now.Add(time.Duration(w.Policy.ExpiryNoticeHours) * time.Hour)
+		}
+		w.ExpiresAt = &at
+		w.ExpiryAnnouncedAt = &now
+		w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: "expiry_announced", Kind: "lifecycle", ActorID: "system", Message: at.Format(time.RFC3339), CreatedAt: now})
+		changed = true
+	}
+	if w.ExpiresAt != nil && !now.Before(*w.ExpiresAt) && w.State != Expired && w.State != Stopping {
+		w.State = Expired
+		w.StoppedAt = &now
+		w.Presence = nil
+		for i := range w.Controls {
+			w.Controls[i].State = "revoked"
+			w.Controls[i].Version++
+			w.Controls[i].UpdatedAt = now
+		}
+		w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: "expired", Kind: "lifecycle", ActorID: "system", CreatedAt: now})
+		changed = true
+	} else if w.State == Ready && now.Sub(w.UpdatedAt) >= time.Duration(w.Policy.IdleMinutes)*time.Minute {
+		w.State = Suspended
+		w.SuspendedAt = &now
+		w.Presence = nil
+		w.Events = append(w.Events, Event{Sequence: int64(len(w.Events) + 1), Type: "state", State: Suspended, ActorID: "system", Message: "idle policy", CreatedAt: now})
+		changed = true
+	}
+	if changed {
+		w.UpdatedAt = now
+	}
+	return changed
+}
+
+func (s *Store) RequireRebuild(repositoryID, id, reason string) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, err := s.read(id)
+	if err != nil || w.RepositoryID != repositoryID {
+		return Workspace{}, ErrNotFound
+	}
+	w.RebuildRequired = true
+	found := false
+	for _, v := range w.RebuildReasons {
+		found = found || v == reason
+	}
+	if !found {
+		w.RebuildReasons = append(w.RebuildReasons, reason)
+	}
+	now := s.now().UTC()
+	w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: "rebuild_required", Kind: "lifecycle", ActorID: "system", Message: reason, CreatedAt: now})
+	w.UpdatedAt = now
+	return w, s.write(w)
 }
 func activePresence(items []Presence, now time.Time) []Presence {
 	out := make([]Presence, 0, len(items))
@@ -587,8 +722,128 @@ func (s *Store) read(id string) (Workspace, error) {
 	var w Workspace
 	if err == nil {
 		err = json.Unmarshal(data, &w)
+		if !w.Policy.Valid() {
+			w.Policy = DefaultPolicy()
+		}
 	}
 	return w, err
+}
+
+func (s *Store) SetPolicy(scope, id string, p Policy) (Policy, error) {
+	if (scope != "repository" && scope != "organization") || id == "" || !p.Valid() {
+		return Policy{}, ErrConflict
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return Policy{}, err
+	}
+	err = os.WriteFile(filepath.Join(s.root, "policies", scope+"-"+id+".json"), data, 0o640)
+	if err == nil && scope == "repository" {
+		entries, _ := os.ReadDir(filepath.Join(s.root, "records"))
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+				continue
+			}
+			w, e := s.read(strings.TrimSuffix(entry.Name(), ".json"))
+			if e != nil || w.RepositoryID != id {
+				continue
+			}
+			if w.Policy != p {
+				w.RebuildRequired = true
+				w.RebuildReasons = []string{"workspace policy changed"}
+				now := s.now().UTC()
+				for i := range w.Controls {
+					if p.Sharing == "private" && w.Controls[i].SubjectID != w.CreatorID || w.Controls[i].SubjectKind == "approved_agent" && !p.AgentExecution {
+						w.Controls[i].State = "revoked"
+						w.Controls[i].Version++
+						w.Controls[i].UpdatedAt = now
+					}
+				}
+				w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: "rebuild_required", Kind: "lifecycle", ActorID: "system", Message: "workspace policy changed", CreatedAt: now})
+				_ = s.write(w)
+			}
+		}
+	}
+	return p, err
+}
+func (s *Store) Policy(scope, id string) (Policy, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.readPolicy(scope, id)
+	if os.IsNotExist(err) {
+		return DefaultPolicy(), nil
+	}
+	return p, err
+}
+func (s *Store) readPolicy(scope, id string) (Policy, error) {
+	var p Policy
+	data, err := os.ReadFile(filepath.Join(s.root, "policies", scope+"-"+id+".json"))
+	if err == nil {
+		err = json.Unmarshal(data, &p)
+	}
+	return p, err
+}
+
+func (s *Store) AnnounceExpiry(repositoryID, id, actor string, at time.Time) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, err := s.read(id)
+	if err != nil || w.RepositoryID != repositoryID {
+		return Workspace{}, ErrNotFound
+	}
+	now := s.now().UTC()
+	if at.Before(now.Add(time.Duration(w.Policy.ExpiryNoticeHours)*time.Hour)) || w.State == Expired || w.State == Stopping {
+		return Workspace{}, ErrConflict
+	}
+	w.ExpiresAt = &at
+	w.ExpiryAnnouncedAt = &now
+	w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: "expiry_announced", Kind: "lifecycle", ActorID: actor, Message: at.UTC().Format(time.RFC3339), CreatedAt: now})
+	w.UpdatedAt = now
+	return w, s.write(w)
+}
+func (s *Store) Stop(repositoryID, id, actor, reason string, expire bool) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, err := s.read(id)
+	if err != nil || w.RepositoryID != repositoryID {
+		return Workspace{}, ErrNotFound
+	}
+	if w.State == Expired || w.State == Stopping {
+		return Workspace{}, ErrInvalidTransition
+	}
+	now := s.now().UTC()
+	if expire {
+		w.State = Expired
+	} else {
+		w.State = Stopping
+	}
+	w.StoppedAt = &now
+	w.Presence = nil
+	for i := range w.Controls {
+		if w.Controls[i].State != "revoked" {
+			w.Controls[i].State = "revoked"
+			w.Controls[i].Version++
+			w.Controls[i].UpdatedAt = now
+		}
+	}
+	w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: string(w.State), Kind: "lifecycle", ActorID: actor, Message: strings.TrimSpace(reason), CreatedAt: now})
+	w.UpdatedAt = now
+	return w, s.write(w)
+}
+func (s *Store) RecordConsumption(repositoryID, id, actor, kind string, quantity int64, unit string) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, err := s.read(id)
+	if err != nil || w.RepositoryID != repositoryID {
+		return Workspace{}, ErrNotFound
+	}
+	if quantity < 0 {
+		return Workspace{}, ErrConflict
+	}
+	w.Consumption = append(w.Consumption, Consumption{ActorID: actor, Kind: kind, Quantity: quantity, Unit: unit, RecordedAt: s.now().UTC()})
+	return w, s.write(w)
 }
 func (s *Store) write(w Workspace) error {
 	data, err := json.MarshalIndent(w, "", "  ")
