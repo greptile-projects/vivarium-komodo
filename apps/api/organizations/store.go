@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -146,11 +147,14 @@ type StewardshipDecision struct {
 	CreatedAt    time.Time  `json:"created_at"`
 }
 type StewardshipClassRule struct {
-	Class            string `json:"class"`
-	Mode             string `json:"mode"` // approval or auto_start
-	MaxRisk          string `json:"max_risk,omitempty"`
-	MaxRunsPerDay    int    `json:"max_runs_per_day,omitempty"`
-	MaxHoursPerMonth int    `json:"max_hours_per_month,omitempty"`
+	Class            string   `json:"class"`
+	Mode             string   `json:"mode"` // approval or auto_start
+	MaxRisk          string   `json:"max_risk,omitempty"`
+	MaxRunsPerDay    int      `json:"max_runs_per_day,omitempty"`
+	MaxHoursPerMonth int      `json:"max_hours_per_month,omitempty"`
+	Priority         int      `json:"priority,omitempty"`
+	MinConfidence    float64  `json:"min_confidence,omitempty"`
+	RequiredEvidence []string `json:"required_evidence,omitempty"`
 }
 type StewardshipWorkPolicy struct {
 	MandateID      string                 `json:"mandate_id"`
@@ -205,6 +209,55 @@ type StewardshipOpportunity struct {
 	Work              *StewardshipWorkLink      `json:"work,omitempty"`
 	EvaluatedAt       time.Time                 `json:"evaluated_at"`
 	UpdatedAt         time.Time                 `json:"updated_at"`
+}
+
+type StewardshipGoalResult struct {
+	Goal     string `json:"goal"`
+	State    string `json:"state"` // advanced, unchanged, regressed
+	Evidence string `json:"evidence"`
+}
+type StewardshipOutcome struct {
+	ID             string                  `json:"id"`
+	OpportunityID  string                  `json:"opportunity_id"`
+	MandateID      string                  `json:"mandate_id"`
+	MandateVersion int64                   `json:"mandate_version"`
+	Implementation string                  `json:"implementation"`
+	Verification   string                  `json:"verification"`
+	Release        string                  `json:"release"`
+	ActualHours    int                     `json:"actual_hours"`
+	Runs           int                     `json:"runs"`
+	FalsePositive  bool                    `json:"false_positive"`
+	Summary        string                  `json:"summary"`
+	Evidence       []StewardshipCitation   `json:"evidence"`
+	GoalResults    []StewardshipGoalResult `json:"goal_results"`
+	RecordedByID   string                  `json:"recorded_by_id"`
+	RecordedAt     time.Time               `json:"recorded_at"`
+}
+type StewardshipNotice struct {
+	ID             string    `json:"id"`
+	MandateID      string    `json:"mandate_id"`
+	MandateVersion int64     `json:"mandate_version"`
+	Kind           string    `json:"kind"`
+	Detail         string    `json:"detail"`
+	Action         string    `json:"action"`
+	ActorID        string    `json:"actor_id"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+type StewardshipReport struct {
+	MandateID              string                    `json:"mandate_id"`
+	MandateVersion         int64                     `json:"mandate_version"`
+	MandateState           string                    `json:"mandate_state"`
+	OpportunityDisposition map[string]int            `json:"opportunity_disposition"`
+	RecommendationDecision map[string]int            `json:"recommendation_decision"`
+	ImplementationOutcomes map[string]int            `json:"implementation_outcomes"`
+	VerificationResults    map[string]int            `json:"verification_results"`
+	ReleaseResults         map[string]int            `json:"release_results"`
+	ResourceUse            map[string]int            `json:"resource_use"`
+	FalsePositives         int                       `json:"false_positives"`
+	GoalProgress           map[string]map[string]int `json:"goal_progress"`
+	Outcomes               []StewardshipOutcome      `json:"outcomes"`
+	Notices                []StewardshipNotice       `json:"notices"`
+	WorkPolicies           []StewardshipWorkPolicy   `json:"work_policies"`
 }
 
 // ResourceRef names one authority boundary without implying authority over the
@@ -369,6 +422,8 @@ type Organization struct {
 	StewardshipMandates      []StewardshipMandate     `json:"stewardship_mandates"`
 	StewardshipOpportunities []StewardshipOpportunity `json:"stewardship_opportunities"`
 	StewardshipWorkPolicies  []StewardshipWorkPolicy  `json:"stewardship_work_policies"`
+	StewardshipOutcomes      []StewardshipOutcome     `json:"stewardship_outcomes"`
+	StewardshipNotices       []StewardshipNotice      `json:"stewardship_notices"`
 	CreatedAt                time.Time                `json:"created_at"`
 	UpdatedAt                time.Time                `json:"updated_at"`
 }
@@ -1566,8 +1621,14 @@ func (s *Store) PutStewardshipWorkPolicy(id, actor, mandateID string, mandateVer
 		for i := range rules {
 			r := &rules[i]
 			r.Class, r.Mode, r.MaxRisk = strings.TrimSpace(r.Class), strings.TrimSpace(r.Mode), strings.TrimSpace(r.MaxRisk)
-			if r.Class == "" || seen[r.Class] || (r.Mode != "approval" && r.Mode != "auto_start") || (r.MaxRisk != "" && !validRisk(r.MaxRisk)) || r.MaxRunsPerDay < 0 || r.MaxHoursPerMonth < 0 {
+			if r.Class == "" || seen[r.Class] || (r.Mode != "approval" && r.Mode != "auto_start") || (r.MaxRisk != "" && !validRisk(r.MaxRisk)) || r.MaxRunsPerDay < 0 || r.MaxHoursPerMonth < 0 || r.Priority < 0 || r.Priority > 1000 || r.MinConfidence < 0 || r.MinConfidence > 1 {
 				return ErrInvalid
+			}
+			r.RequiredEvidence = uniqueStrings(r.RequiredEvidence)
+			for _, kind := range r.RequiredEvidence {
+				if strings.TrimSpace(kind) != kind || len(kind) > 100 {
+					return ErrInvalid
+				}
 			}
 			seen[r.Class] = true
 		}
@@ -1659,6 +1720,20 @@ func (s *Store) DecideStewardshipWork(id, opportunityID, actor, risk string, hou
 			}
 			if rule != nil && rule.MaxRisk != "" && riskLevel(risk) > riskLevel(rule.MaxRisk) {
 				blockers = append(blockers, "risk_exceeds_mandate")
+			}
+			if rule != nil && x.Confidence < rule.MinConfidence {
+				blockers = append(blockers, "confidence_below_policy")
+			}
+			if rule != nil {
+				kinds := map[string]bool{}
+				for _, citation := range x.Citations {
+					kinds[citation.Kind] = true
+				}
+				for _, required := range rule.RequiredEvidence {
+					if !kinds[required] {
+						blockers = append(blockers, "required_evidence_missing:"+required)
+					}
+				}
 			}
 			dailyRuns, monthlyHours := 0, 0
 			for _, other := range o.StewardshipOpportunities {
@@ -1755,6 +1830,175 @@ func (s *Store) LinkStewardshipWork(id, opportunityID, actor, proposalID, baseRe
 	})
 	return o, changed, err
 }
+
+// RecordStewardshipOutcome appends a maintainer attestation. Delivery resources
+// remain owned by their normal stores; citations identify the retained evidence.
+func (s *Store) RecordStewardshipOutcome(id, opportunityID, actor string, in StewardshipOutcome) (Organization, StewardshipOutcome, error) {
+	var made StewardshipOutcome
+	o, err := s.change(id, func(o *Organization) error {
+		member, ok := membership(*o, actor, true)
+		if !ok || member.Role != "owner" {
+			return ErrForbidden
+		}
+		var opportunity *StewardshipOpportunity
+		for i := range o.StewardshipOpportunities {
+			if o.StewardshipOpportunities[i].ID == opportunityID {
+				opportunity = &o.StewardshipOpportunities[i]
+			}
+		}
+		if opportunity == nil {
+			return ErrNotFound
+		}
+		in.Summary = strings.TrimSpace(in.Summary)
+		if !oneOf(in.Implementation, "not_started", "in_progress", "succeeded", "failed") || !oneOf(in.Verification, "not_run", "passed", "failed") || !oneOf(in.Release, "not_released", "released", "failed", "rolled_back") || in.ActualHours < 0 || in.ActualHours > 10000 || in.Runs < 0 || in.Runs > 100000 || in.Summary == "" || len(in.Evidence) == 0 {
+			return ErrInvalid
+		}
+		mandate := findStewardshipMandate(o, opportunity.MandateID, opportunity.MandateVersion)
+		if mandate == nil || len(in.GoalResults) != len(mandate.DesiredOutcomes) {
+			return ErrInvalid
+		}
+		goals := map[string]bool{}
+		for _, goal := range mandate.DesiredOutcomes {
+			goals[goal] = true
+		}
+		for i := range in.GoalResults {
+			result := &in.GoalResults[i]
+			result.Goal, result.Evidence = strings.TrimSpace(result.Goal), strings.TrimSpace(result.Evidence)
+			if !goals[result.Goal] || !oneOf(result.State, "advanced", "unchanged", "regressed") || result.Evidence == "" {
+				return ErrInvalid
+			}
+			delete(goals, result.Goal)
+		}
+		if len(goals) != 0 {
+			return ErrInvalid
+		}
+		now := s.now().UTC()
+		for i := range in.Evidence {
+			c := &in.Evidence[i]
+			c.Kind, c.ResourceID, c.RepositoryID, c.Revision, c.Summary = strings.TrimSpace(c.Kind), strings.TrimSpace(c.ResourceID), strings.TrimSpace(c.RepositoryID), strings.TrimSpace(c.Revision), strings.TrimSpace(c.Summary)
+			if c.Kind == "" || c.ResourceID == "" || c.RepositoryID != opportunity.RepositoryID || c.Revision == "" || c.Summary == "" || c.ObservedAt.IsZero() || c.ObservedAt.After(now) {
+				return ErrInvalid
+			}
+		}
+		newID, e := newID()
+		if e != nil {
+			return e
+		}
+		in.ID, in.OpportunityID, in.MandateID, in.MandateVersion = newID, opportunity.ID, opportunity.MandateID, opportunity.MandateVersion
+		in.RecordedByID, in.RecordedAt = actor, now
+		o.StewardshipOutcomes = append(o.StewardshipOutcomes, in)
+		made = in
+		event(o, "stewardship.outcome_recorded", actor, opportunity.ID, now)
+		return nil
+	})
+	return o, made, err
+}
+
+func findStewardshipMandate(o *Organization, id string, version int64) *StewardshipMandate {
+	for i := range o.StewardshipMandates {
+		if o.StewardshipMandates[i].ID == id && o.StewardshipMandates[i].Version == version {
+			return &o.StewardshipMandates[i]
+		}
+	}
+	return nil
+}
+
+// RecordStewardshipHealth pauses only the affected accepted mandate version.
+// Resumption remains an explicit owner lifecycle action.
+func (s *Store) RecordStewardshipHealth(id, mandateID string, version int64, actor, kind, detail string) (Organization, StewardshipNotice, error) {
+	var made StewardshipNotice
+	o, err := s.change(id, func(o *Organization) error {
+		member, memberOK := membership(*o, actor, true)
+		mandate := findStewardshipMandate(o, mandateID, version)
+		if mandate == nil {
+			return ErrNotFound
+		}
+		operator := false
+		for _, agent := range o.Agents {
+			if agent.ID == mandate.AgentID {
+				operator = slices.Contains(agent.OperatorIDs, actor)
+			}
+		}
+		if (!memberOK || member.Role != "owner") && !operator {
+			return ErrForbidden
+		}
+		detail = strings.TrimSpace(detail)
+		if !oneOf(kind, "repeated_failures", "inactivity", "access_revoked", "anomalous_consumption") || detail == "" {
+			return ErrInvalid
+		}
+		now := s.now().UTC()
+		if StewardshipState(*mandate, now) != "active" {
+			return ErrConflict
+		}
+		mandate.State = "paused"
+		nid, e := newID()
+		if e != nil {
+			return e
+		}
+		made = StewardshipNotice{ID: nid, MandateID: mandateID, MandateVersion: version, Kind: kind, Detail: detail, Action: "automation_paused_review_and_resume", ActorID: actor, CreatedAt: now}
+		o.StewardshipNotices = append(o.StewardshipNotices, made)
+		event(o, "stewardship.automation_paused", actor, mandateID, now)
+		return nil
+	})
+	return o, made, err
+}
+
+func (s *Store) StewardshipReport(id, mandateID string, version int64) (StewardshipReport, error) {
+	o, err := s.Get(id)
+	if err != nil {
+		return StewardshipReport{}, err
+	}
+	mandate := findStewardshipMandate(&o, mandateID, version)
+	if mandate == nil {
+		return StewardshipReport{}, ErrNotFound
+	}
+	r := StewardshipReport{MandateID: mandateID, MandateVersion: version, MandateState: StewardshipState(*mandate, s.now().UTC()), OpportunityDisposition: map[string]int{}, RecommendationDecision: map[string]int{}, ImplementationOutcomes: map[string]int{}, VerificationResults: map[string]int{}, ReleaseResults: map[string]int{}, ResourceUse: map[string]int{"estimated_hours": 0, "actual_hours": 0, "runs": 0}, GoalProgress: map[string]map[string]int{}}
+	for _, goal := range mandate.DesiredOutcomes {
+		r.GoalProgress[goal] = map[string]int{"advanced": 0, "unchanged": 0, "regressed": 0}
+	}
+	for _, opportunity := range o.StewardshipOpportunities {
+		if opportunity.MandateID != mandateID || opportunity.MandateVersion != version {
+			continue
+		}
+		r.OpportunityDisposition[opportunity.State]++
+		for _, decision := range opportunity.WorkDecisions {
+			r.RecommendationDecision[decision.State]++
+			if decision.State == "accepted" {
+				r.ResourceUse["estimated_hours"] += decision.Hours
+			}
+		}
+	}
+	for _, outcome := range o.StewardshipOutcomes {
+		if outcome.MandateID != mandateID || outcome.MandateVersion != version {
+			continue
+		}
+		r.Outcomes = append(r.Outcomes, outcome)
+		r.ImplementationOutcomes[outcome.Implementation]++
+		r.VerificationResults[outcome.Verification]++
+		r.ReleaseResults[outcome.Release]++
+		r.ResourceUse["actual_hours"] += outcome.ActualHours
+		r.ResourceUse["runs"] += outcome.Runs
+		if outcome.FalsePositive {
+			r.FalsePositives++
+		}
+		for _, goal := range outcome.GoalResults {
+			r.GoalProgress[goal.Goal][goal.State]++
+		}
+	}
+	for _, notice := range o.StewardshipNotices {
+		if notice.MandateID == mandateID && notice.MandateVersion == version {
+			r.Notices = append(r.Notices, notice)
+		}
+	}
+	for _, policy := range o.StewardshipWorkPolicies {
+		if policy.MandateID == mandateID && policy.MandateVersion == version {
+			r.WorkPolicies = append(r.WorkPolicies, policy)
+		}
+	}
+	return r, nil
+}
+
+func oneOf(value string, values ...string) bool { return slices.Contains(values, value) }
 
 // DraftPolicy appends a version. Supplying policyID creates the next immutable
 // version in that lineage; an empty policyID starts a new policy.

@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-10T16:32:56Z: Added append-only stewardship outcome and mandate-goal reporting with implementation, verification, release, resource, and false-positive evidence; owners can version priority/confidence/evidence rules without changing authority. Repeated failures, inactivity, revoked access, and anomalous consumption now pause the exact affected mandate and retain actionable notices for explicit review and resume.
+
 2026-08-10T13:20:26Z: Added an evidence-pinned organization stewardship backlog with mandate/signal enforcement, stable-key deduplication, severity/value/confidence and owner/revision citations, explicit stale evidence, and attributed collaborator ranking, discussion, snooze, dismissal, and incorrectness decisions. The organization workspace exposes the explainable queue without granting authority or starting work.
 
 2026-08-10T12:29:03Z: Added versioned organization stewardship mandates with explicit outcomes, repository/branch scope, signals, exclusions, budgets, schedules, approved-agent operator acceptance, lifecycle controls, and effective policy/access preview. Mandates issue no credential or implicit write/merge authority, and the organization web workspace now supports their full accountable lifecycle.

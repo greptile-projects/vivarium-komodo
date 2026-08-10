@@ -94,6 +94,32 @@ Reviewers see that evidence in the pull request overview, while required checks,
 reviews, owner acknowledgements, fork boundaries, protected integration queues,
 and merge permissions continue to apply without a stewardship exception.
 
+### Stewardship learning and safety
+
+Each accepted mandate version has a member-readable `/report` resource that
+rolls up opportunity disposition, accepted and blocked recommendations,
+implementation, verification and release results, estimated and actual resource
+use, false-positive feedback, and evidence-backed progress or regression for
+every original desired outcome. Organization owners append outcome attestations
+beneath an opportunity; every record cites an exact repository revision and a
+retained delivery, check, release, or other evidence resource. History is
+append-only, so later success does not erase failed work or a rejected signal.
+
+Owners may use that history to version class priority, minimum confidence, and
+required evidence kinds alongside existing admission, risk, and consumption
+rules. These settings can rank or block a recommendation, but cannot alter
+repository/branch scope, trusted signals, agent identity, actions, budgets, or
+human decision boundaries. Those material changes continue to require a new
+immutable mandate version and fresh operator acceptance.
+
+An owner or the accepted agent's operator reports `repeated_failures`,
+`inactivity`, `access_revoked`, or `anomalous_consumption` at the exact mandate
+version's `/health-events` resource. The store atomically pauses only that
+active version and appends an actionable notice to its report. A maintainer must
+review the retained detail and explicitly resume through the ordinary mandate
+lifecycle; reporting a safety condition never grants replacement access or
+quietly broadens another mandate.
+
 ## Prospective impact assessment
 
 Impact assessment is a pre-implementation, exact-revision record rather than a

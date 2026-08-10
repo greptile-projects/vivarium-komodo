@@ -2,6 +2,7 @@ package organizations
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 )
@@ -277,6 +278,48 @@ func TestStewardshipWorkPolicyAdmissionBudgetsConcurrencyAndPromotion(t *testing
 	_, promoted, err := s.LinkStewardshipWork(o.ID, opportunity.ID, "owner", "proposal", "aaa", []string{"task-1"})
 	if err != nil || promoted.State != "promoted" || promoted.Work.BaseRevision != "aaa" {
 		t.Fatalf("promoted = %#v, %v", promoted, err)
+	}
+}
+
+func TestStewardshipHistoryTuningOutcomesAndAutomaticPause(t *testing.T) {
+	s, _ := New(t.TempDir())
+	now := time.Date(2026, 8, 10, 16, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	o, _ := s.Create("owner", "learning-steward", "Learning steward", "")
+	o, _ = s.Invite(o.ID, "owner", "operator")
+	o, _ = s.Accept(o.ID, "operator")
+	_, agent, _ := s.RegisterAgent(o.ID, "owner", Agent{Slug: "steward", Name: "Steward", Capabilities: []string{"checks:read"}, OperatorIDs: []string{"operator"}, Visibility: "internal"})
+	mandate := StewardshipMandate{Title: "Keep main healthy", AgentID: agent.ID, DesiredOutcomes: []string{"main stays green"}, Scopes: []StewardshipScope{{RepositoryID: "repo", Branches: []string{"main"}}}, TrustedSignals: []string{"check.failed"}, Budget: StewardshipBudget{MaxHoursPerMonth: 10, MaxRunsPerDay: 3}, Schedule: StewardshipSchedule{StartsAt: now, ExpiresAt: now.Add(24 * time.Hour), Cadence: "continuous"}, AllowedActions: []string{"draft proposal"}, RequiredHumanDecisions: []string{"merge"}}
+	_, mandate, _ = s.DraftStewardship(o.ID, "owner", "", mandate)
+	_, mandate, _ = s.AcceptStewardship(o.ID, mandate.ID, 1, "operator")
+	_, policy, err := s.PutStewardshipWorkPolicy(o.ID, "owner", mandate.ID, 1, 0, []StewardshipClassRule{{Class: "check_failure", Mode: "auto_start", MaxRisk: "medium", Priority: 90, MinConfidence: .8, RequiredEvidence: []string{"check_run"}}})
+	if err != nil || policy.Rules[0].Priority != 90 {
+		t.Fatalf("history tuning = %#v, %v", policy, err)
+	}
+	finding := StewardshipOpportunity{DeduplicationKey: "test-main", MandateID: mandate.ID, MandateVersion: 1, RepositoryID: "repo", Class: "check_failure", Title: "Repair test", Summary: "test failed", Severity: "high", ExpectedValue: "restore confidence", Confidence: .7, AffectedOwnerIDs: []string{"owner"}, AffectedRevisions: []string{"aaa"}, InScopeReason: "main must stay green", Signal: "check.failed", Citations: []StewardshipCitation{{Kind: "log", ResourceID: "log", RepositoryID: "repo", Revision: "aaa", Summary: "failed", ObservedAt: now}}}
+	_, opportunity, err := s.EvaluateStewardship(o.ID, "operator", finding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, blocked, err := s.DecideStewardshipWork(o.ID, opportunity.ID, "operator", "low", 1, 0, 1, true, nil)
+	if err != nil || !slices.Contains(blocked.WorkDecisions[0].Blockers, "confidence_below_policy") || !slices.Contains(blocked.WorkDecisions[0].Blockers, "required_evidence_missing:check_run") {
+		t.Fatalf("evidence blockers = %#v, %v", blocked.WorkDecisions, err)
+	}
+	outcomeIn := StewardshipOutcome{Implementation: "failed", Verification: "failed", Release: "not_released", ActualHours: 3, Runs: 2, FalsePositive: true, Summary: "The suspected product defect was a flaky environment.", Evidence: []StewardshipCitation{{Kind: "check_run", ResourceID: "run-2", RepositoryID: "repo", Revision: "aaa", Summary: "rerun isolated the flake", ObservedAt: now}}, GoalResults: []StewardshipGoalResult{{Goal: "main stays green", State: "regressed", Evidence: "Two required attempts failed."}}}
+	_, outcome, err := s.RecordStewardshipOutcome(o.ID, opportunity.ID, "owner", outcomeIn)
+	if err != nil || outcome.RecordedByID != "owner" {
+		t.Fatalf("outcome = %#v, %v", outcome, err)
+	}
+	_, notice, err := s.RecordStewardshipHealth(o.ID, mandate.ID, 1, "operator", "repeated_failures", "Two consecutive governed runs failed; inspect the flaky signal before resuming.")
+	if err != nil || notice.Action != "automation_paused_review_and_resume" {
+		t.Fatalf("notice = %#v, %v", notice, err)
+	}
+	report, err := s.StewardshipReport(o.ID, mandate.ID, 1)
+	if err != nil || report.MandateState != "paused" || report.FalsePositives != 1 || report.ResourceUse["actual_hours"] != 3 || report.ImplementationOutcomes["failed"] != 1 || report.GoalProgress["main stays green"]["regressed"] != 1 || len(report.Notices) != 1 || len(report.WorkPolicies) != 1 {
+		t.Fatalf("report = %#v, %v", report, err)
+	}
+	if _, _, err := s.RecordStewardshipOutcome(o.ID, opportunity.ID, "operator", outcomeIn); err != ErrForbidden {
+		t.Fatalf("operator recorded maintainer outcome: %v", err)
 	}
 }
 
