@@ -108,6 +108,12 @@ type DevelopmentWorkspace = {
   changes: Array<{ sequence: number; path: string; actor_id: string; digest?: string; deleted?: boolean }>;
   presence: Array<{actor_id:string;surface:string;path?:string;expires_at:string}>;
   controls: Array<{id:string;subject_id:string;subject_kind:string;mode:string;scopes:string[];state:string;granted_by:string;version:number}>;
+  checkpoints: Array<{
+    id:string; parent_id?:string; creator_id:string; base_revision:string; definition_digest:string; summary:string; created_at:string;
+    reproducibility:{dependencies?:string[];commands?:string[];notes?:string};
+    changes:Array<{path:string;operation:"add"|"modify"|"delete";base_digest?:string;digest?:string;patch?:string;binary?:boolean;size?:number}>;
+    status:{reproducible:boolean;diverged:boolean;conflicts:string[];missing_dependencies:string[];reasons:string[]};
+  }>;
 };
 type WorkspaceFile = { path: string; directory: boolean; size?: number; content?: string; binary?: boolean; digest?:string };
 type WorkspaceMatch = { path: string; line: number; text: string };
@@ -1881,6 +1887,11 @@ function DevelopmentWorkspaces({ repository, branches, actor, selected }: { repo
   const [terminal, setTerminal] = useState("");
   const [message, setMessage] = useState("");
   const [controlSubject, setControlSubject] = useState("");
+  const [checkpointSummary, setCheckpointSummary] = useState("");
+  const [checkpointPaths, setCheckpointPaths] = useState("");
+  const [checkpointDependencies, setCheckpointDependencies] = useState("");
+  const [checkpointCommands, setCheckpointCommands] = useState("");
+  const [checkpointParent, setCheckpointParent] = useState("");
   const load = useCallback(async () => {
     try { setItems((await get<{ items: DevelopmentWorkspace[] }>(`/repositories/${repository.id}/workspaces`)).items); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Workspaces unavailable."); }
@@ -1933,6 +1944,19 @@ function DevelopmentWorkspaces({ repository, branches, actor, selected }: { repo
           <ol className="workspace-activity">{inspected.activity?.slice(-20).reverse().map((entry)=><li key={entry.sequence}><Badge>{entry.kind??entry.type}</Badge> {entry.actor_id&&<Actor id={entry.actor_id} compact />} {entry.type.replaceAll("_"," ")}{entry.path?` · ${entry.path}`:""}{entry.message?` — ${entry.message}`:""}</li>)}</ol>
         </section>}
         <section><h4>Setup evidence</h4><pre>{inspected.setup_evidence.map((event) => `${event.sequence}. ${event.command ?? event.stream ?? event.type}${event.message ? ` — ${event.message}` : ""}${event.exit_code !== undefined ? ` (exit ${event.exit_code})` : ""}`).join("\n")}</pre></section>
+        <section className="workspace-checkpoints"><header><div><p className="eyebrow">Durable unfinished work</p><h4>Checkpoints</h4></div></header>
+          {inspected.state === "ready" && actor && <form onSubmit={async(event)=>{event.preventDefault();setBusy(true);setError("");try{await send(`/repositories/${repository.id}/workspaces/${inspected.id}/checkpoints`,"POST",{summary:checkpointSummary,paths:checkpointPaths.split(",").map((value)=>value.trim()).filter(Boolean),parent_id:checkpointParent,reproducibility:{dependencies:checkpointDependencies.split(",").map((value)=>value.trim()).filter(Boolean),commands:checkpointCommands.split("\n").map((value)=>value.trim()).filter(Boolean)}});setCheckpointSummary("");setCheckpointPaths("");await load();}catch(cause){setError(cause instanceof Error?cause.message:"Unable to create checkpoint.");}finally{setBusy(false);}}}>
+            <label>What should a collaborator recover?<input required value={checkpointSummary} onChange={(event)=>setCheckpointSummary(event.target.value)} /></label>
+            <label>Repository paths to capture<input required placeholder="src/parser.go, tests/parser_test.go" value={checkpointPaths} onChange={(event)=>setCheckpointPaths(event.target.value)} /></label>
+            <label>Required dependencies<input placeholder="go modules, postgres" value={checkpointDependencies} onChange={(event)=>setCheckpointDependencies(event.target.value)} /></label>
+            <label>Reproduction commands<textarea required placeholder="go test ./..." value={checkpointCommands} onChange={(event)=>setCheckpointCommands(event.target.value)} /></label>
+            <label>Branch from checkpoint<select value={checkpointParent} onChange={(event)=>setCheckpointParent(event.target.value)}><option value="">Workspace base</option>{inspected.checkpoints?.map((checkpoint)=><option key={checkpoint.id} value={checkpoint.id}>{short(checkpoint.id)} · {checkpoint.summary}</option>)}</select></label>
+            <Button size="sm" disabled={busy||!checkpointSummary||!checkpointPaths||!checkpointCommands}>Create attributed checkpoint</Button>
+            <small>Only declared repository paths are captured. Credential paths, secret-like content, setup outputs, and private terminal data are rejected or excluded.</small>
+          </form>}
+          <ol>{inspected.checkpoints?.slice().reverse().map((checkpoint)=><li key={checkpoint.id}><article className="panel"><header><div><strong>{checkpoint.summary}</strong><small> by <Actor id={checkpoint.creator_id} compact /> · {new Date(checkpoint.created_at).toLocaleString()}</small></div><Badge>{checkpoint.status.reproducible?"reproducible":"attention needed"}</Badge></header><p><code>{short(checkpoint.id)}</code> from <code>{short(checkpoint.base_revision)}</code>{checkpoint.parent_id?<> · follows <code>{short(checkpoint.parent_id)}</code></>:null}</p>{checkpoint.status.reasons?.map((reason)=><p className="form-error" key={reason}>{reason}</p>)}{checkpoint.status.missing_dependencies?.length>0&&<p>Missing: {checkpoint.status.missing_dependencies.join(", ")}</p>}<ul>{checkpoint.changes.map((change)=><li key={change.path}><Badge>{change.operation}</Badge> <code>{change.path}</code>{change.binary?" · binary":null}{change.patch&&<pre>{change.patch}</pre>}</li>)}</ul>{inspected.state==="ready"&&actor&&<Button size="sm" variant="secondary" onClick={async()=>{setBusy(true);try{await send(`/repositories/${repository.id}/workspaces/${inspected.id}/checkpoints/${checkpoint.id}/restore`,"POST",{});await load();if(filePath)await browse(inspected,filePath);}catch(cause){setError(cause instanceof Error?cause.message:"Checkpoint conflicts with current work.");}finally{setBusy(false);}}}>Restore safely</Button>}</article></li>)}</ol>
+          {!inspected.checkpoints?.length&&<p>No checkpoint evidence yet.</p>}
+        </section>
         {inspected.state === "ready" && <section className="workspace-ide"><nav aria-label="Workspace tools"><Button size="sm" variant="secondary" onClick={() => void browse(inspected)}>Files</Button>{inspected.definition.ports?.map((port) => <a key={port.number} target="workspace-preview" href={`/api/repositories/${repository.id}/workspaces/${inspected.id}/preview/${port.number}/index.html`}>{port.label} :{port.number}</a>)}</nav>
           <div className="workspace-file-tools"><label>Search files<input value={search} onChange={(event) => setSearch(event.target.value)} /></label><Button size="sm" onClick={async () => { const result = await get<{items: WorkspaceMatch[]}>(`/repositories/${repository.id}/workspaces/${inspected.id}/search?q=${encodeURIComponent(search)}`); setMatches(result.items); }}>Search</Button></div>
           {matches.length > 0 && <ul className="workspace-search-results">{matches.map((match) => <li key={`${match.path}:${match.line}`}><button onClick={() => void browse(inspected, match.path)}><code>{match.path}:{match.line}</code> {match.text}</button></li>)}</ul>}

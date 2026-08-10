@@ -33,6 +33,9 @@ type workspaceRunner interface {
 	WriteFile(workspaces.Workspace, string, string, []byte, bool, *string) (workspaces.Workspace, error)
 	Search(workspaces.Workspace, string) ([]workspaces.Match, error)
 	Command(workspaces.Workspace, string, string, string, int) (workspaces.CommandResult, error)
+	Checkpoint(workspaces.Workspace, string, workspaces.CheckpointRequest) (workspaces.Workspace, error)
+	Restore(workspaces.Workspace, string, string) (workspaces.Workspace, workspaces.CheckpointStatus, error)
+	InspectCheckpoint(workspaces.Workspace, string) (workspaces.Checkpoint, error)
 }
 type workspaceOrganizationStore interface {
 	Get(string) (organizations.Organization, error)
@@ -58,6 +61,78 @@ func registerWorkspacesHTTP(mux *http.ServeMux, store workspaceStore, runner wor
 	}
 	mux.HandleFunc("POST "+base+"/{workspace}/controls", workspaceGrantControl(store, repositories, credentials, organizationStore))
 	mux.HandleFunc("POST "+base+"/{workspace}/controls/{control}/interventions", workspaceIntervention(store, repositories, credentials))
+	mux.HandleFunc("POST "+base+"/{workspace}/checkpoints", createWorkspaceCheckpoint(store, runner, repositories, credentials))
+	mux.HandleFunc("GET "+base+"/{workspace}/checkpoints/{checkpoint}", getWorkspaceCheckpoint(store, runner, repositories, credentials))
+	mux.HandleFunc("POST "+base+"/{workspace}/checkpoints/{checkpoint}/restore", restoreWorkspaceCheckpoint(store, runner, repositories, credentials))
+}
+
+func getWorkspaceCheckpoint(store workspaceStore, runner workspaceRunner, repositories taskSessionRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, _, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		item, err := store.Get(string(repository.ID), r.PathValue("workspace"))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		checkpoint, err := runner.InspectCheckpoint(item, r.PathValue("checkpoint"))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		writeJSON(w, 200, checkpoint)
+	}
+}
+
+func createWorkspaceCheckpoint(store workspaceStore, runner workspaceRunner, repositories taskSessionRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		item, actor, ok := readyWorkspace(w, r, store, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Summary         string                     `json:"summary"`
+			Paths           []string                   `json:"paths"`
+			ParentID        string                     `json:"parent_id"`
+			Reproducibility workspaces.Reproducibility `json:"reproducibility"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		updated, err := runner.Checkpoint(item, actor.UserID, workspaces.CheckpointRequest{Summary: in.Summary, Paths: in.Paths, ParentID: in.ParentID, Reproducibility: in.Reproducibility})
+		if errors.Is(err, workspaces.ErrUnsafeCheckpoint) {
+			writeJSON(w, 422, map[string]string{"error": "unsafe_checkpoint_content"})
+			return
+		}
+		if err != nil {
+			writeWorkspaceResult(w, updated, err)
+			return
+		}
+		checkpoint := updated.Checkpoints[len(updated.Checkpoints)-1]
+		w.Header().Set("Location", baseWorkspaceURL(item.RepositoryID, item.ID)+"/checkpoints/"+checkpoint.ID)
+		writeJSON(w, http.StatusCreated, checkpoint)
+	}
+}
+
+func restoreWorkspaceCheckpoint(store workspaceStore, runner workspaceRunner, repositories taskSessionRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		item, actor, ok := readyWorkspace(w, r, store, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		updated, status, err := runner.Restore(item, actor.UserID, r.PathValue("checkpoint"))
+		if errors.Is(err, workspaces.ErrConflict) {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "checkpoint_conflict", "status": status})
+			return
+		}
+		if errors.Is(err, workspaces.ErrUnsafeCheckpoint) {
+			writeJSON(w, 422, map[string]string{"error": "checkpoint_evidence_invalid"})
+			return
+		}
+		writeWorkspaceResult(w, updated, err)
+	}
 }
 
 func workspacePresence(store workspaceStore, repositories taskSessionRepositoryStore, credentials authStore) http.HandlerFunc {
