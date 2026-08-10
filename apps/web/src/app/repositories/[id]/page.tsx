@@ -5,6 +5,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button } from "@/components/ui";
 import { GroundedQuestions } from "@/components/grounded-questions";
+import { CollaborativeInvestigations } from "@/components/collaborative-investigations";
 import {
   Book,
   Branch,
@@ -1161,6 +1162,7 @@ export default function RepositoryPage({
     incident?: string;
     workspace?: string;
     symbol?: string;
+    investigation?: string;
   }>;
 }) {
   const { id } = use(params);
@@ -1187,6 +1189,8 @@ export default function RepositoryPage({
                     ? "workspaces"
                     : query.view === "intelligence"
                       ? "intelligence"
+                      : query.view === "investigations"
+                        ? "investigations"
                       : query.view === "people"
                         ? "people"
                         : "code";
@@ -1239,6 +1243,7 @@ export default function RepositoryPage({
         view === "incidents" ||
         view === "workspaces" ||
         view === "intelligence" ||
+        view === "investigations" ||
         view === "people" ||
         repo.empty ||
         !selected
@@ -1456,6 +1461,13 @@ export default function RepositoryPage({
       )}
       <nav className="repository-tabs" aria-label="Repository">
         <button
+          className={view === "investigations" ? "active" : ""}
+          onClick={() => navigate({ view: "investigations", ref, path: "" })}
+        >
+          <MessageCircle size={15} />
+          Investigations
+        </button>
+        <button
           className={view === "intelligence" ? "active" : ""}
           onClick={() => navigate({ view: "intelligence", ref, path: "" })}
         >
@@ -1592,6 +1604,12 @@ export default function RepositoryPage({
           initialRevision={revision || branches.default_branch}
           initialQuery={query.q}
           selectedSymbol={query.symbol}
+        />
+      ) : view === "investigations" ? (
+        <CollaborativeInvestigations
+          repository={repository.id}
+          revision={ref}
+          selected={query.investigation}
         />
       ) : view === "people" && actor === repository.owner_id ? (
         <CollaboratorWorkspace repository={id} />

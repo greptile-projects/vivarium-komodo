@@ -225,6 +225,19 @@ whenever dependencies change or the web job fails before it starts.
   exact citations. Replay ordered results through `/events?after={sequence}`
   SSE; never regenerate old conversations at a moved branch or cite unreadable
   dependency evidence.
+  Shared code investigations live beneath `$INVESTIGATION_ROOT` (default
+  `apps/api/data/investigations`) and are opened from the repository's
+  `view=investigations&investigation={id}` surface. Only explicitly invited
+  repository participants may read or append to a canvas; an invitation never
+  grants repository access. Entries are ordered, actor-attributed code
+  references, reproducible queries, bounded-workspace observations,
+  hypotheses, agent findings, challenges, or conclusions. Resolve code
+  citations to the canvas commit through `RepositoryStorage`, and accept a
+  runtime observation only when it cites an existing event in a same-commit
+  bounded workspace. Challenges and supersessions retain their target entry.
+  Reruns append an exact-revision run and mark older commit-bound entries stale
+  rather than rewriting them; never persist workspace output, credentials, or
+  hidden agent context in the canvas.
 
   Public repository resources also carry an owner-scoped normalized name,
   description, and create/update timestamps; their immutable ID remains the
