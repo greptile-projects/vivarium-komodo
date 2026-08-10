@@ -167,6 +167,23 @@ type Exception struct {
 	ExpiresAt         time.Time  `json:"expires_at"`
 	RevokedAt         *time.Time `json:"revoked_at,omitempty"`
 }
+type Delivery struct {
+	CommitmentVersion int       `json:"commitment_version"`
+	ProposalID        string    `json:"proposal_id"`
+	TaskIDs           []string  `json:"task_ids"`
+	BaseRevision      string    `json:"base_revision"`
+	CreatedByID       string    `json:"created_by_id"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+type RevisitRequest struct {
+	ID                string    `json:"id"`
+	CommitmentVersion int       `json:"commitment_version"`
+	Kind              string    `json:"kind"`
+	Summary           string    `json:"summary"`
+	EvidenceURL       string    `json:"evidence_url"`
+	CreatedByID       string    `json:"created_by_id"`
+	CreatedAt         time.Time `json:"created_at"`
+}
 type Decision struct {
 	ID                   string                `json:"id"`
 	RepositoryID         string                `json:"repository_id"`
@@ -184,6 +201,8 @@ type Decision struct {
 	ApprovalRequirements []ApprovalRequirement `json:"approval_requirements"`
 	Commitments          []Commitment          `json:"commitments"`
 	Exceptions           []Exception           `json:"exceptions"`
+	Deliveries           []Delivery            `json:"deliveries"`
+	RevisitRequests      []RevisitRequest      `json:"revisit_requests"`
 	PendingApprovalIDs   []string              `json:"pending_approval_ids"`
 	Conflicts            []string              `json:"conflicts"`
 }
@@ -856,7 +875,8 @@ func (s *Store) Publish(repo, id, actor, selected string, rejected []string, rat
 			return Decision{}, ErrInvalid
 		}
 	}
-	if !found || rejectedSet[selected] || len(rejectedSet) != len(v.Alternatives)-1 {
+	_, selectedRejected := rejectedSet[selected]
+	if !found || selectedRejected || len(rejectedSet) != len(v.Alternatives)-1 {
 		return Decision{}, ErrInvalid
 	}
 	for _, r := range v.ApprovalRequirements {
@@ -945,6 +965,46 @@ func (s *Store) RevokeException(repo, id, exception, actor string) (Decision, er
 		}
 	}
 	return Decision{}, ErrNotFound
+}
+
+func (s *Store) LinkDelivery(repo, id, actor, proposal, revision string, taskIDs []string) (Decision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, err := s.read(repo, id)
+	if err != nil {
+		return Decision{}, err
+	}
+	if v.State != "published" || !contains(v.Scope.ParticipantIDs, actor) || proposal == "" || len(taskIDs) == 0 || len(revision) != 40 {
+		return Decision{}, ErrInvalid
+	}
+	for _, delivery := range v.Deliveries {
+		if delivery.CommitmentVersion == len(v.Commitments) {
+			return Decision{}, ErrInvalid
+		}
+	}
+	now := s.now().UTC()
+	v.Deliveries = append(v.Deliveries, Delivery{CommitmentVersion: len(v.Commitments), ProposalID: proposal, TaskIDs: append([]string{}, taskIDs...), BaseRevision: revision, CreatedByID: actor, CreatedAt: now})
+	v.UpdatedAt = now
+	return v, s.write(v)
+}
+
+func (s *Store) RequestRevisit(repo, id, actor, kind, summary, evidenceURL string) (Decision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, err := s.read(repo, id)
+	if err != nil {
+		return Decision{}, err
+	}
+	kind, summary, evidenceURL = strings.TrimSpace(kind), strings.TrimSpace(summary), strings.TrimSpace(evidenceURL)
+	validKind := kind == "changed_assumption" || kind == "failed_measure" || kind == "incompatible_work" || kind == "constraint_deviation"
+	if len(v.Commitments) == 0 || !contains(v.Scope.ParticipantIDs, actor) || !validKind || summary == "" || len(summary) > 4000 || evidenceURL == "" || len(evidenceURL) > 2000 {
+		return Decision{}, ErrInvalid
+	}
+	now := s.now().UTC()
+	v.RevisitRequests = append(v.RevisitRequests, RevisitRequest{ID: newID(), CommitmentVersion: len(v.Commitments), Kind: kind, Summary: summary, EvidenceURL: evidenceURL, CreatedByID: actor, CreatedAt: now})
+	v.State, v.UpdatedAt = "reopened", now
+	s.compare(&v)
+	return v, s.write(v)
 }
 func (s *Store) path(repo, id string) string { return filepath.Join(s.root, repo, id+".json") }
 func (s *Store) read(repo, id string) (Decision, error) {

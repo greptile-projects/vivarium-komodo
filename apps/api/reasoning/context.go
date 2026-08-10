@@ -22,6 +22,8 @@ type Acknowledgement struct {
 // rewritten when the originating analysis is rerun.
 type Context struct {
 	Kind             string            `json:"kind"`
+	DecisionID       string            `json:"decision_id,omitempty"`
+	DecisionVersion  int               `json:"decision_version,omitempty"`
 	OrganizationID   string            `json:"organization_id,omitempty"`
 	OpportunityID    string            `json:"opportunity_id,omitempty"`
 	MandateID        string            `json:"mandate_id,omitempty"`

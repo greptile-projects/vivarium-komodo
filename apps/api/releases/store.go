@@ -27,10 +27,12 @@ type Status string
 const Candidate Status = "candidate"
 
 type PullRequestLink struct {
-	ID            string `json:"id"`
-	Title         string `json:"title"`
-	AuthorID      string `json:"author_id"`
-	MergeCommitID string `json:"merge_commit_id"`
+	ID              string `json:"id"`
+	Title           string `json:"title"`
+	AuthorID        string `json:"author_id"`
+	MergeCommitID   string `json:"merge_commit_id"`
+	DecisionID      string `json:"decision_id,omitempty"`
+	DecisionVersion int    `json:"decision_version,omitempty"`
 }
 
 // Release is an immutable source and inclusion snapshot. Later delivery rungs

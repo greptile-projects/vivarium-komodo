@@ -130,9 +130,9 @@ func publishProposalTaskContribution(plans proposalStore, sessions changeSession
 		}
 		sourceBranch := strings.TrimSpace(input.SourceBranch)
 		sessionID := strings.TrimSpace(input.SessionID)
-		stewarded := task.ReasoningContext != nil && task.ReasoningContext.Kind == "stewardship_opportunity"
-		if stewarded && (sessionID == "" || !validStewardshipDelivery(task.CompletionCriteria, input.DeliveryEvidence)) {
-			writeJSON(w, 422, map[string]string{"error": "stewardship_delivery_evidence_required"})
+		governed := task.ReasoningContext != nil && (task.ReasoningContext.Kind == "stewardship_opportunity" || task.ReasoningContext.Kind == "decision")
+		if governed && (sessionID == "" || !validGovernedDelivery(task.CompletionCriteria, input.DeliveryEvidence, task.ReasoningContext.Kind == "decision")) {
+			writeJSON(w, 422, map[string]string{"error": "governed_delivery_evidence_required"})
 			return
 		}
 		if sessionID != "" {
@@ -207,6 +207,10 @@ func publishProposalTaskContribution(plans proposalStore, sessions changeSession
 }
 
 func validStewardshipDelivery(criteria []string, evidence *pullrequests.DeliveryEvidence) bool {
+	return validGovernedDelivery(criteria, evidence, false)
+}
+
+func validGovernedDelivery(criteria []string, evidence *pullrequests.DeliveryEvidence, requireMet bool) bool {
 	if evidence == nil || strings.TrimSpace(evidence.Reasoning) == "" || len(evidence.Reasoning) > 10000 || len(evidence.Commands) == 0 || len(evidence.Commands) > 100 || len(evidence.ResidualRisks) > 100 || len(evidence.CompletionCriteria) != len(criteria) {
 		return false
 	}
@@ -217,6 +221,9 @@ func validStewardshipDelivery(criteria []string, evidence *pullrequests.Delivery
 	}
 	for index, status := range evidence.CompletionCriteria {
 		if status.Criterion != criteria[index] || (status.Status != "met" && status.Status != "unmet" && status.Status != "not_applicable") || (status.Status != "met" && strings.TrimSpace(status.Evidence) == "") || len(status.Evidence) > 4000 {
+			return false
+		}
+		if requireMet && status.Status != "met" {
 			return false
 		}
 	}

@@ -8,6 +8,9 @@ import (
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/decisions"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/reasoning"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
 )
 
@@ -30,6 +33,13 @@ type decisionStore interface {
 	Publish(string, string, string, string, []string, string, []string, []string, []string, *time.Time, []decisions.Evidence) (decisions.Decision, error)
 	AuthorizeException(string, string, string, decisions.Exception) (decisions.Decision, error)
 	RevokeException(string, string, string, string) (decisions.Decision, error)
+	LinkDelivery(string, string, string, string, string, []string) (decisions.Decision, error)
+	RequestRevisit(string, string, string, string, string, string) (decisions.Decision, error)
+}
+
+type decisionPlanStore interface {
+	Create(string, string, string, string) (proposals.Proposal, error)
+	CreateTask(string, string, string, proposals.TaskInput) (proposals.Task, error)
 }
 
 func requestDecisionApproval(s decisionStore, repos proposalRepositoryStore, c authStore) http.HandlerFunc {
@@ -115,7 +125,7 @@ func revokeDecisionException(s decisionStore, repos proposalRepositoryStore, c a
 	}
 }
 
-func registerDecisionsHTTP(mux *http.ServeMux, s decisionStore, repos proposalRepositoryStore, c authStore, ws workspaceStore, runner workspaceRunner) {
+func registerDecisionsHTTP(mux *http.ServeMux, s decisionStore, repos taskSessionRepositoryStore, c authStore, ws workspaceStore, runner workspaceRunner, plans decisionPlanStore) {
 	base := "/repositories/{repository}/decisions"
 	mux.HandleFunc("POST "+base, createDecision(s, repos, c))
 	mux.HandleFunc("GET "+base, listDecisions(s, repos, c))
@@ -128,6 +138,8 @@ func registerDecisionsHTTP(mux *http.ServeMux, s decisionStore, repos proposalRe
 	mux.HandleFunc("POST "+base+"/{decision}/commitments", publishDecision(s, repos, c))
 	mux.HandleFunc("POST "+base+"/{decision}/exceptions", authorizeDecisionException(s, repos, c))
 	mux.HandleFunc("DELETE "+base+"/{decision}/exceptions/{exception}", revokeDecisionException(s, repos, c))
+	mux.HandleFunc("POST "+base+"/{decision}/delivery", createDecisionDelivery(s, plans, repos, c))
+	mux.HandleFunc("POST "+base+"/{decision}/revisit-requests", requestDecisionRevisit(s, repos, c))
 	mux.HandleFunc("POST "+base+"/{decision}/alternatives/{alternative}/claims", addDecisionClaims(s, repos, c))
 	mux.HandleFunc("POST "+base+"/{decision}/alternatives/{alternative}/agent-runs", startDecisionResearch(s, repos, c))
 	mux.HandleFunc("POST "+base+"/{decision}/alternatives/{alternative}/experiments", startDecisionExperiment(s, repos, c, ws, runner))
@@ -135,6 +147,137 @@ func registerDecisionsHTTP(mux *http.ServeMux, s decisionStore, repos proposalRe
 	mux.HandleFunc("POST "+base+"/{decision}/alternatives/{alternative}/experiments/{experiment}/validity", assessDecisionExperiment(s, repos, c))
 	mux.HandleFunc("GET /decision-research-agent/context", decisionResearchContext(s))
 	mux.HandleFunc("POST /decision-research-agent/findings", decisionResearchFinding(s))
+}
+
+func createDecisionDelivery(s decisionStore, plans decisionPlanStore, repos taskSessionRepositoryStore, c authStore) http.HandlerFunc {
+	type taskInput struct {
+		Title              string   `json:"title"`
+		Outcome            string   `json:"outcome"`
+		OwnerKind          string   `json:"owner_kind"`
+		OwnerID            string   `json:"owner_id"`
+		CompletionCriteria []string `json:"completion_criteria"`
+		VerificationPlan   []string `json:"verification_plan"`
+		DependsOn          []int    `json:"depends_on"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Title        string      `json:"title"`
+			Body         string      `json:"body"`
+			BaseRevision string      `json:"base_revision"`
+			Tasks        []taskInput `json:"tasks"`
+		}
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		d, err := s.Get(string(repo.ID), r.PathValue("decision"))
+		if err != nil || d.State != "published" || !containsDecisionActor(d.Scope.ParticipantIDs, actor.UserID) {
+			writeJSON(w, 409, map[string]string{"error": "decision_not_accepted"})
+			return
+		}
+		if len(in.BaseRevision) != 40 || len(in.Tasks) == 0 {
+			writeJSON(w, 422, map[string]string{"error": "exact_revision_and_tasks_required"})
+			return
+		}
+		opened, err := repos.Open(repo.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		if _, err = opened.ReadCommit(storage.ObjectID(in.BaseRevision)); err != nil {
+			writeJSON(w, 422, map[string]string{"error": "exact_commit_required"})
+			return
+		}
+		commitment := d.Commitments[len(d.Commitments)-1]
+		required := append(append(append([]string{}, d.Scope.Constraints...), d.Scope.SuccessMeasures...), commitment.Conditions...)
+		covered := map[string]bool{}
+		allowed := map[string]bool{}
+		for _, criterion := range required {
+			allowed[criterion] = true
+		}
+		for _, task := range in.Tasks {
+			if task.OwnerKind != "human" && task.OwnerKind != "codex" {
+				writeJSON(w, 422, map[string]string{"error": "invalid_task_owner"})
+				return
+			}
+			if len(task.CompletionCriteria) == 0 {
+				writeJSON(w, 422, map[string]string{"error": "completion_criteria_required"})
+				return
+			}
+			for _, criterion := range task.CompletionCriteria {
+				if !allowed[criterion] {
+					writeJSON(w, 422, map[string]string{"error": "criteria_must_derive_from_commitment"})
+					return
+				}
+				covered[criterion] = true
+			}
+		}
+		for _, criterion := range required {
+			if !covered[criterion] {
+				writeJSON(w, 422, map[string]string{"error": "decision_coverage_incomplete"})
+				return
+			}
+		}
+		proposal, err := plans.Create(string(repo.ID), actor.UserID, in.Title, in.Body)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_delivery"})
+			return
+		}
+		tasks := []proposals.Task{}
+		evidence := make([]reasoning.Evidence, 0, len(commitment.Evidence))
+		for _, item := range commitment.Evidence {
+			evidence = append(evidence, reasoning.Evidence{RepositoryID: item.RepositoryID, CommitID: item.Revision, Kind: item.Kind, Path: item.Path, ResourceID: item.ResourceID, Label: item.Summary})
+		}
+		for index, input := range in.Tasks {
+			dependencies := []string{}
+			for _, position := range input.DependsOn {
+				if position < 1 || position > len(tasks) {
+					writeJSON(w, 422, map[string]string{"error": "invalid_task_dependency"})
+					return
+				}
+				dependencies = append(dependencies, tasks[position-1].ID)
+			}
+			context := &reasoning.Context{Kind: "decision", DecisionID: d.ID, DecisionVersion: commitment.Version, RepositoryID: string(repo.ID), CommitID: in.BaseRevision, Claim: d.Scope.Question, State: "accepted", Rationale: commitment.Rationale, Verification: append([]string{}, input.VerificationPlan...), Evidence: evidence}
+			made, createErr := plans.CreateTask(string(repo.ID), proposal.ID, actor.UserID, proposals.TaskInput{Title: input.Title, Outcome: input.Outcome, Position: index + 1, Status: proposals.TaskPlanned, DependsOn: dependencies, OwnerKind: input.OwnerKind, OwnerID: input.OwnerID, CompletionCriteria: input.CompletionCriteria, VerificationPlan: input.VerificationPlan, BaseRevision: in.BaseRevision, ReasoningContext: context})
+			if createErr != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_task"})
+				return
+			}
+			tasks = append(tasks, made)
+		}
+		ids := make([]string, len(tasks))
+		for i := range tasks {
+			ids[i] = tasks[i].ID
+		}
+		updated, err := s.LinkDelivery(string(repo.ID), d.ID, actor.UserID, proposal.ID, in.BaseRevision, ids)
+		if err != nil {
+			writeDecision(w, decisions.Decision{}, err, 201)
+			return
+		}
+		writeJSON(w, 201, map[string]any{"decision": updated, "proposal": proposal, "tasks": tasks, "coverage": map[string]any{"commitment_version": commitment.Version, "required": required, "covered": required, "state": "planned"}})
+	}
+}
+
+func requestDecisionRevisit(s decisionStore, repos proposalRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Kind        string `json:"kind"`
+			Summary     string `json:"summary"`
+			EvidenceURL string `json:"evidence_url"`
+		}
+		if !readJSON(w, r, &in, 16<<10) {
+			return
+		}
+		v, err := s.RequestRevisit(string(repo.ID), r.PathValue("decision"), actor.UserID, in.Kind, in.Summary, in.EvidenceURL)
+		writeDecision(w, v, err, 201)
+	}
 }
 func startDecisionExperiment(s decisionStore, repos proposalRepositoryStore, c authStore, ws workspaceStore, runner workspaceRunner) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
