@@ -130,20 +130,62 @@ type Comparison struct {
 	StaleEvidenceIDs []string          `json:"stale_evidence_ids"`
 	DissentCount     int               `json:"dissent_count"`
 }
+type ApprovalRequirement struct {
+	ID            string     `json:"id"`
+	Kind          string     `json:"kind"`
+	ActorID       string     `json:"actor_id"`
+	Policy        string     `json:"policy,omitempty"`
+	State         string     `json:"state"`
+	RequestedByID string     `json:"requested_by_id"`
+	RequestedAt   time.Time  `json:"requested_at"`
+	RespondedAt   *time.Time `json:"responded_at,omitempty"`
+	Note          string     `json:"note,omitempty"`
+}
+type Commitment struct {
+	Version                int                   `json:"version"`
+	ScopeVersion           int                   `json:"scope_version"`
+	SelectedAlternativeID  string                `json:"selected_alternative_id"`
+	RejectedAlternativeIDs []string              `json:"rejected_alternative_ids"`
+	Rationale              string                `json:"rationale"`
+	AcceptedTradeoffs      []string              `json:"accepted_tradeoffs"`
+	Dissent                []string              `json:"dissent"`
+	Conditions             []string              `json:"conditions"`
+	ReviewDate             *time.Time            `json:"review_date,omitempty"`
+	Evidence               []Evidence            `json:"evidence_considered"`
+	Approvals              []ApprovalRequirement `json:"approvals"`
+	PublishedByID          string                `json:"published_by_id"`
+	PublishedAt            time.Time             `json:"published_at"`
+}
+type Exception struct {
+	ID                string     `json:"id"`
+	CommitmentVersion int        `json:"commitment_version"`
+	Scope             string     `json:"scope"`
+	Reason            string     `json:"reason"`
+	Conditions        []string   `json:"conditions"`
+	AuthorizedByID    string     `json:"authorized_by_id"`
+	StartsAt          time.Time  `json:"starts_at"`
+	ExpiresAt         time.Time  `json:"expires_at"`
+	RevokedAt         *time.Time `json:"revoked_at,omitempty"`
+}
 type Decision struct {
-	ID           string        `json:"id"`
-	RepositoryID string        `json:"repository_id"`
-	Title        string        `json:"title"`
-	State        string        `json:"state"`
-	Context      Context       `json:"context"`
-	CreatedByID  string        `json:"created_by_id"`
-	CreatedAt    time.Time     `json:"created_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
-	Scope        Scope         `json:"scope"`
-	History      []Scope       `json:"history"`
-	Comments     []Comment     `json:"comments"`
-	Alternatives []Alternative `json:"alternatives"`
-	Comparison   []Comparison  `json:"comparison"`
+	ID                   string                `json:"id"`
+	RepositoryID         string                `json:"repository_id"`
+	Title                string                `json:"title"`
+	State                string                `json:"state"`
+	Context              Context               `json:"context"`
+	CreatedByID          string                `json:"created_by_id"`
+	CreatedAt            time.Time             `json:"created_at"`
+	UpdatedAt            time.Time             `json:"updated_at"`
+	Scope                Scope                 `json:"scope"`
+	History              []Scope               `json:"history"`
+	Comments             []Comment             `json:"comments"`
+	Alternatives         []Alternative         `json:"alternatives"`
+	Comparison           []Comparison          `json:"comparison"`
+	ApprovalRequirements []ApprovalRequirement `json:"approval_requirements"`
+	Commitments          []Commitment          `json:"commitments"`
+	Exceptions           []Exception           `json:"exceptions"`
+	PendingApprovalIDs   []string              `json:"pending_approval_ids"`
+	Conflicts            []string              `json:"conflicts"`
 }
 type ScopeInput struct {
 	Question          string     `json:"question"`
@@ -251,7 +293,7 @@ func (s *Store) Create(repo, actor, title string, context Context, in ScopeInput
 	if e != nil {
 		return Decision{}, e
 	}
-	v := Decision{ID: newID(), RepositoryID: repo, Title: title, State: "pending", Context: context, CreatedByID: actor, CreatedAt: now, UpdatedAt: now, Scope: sc, History: []Scope{sc}, Comments: []Comment{}, Alternatives: []Alternative{}}
+	v := Decision{ID: newID(), RepositoryID: repo, Title: title, State: "pending", Context: context, CreatedByID: actor, CreatedAt: now, UpdatedAt: now, Scope: sc, History: []Scope{sc}, Comments: []Comment{}, Alternatives: []Alternative{}, ApprovalRequirements: []ApprovalRequirement{}, Commitments: []Commitment{}, Exceptions: []Exception{}}
 	return v, s.write(v)
 }
 func (s *Store) Get(repo, id string) (Decision, error) {
@@ -310,6 +352,7 @@ func (s *Store) Revise(repo, id, actor, title string, in ScopeInput) (Decision, 
 	v.Scope = sc
 	v.History = append(v.History, sc)
 	v.UpdatedAt = now
+	reopen(&v)
 	s.compare(&v)
 	return v, s.write(v)
 }
@@ -365,6 +408,7 @@ func (s *Store) AddAlternative(repo, decision, actor, title string, claims []Cla
 	a := Alternative{ID: newID(), Title: title, State: "active", CreatedByID: actor, CreatedAt: now, UpdatedAt: now, Claims: claims, Evidence: evidence, Findings: []Finding{}, Experiments: []Experiment{}}
 	v.Alternatives = append(v.Alternatives, a)
 	v.UpdatedAt = now
+	reopen(&v)
 	s.compare(&v)
 	return v, s.write(v)
 }
@@ -434,6 +478,7 @@ func (s *Store) AddExperimentCheckpoint(repo, decision, alternative, experiment,
 					x.State = "completed"
 					x.UpdatedAt = now
 					v.UpdatedAt = now
+					reopen(&v)
 					return v, s.write(v)
 				}
 			}
@@ -469,6 +514,7 @@ func (s *Store) AssessExperiment(repo, decision, alternative, experiment, actor,
 					}
 					x.UpdatedAt = s.now().UTC()
 					v.UpdatedAt = x.UpdatedAt
+					reopen(&v)
 					return v, s.write(v)
 				}
 			}
@@ -536,6 +582,7 @@ func (s *Store) AddClaims(repo, decision, alternative, actor string, claims []Cl
 		a.Evidence = append(a.Evidence, evidence...)
 		a.UpdatedAt = now
 		v.UpdatedAt = now
+		reopen(&v)
 		s.compare(&v)
 		return v, s.write(v)
 	}
@@ -632,6 +679,7 @@ func (s *Store) AddFinding(token, body, uncertainty string, evidence []Evidence)
 		a.Findings = append(a.Findings, Finding{newID(), "codex", body, uncertainty, canonical, now})
 		a.UpdatedAt = now
 		v.UpdatedAt = now
+		reopen(&v)
 		s.compare(&v)
 		return v, s.write(v)
 	}
@@ -671,6 +719,16 @@ func (s *Store) find(id string) (Decision, error) {
 }
 func (s *Store) compare(v *Decision) {
 	v.Comparison = []Comparison{}
+	v.PendingApprovalIDs = []string{}
+	v.Conflicts = []string{}
+	for _, r := range v.ApprovalRequirements {
+		if r.State == "pending" {
+			v.PendingApprovalIDs = append(v.PendingApprovalIDs, r.ID)
+		}
+		if r.State == "rejected" {
+			v.Conflicts = append(v.Conflicts, "approval_rejected:"+r.ID)
+		}
+	}
 	for _, a := range v.Alternatives {
 		c := Comparison{AlternativeID: a.ID, CurrentClaims: map[string]string{}, EvidenceCount: len(a.Evidence), EvidenceKinds: []string{}, StaleEvidenceIDs: []string{}}
 		sup := map[string]bool{}
@@ -707,6 +765,186 @@ func (s *Store) compare(v *Decision) {
 		}
 		v.Comparison = append(v.Comparison, c)
 	}
+}
+
+func reopen(v *Decision) {
+	if v.State == "published" {
+		v.State = "reopened"
+	}
+}
+
+func (s *Store) RequestApproval(repo, id, actor, kind, target, policy string) (Decision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(repo, id)
+	if e != nil {
+		return Decision{}, e
+	}
+	if actor != v.Scope.OwnerID || !contains(v.Scope.ParticipantIDs, target) {
+		return Decision{}, ErrNotFound
+	}
+	kind, policy = strings.TrimSpace(kind), strings.TrimSpace(policy)
+	if (kind != "acknowledgement" && kind != "approval") || (kind == "approval" && policy == "") || len(policy) > 500 {
+		return Decision{}, ErrInvalid
+	}
+	for _, r := range v.ApprovalRequirements {
+		if r.ActorID == target && r.Kind == kind && r.Policy == policy && r.State == "pending" {
+			return Decision{}, ErrInvalid
+		}
+	}
+	now := s.now().UTC()
+	v.ApprovalRequirements = append(v.ApprovalRequirements, ApprovalRequirement{ID: newID(), Kind: kind, ActorID: target, Policy: policy, State: "pending", RequestedByID: actor, RequestedAt: now})
+	v.UpdatedAt = now
+	s.compare(&v)
+	return v, s.write(v)
+}
+
+func (s *Store) RespondApproval(repo, id, requirement, actor, response, note string) (Decision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(repo, id)
+	if e != nil {
+		return Decision{}, e
+	}
+	response, note = strings.TrimSpace(response), strings.TrimSpace(note)
+	for i := range v.ApprovalRequirements {
+		r := &v.ApprovalRequirements[i]
+		if r.ID == requirement {
+			if r.ActorID != actor || r.State != "pending" {
+				return Decision{}, ErrNotFound
+			}
+			if (r.Kind == "acknowledgement" && response != "acknowledged") || (r.Kind == "approval" && response != "approved" && response != "rejected") || len(note) > 4000 {
+				return Decision{}, ErrInvalid
+			}
+			now := s.now().UTC()
+			r.State, r.Note, r.RespondedAt = response, note, &now
+			v.UpdatedAt = now
+			s.compare(&v)
+			return v, s.write(v)
+		}
+	}
+	return Decision{}, ErrNotFound
+}
+
+func (s *Store) Publish(repo, id, actor, selected string, rejected []string, rationale string, tradeoffs, dissent, conditions []string, reviewDate *time.Time, evidence []Evidence) (Decision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(repo, id)
+	if e != nil {
+		return Decision{}, e
+	}
+	if actor != v.Scope.OwnerID || (v.State != "pending" && v.State != "reopened") {
+		return Decision{}, ErrNotFound
+	}
+	rationale = strings.TrimSpace(rationale)
+	tradeoffs, ok1 := cleanList(tradeoffs)
+	dissent, ok2 := cleanList(dissent)
+	conditions, ok3 := cleanList(conditions)
+	if rationale == "" || len(rationale) > 10000 || !ok1 || !ok2 || !ok3 {
+		return Decision{}, ErrInvalid
+	}
+	found := false
+	rejectedSet := map[string]bool{}
+	for _, x := range rejected {
+		rejectedSet[x] = true
+	}
+	for _, a := range v.Alternatives {
+		if a.ID == selected {
+			found = true
+		}
+		if a.ID != selected && !rejectedSet[a.ID] {
+			return Decision{}, ErrInvalid
+		}
+	}
+	if !found || rejectedSet[selected] || len(rejectedSet) != len(v.Alternatives)-1 {
+		return Decision{}, ErrInvalid
+	}
+	for _, r := range v.ApprovalRequirements {
+		if r.State == "pending" || r.State == "rejected" {
+			return Decision{}, ErrInvalid
+		}
+	}
+	retained := []Evidence{}
+	for _, a := range v.Alternatives {
+		retained = append(retained, a.Evidence...)
+		for _, f := range a.Findings {
+			retained = append(retained, f.Evidence...)
+		}
+	}
+	canonical, valid := citedEvidence(evidence, retained)
+	if !valid {
+		return Decision{}, ErrInvalid
+	}
+	if reviewDate != nil {
+		d := reviewDate.UTC()
+		if !d.After(s.now().UTC()) {
+			return Decision{}, ErrInvalid
+		}
+		reviewDate = &d
+	}
+	now := s.now().UTC()
+	c := Commitment{Version: len(v.Commitments) + 1, ScopeVersion: v.Scope.Version, SelectedAlternativeID: selected, RejectedAlternativeIDs: append([]string{}, rejected...), Rationale: rationale, AcceptedTradeoffs: tradeoffs, Dissent: dissent, Conditions: conditions, ReviewDate: reviewDate, Evidence: canonical, Approvals: append([]ApprovalRequirement{}, v.ApprovalRequirements...), PublishedByID: actor, PublishedAt: now}
+	v.Commitments = append(v.Commitments, c)
+	v.State = "published"
+	for i := range v.Alternatives {
+		if v.Alternatives[i].ID == selected {
+			v.Alternatives[i].State = "selected"
+		} else {
+			v.Alternatives[i].State = "rejected"
+		}
+	}
+	v.UpdatedAt = now
+	s.compare(&v)
+	return v, s.write(v)
+}
+
+func (s *Store) AuthorizeException(repo, id, actor string, in Exception) (Decision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(repo, id)
+	if e != nil {
+		return Decision{}, e
+	}
+	if actor != v.Scope.OwnerID || len(v.Commitments) == 0 {
+		return Decision{}, ErrNotFound
+	}
+	in.Scope, in.Reason = strings.TrimSpace(in.Scope), strings.TrimSpace(in.Reason)
+	cs, ok := cleanList(in.Conditions)
+	now := s.now().UTC()
+	if in.Scope == "" || in.Reason == "" || len(in.Reason) > 4000 || !ok || !in.ExpiresAt.After(now) || in.ExpiresAt.After(now.Add(365*24*time.Hour)) {
+		return Decision{}, ErrInvalid
+	}
+	in.ID = newID()
+	in.CommitmentVersion = len(v.Commitments)
+	in.Conditions = cs
+	in.AuthorizedByID = actor
+	in.StartsAt = now
+	in.ExpiresAt = in.ExpiresAt.UTC()
+	in.RevokedAt = nil
+	v.Exceptions = append(v.Exceptions, in)
+	v.UpdatedAt = now
+	return v, s.write(v)
+}
+
+func (s *Store) RevokeException(repo, id, exception, actor string) (Decision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(repo, id)
+	if e != nil {
+		return Decision{}, e
+	}
+	if actor != v.Scope.OwnerID {
+		return Decision{}, ErrNotFound
+	}
+	for i := range v.Exceptions {
+		if v.Exceptions[i].ID == exception && v.Exceptions[i].RevokedAt == nil {
+			now := s.now().UTC()
+			v.Exceptions[i].RevokedAt = &now
+			v.UpdatedAt = now
+			return v, s.write(v)
+		}
+	}
+	return Decision{}, ErrNotFound
 }
 func (s *Store) path(repo, id string) string { return filepath.Join(s.root, repo, id+".json") }
 func (s *Store) read(repo, id string) (Decision, error) {

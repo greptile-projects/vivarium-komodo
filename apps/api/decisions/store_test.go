@@ -129,3 +129,63 @@ func TestExperimentRetainsWorkspaceEvidenceAndReportsInvalidation(t *testing.T) 
 		t.Fatalf("validity: %v %#v", err, got)
 	}
 }
+
+func TestDecisionCommitmentApprovalsReopeningAndExceptions(t *testing.T) {
+	s, _ := New(t.TempDir())
+	base := time.Date(2026, 8, 10, 15, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return base }
+	in := ScopeInput{Question: "Which queue?", Constraints: []string{"No loss"}, SuccessMeasures: []string{"Recovery under a minute"}, ParticipantIDs: []string{"author", "owner", "affected"}, OwnerID: "owner"}
+	v, _ := s.Create("repo", "author", "Queue commitment", Context{Kind: "repository"}, in)
+	evidence := []Evidence{{Kind: "code", RepositoryID: "repo", Revision: "0123456789012345678901234567890123456789", Path: "queue.go", Summary: "bounded recovery implementation", ObservedAt: base}}
+	v, _ = s.AddAlternative("repo", v.ID, "author", "Durable queue", []Claim{{Kind: "tradeoff", Body: "Additional storage"}, {Kind: "dissent", Body: "Operations cost remains uncertain"}}, evidence)
+	selected := v.Alternatives[0].ID
+	v, _ = s.AddAlternative("repo", v.ID, "affected", "In-memory queue", []Claim{{Kind: "risk", Body: "Restart loses work"}}, nil)
+	rejected := v.Alternatives[1].ID
+
+	v, err := s.RequestApproval("repo", v.ID, "owner", "acknowledgement", "affected", "")
+	if err != nil || len(v.PendingApprovalIDs) != 1 {
+		t.Fatalf("request = %#v, %v", v, err)
+	}
+	requirement := v.ApprovalRequirements[0].ID
+	if _, err = s.Publish("repo", v.ID, "owner", selected, []string{rejected}, "Best recovery evidence.", []string{"Additional storage"}, []string{"Operations cost remains uncertain"}, []string{"Monitor recovery"}, nil, evidence); err != ErrInvalid {
+		t.Fatalf("published without acknowledgement: %v", err)
+	}
+	v, err = s.RespondApproval("repo", v.ID, requirement, "affected", "acknowledged", "Impact understood.")
+	if err != nil || len(v.PendingApprovalIDs) != 0 {
+		t.Fatalf("response = %#v, %v", v, err)
+	}
+	review := base.Add(30 * 24 * time.Hour)
+	v, err = s.Publish("repo", v.ID, "owner", selected, []string{rejected}, "Best recovery evidence.", []string{"Additional storage"}, []string{"Operations cost remains uncertain"}, []string{"Monitor recovery"}, &review, evidence)
+	if err != nil || v.State != "published" || len(v.Commitments) != 1 || v.Commitments[0].Evidence[0].Path != "queue.go" {
+		t.Fatalf("commitment = %#v, %v", v, err)
+	}
+
+	s.now = func() time.Time { return base.Add(time.Hour) }
+	in.ChangeSummary = "Recovery target tightened"
+	in.SuccessMeasures = []string{"Recovery under thirty seconds"}
+	v, err = s.Revise("repo", v.ID, "owner", v.Title, in)
+	if err != nil || v.State != "reopened" || len(v.Commitments) != 1 {
+		t.Fatalf("reopen = %#v, %v", v, err)
+	}
+
+	expires := base.Add(48 * time.Hour)
+	v, err = s.AuthorizeException("repo", v.ID, "owner", Exception{Scope: "legacy worker", Reason: "Migration requires the old retry interval", Conditions: []string{"read-only traffic"}, ExpiresAt: expires})
+	if err != nil || len(v.Exceptions) != 1 || v.Exceptions[0].CommitmentVersion != 1 {
+		t.Fatalf("exception = %#v, %v", v, err)
+	}
+	v, err = s.RevokeException("repo", v.ID, v.Exceptions[0].ID, "owner")
+	if err != nil || v.Exceptions[0].RevokedAt == nil {
+		t.Fatalf("revoke = %#v, %v", v, err)
+	}
+}
+
+func TestRejectedPolicyApprovalIsPublicConflict(t *testing.T) {
+	s, _ := New(t.TempDir())
+	in := ScopeInput{Question: "Ship?", Constraints: []string{"Policy"}, SuccessMeasures: []string{"Approved"}, ParticipantIDs: []string{"owner", "reviewer"}, OwnerID: "owner"}
+	v, _ := s.Create("repo", "owner", "Policy decision", Context{Kind: "repository"}, in)
+	v, _ = s.RequestApproval("repo", v.ID, "owner", "approval", "reviewer", "architecture/high-risk")
+	v, err := s.RespondApproval("repo", v.ID, v.ApprovalRequirements[0].ID, "reviewer", "rejected", "Violates compatibility policy.")
+	if err != nil || len(v.Conflicts) != 1 || v.ApprovalRequirements[0].Note == "" {
+		t.Fatalf("conflict = %#v, %v", v, err)
+	}
+}

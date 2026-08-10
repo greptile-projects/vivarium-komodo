@@ -52,6 +52,24 @@ environment fingerprints to `/validity` reports `code_changed`,
 `dependencies_changed`, or `environment_changed` without deleting evidence.
 Experiments never publish, open a pull request, or merge implicitly.
 
+The accountable owner requests affected-owner acknowledgements or named policy
+approvals through the decision's `/approval-requirements` collection. Only the
+named participant can respond; pending requirements and rejected approvals are
+derived as public blockers and conflicts. The owner publishes at `/commitments`
+only after every requirement succeeds and every alternative is explicitly
+selected or rejected. Each append-only commitment version freezes its scope
+version, rationale, accepted tradeoffs, retained dissent, conditions, review
+date, exact retained evidence citations, and approval records. Later material
+scope, alternative, claim, or evidence changes move a published decision to
+`reopened` without changing an earlier commitment.
+
+An owner may authorize a downstream deviation at `/exceptions` only against an
+existing commitment. Exceptions name their scope, reason, conditions, decision
+version, authorizer, start, and an expiry no more than one year away; revocation
+is retained instead of deleting the record. Active, expired, and revoked
+exceptions remain visible in the Decisions workspace and grant no repository,
+Git, publication, or merge authority by themselves.
+
 ## Proactive agent stewardship
 
 An organization owner can define long-running responsibility without turning a

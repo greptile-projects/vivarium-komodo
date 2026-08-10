@@ -265,6 +265,15 @@ whenever dependencies change or the web job fails before it starts.
   code revisions or dependency, release, incident, and usage resource IDs plus
   observation times. The derived comparison reports missing common criteria,
   evidence-kind coverage, dissent, and evidence made stale by a newer scope.
+  Decision owners request participant acknowledgements or named policy approvals;
+  only the named actor responds, and pending or rejected requirements remain
+  public blockers. Publication appends an immutable commitment version containing
+  the selected and rejected alternatives, scope version, rationale, accepted
+  tradeoffs, dissent, conditions, review date, exact retained evidence, and
+  approval snapshot. Material scope or alternative evidence changes reopen a
+  published decision without rewriting it. Owner-authorized exceptions remain
+  linked to an exact commitment version with scope, conditions, attribution,
+  expiry, and revocation state; they grant no additional authority.
   A 24-hour decision-research credential reads only its selected alternative
   and publishes findings citing retained evidence; it grants neither Git nor
   repository-write access. Use `context_kind` and `context_id` collection filters to expose
