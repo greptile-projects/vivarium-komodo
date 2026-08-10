@@ -93,12 +93,33 @@ type DevelopmentWorkspace = {
     };
   };
   definition_digest: string;
-  state: "setting_up" | "ready" | "failed" | "suspended" | "stopped" | "expired";
+  state:
+    "setting_up" | "ready" | "failed" | "suspended" | "stopped" | "expired";
   created_at: string;
   updated_at: string;
-  effective_policy:{cpu_seconds:number;memory_mb:number;disk_mb:number;network:string;idle_minutes:number;retention_days:number;expiry_notice_hours:number;sharing:string;agent_execution:boolean};
-  expires_at?:string; expiry_announced_at?:string; stopped_at?:string; rebuild_required:boolean; rebuild_reasons?:string[];
-  consumption?:Array<{actor_id:string;kind:string;quantity:number;unit:string;recorded_at:string}>;
+  effective_policy: {
+    cpu_seconds: number;
+    memory_mb: number;
+    disk_mb: number;
+    network: string;
+    idle_minutes: number;
+    retention_days: number;
+    expiry_notice_hours: number;
+    sharing: string;
+    agent_execution: boolean;
+  };
+  expires_at?: string;
+  expiry_announced_at?: string;
+  stopped_at?: string;
+  rebuild_required: boolean;
+  rebuild_reasons?: string[];
+  consumption?: Array<{
+    actor_id: string;
+    kind: string;
+    quantity: number;
+    unit: string;
+    recorded_at: string;
+  }>;
   setup_evidence: Array<{
     sequence: number;
     type: string;
@@ -107,24 +128,118 @@ type DevelopmentWorkspace = {
     message?: string;
     exit_code?: number;
   }>;
-  activity: Array<{ sequence: number; type:string; kind?:string; surface?:string; path?:string; actor_id?:string; target_id?:string; message?: string; exit_code?: number }>;
-  changes: Array<{ sequence: number; path: string; actor_id: string; digest?: string; deleted?: boolean }>;
-  presence: Array<{actor_id:string;surface:string;path?:string;expires_at:string}>;
-  controls: Array<{id:string;subject_id:string;subject_kind:string;mode:string;scopes:string[];state:string;granted_by:string;version:number}>;
+  activity: Array<{
+    sequence: number;
+    type: string;
+    kind?: string;
+    surface?: string;
+    path?: string;
+    actor_id?: string;
+    target_id?: string;
+    message?: string;
+    exit_code?: number;
+  }>;
+  changes: Array<{
+    sequence: number;
+    path: string;
+    actor_id: string;
+    digest?: string;
+    deleted?: boolean;
+  }>;
+  presence: Array<{
+    actor_id: string;
+    surface: string;
+    path?: string;
+    expires_at: string;
+  }>;
+  controls: Array<{
+    id: string;
+    subject_id: string;
+    subject_kind: string;
+    mode: string;
+    scopes: string[];
+    state: string;
+    granted_by: string;
+    version: number;
+  }>;
   checkpoints: Array<{
-    id:string; parent_id?:string; creator_id:string; base_revision:string; definition_digest:string; summary:string; created_at:string;
-    reproducibility:{dependencies?:string[];commands?:string[];notes?:string};
-    changes:Array<{path:string;operation:"add"|"modify"|"delete";base_digest?:string;digest?:string;patch?:string;binary?:boolean;size?:number}>;
-    status:{reproducible:boolean;diverged:boolean;conflicts:string[];missing_dependencies:string[];reasons:string[]};
+    id: string;
+    parent_id?: string;
+    creator_id: string;
+    base_revision: string;
+    definition_digest: string;
+    summary: string;
+    created_at: string;
+    reproducibility: {
+      dependencies?: string[];
+      commands?: string[];
+      notes?: string;
+    };
+    changes: Array<{
+      path: string;
+      operation: "add" | "modify" | "delete";
+      base_digest?: string;
+      digest?: string;
+      patch?: string;
+      binary?: boolean;
+      size?: number;
+    }>;
+    status: {
+      reproducible: boolean;
+      diverged: boolean;
+      conflicts: string[];
+      missing_dependencies: string[];
+      reasons: string[];
+    };
   }>;
 };
-type WorkspaceFile = { path: string; directory: boolean; size?: number; content?: string; binary?: boolean; digest?:string };
+type WorkspaceFile = {
+  path: string;
+  directory: boolean;
+  size?: number;
+  content?: string;
+  binary?: boolean;
+  digest?: string;
+};
 type WorkspaceMatch = { path: string; line: number; text: string };
 type Commits = {
   items: Commit[];
   revision: string;
   commit_id: string;
   total_count: number;
+};
+type KnowledgeMap = {
+  repository_id: string;
+  revision: string;
+  commit_id: string;
+  analysis: {
+    status: "complete" | "incomplete";
+    stale: boolean;
+    analyzed_at: string;
+    files_analyzed: number;
+    files_skipped: number;
+    reasons: string[];
+  };
+  symbols: Array<{
+    name: string;
+    kind: string;
+    language: string;
+    definition: { path: string; line: number };
+    references: Array<{ path: string; line: number }>;
+    callers: Array<{ path: string; line: number }>;
+    tests: Array<{ path: string; line: number }>;
+    owner?: Commit;
+  }>;
+  dependencies: Array<{
+    id: string;
+    repository_id: string;
+    provider_repository_id: string;
+    interface_name: string;
+    constraint: string;
+    commit_id: string;
+    state: string;
+    evidence_path?: string;
+  }>;
 };
 type Proposal = {
   id: string;
@@ -471,15 +586,32 @@ type ReleaseCandidate = {
 };
 type ReleaseList = { items: ReleaseCandidate[]; total_count: number };
 type PackageVersion = {
-  id: string; identity: string; name: string; version: string;
-  repository_id: string; release_id: string; source_commit_id: string;
-  artifact_id: string; artifact_path: string; artifact_media_type: string;
-  artifact_size: number; sha256: string;
-  build_attestation: { run_id: string; build_name: string; command: string; completed_at: string };
+  id: string;
+  identity: string;
+  name: string;
+  version: string;
+  repository_id: string;
+  release_id: string;
+  source_commit_id: string;
+  artifact_id: string;
+  artifact_path: string;
+  artifact_media_type: string;
+  artifact_size: number;
+  sha256: string;
+  build_attestation: {
+    run_id: string;
+    build_name: string;
+    command: string;
+    completed_at: string;
+  };
   platform: { os: string; arch: string; runtime?: string };
-  dependencies: Record<string, string>; publisher_id: string;
-  documentation?: string; documentation_sha256?: string;
-  visibility: "public" | "private"; lifecycle: "active"; published_at: string;
+  dependencies: Record<string, string>;
+  publisher_id: string;
+  documentation?: string;
+  documentation_sha256?: string;
+  visibility: "public" | "private";
+  lifecycle: "active";
+  published_at: string;
 };
 type PackageList = { items: PackageVersion[]; total_count: number };
 type RelationshipGraph = {
@@ -613,10 +745,31 @@ type EvolutionPlan = {
       position: number;
       name: string;
       compatibility_gates: string[];
-      state: "pending" | "ready" | "running" | "paused" | "blocked" | "completed";
-      approvals: Array<{ repository_id: string; actor_id: string; decision: "approve" | "reject"; note?: string }>;
-      steps: Array<{ id: string; repository_id: string; kind: "queue" | "release" | "deployment" | "rollback" | "repair"; resource_id?: string; state: string }>;
-      outcomes: Array<{ step_id: string; repository_id: string; kind: string; resource_id: string; state: string; actor_id: string; note?: string; created_at: string }>;
+      state:
+        "pending" | "ready" | "running" | "paused" | "blocked" | "completed";
+      approvals: Array<{
+        repository_id: string;
+        actor_id: string;
+        decision: "approve" | "reject";
+        note?: string;
+      }>;
+      steps: Array<{
+        id: string;
+        repository_id: string;
+        kind: "queue" | "release" | "deployment" | "rollback" | "repair";
+        resource_id?: string;
+        state: string;
+      }>;
+      outcomes: Array<{
+        step_id: string;
+        repository_id: string;
+        kind: string;
+        resource_id: string;
+        state: string;
+        actor_id: string;
+        note?: string;
+        created_at: string;
+      }>;
     }>;
   };
   acknowledgements: Array<{
@@ -1006,6 +1159,7 @@ export default function RepositoryPage({
     release?: string;
     incident?: string;
     workspace?: string;
+    symbol?: string;
   }>;
 }) {
   const { id } = use(params);
@@ -1030,9 +1184,11 @@ export default function RepositoryPage({
                   ? "incidents"
                   : query.view === "workspaces"
                     ? "workspaces"
-                  : query.view === "people"
-                    ? "people"
-                    : "code";
+                    : query.view === "intelligence"
+                      ? "intelligence"
+                      : query.view === "people"
+                        ? "people"
+                        : "code";
   const [repository, setRepository] = useState<Repository>();
   const [upstream, setUpstream] = useState<Repository>();
   const [branches, setBranches] = useState<Branches>();
@@ -1081,6 +1237,7 @@ export default function RepositoryPage({
         view === "releases" ||
         view === "incidents" ||
         view === "workspaces" ||
+        view === "intelligence" ||
         view === "people" ||
         repo.empty ||
         !selected
@@ -1298,6 +1455,13 @@ export default function RepositoryPage({
       )}
       <nav className="repository-tabs" aria-label="Repository">
         <button
+          className={view === "intelligence" ? "active" : ""}
+          onClick={() => navigate({ view: "intelligence", ref, path: "" })}
+        >
+          <Sparkles size={15} />
+          Knowledge map
+        </button>
+        <button
           className={view === "workspaces" ? "active" : ""}
           onClick={() => navigate({ view: "workspaces", path: "" })}
         >
@@ -1419,6 +1583,14 @@ export default function RepositoryPage({
           branches={branches.items}
           actor={actor}
           selected={query.workspace}
+        />
+      ) : view === "intelligence" ? (
+        <CodeIntelligenceWorkspace
+          repository={repository}
+          branches={branches.items}
+          initialRevision={revision || branches.default_branch}
+          initialQuery={query.q}
+          selectedSymbol={query.symbol}
         />
       ) : view === "people" && actor === repository.owner_id ? (
         <CollaboratorWorkspace repository={id} />
@@ -1785,6 +1957,273 @@ function TreeView({
     </section>
   );
 }
+function CodeIntelligenceWorkspace({
+  repository,
+  branches,
+  initialRevision,
+  initialQuery,
+  selectedSymbol,
+}: {
+  repository: Repository;
+  branches: BranchRecord[];
+  initialRevision: string;
+  initialQuery?: string;
+  selectedSymbol?: string;
+}) {
+  const router = useRouter();
+  const [query, setQuery] = useState(initialQuery ?? "");
+  const [map, setMap] = useState<KnowledgeMap>();
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    setError("");
+    try {
+      const params = new URLSearchParams({ ref: initialRevision });
+      if (initialQuery) params.set("q", initialQuery);
+      if (selectedSymbol) params.set("symbol", selectedSymbol);
+      setMap(
+        await get<KnowledgeMap>(
+          `/repositories/${repository.id}/code-intelligence?${params}`,
+        ),
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Knowledge map unavailable.",
+      );
+    }
+  }, [initialQuery, initialRevision, repository.id, selectedSymbol]);
+  useEffect(() => {
+    // Knowledge map state follows the shareable revision/query URL.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  }, [load]);
+  const open = (values: { ref?: string; q?: string; symbol?: string }) => {
+    const params = new URLSearchParams({
+      view: "intelligence",
+      ref: values.ref ?? initialRevision,
+    });
+    if (values.q) params.set("q", values.q);
+    if (values.symbol) params.set("symbol", values.symbol);
+    router.push(`/repositories/${repository.id}?${params}`);
+  };
+  const source = (location: { path: string; line: number }) =>
+    `/repositories/${repository.id}?ref=${encodeURIComponent(map?.commit_id ?? initialRevision)}&path=${encodeURIComponent(location.path)}#L${location.line}`;
+  const inspected = selectedSymbol
+    ? map?.symbols.find((item) => item.name === selectedSymbol)
+    : undefined;
+  return (
+    <section className="knowledge-map">
+      <header className="proposal-toolbar">
+        <div>
+          <p className="eyebrow">Revision-aware evidence</p>
+          <h2>Knowledge map</h2>
+          <p>
+            Find definitions, usages, tests, recent owners, and declared
+            repository relationships without leaving this exact snapshot.
+          </p>
+        </div>
+      </header>
+      <div className="revision-bar panel">
+        <label>
+          Revision
+          <select
+            value={initialRevision}
+            onChange={(event) =>
+              open({ ref: event.target.value, q: initialQuery })
+            }
+          >
+            {branches.map((branch) => (
+              <option key={branch.name} value={branch.name}>
+                {branch.name} · {short(branch.commit_id)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {map && (
+          <span>
+            Analyzing <code>{short(map.commit_id)}</code> ·{" "}
+            {map.analysis.files_analyzed} files
+          </span>
+        )}
+      </div>
+      <form
+        className="panel proposal-toolbar"
+        onSubmit={(event) => {
+          event.preventDefault();
+          open({ q: query });
+        }}
+      >
+        <label>
+          <span className="sr-only">Search symbols and paths</span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search symbols and paths"
+          />
+        </label>
+        <Button size="sm">Search</Button>
+      </form>
+      {error && (
+        <p role="alert" className="form-error">
+          {error}
+        </p>
+      )}
+      {map && map.analysis.status !== "complete" && (
+        <div className="panel form-error">
+          <strong>Analysis is incomplete.</strong>{" "}
+          {map.analysis.reasons
+            .map((reason) => reason.replaceAll("_", " "))
+            .join(" · ")}
+          . Results remain pinned to <code>{short(map.commit_id)}</code>.
+        </div>
+      )}
+      {map && map.analysis.stale && (
+        <div className="panel form-error">
+          This analysis is stale. Choose the current branch revision to refresh
+          it.
+        </div>
+      )}
+      <div className="workspace-runtime-layout">
+        <aside className="workspace-runtime-list panel">
+          <h3>Symbols</h3>
+          {map?.symbols.map((symbol) => (
+            <Link
+              className={symbol.name === selectedSymbol ? "active" : ""}
+              key={`${symbol.definition.path}:${symbol.definition.line}:${symbol.name}`}
+              href={`/repositories/${repository.id}?view=intelligence&ref=${encodeURIComponent(map.commit_id)}&symbol=${encodeURIComponent(symbol.name)}`}
+            >
+              <span>
+                <strong>{symbol.name}</strong>
+                <Badge>{symbol.kind}</Badge>
+              </span>
+              <small>
+                {symbol.definition.path}:{symbol.definition.line}
+              </small>
+            </Link>
+          ))}
+          {map && !map.symbols.length && <p>No matching symbols found.</p>}
+        </aside>
+        <div>
+          {inspected ? (
+            <article className="panel">
+              <header>
+                <div>
+                  <p className="eyebrow">
+                    {inspected.language} {inspected.kind}
+                  </p>
+                  <h3>{inspected.name}</h3>
+                </div>
+              </header>
+              <p>
+                Defined at{" "}
+                <Link href={source(inspected.definition)}>
+                  {inspected.definition.path}:{inspected.definition.line}
+                </Link>
+              </p>
+              {inspected.owner && (
+                <p>
+                  Most recently changed by{" "}
+                  <strong>{inspected.owner.author}</strong> in{" "}
+                  <Link
+                    href={`/repositories/${repository.id}?view=commits&ref=${map?.commit_id}`}
+                  >
+                    {short(inspected.owner.id)}
+                  </Link>
+                  {inspected.owner.authored_at
+                    ? ` on ${new Date(inspected.owner.authored_at).toLocaleDateString()}`
+                    : ""}
+                  .
+                </p>
+              )}
+              <EvidenceList
+                title="Callers"
+                items={inspected.callers}
+                source={source}
+              />
+              <EvidenceList
+                title="References"
+                items={inspected.references}
+                source={source}
+              />
+              <EvidenceList
+                title="Tests"
+                items={inspected.tests}
+                source={source}
+              />
+            </article>
+          ) : (
+            <div className="panel">
+              <h3>Select a symbol</h3>
+              <p>
+                Inspect its exact definition, callers, references, test
+                evidence, and most recent file owner.
+              </p>
+            </div>
+          )}
+          <article className="panel">
+            <h3>Declared cross-repository dependencies</h3>
+            {map?.dependencies.length ? (
+              <ul>
+                {map.dependencies.map((dependency) => (
+                  <li key={dependency.id}>
+                    <Badge>{dependency.state}</Badge>{" "}
+                    <Link
+                      href={`/repositories/${dependency.provider_repository_id}?view=intelligence`}
+                    >
+                      {dependency.interface_name}
+                    </Link>{" "}
+                    <code>{dependency.constraint}</code>
+                    {dependency.evidence_path && (
+                      <>
+                        {" "}
+                        · evidence <code>{dependency.evidence_path}</code>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No readable dependencies are declared for this revision.</p>
+            )}
+          </article>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function EvidenceList({
+  title,
+  items,
+  source,
+}: {
+  title: string;
+  items: Array<{ path: string; line: number }>;
+  source: (item: { path: string; line: number }) => string;
+}) {
+  return (
+    <section>
+      <h4>
+        {title} <Badge>{items.length}</Badge>
+      </h4>
+      {items.length ? (
+        <ul>
+          {items.slice(0, 100).map((item, index) => (
+            <li key={`${item.path}:${item.line}:${index}`}>
+              <Link href={source(item)}>
+                {item.path}:{item.line}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">
+          No {title.toLowerCase()} found in the analyzed languages.
+        </p>
+      )}
+    </section>
+  );
+}
+
 function BlobView({
   blob,
   onCrumb,
@@ -1813,7 +2252,7 @@ function BlobView({
       ) : (
         <div className="code-view panel">
           {lines.map((line, index) => (
-            <div className="code-line" key={index}>
+            <div className="code-line" id={`L${index + 1}`} key={index}>
               <span>{index + 1}</span>
               <code>{line || " "}</code>
             </div>
@@ -1872,9 +2311,21 @@ function CommitList({
   );
 }
 
-function DevelopmentWorkspaces({ repository, branches, actor, selected }: { repository: Repository; branches: BranchRecord[]; actor: string; selected?: string }) {
+function DevelopmentWorkspaces({
+  repository,
+  branches,
+  actor,
+  selected,
+}: {
+  repository: Repository;
+  branches: BranchRecord[];
+  actor: string;
+  selected?: string;
+}) {
   const [items, setItems] = useState<DevelopmentWorkspace[]>([]);
-  const [revision, setRevision] = useState(branches.find((branch) => branch.is_default)?.commit_id ?? "");
+  const [revision, setRevision] = useState(
+    branches.find((branch) => branch.is_default)?.commit_id ?? "",
+  );
   const [contextType, setContextType] = useState("repository");
   const [contextID, setContextID] = useState("");
   const [parentID, setParentID] = useState("");
@@ -1895,10 +2346,22 @@ function DevelopmentWorkspaces({ repository, branches, actor, selected }: { repo
   const [checkpointDependencies, setCheckpointDependencies] = useState("");
   const [checkpointCommands, setCheckpointCommands] = useState("");
   const [checkpointParent, setCheckpointParent] = useState("");
-  const [policy, setPolicy] = useState<DevelopmentWorkspace["effective_policy"]>();
+  const [policy, setPolicy] =
+    useState<DevelopmentWorkspace["effective_policy"]>();
   const load = useCallback(async () => {
-    try { setItems((await get<{ items: DevelopmentWorkspace[] }>(`/repositories/${repository.id}/workspaces`)).items); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Workspaces unavailable."); }
+    try {
+      setItems(
+        (
+          await get<{ items: DevelopmentWorkspace[] }>(
+            `/repositories/${repository.id}/workspaces`,
+          )
+        ).items,
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Workspaces unavailable.",
+      );
+    }
   }, [repository.id]);
   useEffect(() => {
     // Remote workspace lifecycle is intentionally refreshed while setup runs.
@@ -1907,73 +2370,997 @@ function DevelopmentWorkspaces({ repository, branches, actor, selected }: { repo
     const timer = setInterval(() => void load(), 2500);
     return () => clearInterval(timer);
   }, [load]);
-  useEffect(()=>{get<DevelopmentWorkspace["effective_policy"]>(`/repositories/${repository.id}/workspace-policy`).then(setPolicy).catch(()=>undefined)},[repository.id]);
+  useEffect(() => {
+    get<DevelopmentWorkspace["effective_policy"]>(
+      `/repositories/${repository.id}/workspace-policy`,
+    )
+      .then(setPolicy)
+      .catch(() => undefined);
+  }, [repository.id]);
   const inspected = items.find((item) => item.id === selected) ?? items[0];
   const presenceWorkspaceID = inspected?.id;
   const presenceWorkspaceState = inspected?.state;
-  useEffect(() => { if (!presenceWorkspaceID || presenceWorkspaceState !== "ready" || !actor) return; const heartbeat=()=>send(`/repositories/${repository.id}/workspaces/${presenceWorkspaceID}/presence`,"POST",{surface:filePath?"files":"discussion",path:filePath}).then(load).catch(()=>undefined); void heartbeat(); const timer=setInterval(heartbeat,30000); return()=>clearInterval(timer); },[presenceWorkspaceID, presenceWorkspaceState, actor, filePath, repository.id, load]);
-  async function control(item: DevelopmentWorkspace, action: "suspend" | "resume") {
-    setBusy(true); setError("");
-    try { await send(`/repositories/${repository.id}/workspaces/${item.id}/${action}`, "POST", {}); await load(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : `Unable to ${action}.`); }
-    finally { setBusy(false); }
+  useEffect(() => {
+    if (!presenceWorkspaceID || presenceWorkspaceState !== "ready" || !actor)
+      return;
+    const heartbeat = () =>
+      send(
+        `/repositories/${repository.id}/workspaces/${presenceWorkspaceID}/presence`,
+        "POST",
+        { surface: filePath ? "files" : "discussion", path: filePath },
+      )
+        .then(load)
+        .catch(() => undefined);
+    void heartbeat();
+    const timer = setInterval(heartbeat, 30000);
+    return () => clearInterval(timer);
+  }, [
+    presenceWorkspaceID,
+    presenceWorkspaceState,
+    actor,
+    filePath,
+    repository.id,
+    load,
+  ]);
+  async function control(
+    item: DevelopmentWorkspace,
+    action: "suspend" | "resume",
+  ) {
+    setBusy(true);
+    setError("");
+    try {
+      await send(
+        `/repositories/${repository.id}/workspaces/${item.id}/${action}`,
+        "POST",
+        {},
+      );
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : `Unable to ${action}.`);
+    } finally {
+      setBusy(false);
+    }
   }
   async function browse(item: DevelopmentWorkspace, path = "") {
-    try { const result = await get<{ items: WorkspaceFile[] }>(`/repositories/${repository.id}/workspaces/${item.id}/files?path=${encodeURIComponent(path)}`); setFiles(result.items); if (result.items.length === 1 && !result.items[0].directory) { setFilePath(result.items[0].path); setContent(result.items[0].content ?? ""); setFileDigest(result.items[0].digest ?? ""); } }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to browse workspace files."); }
+    try {
+      const result = await get<{ items: WorkspaceFile[] }>(
+        `/repositories/${repository.id}/workspaces/${item.id}/files?path=${encodeURIComponent(path)}`,
+      );
+      setFiles(result.items);
+      if (result.items.length === 1 && !result.items[0].directory) {
+        setFilePath(result.items[0].path);
+        setContent(result.items[0].content ?? "");
+        setFileDigest(result.items[0].digest ?? "");
+      }
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to browse workspace files.",
+      );
+    }
   }
-  return <section className="development-workspaces">
-    <header className="proposal-toolbar"><div><p className="eyebrow">Exact-revision environments</p><h2>Development workspaces</h2><p>Enter the repository-defined project state with retained setup evidence.</p></div></header>
-    {actor===repository.owner_id&&policy&&<form className="panel workspace-policy" onSubmit={async(e)=>{e.preventDefault();setBusy(true);try{setPolicy(await send(`/repositories/${repository.id}/workspace-policy`,"PUT",policy));}catch(cause){setError(cause instanceof Error?cause.message:"Unable to update workspace policy.")}finally{setBusy(false)}}}><h3>Workspace governance</h3><p>Bound every new environment; running work retains its captured policy and evidence.</p><label>CPU seconds<input type="number" min="1" max="3600" value={policy.cpu_seconds} onChange={e=>setPolicy({...policy,cpu_seconds:Number(e.target.value)})}/></label><label>Memory MB<input type="number" min="128" max="32768" value={policy.memory_mb} onChange={e=>setPolicy({...policy,memory_mb:Number(e.target.value)})}/></label><label>Disk MB<input type="number" min="128" max="102400" value={policy.disk_mb} onChange={e=>setPolicy({...policy,disk_mb:Number(e.target.value)})}/></label><label>Idle minutes<input type="number" min="5" value={policy.idle_minutes} onChange={e=>setPolicy({...policy,idle_minutes:Number(e.target.value)})}/></label><label>Retention days<input type="number" min="1" value={policy.retention_days} onChange={e=>setPolicy({...policy,retention_days:Number(e.target.value)})}/></label><label>Sharing<select value={policy.sharing} onChange={e=>setPolicy({...policy,sharing:e.target.value})}><option value="private">Creator only</option><option value="participants">Repository participants</option></select></label><label><input type="checkbox" checked={policy.agent_execution} onChange={e=>setPolicy({...policy,agent_execution:e.target.checked})}/> Approved agent execution</label><Button disabled={busy}>Save policy</Button></form>}
-    {actor && <form className="workspace-launch panel" onSubmit={async (event) => {
-      event.preventDefault(); setBusy(true); setError("");
-      try { await send(`/repositories/${repository.id}/workspaces`, "POST", { revision, source_context: { type: contextType, ...(contextID ? { id: contextID } : {}), ...(parentID ? { parent_id: parentID } : {}) } }); await load(); }
-      catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to launch workspace."); }
-      finally { setBusy(false); }
-    }}>
-      <label>Exact revision<input required list="workspace-revisions" value={revision} onChange={(event) => setRevision(event.target.value)} /><datalist id="workspace-revisions">{branches.map((branch) => <option key={branch.name} value={branch.commit_id}>{branch.name}</option>)}</datalist></label>
-      <label>Shared context<select value={contextType} onChange={(event) => setContextType(event.target.value)}><option value="repository">Repository</option><option value="proposal_task">Proposal task</option><option value="pull_request">Pull request</option><option value="incident_repair">Incident repair</option></select></label>
-      {contextType !== "repository" && <label>{contextType === "proposal_task" ? "Task ID" : contextType === "incident_repair" ? "Mitigation ID" : "Pull request ID"}<input required value={contextID} onChange={(event) => setContextID(event.target.value)} /></label>}
-      {(contextType === "proposal_task" || contextType === "incident_repair") && <label>{contextType === "proposal_task" ? "Proposal ID" : "Incident ID"}<input required value={parentID} onChange={(event) => setParentID(event.target.value)} /></label>}
-      <Button type="submit" disabled={busy || !revision}>{busy ? "Launching…" : "Launch workspace"}</Button>
-    </form>}
-    {error && <p className="form-error" role="alert">{error}</p>}
-    <div className="workspace-runtime-layout">
-      <aside className="workspace-runtime-list panel">{items.map((item) => <Link key={item.id} className={item.id === inspected?.id ? "active" : ""} href={`/repositories/${repository.id}?view=workspaces&workspace=${item.id}`}><span><strong>{item.source_context.type.replaceAll("_", " ")}</strong><Badge>{item.state}</Badge></span><code>{short(item.revision)}</code><small>by <Actor id={item.creator_id} /></small></Link>)}{!items.length && <p>No environments have been launched yet.</p>}</aside>
-      {inspected && <article className="workspace-runtime panel"><header><div><p className="eyebrow">Foundation {short(inspected.definition_digest)}</p><h3>{inspected.source_context.type.replaceAll("_", " ")} workspace</h3></div><Badge>{inspected.state}</Badge></header>
-        <dl><div><dt>Revision</dt><dd><code>{inspected.revision}</code></dd></div><div><dt>Effective access</dt><dd>{inspected.effective_access.permission} · <Actor id={inspected.effective_access.actor_id} /></dd></div><div><dt>Resources</dt><dd>{inspected.definition.resources.memory_mb} MB memory · {inspected.definition.resources.disk_mb} MB disk · {inspected.definition.resources.cpu_seconds}s CPU</dd></div><div><dt>Tools</dt><dd>{inspected.definition.tools.map((tool) => `${tool.name} ${tool.version}`).join(", ") || "System runtime"}</dd></div></dl>
-        <div className="workspace-controls">{inspected.state === "ready" && <Button disabled={busy} variant="secondary" onClick={() => void control(inspected, "suspend")}>Suspend</Button>}{inspected.state === "suspended" && <Button disabled={busy} onClick={() => void control(inspected, "resume")}>Resume retained foundation</Button>}{actor===repository.owner_id&&(inspected.state==="ready"||inspected.state==="suspended")&&<><Button size="sm" variant="secondary" onClick={async()=>{await send(`/repositories/${repository.id}/workspaces/${inspected.id}/expiry`,"POST",{expires_at:new Date(Date.now()+Math.max(inspected.effective_policy.expiry_notice_hours,24)*3600000).toISOString()});await load()}}>Announce expiry</Button><Button size="sm" variant="secondary" onClick={async()=>{await send(`/repositories/${repository.id}/workspaces/${inspected.id}/stop`,"POST",{reason:"stopped by repository owner",expire:false});await load()}}>Stop environment</Button></>}{inspected.expires_at&&inspected.state==="ready"&&<a href={`/api/repositories/${repository.id}/workspaces/${inspected.id}/export`}>Export unpublished work</a>}</div>
-        <p>Policy: {inspected.effective_policy.memory_mb} MB memory · {inspected.effective_policy.disk_mb} MB disk · network {inspected.effective_policy.network} · {inspected.effective_policy.sharing} sharing · agents {inspected.effective_policy.agent_execution?"allowed":"blocked"}.</p>{inspected.expires_at&&<p className="form-error">Expiry announced for {new Date(inspected.expires_at).toLocaleString()}. Export or checkpoint unpublished work before then.</p>}{inspected.rebuild_required&&<p className="form-error">Rebuild required: {inspected.rebuild_reasons?.join(", ")}</p>}{inspected.consumption?.length?<p>Attributed consumption: {inspected.consumption.map(c=><span key={`${c.actor_id}-${c.recorded_at}`}><Actor id={c.actor_id} compact/> {c.quantity} {c.unit} {c.kind}; </span>)}</p>:null}
-        {inspected.state === "ready" && <section className="workspace-collaboration"><h4>Live collaboration</h4><div className="workspace-presence">{inspected.presence?.map((presence)=><span key={presence.actor_id}><Actor id={presence.actor_id} compact /> · {presence.surface}{presence.path?` / ${presence.path}`:""}</span>)}{!inspected.presence?.length&&<span>No collaborators connected.</span>}</div>
-          <form onSubmit={async(e)=>{e.preventDefault();await send(`/repositories/${repository.id}/workspaces/${inspected.id}/messages`,"POST",{message});setMessage("");await load();}}><label>Discuss the running work<input value={message} onChange={(e)=>setMessage(e.target.value)} /></label><Button size="sm" disabled={!message}>Send</Button></form>
-          <form onSubmit={async(e)=>{e.preventDefault();await send(`/repositories/${repository.id}/workspaces/${inspected.id}/controls`,"POST",{subject_id:controlSubject,subject_kind:"human",mode:"edit",scopes:["files","preview"]});setControlSubject("");await load();}}><label>Grant collaborator edit control<input placeholder="User ID" value={controlSubject} onChange={(e)=>setControlSubject(e.target.value)} /></label><Button size="sm" disabled={!controlSubject}>Grant</Button></form>
-          {inspected.controls?.map((grant)=><div className="workspace-control" key={grant.id}><span><Actor id={grant.subject_id} compact /> · {grant.mode} {grant.scopes.join(", ")} · <Badge>{grant.state}</Badge></span>{grant.state!=="revoked"&&<span>{grant.state==="paused"?<Button size="sm" onClick={async()=>{await send(`/repositories/${repository.id}/workspaces/${inspected.id}/controls/${grant.id}/interventions`,"POST",{action:"resume",version:grant.version});await load();}}>Resume</Button>:<Button size="sm" variant="secondary" onClick={async()=>{await send(`/repositories/${repository.id}/workspaces/${inspected.id}/controls/${grant.id}/interventions`,"POST",{action:"pause",version:grant.version});await load();}}>Pause</Button>}<Button size="sm" variant="secondary" onClick={async()=>{await send(`/repositories/${repository.id}/workspaces/${inspected.id}/controls/${grant.id}/interventions`,"POST",{action:"revoke",version:grant.version});await load();}}>Revoke</Button></span>}</div>)}
-          <ol className="workspace-activity">{inspected.activity?.slice(-20).reverse().map((entry)=><li key={entry.sequence}><Badge>{entry.kind??entry.type}</Badge> {entry.actor_id&&<Actor id={entry.actor_id} compact />} {entry.type.replaceAll("_"," ")}{entry.path?` · ${entry.path}`:""}{entry.message?` — ${entry.message}`:""}</li>)}</ol>
-        </section>}
-        <section><h4>Setup evidence</h4><pre>{inspected.setup_evidence.map((event) => `${event.sequence}. ${event.command ?? event.stream ?? event.type}${event.message ? ` — ${event.message}` : ""}${event.exit_code !== undefined ? ` (exit ${event.exit_code})` : ""}`).join("\n")}</pre></section>
-        <section className="workspace-checkpoints"><header><div><p className="eyebrow">Durable unfinished work</p><h4>Checkpoints</h4></div></header>
-          {inspected.state === "ready" && actor && <form onSubmit={async(event)=>{event.preventDefault();setBusy(true);setError("");try{await send(`/repositories/${repository.id}/workspaces/${inspected.id}/checkpoints`,"POST",{summary:checkpointSummary,paths:checkpointPaths.split(",").map((value)=>value.trim()).filter(Boolean),parent_id:checkpointParent,reproducibility:{dependencies:checkpointDependencies.split(",").map((value)=>value.trim()).filter(Boolean),commands:checkpointCommands.split("\n").map((value)=>value.trim()).filter(Boolean)}});setCheckpointSummary("");setCheckpointPaths("");await load();}catch(cause){setError(cause instanceof Error?cause.message:"Unable to create checkpoint.");}finally{setBusy(false);}}}>
-            <label>What should a collaborator recover?<input required value={checkpointSummary} onChange={(event)=>setCheckpointSummary(event.target.value)} /></label>
-            <label>Repository paths to capture<input required placeholder="src/parser.go, tests/parser_test.go" value={checkpointPaths} onChange={(event)=>setCheckpointPaths(event.target.value)} /></label>
-            <label>Required dependencies<input placeholder="go modules, postgres" value={checkpointDependencies} onChange={(event)=>setCheckpointDependencies(event.target.value)} /></label>
-            <label>Reproduction commands<textarea required placeholder="go test ./..." value={checkpointCommands} onChange={(event)=>setCheckpointCommands(event.target.value)} /></label>
-            <label>Branch from checkpoint<select value={checkpointParent} onChange={(event)=>setCheckpointParent(event.target.value)}><option value="">Workspace base</option>{inspected.checkpoints?.map((checkpoint)=><option key={checkpoint.id} value={checkpoint.id}>{short(checkpoint.id)} · {checkpoint.summary}</option>)}</select></label>
-            <Button size="sm" disabled={busy||!checkpointSummary||!checkpointPaths||!checkpointCommands}>Create attributed checkpoint</Button>
-            <small>Only declared repository paths are captured. Credential paths, secret-like content, setup outputs, and private terminal data are rejected or excluded.</small>
-          </form>}
-          <ol>{inspected.checkpoints?.slice().reverse().map((checkpoint)=><li key={checkpoint.id}><article className="panel"><header><div><strong>{checkpoint.summary}</strong><small> by <Actor id={checkpoint.creator_id} compact /> · {new Date(checkpoint.created_at).toLocaleString()}</small></div><Badge>{checkpoint.status.reproducible?"reproducible":"attention needed"}</Badge></header><p><code>{short(checkpoint.id)}</code> from <code>{short(checkpoint.base_revision)}</code>{checkpoint.parent_id?<> · follows <code>{short(checkpoint.parent_id)}</code></>:null}</p>{checkpoint.status.reasons?.map((reason)=><p className="form-error" key={reason}>{reason}</p>)}{checkpoint.status.missing_dependencies?.length>0&&<p>Missing: {checkpoint.status.missing_dependencies.join(", ")}</p>}<ul>{checkpoint.changes.map((change)=><li key={change.path}><Badge>{change.operation}</Badge> <code>{change.path}</code>{change.binary?" · binary":null}{change.patch&&<pre>{change.patch}</pre>}</li>)}</ul>{inspected.state==="ready"&&actor&&<Button size="sm" variant="secondary" onClick={async()=>{setBusy(true);try{await send(`/repositories/${repository.id}/workspaces/${inspected.id}/checkpoints/${checkpoint.id}/restore`,"POST",{});await load();if(filePath)await browse(inspected,filePath);}catch(cause){setError(cause instanceof Error?cause.message:"Checkpoint conflicts with current work.");}finally{setBusy(false);}}}>Restore safely</Button>}</article></li>)}</ol>
-          {!inspected.checkpoints?.length&&<p>No checkpoint evidence yet.</p>}
-        </section>
-        {inspected.state === "ready" && <section className="workspace-ide"><nav aria-label="Workspace tools"><Button size="sm" variant="secondary" onClick={() => void browse(inspected)}>Files</Button>{inspected.definition.ports?.map((port) => <a key={port.number} target="workspace-preview" href={`/api/repositories/${repository.id}/workspaces/${inspected.id}/preview/${port.number}/index.html`}>{port.label} :{port.number}</a>)}</nav>
-          <div className="workspace-file-tools"><label>Search files<input value={search} onChange={(event) => setSearch(event.target.value)} /></label><Button size="sm" onClick={async () => { const result = await get<{items: WorkspaceMatch[]}>(`/repositories/${repository.id}/workspaces/${inspected.id}/search?q=${encodeURIComponent(search)}`); setMatches(result.items); }}>Search</Button></div>
-          {matches.length > 0 && <ul className="workspace-search-results">{matches.map((match) => <li key={`${match.path}:${match.line}`}><button onClick={() => void browse(inspected, match.path)}><code>{match.path}:{match.line}</code> {match.text}</button></li>)}</ul>}
-          <div className="workspace-editor-layout"><aside>{files.map((file) => <button key={file.path} onClick={() => void browse(inspected, file.path)}>{file.directory ? "▸" : "·"} {file.path}</button>)}</aside><div><label>Editor<input value={filePath} onChange={(event) => setFilePath(event.target.value)} /></label><textarea aria-label="File contents" value={content} onChange={(event) => setContent(event.target.value)} /><Button size="sm" disabled={!filePath} onClick={async () => { const updated=await send<DevelopmentWorkspace>(`/repositories/${repository.id}/workspaces/${inspected.id}/files`, "PUT", {path:filePath,content,base_digest:fileDigest}); setFileDigest(updated.changes.at(-1)?.digest??""); await load(); }}>Save file</Button></div></div>
-          <form className="workspace-terminal" onSubmit={async (event) => { event.preventDefault(); setBusy(true); try { const response = await send<{result:{stdout:string;stderr:string;exit_code:number}}>(`/repositories/${repository.id}/workspaces/${inspected.id}/commands`, "POST", {command}); setTerminal(`$ ${command}\n${response.result.stdout}${response.result.stderr}\n[exit ${response.result.exit_code}]`); setCommand(""); await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Command failed."); } finally { setBusy(false); } }}><label>Terminal command<input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="bun test" /></label><Button size="sm" disabled={busy || !command}>Run</Button><pre>{terminal || "Commands run without network or credentials."}</pre></form>
-          {inspected.definition.ports?.length ? <iframe title="Workspace application preview" name="workspace-preview" sandbox="allow-scripts" /> : <p className="muted">Declare a static preview port and path in .komodo/workspaces.json.</p>}
-        </section>}
-      </article>}
-    </div>
-  </section>;
+  return (
+    <section className="development-workspaces">
+      <header className="proposal-toolbar">
+        <div>
+          <p className="eyebrow">Exact-revision environments</p>
+          <h2>Development workspaces</h2>
+          <p>
+            Enter the repository-defined project state with retained setup
+            evidence.
+          </p>
+        </div>
+      </header>
+      {actor === repository.owner_id && policy && (
+        <form
+          className="panel workspace-policy"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            try {
+              setPolicy(
+                await send(
+                  `/repositories/${repository.id}/workspace-policy`,
+                  "PUT",
+                  policy,
+                ),
+              );
+            } catch (cause) {
+              setError(
+                cause instanceof Error
+                  ? cause.message
+                  : "Unable to update workspace policy.",
+              );
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <h3>Workspace governance</h3>
+          <p>
+            Bound every new environment; running work retains its captured
+            policy and evidence.
+          </p>
+          <label>
+            CPU seconds
+            <input
+              type="number"
+              min="1"
+              max="3600"
+              value={policy.cpu_seconds}
+              onChange={(e) =>
+                setPolicy({ ...policy, cpu_seconds: Number(e.target.value) })
+              }
+            />
+          </label>
+          <label>
+            Memory MB
+            <input
+              type="number"
+              min="128"
+              max="32768"
+              value={policy.memory_mb}
+              onChange={(e) =>
+                setPolicy({ ...policy, memory_mb: Number(e.target.value) })
+              }
+            />
+          </label>
+          <label>
+            Disk MB
+            <input
+              type="number"
+              min="128"
+              max="102400"
+              value={policy.disk_mb}
+              onChange={(e) =>
+                setPolicy({ ...policy, disk_mb: Number(e.target.value) })
+              }
+            />
+          </label>
+          <label>
+            Idle minutes
+            <input
+              type="number"
+              min="5"
+              value={policy.idle_minutes}
+              onChange={(e) =>
+                setPolicy({ ...policy, idle_minutes: Number(e.target.value) })
+              }
+            />
+          </label>
+          <label>
+            Retention days
+            <input
+              type="number"
+              min="1"
+              value={policy.retention_days}
+              onChange={(e) =>
+                setPolicy({ ...policy, retention_days: Number(e.target.value) })
+              }
+            />
+          </label>
+          <label>
+            Sharing
+            <select
+              value={policy.sharing}
+              onChange={(e) =>
+                setPolicy({ ...policy, sharing: e.target.value })
+              }
+            >
+              <option value="private">Creator only</option>
+              <option value="participants">Repository participants</option>
+            </select>
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={policy.agent_execution}
+              onChange={(e) =>
+                setPolicy({ ...policy, agent_execution: e.target.checked })
+              }
+            />{" "}
+            Approved agent execution
+          </label>
+          <Button disabled={busy}>Save policy</Button>
+        </form>
+      )}
+      {actor && (
+        <form
+          className="workspace-launch panel"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setBusy(true);
+            setError("");
+            try {
+              await send(`/repositories/${repository.id}/workspaces`, "POST", {
+                revision,
+                source_context: {
+                  type: contextType,
+                  ...(contextID ? { id: contextID } : {}),
+                  ...(parentID ? { parent_id: parentID } : {}),
+                },
+              });
+              await load();
+            } catch (cause) {
+              setError(
+                cause instanceof Error
+                  ? cause.message
+                  : "Unable to launch workspace.",
+              );
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <label>
+            Exact revision
+            <input
+              required
+              list="workspace-revisions"
+              value={revision}
+              onChange={(event) => setRevision(event.target.value)}
+            />
+            <datalist id="workspace-revisions">
+              {branches.map((branch) => (
+                <option key={branch.name} value={branch.commit_id}>
+                  {branch.name}
+                </option>
+              ))}
+            </datalist>
+          </label>
+          <label>
+            Shared context
+            <select
+              value={contextType}
+              onChange={(event) => setContextType(event.target.value)}
+            >
+              <option value="repository">Repository</option>
+              <option value="proposal_task">Proposal task</option>
+              <option value="pull_request">Pull request</option>
+              <option value="incident_repair">Incident repair</option>
+            </select>
+          </label>
+          {contextType !== "repository" && (
+            <label>
+              {contextType === "proposal_task"
+                ? "Task ID"
+                : contextType === "incident_repair"
+                  ? "Mitigation ID"
+                  : "Pull request ID"}
+              <input
+                required
+                value={contextID}
+                onChange={(event) => setContextID(event.target.value)}
+              />
+            </label>
+          )}
+          {(contextType === "proposal_task" ||
+            contextType === "incident_repair") && (
+            <label>
+              {contextType === "proposal_task" ? "Proposal ID" : "Incident ID"}
+              <input
+                required
+                value={parentID}
+                onChange={(event) => setParentID(event.target.value)}
+              />
+            </label>
+          )}
+          <Button type="submit" disabled={busy || !revision}>
+            {busy ? "Launching…" : "Launch workspace"}
+          </Button>
+        </form>
+      )}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="workspace-runtime-layout">
+        <aside className="workspace-runtime-list panel">
+          {items.map((item) => (
+            <Link
+              key={item.id}
+              className={item.id === inspected?.id ? "active" : ""}
+              href={`/repositories/${repository.id}?view=workspaces&workspace=${item.id}`}
+            >
+              <span>
+                <strong>{item.source_context.type.replaceAll("_", " ")}</strong>
+                <Badge>{item.state}</Badge>
+              </span>
+              <code>{short(item.revision)}</code>
+              <small>
+                by <Actor id={item.creator_id} />
+              </small>
+            </Link>
+          ))}
+          {!items.length && <p>No environments have been launched yet.</p>}
+        </aside>
+        {inspected && (
+          <article className="workspace-runtime panel">
+            <header>
+              <div>
+                <p className="eyebrow">
+                  Foundation {short(inspected.definition_digest)}
+                </p>
+                <h3>
+                  {inspected.source_context.type.replaceAll("_", " ")} workspace
+                </h3>
+              </div>
+              <Badge>{inspected.state}</Badge>
+            </header>
+            <dl>
+              <div>
+                <dt>Revision</dt>
+                <dd>
+                  <code>{inspected.revision}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>Effective access</dt>
+                <dd>
+                  {inspected.effective_access.permission} ·{" "}
+                  <Actor id={inspected.effective_access.actor_id} />
+                </dd>
+              </div>
+              <div>
+                <dt>Resources</dt>
+                <dd>
+                  {inspected.definition.resources.memory_mb} MB memory ·{" "}
+                  {inspected.definition.resources.disk_mb} MB disk ·{" "}
+                  {inspected.definition.resources.cpu_seconds}s CPU
+                </dd>
+              </div>
+              <div>
+                <dt>Tools</dt>
+                <dd>
+                  {inspected.definition.tools
+                    .map((tool) => `${tool.name} ${tool.version}`)
+                    .join(", ") || "System runtime"}
+                </dd>
+              </div>
+            </dl>
+            <div className="workspace-controls">
+              {inspected.state === "ready" && (
+                <Button
+                  disabled={busy}
+                  variant="secondary"
+                  onClick={() => void control(inspected, "suspend")}
+                >
+                  Suspend
+                </Button>
+              )}
+              {inspected.state === "suspended" && (
+                <Button
+                  disabled={busy}
+                  onClick={() => void control(inspected, "resume")}
+                >
+                  Resume retained foundation
+                </Button>
+              )}
+              {actor === repository.owner_id &&
+                (inspected.state === "ready" ||
+                  inspected.state === "suspended") && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={async () => {
+                        await send(
+                          `/repositories/${repository.id}/workspaces/${inspected.id}/expiry`,
+                          "POST",
+                          {
+                            expires_at: new Date(
+                              Date.now() +
+                                Math.max(
+                                  inspected.effective_policy
+                                    .expiry_notice_hours,
+                                  24,
+                                ) *
+                                  3600000,
+                            ).toISOString(),
+                          },
+                        );
+                        await load();
+                      }}
+                    >
+                      Announce expiry
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={async () => {
+                        await send(
+                          `/repositories/${repository.id}/workspaces/${inspected.id}/stop`,
+                          "POST",
+                          {
+                            reason: "stopped by repository owner",
+                            expire: false,
+                          },
+                        );
+                        await load();
+                      }}
+                    >
+                      Stop environment
+                    </Button>
+                  </>
+                )}
+              {inspected.expires_at && inspected.state === "ready" && (
+                <a
+                  href={`/api/repositories/${repository.id}/workspaces/${inspected.id}/export`}
+                >
+                  Export unpublished work
+                </a>
+              )}
+            </div>
+            <p>
+              Policy: {inspected.effective_policy.memory_mb} MB memory ·{" "}
+              {inspected.effective_policy.disk_mb} MB disk · network{" "}
+              {inspected.effective_policy.network} ·{" "}
+              {inspected.effective_policy.sharing} sharing · agents{" "}
+              {inspected.effective_policy.agent_execution
+                ? "allowed"
+                : "blocked"}
+              .
+            </p>
+            {inspected.expires_at && (
+              <p className="form-error">
+                Expiry announced for{" "}
+                {new Date(inspected.expires_at).toLocaleString()}. Export or
+                checkpoint unpublished work before then.
+              </p>
+            )}
+            {inspected.rebuild_required && (
+              <p className="form-error">
+                Rebuild required: {inspected.rebuild_reasons?.join(", ")}
+              </p>
+            )}
+            {inspected.consumption?.length ? (
+              <p>
+                Attributed consumption:{" "}
+                {inspected.consumption.map((c) => (
+                  <span key={`${c.actor_id}-${c.recorded_at}`}>
+                    <Actor id={c.actor_id} compact /> {c.quantity} {c.unit}{" "}
+                    {c.kind};{" "}
+                  </span>
+                ))}
+              </p>
+            ) : null}
+            {inspected.state === "ready" && (
+              <section className="workspace-collaboration">
+                <h4>Live collaboration</h4>
+                <div className="workspace-presence">
+                  {inspected.presence?.map((presence) => (
+                    <span key={presence.actor_id}>
+                      <Actor id={presence.actor_id} compact /> ·{" "}
+                      {presence.surface}
+                      {presence.path ? ` / ${presence.path}` : ""}
+                    </span>
+                  ))}
+                  {!inspected.presence?.length && (
+                    <span>No collaborators connected.</span>
+                  )}
+                </div>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    await send(
+                      `/repositories/${repository.id}/workspaces/${inspected.id}/messages`,
+                      "POST",
+                      { message },
+                    );
+                    setMessage("");
+                    await load();
+                  }}
+                >
+                  <label>
+                    Discuss the running work
+                    <input
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                    />
+                  </label>
+                  <Button size="sm" disabled={!message}>
+                    Send
+                  </Button>
+                </form>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    await send(
+                      `/repositories/${repository.id}/workspaces/${inspected.id}/controls`,
+                      "POST",
+                      {
+                        subject_id: controlSubject,
+                        subject_kind: "human",
+                        mode: "edit",
+                        scopes: ["files", "preview"],
+                      },
+                    );
+                    setControlSubject("");
+                    await load();
+                  }}
+                >
+                  <label>
+                    Grant collaborator edit control
+                    <input
+                      placeholder="User ID"
+                      value={controlSubject}
+                      onChange={(e) => setControlSubject(e.target.value)}
+                    />
+                  </label>
+                  <Button size="sm" disabled={!controlSubject}>
+                    Grant
+                  </Button>
+                </form>
+                {inspected.controls?.map((grant) => (
+                  <div className="workspace-control" key={grant.id}>
+                    <span>
+                      <Actor id={grant.subject_id} compact /> · {grant.mode}{" "}
+                      {grant.scopes.join(", ")} · <Badge>{grant.state}</Badge>
+                    </span>
+                    {grant.state !== "revoked" && (
+                      <span>
+                        {grant.state === "paused" ? (
+                          <Button
+                            size="sm"
+                            onClick={async () => {
+                              await send(
+                                `/repositories/${repository.id}/workspaces/${inspected.id}/controls/${grant.id}/interventions`,
+                                "POST",
+                                { action: "resume", version: grant.version },
+                              );
+                              await load();
+                            }}
+                          >
+                            Resume
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={async () => {
+                              await send(
+                                `/repositories/${repository.id}/workspaces/${inspected.id}/controls/${grant.id}/interventions`,
+                                "POST",
+                                { action: "pause", version: grant.version },
+                              );
+                              await load();
+                            }}
+                          >
+                            Pause
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={async () => {
+                            await send(
+                              `/repositories/${repository.id}/workspaces/${inspected.id}/controls/${grant.id}/interventions`,
+                              "POST",
+                              { action: "revoke", version: grant.version },
+                            );
+                            await load();
+                          }}
+                        >
+                          Revoke
+                        </Button>
+                      </span>
+                    )}
+                  </div>
+                ))}
+                <ol className="workspace-activity">
+                  {inspected.activity
+                    ?.slice(-20)
+                    .reverse()
+                    .map((entry) => (
+                      <li key={entry.sequence}>
+                        <Badge>{entry.kind ?? entry.type}</Badge>{" "}
+                        {entry.actor_id && (
+                          <Actor id={entry.actor_id} compact />
+                        )}{" "}
+                        {entry.type.replaceAll("_", " ")}
+                        {entry.path ? ` · ${entry.path}` : ""}
+                        {entry.message ? ` — ${entry.message}` : ""}
+                      </li>
+                    ))}
+                </ol>
+              </section>
+            )}
+            <section>
+              <h4>Setup evidence</h4>
+              <pre>
+                {inspected.setup_evidence
+                  .map(
+                    (event) =>
+                      `${event.sequence}. ${event.command ?? event.stream ?? event.type}${event.message ? ` — ${event.message}` : ""}${event.exit_code !== undefined ? ` (exit ${event.exit_code})` : ""}`,
+                  )
+                  .join("\n")}
+              </pre>
+            </section>
+            <section className="workspace-checkpoints">
+              <header>
+                <div>
+                  <p className="eyebrow">Durable unfinished work</p>
+                  <h4>Checkpoints</h4>
+                </div>
+              </header>
+              {inspected.state === "ready" && actor && (
+                <form
+                  onSubmit={async (event) => {
+                    event.preventDefault();
+                    setBusy(true);
+                    setError("");
+                    try {
+                      await send(
+                        `/repositories/${repository.id}/workspaces/${inspected.id}/checkpoints`,
+                        "POST",
+                        {
+                          summary: checkpointSummary,
+                          paths: checkpointPaths
+                            .split(",")
+                            .map((value) => value.trim())
+                            .filter(Boolean),
+                          parent_id: checkpointParent,
+                          reproducibility: {
+                            dependencies: checkpointDependencies
+                              .split(",")
+                              .map((value) => value.trim())
+                              .filter(Boolean),
+                            commands: checkpointCommands
+                              .split("\n")
+                              .map((value) => value.trim())
+                              .filter(Boolean),
+                          },
+                        },
+                      );
+                      setCheckpointSummary("");
+                      setCheckpointPaths("");
+                      await load();
+                    } catch (cause) {
+                      setError(
+                        cause instanceof Error
+                          ? cause.message
+                          : "Unable to create checkpoint.",
+                      );
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  <label>
+                    What should a collaborator recover?
+                    <input
+                      required
+                      value={checkpointSummary}
+                      onChange={(event) =>
+                        setCheckpointSummary(event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    Repository paths to capture
+                    <input
+                      required
+                      placeholder="src/parser.go, tests/parser_test.go"
+                      value={checkpointPaths}
+                      onChange={(event) =>
+                        setCheckpointPaths(event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    Required dependencies
+                    <input
+                      placeholder="go modules, postgres"
+                      value={checkpointDependencies}
+                      onChange={(event) =>
+                        setCheckpointDependencies(event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    Reproduction commands
+                    <textarea
+                      required
+                      placeholder="go test ./..."
+                      value={checkpointCommands}
+                      onChange={(event) =>
+                        setCheckpointCommands(event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    Branch from checkpoint
+                    <select
+                      value={checkpointParent}
+                      onChange={(event) =>
+                        setCheckpointParent(event.target.value)
+                      }
+                    >
+                      <option value="">Workspace base</option>
+                      {inspected.checkpoints?.map((checkpoint) => (
+                        <option key={checkpoint.id} value={checkpoint.id}>
+                          {short(checkpoint.id)} · {checkpoint.summary}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Button
+                    size="sm"
+                    disabled={
+                      busy ||
+                      !checkpointSummary ||
+                      !checkpointPaths ||
+                      !checkpointCommands
+                    }
+                  >
+                    Create attributed checkpoint
+                  </Button>
+                  <small>
+                    Only declared repository paths are captured. Credential
+                    paths, secret-like content, setup outputs, and private
+                    terminal data are rejected or excluded.
+                  </small>
+                </form>
+              )}
+              <ol>
+                {inspected.checkpoints
+                  ?.slice()
+                  .reverse()
+                  .map((checkpoint) => (
+                    <li key={checkpoint.id}>
+                      <article className="panel">
+                        <header>
+                          <div>
+                            <strong>{checkpoint.summary}</strong>
+                            <small>
+                              {" "}
+                              by <Actor
+                                id={checkpoint.creator_id}
+                                compact
+                              /> ·{" "}
+                              {new Date(checkpoint.created_at).toLocaleString()}
+                            </small>
+                          </div>
+                          <Badge>
+                            {checkpoint.status.reproducible
+                              ? "reproducible"
+                              : "attention needed"}
+                          </Badge>
+                        </header>
+                        <p>
+                          <code>{short(checkpoint.id)}</code> from{" "}
+                          <code>{short(checkpoint.base_revision)}</code>
+                          {checkpoint.parent_id ? (
+                            <>
+                              {" "}
+                              · follows{" "}
+                              <code>{short(checkpoint.parent_id)}</code>
+                            </>
+                          ) : null}
+                        </p>
+                        {checkpoint.status.reasons?.map((reason) => (
+                          <p className="form-error" key={reason}>
+                            {reason}
+                          </p>
+                        ))}
+                        {checkpoint.status.missing_dependencies?.length > 0 && (
+                          <p>
+                            Missing:{" "}
+                            {checkpoint.status.missing_dependencies.join(", ")}
+                          </p>
+                        )}
+                        <ul>
+                          {checkpoint.changes.map((change) => (
+                            <li key={change.path}>
+                              <Badge>{change.operation}</Badge>{" "}
+                              <code>{change.path}</code>
+                              {change.binary ? " · binary" : null}
+                              {change.patch && <pre>{change.patch}</pre>}
+                            </li>
+                          ))}
+                        </ul>
+                        {inspected.state === "ready" && actor && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={async () => {
+                              setBusy(true);
+                              try {
+                                await send(
+                                  `/repositories/${repository.id}/workspaces/${inspected.id}/checkpoints/${checkpoint.id}/restore`,
+                                  "POST",
+                                  {},
+                                );
+                                await load();
+                                if (filePath) await browse(inspected, filePath);
+                              } catch (cause) {
+                                setError(
+                                  cause instanceof Error
+                                    ? cause.message
+                                    : "Checkpoint conflicts with current work.",
+                                );
+                              } finally {
+                                setBusy(false);
+                              }
+                            }}
+                          >
+                            Restore safely
+                          </Button>
+                        )}
+                      </article>
+                    </li>
+                  ))}
+              </ol>
+              {!inspected.checkpoints?.length && (
+                <p>No checkpoint evidence yet.</p>
+              )}
+            </section>
+            {inspected.state === "ready" && (
+              <section className="workspace-ide">
+                <nav aria-label="Workspace tools">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void browse(inspected)}
+                  >
+                    Files
+                  </Button>
+                  {inspected.definition.ports?.map((port) => (
+                    <a
+                      key={port.number}
+                      target="workspace-preview"
+                      href={`/api/repositories/${repository.id}/workspaces/${inspected.id}/preview/${port.number}/index.html`}
+                    >
+                      {port.label} :{port.number}
+                    </a>
+                  ))}
+                </nav>
+                <div className="workspace-file-tools">
+                  <label>
+                    Search files
+                    <input
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                    />
+                  </label>
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      const result = await get<{ items: WorkspaceMatch[] }>(
+                        `/repositories/${repository.id}/workspaces/${inspected.id}/search?q=${encodeURIComponent(search)}`,
+                      );
+                      setMatches(result.items);
+                    }}
+                  >
+                    Search
+                  </Button>
+                </div>
+                {matches.length > 0 && (
+                  <ul className="workspace-search-results">
+                    {matches.map((match) => (
+                      <li key={`${match.path}:${match.line}`}>
+                        <button
+                          onClick={() => void browse(inspected, match.path)}
+                        >
+                          <code>
+                            {match.path}:{match.line}
+                          </code>{" "}
+                          {match.text}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="workspace-editor-layout">
+                  <aside>
+                    {files.map((file) => (
+                      <button
+                        key={file.path}
+                        onClick={() => void browse(inspected, file.path)}
+                      >
+                        {file.directory ? "▸" : "·"} {file.path}
+                      </button>
+                    ))}
+                  </aside>
+                  <div>
+                    <label>
+                      Editor
+                      <input
+                        value={filePath}
+                        onChange={(event) => setFilePath(event.target.value)}
+                      />
+                    </label>
+                    <textarea
+                      aria-label="File contents"
+                      value={content}
+                      onChange={(event) => setContent(event.target.value)}
+                    />
+                    <Button
+                      size="sm"
+                      disabled={!filePath}
+                      onClick={async () => {
+                        const updated = await send<DevelopmentWorkspace>(
+                          `/repositories/${repository.id}/workspaces/${inspected.id}/files`,
+                          "PUT",
+                          { path: filePath, content, base_digest: fileDigest },
+                        );
+                        setFileDigest(updated.changes.at(-1)?.digest ?? "");
+                        await load();
+                      }}
+                    >
+                      Save file
+                    </Button>
+                  </div>
+                </div>
+                <form
+                  className="workspace-terminal"
+                  onSubmit={async (event) => {
+                    event.preventDefault();
+                    setBusy(true);
+                    try {
+                      const response = await send<{
+                        result: {
+                          stdout: string;
+                          stderr: string;
+                          exit_code: number;
+                        };
+                      }>(
+                        `/repositories/${repository.id}/workspaces/${inspected.id}/commands`,
+                        "POST",
+                        { command },
+                      );
+                      setTerminal(
+                        `$ ${command}\n${response.result.stdout}${response.result.stderr}\n[exit ${response.result.exit_code}]`,
+                      );
+                      setCommand("");
+                      await load();
+                    } catch (cause) {
+                      setError(
+                        cause instanceof Error
+                          ? cause.message
+                          : "Command failed.",
+                      );
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  <label>
+                    Terminal command
+                    <input
+                      value={command}
+                      onChange={(event) => setCommand(event.target.value)}
+                      placeholder="bun test"
+                    />
+                  </label>
+                  <Button size="sm" disabled={busy || !command}>
+                    Run
+                  </Button>
+                  <pre>
+                    {terminal || "Commands run without network or credentials."}
+                  </pre>
+                </form>
+                {inspected.definition.ports?.length ? (
+                  <iframe
+                    title="Workspace application preview"
+                    name="workspace-preview"
+                    sandbox="allow-scripts"
+                  />
+                ) : (
+                  <p className="muted">
+                    Declare a static preview port and path in
+                    .komodo/workspaces.json.
+                  </p>
+                )}
+              </section>
+            )}
+          </article>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function CollaboratorWorkspace({ repository }: { repository: string }) {
@@ -2379,33 +3766,105 @@ function RelationshipWorkspace({
     }
   }
   async function configureRollout(plan: EvolutionPlan) {
-    const attested = [...plan.verifications].reverse().find((attempt) => verificationDetails[attempt.id]?.attested);
-    if (!attested) { setError("Inspect a current passing compatibility matrix before defining rollout phases."); return; }
+    const attested = [...plan.verifications]
+      .reverse()
+      .find((attempt) => verificationDetails[attempt.id]?.attested);
+    if (!attested) {
+      setError(
+        "Inspect a current passing compatibility matrix before defining rollout phases.",
+      );
+      return;
+    }
     const consumers = plan.affected_consumers.map((item) => item.repository_id);
     try {
-      await send(`/repositories/${repository.id}/evolution-plans/${plan.id}/rollout`, "PUT", {
-        verification_id: attested.id,
-        phases: [
-          ...consumers.map((id) => ({ name: `Make ${names.get(id) ?? short(id)} compatible`, compatibility_gates: ["contract", "integration"], steps: ["queue", "release", "deployment"].map((kind) => ({ repository_id: id, kind })) })),
-          { name: "Provider cutover", compatibility_gates: ["contract", "integration"], steps: ["queue", "release", "deployment"].map((kind) => ({ repository_id: repository.id, kind })) },
-        ],
-      });
+      await send(
+        `/repositories/${repository.id}/evolution-plans/${plan.id}/rollout`,
+        "PUT",
+        {
+          verification_id: attested.id,
+          phases: [
+            ...consumers.map((id) => ({
+              name: `Make ${names.get(id) ?? short(id)} compatible`,
+              compatibility_gates: ["contract", "integration"],
+              steps: ["queue", "release", "deployment"].map((kind) => ({
+                repository_id: id,
+                kind,
+              })),
+            })),
+            {
+              name: "Provider cutover",
+              compatibility_gates: ["contract", "integration"],
+              steps: ["queue", "release", "deployment"].map((kind) => ({
+                repository_id: repository.id,
+                kind,
+              })),
+            },
+          ],
+        },
+      );
       await load();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Rollout could not be configured."); }
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Rollout could not be configured.",
+      );
+    }
   }
-  async function decidePhase(plan: EvolutionPlan, phase: NonNullable<EvolutionPlan["rollout"]>["phases"][number], repositoryID: string, decision: "approve" | "reject") {
+  async function decidePhase(
+    plan: EvolutionPlan,
+    phase: NonNullable<EvolutionPlan["rollout"]>["phases"][number],
+    repositoryID: string,
+    decision: "approve" | "reject",
+  ) {
     try {
-      await send(`/repositories/${repository.id}/evolution-plans/${plan.id}/rollout/phases/${phase.id}/approvals`, "POST", { repository_id: repositoryID, decision, note: decision === "approve" ? "Repository window and authority confirmed." : "Repository is not ready to participate." });
+      await send(
+        `/repositories/${repository.id}/evolution-plans/${plan.id}/rollout/phases/${phase.id}/approvals`,
+        "POST",
+        {
+          repository_id: repositoryID,
+          decision,
+          note:
+            decision === "approve"
+              ? "Repository window and authority confirmed."
+              : "Repository is not ready to participate.",
+        },
+      );
       await load();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Rollout decision was not accepted."); }
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Rollout decision was not accepted.",
+      );
+    }
   }
-  async function linkOutcome(plan: EvolutionPlan, phaseID: string, step: NonNullable<EvolutionPlan["rollout"]>["phases"][number]["steps"][number]) {
-    const resource = window.prompt(`Link the existing ${step.kind} resource ID for ${names.get(step.repository_id) ?? short(step.repository_id)}:`);
+  async function linkOutcome(
+    plan: EvolutionPlan,
+    phaseID: string,
+    step: NonNullable<
+      EvolutionPlan["rollout"]
+    >["phases"][number]["steps"][number],
+  ) {
+    const resource = window.prompt(
+      `Link the existing ${step.kind} resource ID for ${names.get(step.repository_id) ?? short(step.repository_id)}:`,
+    );
     if (!resource) return;
     try {
-      await send(`/repositories/${repository.id}/evolution-plans/${plan.id}/rollout/phases/${phaseID}/steps/${step.id}/outcomes`, "POST", { resource_id: resource, note: "Linked from the established workflow; state derived by the platform." });
+      await send(
+        `/repositories/${repository.id}/evolution-plans/${plan.id}/rollout/phases/${phaseID}/steps/${step.id}/outcomes`,
+        "POST",
+        {
+          resource_id: resource,
+          note: "Linked from the established workflow; state derived by the platform.",
+        },
+      );
       await load();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Outcome could not be linked."); }
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Outcome could not be linked.",
+      );
+    }
   }
   const names = new Map(
     graph?.nodes.map((node) => [node.repository_id, node.name]),
@@ -2893,8 +4352,9 @@ function RelationshipWorkspace({
                       <Actor id={item.actor_id} />{" "}
                       <b>{item.decision.replace("_", " ")}</b> for{" "}
                       {item.owner_for_repository_ids.length} owned repository
-                      {item.owner_for_repository_ids.length === 1 ? "" : "ies"}:{" "}
-                      {item.note}
+                      {item.owner_for_repository_ids.length === 1
+                        ? ""
+                        : "ies"}: {item.note}
                     </p>
                   ))}
                 </div>
@@ -2917,37 +4377,311 @@ function RelationshipWorkspace({
                 )}
                 <div className="evolution-findings">
                   <header className="release-heading">
-                    <div><h4>Compatibility matrix</h4><p>Evidence stays bound to exact linked pull request revisions.</p></div>
-                    {authorized && <Button type="button" disabled={busy} onClick={() => void verifyEvolution(plan)}><Check size={14}/>Verify current combination</Button>}
+                    <div>
+                      <h4>Compatibility matrix</h4>
+                      <p>
+                        Evidence stays bound to exact linked pull request
+                        revisions.
+                      </p>
+                    </div>
+                    {authorized && (
+                      <Button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void verifyEvolution(plan)}
+                      >
+                        <Check size={14} />
+                        Verify current combination
+                      </Button>
+                    )}
                   </header>
                   {plan.verifications.map((attempt) => {
                     const detail = verificationDetails[attempt.id];
-                    return <article className="panel" key={attempt.id}>
-                      <header><Badge tone={detail?.attested ? "accent" : "neutral"}>{detail ? detail.attested ? "attested" : detail.current ? "not passing" : "superseded" : "inspect evidence"}</Badge><span>{attempt.revisions.length} repositories · {attempt.run_ids.length} checks</span><Button type="button" variant="secondary" onClick={() => void inspectVerification(plan, attempt.id)}>Refresh evidence</Button></header>
-                      <div className="relationship-contract">{attempt.revisions.map((revision) => <span key={revision.repository_id}><b>{names.get(revision.repository_id) ?? short(revision.repository_id)}</b> <code>{short(revision.commit_id)}</code> · pull <code>{short(revision.pull_request_id)}</code></span>)}</div>
-                      {detail?.runs.map((run) => <div key={run.id}><Badge tone={run.state === "succeeded" ? "accent" : "neutral"}>{run.state}</Badge> <b>{run.definition.kind} · {run.definition.name}</b>{run.events.filter((event) => event.type === "log").map((event) => <pre key={event.sequence}>{event.stream}: {event.message}</pre>)}{run.events.flatMap((event) => event.artifact ? [event.artifact] : []).map((artifact) => <a key={artifact.id} href={`/api/repositories/${repository.id}/evolution-plans/${plan.id}/verifications/${attempt.id}/runs/${run.id}/artifacts/${artifact.id}`}>{artifact.path} · {short(artifact.sha256)}</a>)}</div>)}
-                    </article>;
+                    return (
+                      <article className="panel" key={attempt.id}>
+                        <header>
+                          <Badge tone={detail?.attested ? "accent" : "neutral"}>
+                            {detail
+                              ? detail.attested
+                                ? "attested"
+                                : detail.current
+                                  ? "not passing"
+                                  : "superseded"
+                              : "inspect evidence"}
+                          </Badge>
+                          <span>
+                            {attempt.revisions.length} repositories ·{" "}
+                            {attempt.run_ids.length} checks
+                          </span>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() =>
+                              void inspectVerification(plan, attempt.id)
+                            }
+                          >
+                            Refresh evidence
+                          </Button>
+                        </header>
+                        <div className="relationship-contract">
+                          {attempt.revisions.map((revision) => (
+                            <span key={revision.repository_id}>
+                              <b>
+                                {names.get(revision.repository_id) ??
+                                  short(revision.repository_id)}
+                              </b>{" "}
+                              <code>{short(revision.commit_id)}</code> · pull{" "}
+                              <code>{short(revision.pull_request_id)}</code>
+                            </span>
+                          ))}
+                        </div>
+                        {detail?.runs.map((run) => (
+                          <div key={run.id}>
+                            <Badge
+                              tone={
+                                run.state === "succeeded" ? "accent" : "neutral"
+                              }
+                            >
+                              {run.state}
+                            </Badge>{" "}
+                            <b>
+                              {run.definition.kind} · {run.definition.name}
+                            </b>
+                            {run.events
+                              .filter((event) => event.type === "log")
+                              .map((event) => (
+                                <pre key={event.sequence}>
+                                  {event.stream}: {event.message}
+                                </pre>
+                              ))}
+                            {run.events
+                              .flatMap((event) =>
+                                event.artifact ? [event.artifact] : [],
+                              )
+                              .map((artifact) => (
+                                <a
+                                  key={artifact.id}
+                                  href={`/api/repositories/${repository.id}/evolution-plans/${plan.id}/verifications/${attempt.id}/runs/${run.id}/artifacts/${artifact.id}`}
+                                >
+                                  {artifact.path} · {short(artifact.sha256)}
+                                </a>
+                              ))}
+                          </div>
+                        ))}
+                      </article>
+                    );
                   })}
-                  {!plan.verifications.length && <p>No exact cross-repository combination has been tested yet.</p>}
+                  {!plan.verifications.length && (
+                    <p>
+                      No exact cross-repository combination has been tested yet.
+                    </p>
+                  )}
                 </div>
                 <div className="evolution-rollout">
                   <header className="release-heading">
-                    <div><h4>Governed rollout</h4><p>Owner-approved phases connect compatibility evidence to existing queues, releases, environments, and recovery.</p></div>
-                    {!plan.rollout && repository.owner_id === actor && <Button type="button" disabled={busy} onClick={() => void configureRollout(plan)}>Define rollout phases</Button>}
-                    {plan.rollout && <Badge tone={plan.rollout.state === "completed" ? "accent" : "neutral"}>{plan.rollout.state.replace("_", " ")}</Badge>}
+                    <div>
+                      <h4>Governed rollout</h4>
+                      <p>
+                        Owner-approved phases connect compatibility evidence to
+                        existing queues, releases, environments, and recovery.
+                      </p>
+                    </div>
+                    {!plan.rollout && repository.owner_id === actor && (
+                      <Button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void configureRollout(plan)}
+                      >
+                        Define rollout phases
+                      </Button>
+                    )}
+                    {plan.rollout && (
+                      <Badge
+                        tone={
+                          plan.rollout.state === "completed"
+                            ? "accent"
+                            : "neutral"
+                        }
+                      >
+                        {plan.rollout.state.replace("_", " ")}
+                      </Badge>
+                    )}
                   </header>
                   {plan.rollout?.phases.map((phase) => {
-                    const owned = [...new Set(phase.steps.filter((step) => step.repository_id === repository.id ? repository.owner_id === actor : plan.affected_consumers.some((item) => item.repository_id === step.repository_id && item.owner_id === actor)).map((step) => step.repository_id))];
-                    const next = phase.steps.find((step) => step.state === "pending" || step.state === "failed");
-                    return <article className="panel rollout-phase" key={phase.id}>
-                      <header><span><Badge tone={phase.state === "completed" ? "accent" : "neutral"}>{phase.state}</Badge> <b>{phase.position}. {phase.name}</b></span><small>Gates: {phase.compatibility_gates.join(", ")}</small></header>
-                      <div className="rollout-owners">{[...new Set(phase.steps.map((step) => step.repository_id))].map((id) => { const approval = phase.approvals.find((item) => item.repository_id === id); return <span key={id}><b>{names.get(id) ?? short(id)}</b><Badge tone={approval?.decision === "approve" ? "accent" : "neutral"}>{approval?.decision ?? "owner approval needed"}</Badge>{owned.includes(id) && <><Button type="button" variant="secondary" onClick={() => void decidePhase(plan, phase, id, "approve")}>Approve</Button><Button type="button" variant="secondary" onClick={() => void decidePhase(plan, phase, id, "reject")}>Pause</Button></>}</span>; })}</div>
-                      <div className="rollout-steps">{phase.steps.map((step) => <span key={step.id}><Badge tone={step.state === "succeeded" || step.state === "rolled_back" ? "accent" : "neutral"}>{step.state}</Badge><b>{step.kind}</b><small>{names.get(step.repository_id) ?? short(step.repository_id)}</small>{step.resource_id && <code>{short(step.resource_id)}</code>}{owned.includes(step.repository_id) && (phase.state === "ready" || phase.state === "running" || phase.state === "paused") && <Button type="button" variant="secondary" onClick={() => void linkOutcome(plan, phase.id, step)}>Link outcome</Button>}</span>)}</div>
-                      {next && <p className="rollout-next"><b>Next:</b> {phase.state === "paused" ? `Recover ${names.get(next.repository_id) ?? short(next.repository_id)} through rollback or agent repair.` : phase.state === "pending" || phase.state === "blocked" ? "Waiting for repository owners and prior phases." : `Execute ${next.kind} for ${names.get(next.repository_id) ?? short(next.repository_id)}.`}</p>}
-                      {phase.outcomes.length > 0 && <details><summary>Retained outcomes ({phase.outcomes.length})</summary>{phase.outcomes.map((outcome, index) => <p key={`${outcome.step_id}-${index}`}><Actor id={outcome.actor_id}/> recorded <b>{outcome.kind} {outcome.state}</b> · <code>{short(outcome.resource_id)}</code>{outcome.note && ` · ${outcome.note}`}</p>)}</details>}
-                    </article>;
+                    const owned = [
+                      ...new Set(
+                        phase.steps
+                          .filter((step) =>
+                            step.repository_id === repository.id
+                              ? repository.owner_id === actor
+                              : plan.affected_consumers.some(
+                                  (item) =>
+                                    item.repository_id === step.repository_id &&
+                                    item.owner_id === actor,
+                                ),
+                          )
+                          .map((step) => step.repository_id),
+                      ),
+                    ];
+                    const next = phase.steps.find(
+                      (step) =>
+                        step.state === "pending" || step.state === "failed",
+                    );
+                    return (
+                      <article className="panel rollout-phase" key={phase.id}>
+                        <header>
+                          <span>
+                            <Badge
+                              tone={
+                                phase.state === "completed"
+                                  ? "accent"
+                                  : "neutral"
+                              }
+                            >
+                              {phase.state}
+                            </Badge>{" "}
+                            <b>
+                              {phase.position}. {phase.name}
+                            </b>
+                          </span>
+                          <small>
+                            Gates: {phase.compatibility_gates.join(", ")}
+                          </small>
+                        </header>
+                        <div className="rollout-owners">
+                          {[
+                            ...new Set(
+                              phase.steps.map((step) => step.repository_id),
+                            ),
+                          ].map((id) => {
+                            const approval = phase.approvals.find(
+                              (item) => item.repository_id === id,
+                            );
+                            return (
+                              <span key={id}>
+                                <b>{names.get(id) ?? short(id)}</b>
+                                <Badge
+                                  tone={
+                                    approval?.decision === "approve"
+                                      ? "accent"
+                                      : "neutral"
+                                  }
+                                >
+                                  {approval?.decision ??
+                                    "owner approval needed"}
+                                </Badge>
+                                {owned.includes(id) && (
+                                  <>
+                                    <Button
+                                      type="button"
+                                      variant="secondary"
+                                      onClick={() =>
+                                        void decidePhase(
+                                          plan,
+                                          phase,
+                                          id,
+                                          "approve",
+                                        )
+                                      }
+                                    >
+                                      Approve
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="secondary"
+                                      onClick={() =>
+                                        void decidePhase(
+                                          plan,
+                                          phase,
+                                          id,
+                                          "reject",
+                                        )
+                                      }
+                                    >
+                                      Pause
+                                    </Button>
+                                  </>
+                                )}
+                              </span>
+                            );
+                          })}
+                        </div>
+                        <div className="rollout-steps">
+                          {phase.steps.map((step) => (
+                            <span key={step.id}>
+                              <Badge
+                                tone={
+                                  step.state === "succeeded" ||
+                                  step.state === "rolled_back"
+                                    ? "accent"
+                                    : "neutral"
+                                }
+                              >
+                                {step.state}
+                              </Badge>
+                              <b>{step.kind}</b>
+                              <small>
+                                {names.get(step.repository_id) ??
+                                  short(step.repository_id)}
+                              </small>
+                              {step.resource_id && (
+                                <code>{short(step.resource_id)}</code>
+                              )}
+                              {owned.includes(step.repository_id) &&
+                                (phase.state === "ready" ||
+                                  phase.state === "running" ||
+                                  phase.state === "paused") && (
+                                  <Button
+                                    type="button"
+                                    variant="secondary"
+                                    onClick={() =>
+                                      void linkOutcome(plan, phase.id, step)
+                                    }
+                                  >
+                                    Link outcome
+                                  </Button>
+                                )}
+                            </span>
+                          ))}
+                        </div>
+                        {next && (
+                          <p className="rollout-next">
+                            <b>Next:</b>{" "}
+                            {phase.state === "paused"
+                              ? `Recover ${names.get(next.repository_id) ?? short(next.repository_id)} through rollback or agent repair.`
+                              : phase.state === "pending" ||
+                                  phase.state === "blocked"
+                                ? "Waiting for repository owners and prior phases."
+                                : `Execute ${next.kind} for ${names.get(next.repository_id) ?? short(next.repository_id)}.`}
+                          </p>
+                        )}
+                        {phase.outcomes.length > 0 && (
+                          <details>
+                            <summary>
+                              Retained outcomes ({phase.outcomes.length})
+                            </summary>
+                            {phase.outcomes.map((outcome, index) => (
+                              <p key={`${outcome.step_id}-${index}`}>
+                                <Actor id={outcome.actor_id} /> recorded{" "}
+                                <b>
+                                  {outcome.kind} {outcome.state}
+                                </b>{" "}
+                                · <code>{short(outcome.resource_id)}</code>
+                                {outcome.note && ` · ${outcome.note}`}
+                              </p>
+                            ))}
+                          </details>
+                        )}
+                      </article>
+                    );
                   })}
-                  {!plan.rollout && <p>No rollout is defined. A passing current matrix is required before the provider owner can sequence participation.</p>}
+                  {!plan.rollout && (
+                    <p>
+                      No rollout is defined. A passing current matrix is
+                      required before the provider owner can sequence
+                      participation.
+                    </p>
+                  )}
                 </div>
               </article>
             ))}
@@ -3165,22 +4899,37 @@ function ReleaseWorkspace({
     const data = new FormData(event.currentTarget);
     const [buildRunID, artifactID] = String(data.get("artifact")).split(":");
     const dependencies = Object.fromEntries(
-      String(data.get("dependencies") || "").split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
-        const at = line.lastIndexOf("@");
-        return at > 0 ? [line.slice(0, at), line.slice(at + 1)] : [line, "*"];
-      }),
+      String(data.get("dependencies") || "")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+          const at = line.lastIndexOf("@");
+          return at > 0 ? [line.slice(0, at), line.slice(at + 1)] : [line, "*"];
+        }),
     );
     try {
       await send(`/repositories/${repository.id}/packages`, "POST", {
-        name: data.get("name"), version: data.get("version"), release_id: current.id,
-        build_run_id: buildRunID, artifact_id: artifactID,
-        platform: { os: data.get("os"), arch: data.get("arch"), runtime: data.get("runtime") },
-        dependencies, documentation: data.get("documentation"), visibility: data.get("visibility"),
+        name: data.get("name"),
+        version: data.get("version"),
+        release_id: current.id,
+        build_run_id: buildRunID,
+        artifact_id: artifactID,
+        platform: {
+          os: data.get("os"),
+          arch: data.get("arch"),
+          runtime: data.get("runtime"),
+        },
+        dependencies,
+        documentation: data.get("documentation"),
+        visibility: data.get("visibility"),
       });
       event.currentTarget.reset();
       await loadPackages();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Package publication failed.");
+      setError(
+        cause instanceof Error ? cause.message : "Package publication failed.",
+      );
     } finally {
       setPublishingPackage(false);
     }
@@ -3556,56 +5305,185 @@ function ReleaseWorkspace({
                 <header>
                   <div>
                     <h3>Reusable packages</h3>
-                    <p>Publish verified build bytes with immutable source, checksum, platform, dependency, and publisher provenance.</p>
+                    <p>
+                      Publish verified build bytes with immutable source,
+                      checksum, platform, dependency, and publisher provenance.
+                    </p>
                   </div>
-                  <Badge tone="accent">{packages.filter((item) => item.release_id === current.id).length} published</Badge>
+                  <Badge tone="accent">
+                    {
+                      packages.filter((item) => item.release_id === current.id)
+                        .length
+                    }{" "}
+                    published
+                  </Badge>
                 </header>
                 {repository.owner_id === actor && attestation?.verified && (
                   <details>
                     <summary>Publish verified artifact</summary>
                     <form className="package-form" onSubmit={publishPackage}>
-                      <label>Package name<input name="name" required placeholder="sdk" pattern="[a-z0-9][a-z0-9._-]*" /></label>
-                      <label>Semantic version<input name="version" required placeholder="1.0.0" /></label>
+                      <label>
+                        Package name
+                        <input
+                          name="name"
+                          required
+                          placeholder="sdk"
+                          pattern="[a-z0-9][a-z0-9._-]*"
+                        />
+                      </label>
+                      <label>
+                        Semantic version
+                        <input name="version" required placeholder="1.0.0" />
+                      </label>
                       <label>
                         Verified artifact
                         <select name="artifact" required defaultValue="">
-                          <option value="" disabled>Select build artifact…</option>
-                          {attestation.attempts.flatMap((run) => run.state === "succeeded" ? run.events.flatMap((event) => event.artifact ? [
-                            <option value={`${run.id}:${event.artifact.id}`} key={`${run.id}:${event.artifact.id}`}>{run.definition.name} · {event.artifact.path}</option>,
-                          ] : []) : [])}
+                          <option value="" disabled>
+                            Select build artifact…
+                          </option>
+                          {attestation.attempts.flatMap((run) =>
+                            run.state === "succeeded"
+                              ? run.events.flatMap((event) =>
+                                  event.artifact
+                                    ? [
+                                        <option
+                                          value={`${run.id}:${event.artifact.id}`}
+                                          key={`${run.id}:${event.artifact.id}`}
+                                        >
+                                          {run.definition.name} ·{" "}
+                                          {event.artifact.path}
+                                        </option>,
+                                      ]
+                                    : [],
+                                )
+                              : [],
+                          )}
                         </select>
                       </label>
-                      <label>Operating system<input name="os" required placeholder="linux" /></label>
-                      <label>Architecture<input name="arch" required placeholder="amd64" /></label>
-                      <label>Runtime<input name="runtime" placeholder="go1.24" /></label>
+                      <label>
+                        Operating system
+                        <input name="os" required placeholder="linux" />
+                      </label>
+                      <label>
+                        Architecture
+                        <input name="arch" required placeholder="amd64" />
+                      </label>
+                      <label>
+                        Runtime
+                        <input name="runtime" placeholder="go1.24" />
+                      </label>
                       <label>
                         Visibility
-                        <select name="visibility" defaultValue={repository.visibility}>
+                        <select
+                          name="visibility"
+                          defaultValue={repository.visibility}
+                        >
                           <option value="private">Private</option>
-                          {repository.visibility === "public" && <option value="public">Public</option>}
+                          {repository.visibility === "public" && (
+                            <option value="public">Public</option>
+                          )}
                         </select>
                       </label>
-                      <label className="package-dependencies">Dependencies<textarea name="dependencies" rows={3} placeholder={"@owner/core@^1.0.0\n@owner/types@~2.1.0"} /></label>
-                      <label className="package-dependencies">Documentation<textarea name="documentation" rows={5} placeholder="Install and usage guidance for collaborators choosing this version." /></label>
-                      <div className="release-form-actions"><Button disabled={publishingPackage}>{publishingPackage ? "Publishing…" : "Publish immutable version"}</Button></div>
+                      <label className="package-dependencies">
+                        Dependencies
+                        <textarea
+                          name="dependencies"
+                          rows={3}
+                          placeholder={
+                            "@owner/core@^1.0.0\n@owner/types@~2.1.0"
+                          }
+                        />
+                      </label>
+                      <label className="package-dependencies">
+                        Documentation
+                        <textarea
+                          name="documentation"
+                          rows={5}
+                          placeholder="Install and usage guidance for collaborators choosing this version."
+                        />
+                      </label>
+                      <div className="release-form-actions">
+                        <Button disabled={publishingPackage}>
+                          {publishingPackage
+                            ? "Publishing…"
+                            : "Publish immutable version"}
+                        </Button>
+                      </div>
                     </form>
                   </details>
                 )}
                 <div className="package-versions">
-                  {packages.filter((item) => item.release_id === current.id).map((item) => (
-                    <article key={item.id}>
-                      <header><strong>{item.identity}@{item.version}</strong><Badge tone="accent">{item.lifecycle}</Badge></header>
-                      <dl>
-                        <div><dt>Artifact</dt><dd><a href={`/api/repositories/${repository.id}/packages/${item.id}/artifact`}>{item.artifact_path}</a></dd></div>
-                        <div><dt>SHA-256</dt><dd><code>{item.sha256}</code></dd></div>
-                        <div><dt>Source</dt><dd><code>{item.source_commit_id}</code></dd></div>
-                        <div><dt>Build</dt><dd>{item.build_attestation.build_name} · <code>{short(item.build_attestation.run_id)}</code></dd></div>
-                        <div><dt>Platform</dt><dd>{item.platform.os}/{item.platform.arch}{item.platform.runtime ? ` · ${item.platform.runtime}` : ""}</dd></div>
-                        <div><dt>Publisher</dt><dd><Actor id={item.publisher_id} /> · {item.visibility}</dd></div>
-                      </dl>
-                      {Object.keys(item.dependencies).length > 0 && <small>Depends on {Object.entries(item.dependencies).map(([name, constraint]) => `${name}@${constraint}`).join(", ")}</small>}
-                    </article>
-                  ))}
+                  {packages
+                    .filter((item) => item.release_id === current.id)
+                    .map((item) => (
+                      <article key={item.id}>
+                        <header>
+                          <strong>
+                            {item.identity}@{item.version}
+                          </strong>
+                          <Badge tone="accent">{item.lifecycle}</Badge>
+                        </header>
+                        <dl>
+                          <div>
+                            <dt>Artifact</dt>
+                            <dd>
+                              <a
+                                href={`/api/repositories/${repository.id}/packages/${item.id}/artifact`}
+                              >
+                                {item.artifact_path}
+                              </a>
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>SHA-256</dt>
+                            <dd>
+                              <code>{item.sha256}</code>
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Source</dt>
+                            <dd>
+                              <code>{item.source_commit_id}</code>
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Build</dt>
+                            <dd>
+                              {item.build_attestation.build_name} ·{" "}
+                              <code>
+                                {short(item.build_attestation.run_id)}
+                              </code>
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Platform</dt>
+                            <dd>
+                              {item.platform.os}/{item.platform.arch}
+                              {item.platform.runtime
+                                ? ` · ${item.platform.runtime}`
+                                : ""}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Publisher</dt>
+                            <dd>
+                              <Actor id={item.publisher_id} /> ·{" "}
+                              {item.visibility}
+                            </dd>
+                          </div>
+                        </dl>
+                        {Object.keys(item.dependencies).length > 0 && (
+                          <small>
+                            Depends on{" "}
+                            {Object.entries(item.dependencies)
+                              .map(
+                                ([name, constraint]) => `${name}@${constraint}`,
+                              )
+                              .join(", ")}
+                          </small>
+                        )}
+                      </article>
+                    ))}
                 </div>
               </article>
               <article className="release-inclusions delivery">
