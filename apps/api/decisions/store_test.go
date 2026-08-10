@@ -53,3 +53,57 @@ func TestDecisionRejectsUnaccountableScope(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestAlternativesCompareCurrentEvidenceAndBoundResearch(t *testing.T) {
+	s, _ := New(t.TempDir())
+	base := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return base }
+	in := ScopeInput{Question: "Which queue?", Constraints: []string{"Safe"}, SuccessMeasures: []string{"Fast"}, ParticipantIDs: []string{"author", "owner"}, OwnerID: "owner"}
+	v, err := s.Create("repo", "author", "Queue choice", Context{Kind: "repository"}, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims := []Claim{
+		{Kind: "assumption", Body: "Traffic stays bounded"}, {Kind: "tradeoff", Body: "More storage"},
+		{Kind: "risk", Body: "Recovery lag"}, {Kind: "compatibility", Body: "Protocol unchanged"},
+		{Kind: "cost", Body: "Two engineer-weeks"}, {Kind: "outcome", Body: "P95 under 100ms"},
+	}
+	evidence := []Evidence{{Kind: "code", RepositoryID: "repo", Revision: "abc123", Path: "queue.go", Summary: "current implementation", ObservedAt: base}}
+	v, err = s.AddAlternative("repo", v.ID, "author", "Durable queue", claims, evidence)
+	if err != nil || len(v.Comparison) != 1 || len(v.Comparison[0].MissingCriteria) != 0 {
+		t.Fatalf("comparison: %v %#v", err, v.Comparison)
+	}
+	alt := v.Alternatives[0]
+	oldRisk := alt.Claims[2].ID
+	v, err = s.AddClaims("repo", v.ID, alt.ID, "owner", []Claim{{Kind: "risk", Body: "Recovery is bounded", SupersedesID: oldRisk}, {Kind: "dissent", Body: "Cost estimate excludes operations"}}, nil)
+	if err != nil || v.Comparison[0].CurrentClaims["risk"] != "Recovery is bounded" || v.Comparison[0].DissentCount != 1 {
+		t.Fatalf("claims: %v %#v", err, v.Comparison)
+	}
+	_, token, err := s.StartResearch("repo", v.ID, alt.ID, "owner")
+	if err != nil || token == "" {
+		t.Fatal("missing scoped research credential")
+	}
+	context, selected, err := s.ResearchContext(token)
+	if err != nil || context.ID != v.ID || selected.ID != alt.ID {
+		t.Fatalf("context: %v %#v", err, selected)
+	}
+	_, err = s.AddFinding(token, "The recovery path is exercised.", "Production volume remains unknown.", evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := []Evidence{{Kind: "usage", ResourceID: "unknown", Summary: "not retained", ObservedAt: base}}
+	if _, err = s.AddFinding(token, "Unsupported", "Unknown", bad); err != ErrInvalid {
+		t.Fatalf("uncited finding: %v", err)
+	}
+	s.now = func() time.Time { return base.Add(time.Hour) }
+	in.ChangeSummary = "Traffic increased"
+	v, err = s.Revise("repo", v.ID, "owner", v.Title, in)
+	if err != nil || len(v.Comparison[0].StaleEvidenceIDs) != 1 || len(v.Alternatives[0].Findings) != 1 {
+		t.Fatalf("staleness/history: %v %#v", err, v)
+	}
+	reopened, _ := New(s.root)
+	got, err := reopened.Get("repo", v.ID)
+	if err != nil || len(got.Alternatives) != 1 || len(got.Alternatives[0].Claims) != 8 {
+		t.Fatalf("persistence: %v %#v", err, got)
+	}
+}
