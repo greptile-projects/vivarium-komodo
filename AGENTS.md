@@ -253,6 +253,16 @@ whenever dependencies change or the web job fails before it starts.
   cite retained evidence in attributable findings; they never receive Git or
   repository-write access. The shareable surface is
   `view=impact&assessment={id}&ref={commit}`.
+  Consequential technical choices live beneath `$DECISION_ROOT` (default
+  `apps/api/data/decisions`). Repository participants may open a pending
+  decision from repository, proposal, investigation, incident, evolution-plan,
+  or stewardship-opportunity context with an accountable participant owner,
+  constraints, success measures, deadline, and affected resources. Scope
+  changes append complete actor-attributed versions and discussion is
+  append-only. Use `context_kind` and `context_id` collection filters to expose
+  advisory pending context on related work; a pending decision does not block
+  unrelated contributions. The shareable surface is
+  `view=decisions&decision={id}`.
 
   Public repository resources also carry an owner-scoped normalized name,
   description, and create/update timestamps; their immutable ID remains the

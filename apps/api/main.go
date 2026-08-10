@@ -10,6 +10,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/decisions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/dependencyinventory"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/dependencyupdates"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
@@ -230,6 +231,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	decisionRoot := os.Getenv("DECISION_ROOT")
+	if decisionRoot == "" {
+		decisionRoot = "data/decisions"
+	}
+	decisionStore, err := decisions.New(decisionRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -244,6 +253,7 @@ func main() {
 	registerQuestionsHTTP(mux, questionStore, repositoryCatalog, credentials, relationshipStore, checkRunStore)
 	registerInvestigationsHTTP(mux, investigationStore, repositoryCatalog, credentials, workspaceStore, questionStore)
 	registerImpactAssessmentsHTTP(mux, impactStore, repositoryCatalog, credentials, relationshipStore, investigationStore, releaseStore, deploymentStore, packageStore)
+	registerDecisionsHTTP(mux, decisionStore, repositoryCatalog, credentials)
 	registerReasoningWorkHTTP(mux, investigationStore, impactStore, proposalStore, repositoryCatalog, credentials)
 	registerCollaboratorsHTTP(mux, repositoryCatalog, userStore, credentials, activityStore)
 	registerProposalsHTTP(mux, proposalStore, repositoryCatalog, credentials, activityStore)

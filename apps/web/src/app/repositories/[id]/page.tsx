@@ -7,6 +7,7 @@ import { Badge, Button } from "@/components/ui";
 import { GroundedQuestions } from "@/components/grounded-questions";
 import { CollaborativeInvestigations } from "@/components/collaborative-investigations";
 import { ImpactAssessments } from "@/components/impact-assessments";
+import { TechnicalDecisions } from "@/components/technical-decisions";
 import {
   Book,
   Branch,
@@ -1177,6 +1178,7 @@ export default function RepositoryPage({
     investigation?: string;
     conversation?: string;
     assessment?: string;
+    decision?: string;
   }>;
 }) {
   const { id } = use(params);
@@ -1207,6 +1209,8 @@ export default function RepositoryPage({
                         ? "investigations"
                         : query.view === "impact"
                           ? "impact"
+                          : query.view === "decisions"
+                            ? "decisions"
                       : query.view === "people"
                         ? "people"
                         : "code";
@@ -1260,6 +1264,7 @@ export default function RepositoryPage({
         view === "workspaces" ||
         view === "intelligence" ||
         view === "investigations" ||
+        view === "decisions" ||
         view === "people" ||
         repo.empty ||
         !selected
@@ -1477,6 +1482,13 @@ export default function RepositoryPage({
       )}
       <nav className="repository-tabs" aria-label="Repository">
         <button
+          className={view === "decisions" ? "active" : ""}
+          onClick={() => navigate({ view: "decisions", path: "" })}
+        >
+          <Lightbulb size={15} />
+          Decisions
+        </button>
+        <button
           className={view === "impact" ? "active" : ""}
           onClick={() => navigate({ view: "impact", ref, path: "" })}
         >
@@ -1581,6 +1593,8 @@ export default function RepositoryPage({
           initialState={query.state}
           initialQuery={query.q}
         />
+      ) : view === "decisions" ? (
+        <TechnicalDecisions repository={repository} actor={actor} selected={query.decision} />
       ) : view === "pulls" ? (
         <PullRequestWorkspace
           repository={id}
@@ -7800,6 +7814,30 @@ function ProposalDetail({
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pendingDecisions, setPendingDecisions] = useState<
+    Array<{ id: string; title: string; scope: { owner_id: string } }>
+  >([]);
+  useEffect(() => {
+    // Related decisions are advisory context and never gate proposal work.
+    fetch(
+      `/api/repositories/${repository}/decisions?context_kind=proposal&context_id=${item.id}`,
+    )
+      .then((response) => (response.ok ? response.json() : { items: [] }))
+      .then(
+        (body: {
+          items: Array<{
+            id: string;
+            title: string;
+            state: string;
+            scope: { owner_id: string };
+          }>;
+        }) =>
+          setPendingDecisions(
+            body.items.filter((value) => value.state === "pending"),
+          ),
+      )
+      .catch(() => undefined);
+  }, [item.id, repository]);
   return (
     <section className="proposal-detail">
       <button className="proposal-back" onClick={onBack}>
@@ -7854,6 +7892,23 @@ function ProposalDetail({
           </div>
         )}
       </header>
+      {pendingDecisions.length > 0 && (
+        <aside className="panel">
+          <Badge>{pendingDecisions.length} pending decision</Badge>
+          <p>
+            This proposal has a consequential choice under discussion. Work may
+            continue where it does not depend on that choice.
+          </p>
+          {pendingDecisions.map((decision) => (
+            <Link
+              key={decision.id}
+              href={`/repositories/${repository}?view=decisions&decision=${decision.id}`}
+            >
+              {decision.title} · owner {decision.scope.owner_id}
+            </Link>
+          ))}
+        </aside>
+      )}
       {error && <p className="form-error">{error}</p>}
       {editing ? (
         <ProposalForm
