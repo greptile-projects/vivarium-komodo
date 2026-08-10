@@ -21,6 +21,23 @@ shareable repository surface is `view=decisions&decision={id}`. Decision data
 lives beneath `$DECISION_ROOT`, defaulting to `apps/api/data/decisions` when the
 API is started through the documented root command.
 
+Alternatives live beneath each decision's `/alternatives` collection. Their
+claims use the common assumption, tradeoff, risk, compatibility, cost, and
+expected-outcome criteria, with an explicit dissent kind. Appending a claim may
+name the exact claim it supersedes, preserving both authors and both positions.
+Evidence citations identify exact code revisions and paths or durable
+dependency, release, incident, and usage resources, together with observation
+time and an inspectable URL. The API derives criterion gaps, evidence coverage,
+dissent counts, and citations stale relative to the current scope version.
+
+Participants can delegate one selected option through its `/agent-runs`
+resource. The returned 24-hour credential reads only that decision scope and
+alternative through `/decision-research-agent/context`; it can append a finding
+only when every citation already belongs to the option. It has no Git or
+repository-write authority. The Decisions web surface presents the common
+comparison first and retains the complete claims, citations, uncertainty, and
+supersession record below it.
+
 ## Proactive agent stewardship
 
 An organization owner can define long-running responsibility without turning a

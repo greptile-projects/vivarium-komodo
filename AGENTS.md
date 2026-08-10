@@ -259,7 +259,15 @@ whenever dependencies change or the web job fails before it starts.
   or stewardship-opportunity context with an accountable participant owner,
   constraints, success measures, deadline, and affected resources. Scope
   changes append complete actor-attributed versions and discussion is
-  append-only. Use `context_kind` and `context_id` collection filters to expose
+  append-only. Participants propose alternatives as append-only assumption,
+  tradeoff, risk, compatibility, cost, outcome, and dissent claims; newer claims
+  explicitly supersede older ones without deleting them. Citations retain exact
+  code revisions or dependency, release, incident, and usage resource IDs plus
+  observation times. The derived comparison reports missing common criteria,
+  evidence-kind coverage, dissent, and evidence made stale by a newer scope.
+  A 24-hour decision-research credential reads only its selected alternative
+  and publishes findings citing retained evidence; it grants neither Git nor
+  repository-write access. Use `context_kind` and `context_id` collection filters to expose
   advisory pending context on related work; a pending decision does not block
   unrelated contributions. The shareable surface is
   `view=decisions&decision={id}`.

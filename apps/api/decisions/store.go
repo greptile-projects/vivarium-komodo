@@ -3,6 +3,7 @@ package decisions
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -51,18 +52,66 @@ type Comment struct {
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"created_at"`
 }
-type Decision struct {
+type Evidence struct {
+	Kind         string    `json:"kind"`
+	RepositoryID string    `json:"repository_id,omitempty"`
+	Revision     string    `json:"revision,omitempty"`
+	ResourceID   string    `json:"resource_id,omitempty"`
+	Path         string    `json:"path,omitempty"`
+	URL          string    `json:"url,omitempty"`
+	Summary      string    `json:"summary"`
+	ObservedAt   time.Time `json:"observed_at"`
+}
+type Claim struct {
 	ID           string    `json:"id"`
-	RepositoryID string    `json:"repository_id"`
-	Title        string    `json:"title"`
-	State        string    `json:"state"`
-	Context      Context   `json:"context"`
-	CreatedByID  string    `json:"created_by_id"`
+	Kind         string    `json:"kind"`
+	Body         string    `json:"body"`
+	AuthorID     string    `json:"author_id"`
+	SupersedesID string    `json:"supersedes_id,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	Scope        Scope     `json:"scope"`
-	History      []Scope   `json:"history"`
-	Comments     []Comment `json:"comments"`
+}
+type Finding struct {
+	ID          string     `json:"id"`
+	Agent       string     `json:"agent"`
+	Body        string     `json:"body"`
+	Uncertainty string     `json:"uncertainty"`
+	Evidence    []Evidence `json:"evidence"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+type Alternative struct {
+	ID          string     `json:"id"`
+	Title       string     `json:"title"`
+	State       string     `json:"state"`
+	CreatedByID string     `json:"created_by_id"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	Claims      []Claim    `json:"claims"`
+	Evidence    []Evidence `json:"evidence"`
+	Findings    []Finding  `json:"agent_findings"`
+}
+type Comparison struct {
+	AlternativeID    string            `json:"alternative_id"`
+	CurrentClaims    map[string]string `json:"current_claims"`
+	MissingCriteria  []string          `json:"missing_criteria"`
+	EvidenceCount    int               `json:"evidence_count"`
+	EvidenceKinds    []string          `json:"evidence_kinds"`
+	StaleEvidenceIDs []string          `json:"stale_evidence_ids"`
+	DissentCount     int               `json:"dissent_count"`
+}
+type Decision struct {
+	ID           string        `json:"id"`
+	RepositoryID string        `json:"repository_id"`
+	Title        string        `json:"title"`
+	State        string        `json:"state"`
+	Context      Context       `json:"context"`
+	CreatedByID  string        `json:"created_by_id"`
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
+	Scope        Scope         `json:"scope"`
+	History      []Scope       `json:"history"`
+	Comments     []Comment     `json:"comments"`
+	Alternatives []Alternative `json:"alternatives"`
+	Comparison   []Comparison  `json:"comparison"`
 }
 type ScopeInput struct {
 	Question          string     `json:"question"`
@@ -75,9 +124,15 @@ type ScopeInput struct {
 	ChangeSummary     string     `json:"change_summary"`
 }
 type Store struct {
-	root string
-	mu   sync.Mutex
-	now  func() time.Time
+	root   string
+	mu     sync.Mutex
+	now    func() time.Time
+	tokens map[string]agentToken
+}
+type agentToken struct {
+	DecisionID    string    `json:"decision_id"`
+	AlternativeID string    `json:"alternative_id"`
+	ExpiresAt     time.Time `json:"expires_at"`
 }
 
 func New(root string) (*Store, error) {
@@ -87,7 +142,7 @@ func New(root string) (*Store, error) {
 	if err := os.MkdirAll(root, 0750); err != nil {
 		return nil, err
 	}
-	return &Store{root: root, now: time.Now}, nil
+	return &Store{root: root, now: time.Now, tokens: map[string]agentToken{}}, nil
 }
 func newID() string { b := make([]byte, 16); _, _ = rand.Read(b); return hex.EncodeToString(b) }
 func cleanList(in []string) ([]string, bool) {
@@ -164,7 +219,7 @@ func (s *Store) Create(repo, actor, title string, context Context, in ScopeInput
 	if e != nil {
 		return Decision{}, e
 	}
-	v := Decision{ID: newID(), RepositoryID: repo, Title: title, State: "pending", Context: context, CreatedByID: actor, CreatedAt: now, UpdatedAt: now, Scope: sc, History: []Scope{sc}, Comments: []Comment{}}
+	v := Decision{ID: newID(), RepositoryID: repo, Title: title, State: "pending", Context: context, CreatedByID: actor, CreatedAt: now, UpdatedAt: now, Scope: sc, History: []Scope{sc}, Comments: []Comment{}, Alternatives: []Alternative{}}
 	return v, s.write(v)
 }
 func (s *Store) Get(repo, id string) (Decision, error) {
@@ -174,6 +229,7 @@ func (s *Store) Get(repo, id string) (Decision, error) {
 	if e != nil {
 		return Decision{}, e
 	}
+	s.compare(&v)
 	return v, nil
 }
 func (s *Store) List(repo, kind, id string) ([]Decision, error) {
@@ -222,6 +278,7 @@ func (s *Store) Revise(repo, id, actor, title string, in ScopeInput) (Decision, 
 	v.Scope = sc
 	v.History = append(v.History, sc)
 	v.UpdatedAt = now
+	s.compare(&v)
 	return v, s.write(v)
 }
 func (s *Store) Comment(repo, id, actor, body string) (Decision, error) {
@@ -242,6 +299,274 @@ func (s *Store) Comment(repo, id, actor, body string) (Decision, error) {
 	v.Comments = append(v.Comments, Comment{ID: newID(), AuthorID: actor, Body: body, CreatedAt: now})
 	v.UpdatedAt = now
 	return v, s.write(v)
+}
+
+var criteria = []string{"assumption", "tradeoff", "risk", "compatibility", "cost", "outcome"}
+
+func validClaim(v string) bool {
+	for _, x := range append(criteria, "dissent") {
+		if v == x {
+			return true
+		}
+	}
+	return false
+}
+func validEvidence(v string) bool {
+	switch v {
+	case "code", "dependency", "release", "incident", "usage":
+		return true
+	}
+	return false
+}
+func (s *Store) AddAlternative(repo, decision, actor, title string, claims []Claim, evidence []Evidence) (Decision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(repo, decision)
+	if e != nil || !contains(v.Scope.ParticipantIDs, actor) {
+		return Decision{}, ErrNotFound
+	}
+	title = strings.TrimSpace(title)
+	now := s.now().UTC()
+	if title == "" || len(title) > 200 || !prepareClaims(claims, actor, now, nil) || !prepareEvidence(evidence) {
+		return Decision{}, ErrInvalid
+	}
+	a := Alternative{ID: newID(), Title: title, State: "active", CreatedByID: actor, CreatedAt: now, UpdatedAt: now, Claims: claims, Evidence: evidence, Findings: []Finding{}}
+	v.Alternatives = append(v.Alternatives, a)
+	v.UpdatedAt = now
+	s.compare(&v)
+	return v, s.write(v)
+}
+func prepareClaims(v []Claim, actor string, now time.Time, existing map[string]bool) bool {
+	if len(v) == 0 {
+		return false
+	}
+	for i := range v {
+		v[i].Kind = strings.TrimSpace(v[i].Kind)
+		v[i].Body = strings.TrimSpace(v[i].Body)
+		if !validClaim(v[i].Kind) || v[i].Body == "" || len(v[i].Body) > 4000 {
+			return false
+		}
+		if v[i].SupersedesID != "" && (existing == nil || !existing[v[i].SupersedesID]) {
+			return false
+		}
+		v[i].ID = newID()
+		v[i].AuthorID = actor
+		v[i].CreatedAt = now
+	}
+	return true
+}
+func prepareEvidence(v []Evidence) bool {
+	for i := range v {
+		v[i].Kind = strings.TrimSpace(v[i].Kind)
+		v[i].Summary = strings.TrimSpace(v[i].Summary)
+		if !validEvidence(v[i].Kind) || v[i].Summary == "" || v[i].ObservedAt.IsZero() {
+			return false
+		}
+		v[i].ObservedAt = v[i].ObservedAt.UTC()
+		if v[i].Kind == "code" && (v[i].RepositoryID == "" || v[i].Revision == "" || v[i].Path == "") {
+			return false
+		}
+		if v[i].Kind != "code" && v[i].ResourceID == "" {
+			return false
+		}
+	}
+	return true
+}
+func (s *Store) AddClaims(repo, decision, alternative, actor string, claims []Claim, evidence []Evidence) (Decision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(repo, decision)
+	if e != nil || !contains(v.Scope.ParticipantIDs, actor) {
+		return Decision{}, ErrNotFound
+	}
+	now := s.now().UTC()
+	for i := range v.Alternatives {
+		a := &v.Alternatives[i]
+		if a.ID != alternative {
+			continue
+		}
+		ids := map[string]bool{}
+		for _, c := range a.Claims {
+			ids[c.ID] = true
+		}
+		if !prepareClaims(claims, actor, now, ids) || !prepareEvidence(evidence) {
+			return Decision{}, ErrInvalid
+		}
+		a.Claims = append(a.Claims, claims...)
+		a.Evidence = append(a.Evidence, evidence...)
+		a.UpdatedAt = now
+		v.UpdatedAt = now
+		s.compare(&v)
+		return v, s.write(v)
+	}
+	return Decision{}, ErrNotFound
+}
+func (s *Store) StartResearch(repo, decision, alternative, actor string) (Decision, string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(repo, decision)
+	if e != nil || !contains(v.Scope.ParticipantIDs, actor) {
+		return Decision{}, "", ErrNotFound
+	}
+	found := false
+	for _, a := range v.Alternatives {
+		if a.ID == alternative && a.State == "active" {
+			found = true
+		}
+	}
+	if !found {
+		return Decision{}, "", ErrNotFound
+	}
+	raw := newID() + newID()
+	digest := sha256.Sum256([]byte(raw))
+	key := hex.EncodeToString(digest[:])
+	record := agentToken{decision, alternative, s.now().UTC().Add(24 * time.Hour)}
+	s.tokens[key] = record
+	dir := filepath.Join(s.root, ".agent-tokens")
+	if e = os.MkdirAll(dir, 0700); e != nil {
+		return Decision{}, "", e
+	}
+	b, _ := json.Marshal(record)
+	if e = os.WriteFile(filepath.Join(dir, key+".json"), b, 0600); e != nil {
+		return Decision{}, "", e
+	}
+	return v, raw, nil
+}
+func (s *Store) token(token string) (agentToken, bool) {
+	sum := sha256.Sum256([]byte(token))
+	key := hex.EncodeToString(sum[:])
+	r, ok := s.tokens[key]
+	if !ok {
+		b, e := os.ReadFile(filepath.Join(s.root, ".agent-tokens", key+".json"))
+		if e != nil || json.Unmarshal(b, &r) != nil {
+			return r, false
+		}
+	}
+	if !s.now().UTC().Before(r.ExpiresAt) {
+		return r, false
+	}
+	s.tokens[key] = r
+	return r, true
+}
+func (s *Store) ResearchContext(token string) (Decision, Alternative, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.token(token)
+	if !ok {
+		return Decision{}, Alternative{}, ErrNotFound
+	}
+	v, e := s.find(r.DecisionID)
+	if e != nil {
+		return Decision{}, Alternative{}, ErrNotFound
+	}
+	for _, a := range v.Alternatives {
+		if a.ID == r.AlternativeID {
+			return v, a, nil
+		}
+	}
+	return Decision{}, Alternative{}, ErrNotFound
+}
+func (s *Store) AddFinding(token, body, uncertainty string, evidence []Evidence) (Decision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.token(token)
+	if !ok {
+		return Decision{}, ErrNotFound
+	}
+	v, e := s.find(r.DecisionID)
+	if e != nil {
+		return Decision{}, ErrNotFound
+	}
+	body = strings.TrimSpace(body)
+	uncertainty = strings.TrimSpace(uncertainty)
+	for i := range v.Alternatives {
+		a := &v.Alternatives[i]
+		if a.ID != r.AlternativeID {
+			continue
+		}
+		canonical, valid := citedEvidence(evidence, a.Evidence)
+		if body == "" || uncertainty == "" || !valid {
+			return Decision{}, ErrInvalid
+		}
+		now := s.now().UTC()
+		a.Findings = append(a.Findings, Finding{newID(), "codex", body, uncertainty, canonical, now})
+		a.UpdatedAt = now
+		v.UpdatedAt = now
+		s.compare(&v)
+		return v, s.write(v)
+	}
+	return Decision{}, ErrNotFound
+}
+func citedEvidence(cited, retained []Evidence) ([]Evidence, bool) {
+	if len(cited) == 0 {
+		return nil, false
+	}
+	out := make([]Evidence, 0, len(cited))
+	for _, c := range cited {
+		var exact *Evidence
+		for _, r := range retained {
+			if c.Kind == r.Kind && c.RepositoryID == r.RepositoryID && c.Revision == r.Revision && c.ResourceID == r.ResourceID && c.Path == r.Path {
+				copy := r
+				exact = &copy
+			}
+		}
+		if exact == nil {
+			return nil, false
+		}
+		out = append(out, *exact)
+	}
+	return out, true
+}
+func (s *Store) find(id string) (Decision, error) {
+	dirs, _ := os.ReadDir(s.root)
+	for _, d := range dirs {
+		if !d.IsDir() || strings.HasPrefix(d.Name(), ".") {
+			continue
+		}
+		if v, e := s.read(d.Name(), id); e == nil {
+			return v, nil
+		}
+	}
+	return Decision{}, ErrNotFound
+}
+func (s *Store) compare(v *Decision) {
+	v.Comparison = []Comparison{}
+	for _, a := range v.Alternatives {
+		c := Comparison{AlternativeID: a.ID, CurrentClaims: map[string]string{}, EvidenceCount: len(a.Evidence), EvidenceKinds: []string{}, StaleEvidenceIDs: []string{}}
+		sup := map[string]bool{}
+		for _, x := range a.Claims {
+			if x.SupersedesID != "" {
+				sup[x.SupersedesID] = true
+			}
+		}
+		kinds := map[string]bool{}
+		for _, x := range a.Claims {
+			if !sup[x.ID] {
+				if x.Kind == "dissent" {
+					c.DissentCount++
+				} else {
+					c.CurrentClaims[x.Kind] = x.Body
+				}
+			}
+		}
+		for _, x := range criteria {
+			if c.CurrentClaims[x] == "" {
+				c.MissingCriteria = append(c.MissingCriteria, x)
+			}
+		}
+		for _, e := range a.Evidence {
+			kinds[e.Kind] = true
+			if e.ObservedAt.Before(v.Scope.CreatedAt) {
+				c.StaleEvidenceIDs = append(c.StaleEvidenceIDs, e.Kind+":"+e.ResourceID+e.Path)
+			}
+		}
+		for _, x := range []string{"code", "dependency", "release", "incident", "usage"} {
+			if kinds[x] {
+				c.EvidenceKinds = append(c.EvidenceKinds, x)
+			}
+		}
+		v.Comparison = append(v.Comparison, c)
+	}
 }
 func (s *Store) path(repo, id string) string { return filepath.Join(s.root, repo, id+".json") }
 func (s *Store) read(repo, id string) (Decision, error) {

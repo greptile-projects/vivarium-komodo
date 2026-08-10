@@ -15,6 +15,11 @@ type decisionStore interface {
 	List(string, string, string) ([]decisions.Decision, error)
 	Revise(string, string, string, string, decisions.ScopeInput) (decisions.Decision, error)
 	Comment(string, string, string, string) (decisions.Decision, error)
+	AddAlternative(string, string, string, string, []decisions.Claim, []decisions.Evidence) (decisions.Decision, error)
+	AddClaims(string, string, string, string, []decisions.Claim, []decisions.Evidence) (decisions.Decision, error)
+	StartResearch(string, string, string, string) (decisions.Decision, string, error)
+	ResearchContext(string) (decisions.Decision, decisions.Alternative, error)
+	AddFinding(string, string, string, []decisions.Evidence) (decisions.Decision, error)
 }
 
 func registerDecisionsHTTP(mux *http.ServeMux, s decisionStore, repos proposalRepositoryStore, c authStore) {
@@ -24,6 +29,84 @@ func registerDecisionsHTTP(mux *http.ServeMux, s decisionStore, repos proposalRe
 	mux.HandleFunc("GET "+base+"/{decision}", getDecision(s, repos, c))
 	mux.HandleFunc("PATCH "+base+"/{decision}", reviseDecision(s, repos, c))
 	mux.HandleFunc("POST "+base+"/{decision}/comments", commentDecision(s, repos, c))
+	mux.HandleFunc("POST "+base+"/{decision}/alternatives", addDecisionAlternative(s, repos, c))
+	mux.HandleFunc("POST "+base+"/{decision}/alternatives/{alternative}/claims", addDecisionClaims(s, repos, c))
+	mux.HandleFunc("POST "+base+"/{decision}/alternatives/{alternative}/agent-runs", startDecisionResearch(s, repos, c))
+	mux.HandleFunc("GET /decision-research-agent/context", decisionResearchContext(s))
+	mux.HandleFunc("POST /decision-research-agent/findings", decisionResearchFinding(s))
+}
+func addDecisionAlternative(s decisionStore, repos proposalRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Title    string               `json:"title"`
+			Claims   []decisions.Claim    `json:"claims"`
+			Evidence []decisions.Evidence `json:"evidence"`
+		}
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		v, e := s.AddAlternative(string(repo.ID), r.PathValue("decision"), a.UserID, in.Title, in.Claims, in.Evidence)
+		writeDecision(w, v, e, 201)
+	}
+}
+func addDecisionClaims(s decisionStore, repos proposalRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Claims   []decisions.Claim    `json:"claims"`
+			Evidence []decisions.Evidence `json:"evidence"`
+		}
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		v, e := s.AddClaims(string(repo.ID), r.PathValue("decision"), r.PathValue("alternative"), a.UserID, in.Claims, in.Evidence)
+		writeDecision(w, v, e, 201)
+	}
+}
+func startDecisionResearch(s decisionStore, repos proposalRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		v, t, e := s.StartResearch(string(repo.ID), r.PathValue("decision"), r.PathValue("alternative"), a.UserID)
+		if e != nil {
+			writeDecision(w, v, e, 201)
+			return
+		}
+		writeJSON(w, 201, map[string]any{"decision": v, "worker_credential": t, "credential_notice": "shown once; selected alternative context and cited finding publication only; no Git or repository-write authority"})
+	}
+}
+func decisionResearchContext(s decisionStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		v, a, e := s.ResearchContext(bearer(r))
+		if e != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"decision_id": v.ID, "repository_id": v.RepositoryID, "scope": v.Scope, "alternative": a})
+	}
+}
+func decisionResearchFinding(s decisionStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Body        string               `json:"body"`
+			Uncertainty string               `json:"uncertainty"`
+			Evidence    []decisions.Evidence `json:"evidence"`
+		}
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		v, e := s.AddFinding(bearer(r), in.Body, in.Uncertainty, in.Evidence)
+		writeDecision(w, v, e, 201)
+	}
 }
 func createDecision(s decisionStore, repos proposalRepositoryStore, c authStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
