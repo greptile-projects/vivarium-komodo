@@ -12,6 +12,7 @@ import (
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
@@ -307,6 +308,21 @@ func publishWorkspaceCheckpoint(store workspaceStore, runner workspaceRunner, re
 				writeJSON(w, 422, map[string]string{"error": "invalid_pull_request"})
 				return
 			}
+			if proposalID != "" && taskID != "" {
+				assignmentID := ""
+				if plan, planErr := plans.GetPlan(item.RepositoryID, proposalID); planErr == nil {
+					for _, task := range plan.Tasks {
+						if task.ID == taskID && task.Assignment != nil {
+							assignmentID = task.Assignment.ID
+							break
+						}
+					}
+				}
+				if _, contributionErr := plans.PublishTaskContribution(item.RepositoryID, proposalID, taskID, actor.UserID, proposals.TaskContribution{PullRequestID: created.ID, SessionID: sessionID, AssignmentID: assignmentID, SourceCommitID: string(commit), TargetCommitID: string(target.ObjectID), Status: proposals.ContributionReview}); contributionErr != nil {
+					writeJSON(w, 422, map[string]string{"error": "task_contribution_failed"})
+					return
+				}
+			}
 			pull = &created
 			if checks != nil {
 				_ = checks.Start(item.RepositoryID, item.RepositoryID, created.ID, string(commit))
@@ -461,8 +477,8 @@ func workspaceGrantControl(store workspaceStore, repositories taskSessionReposit
 			}
 		} else if in.SubjectKind == "approved_agent" {
 			approved := false
-			if orgs != nil {
-				if org, err := orgs.Get(repository.OwnerID); err == nil {
+			if orgs != nil && repository.OrganizationID != "" {
+				if org, err := orgs.Get(repository.OrganizationID); err == nil {
 					for _, agent := range org.Agents {
 						if agent.ID == in.SubjectID {
 							approved = true

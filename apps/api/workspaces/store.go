@@ -830,7 +830,16 @@ func (s *Store) Stop(repositoryID, id, actor, reason string, expire bool) (Works
 	}
 	w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: string(w.State), Kind: "lifecycle", ActorID: actor, Message: strings.TrimSpace(reason), CreatedAt: now})
 	w.UpdatedAt = now
-	return w, s.write(w)
+	if err := s.write(w); err != nil {
+		return Workspace{}, err
+	}
+	// Terminal lifecycle decisions retain the record and content-addressed
+	// checkpoint evidence, but the mutable runtime must stop consuming storage
+	// and must not remain available outside the public state machine.
+	if err := os.RemoveAll(s.Environment(id)); err != nil {
+		return w, err
+	}
+	return w, nil
 }
 func (s *Store) RecordConsumption(repositoryID, id, actor, kind string, quantity int64, unit string) (Workspace, error) {
 	s.mu.Lock()

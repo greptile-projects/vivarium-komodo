@@ -1788,6 +1788,9 @@ atomically advanced only from that base, so moved branches reject stale work.
 The commit, checkpoint, workspace, and pull request retain bidirectional IDs,
 the publisher and exact checkpoint/file contributors, proposal-task and change-
 session context when present, and an originating pull request when applicable.
+Publishing from a proposal task registers the request as that task's review
+contribution, so protected-queue integration reconciles the plan to `merged`
+rather than leaving completed workspace work detached from its original intent.
 Commit trailers preserve the workspace and checkpoint link in Git history. Pull
 request text summarizes the declared change and verification commands without
 copying private command output or activity. New requests enter existing checks,
@@ -1817,7 +1820,16 @@ the same fail-closed exclusions as checkpoints.
 
 Repository owners can announce an explicit expiry with `POST .../{workspace}/expiry`
 or stop/expire immediately with `POST .../{workspace}/stop`. Terminal lifecycle
-transitions revoke live controls and presence and prevent further compute, but
+transitions revoke live controls and presence, delete the mutable materialized
+environment, and prevent further compute, but
 the workspace record, activity, checkpoints, checkpoint blobs, published Git
 commits, and pull-request links remain inspectable under ordinary repository
 read policy.
+
+`workspace_collaboration_workflow_test.go` composes the complete boundary. It
+launches from an assigned plan task, joins a peer and organization-approved
+agent, records edits, execution and human intervention, reconnects after
+suspension, conflict-preflights and restores a checkpoint, publishes its linked
+task contribution, passes repository checks and protected integration, then
+expires the compute while proving the merged intent and collaboration trail
+remain readable through public resources and stock Git.
