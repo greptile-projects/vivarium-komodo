@@ -824,6 +824,15 @@ whenever dependencies change or the web job fails before it starts.
   `workspace_collaboration_workflow_test.go` is the black-box regression for
   the complete planned-task-to-expired-environment loop across public HTTP,
   stock Git, checks, review, and protected integration.
+  Validated investigation conclusions and impact items cross into delivery at
+  `POST /repositories/{ID}/connected-work`. The endpoint creates one proposal
+  and ordered, optionally human- or Codex-owned plan tasks while snapshotting
+  the selected claim or risk, exact commit, evidence, verification paths, and
+  owner acknowledgements in each task's `reasoning_context`. Carry that same
+  immutable context into task change sessions and task/workspace pull requests;
+  never replace it with the current branch or a later analysis run. A later
+  investigation rerun marks its original entries stale while existing work
+  continues to show the revision and reasoning that actually initiated it.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 

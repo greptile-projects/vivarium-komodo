@@ -14,6 +14,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/reasoning"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
 )
@@ -303,7 +304,17 @@ func publishWorkspaceCheckpoint(store workspaceStore, runner workspaceRunner, re
 					body += "\n\nCommands performed:\n- `" + strings.Join(cp.Reproducibility.Commands, "`\n- `") + "`"
 				}
 			}
-			created, e := pulls.Create(pullrequests.CreateParams{RepositoryID: item.RepositoryID, SourceRepositoryID: item.RepositoryID, ProposalID: proposalID, TaskID: taskID, ChangeSessionID: sessionID, OriginPullRequestID: originPullID, AuthorID: actor.UserID, Title: in.Title, Body: body, SourceBranch: strings.TrimSpace(in.Branch), TargetBranch: targetName, SourceCommitID: string(commit), TargetCommitID: string(target.ObjectID), WorkspaceID: item.ID, CheckpointID: r.PathValue("checkpoint"), ContributorIDs: contributors})
+			var reasoningContext *reasoning.Context
+			if proposalID != "" && taskID != "" {
+				if plan, planErr := plans.GetPlan(item.RepositoryID, proposalID); planErr == nil {
+					for _, task := range plan.Tasks {
+						if task.ID == taskID {
+							reasoningContext = task.ReasoningContext
+						}
+					}
+				}
+			}
+			created, e := pulls.Create(pullrequests.CreateParams{RepositoryID: item.RepositoryID, SourceRepositoryID: item.RepositoryID, ProposalID: proposalID, TaskID: taskID, ChangeSessionID: sessionID, OriginPullRequestID: originPullID, AuthorID: actor.UserID, Title: in.Title, Body: body, SourceBranch: strings.TrimSpace(in.Branch), TargetBranch: targetName, SourceCommitID: string(commit), TargetCommitID: string(target.ObjectID), WorkspaceID: item.ID, CheckpointID: r.PathValue("checkpoint"), ContributorIDs: contributors, ReasoningContext: reasoningContext})
 			if e != nil {
 				writeJSON(w, 422, map[string]string{"error": "invalid_pull_request"})
 				return

@@ -11,6 +11,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/reasoning"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
@@ -30,7 +31,7 @@ func TestAgentAssignedTaskStartsBeforePullRequest(t *testing.T) {
 	proposal, _ := plans.Create(string(repository.ID), "owner", "Improve onboarding", "New contributors need a clean setup path.")
 	dependency, _ := plans.CreateTask(string(repository.ID), proposal.ID, "owner", proposals.TaskInput{Title: "Choose flow", Outcome: "The setup flow is agreed."})
 	dependency, _ = plans.UpdateTask(string(repository.ID), proposal.ID, dependency.ID, "owner", proposals.TaskInput{Title: dependency.Title, Outcome: dependency.Outcome, Status: proposals.TaskCompleted, Position: 1})
-	task, _ := plans.CreateTask(string(repository.ID), proposal.ID, "owner", proposals.TaskInput{Title: "Implement flow", Outcome: "A candidate implementation exists.", DependsOn: []string{dependency.ID}})
+	task, _ := plans.CreateTask(string(repository.ID), proposal.ID, "owner", proposals.TaskInput{Title: "Implement flow", Outcome: "A candidate implementation exists.", DependsOn: []string{dependency.ID}, ReasoningContext: &reasoning.Context{Kind: "investigation_conclusion", InvestigationID: "investigation", ConclusionID: "conclusion", RepositoryID: string(repository.ID), CommitID: string(base), Claim: "The agreed flow removes setup ambiguity."}})
 	task, _ = plans.AssignTask(string(repository.ID), proposal.ID, task.ID, "owner", "", proposals.AssignmentInput{Kind: proposals.AgentAssignee, AssigneeID: "codex", Mandate: "Implement only the agreed onboarding flow.", RepositoryID: string(repository.ID), BaseRevision: string(base)})
 	token := issueAccess(t, credentials, "owner", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	mux := http.NewServeMux()
@@ -54,7 +55,7 @@ func TestAgentAssignedTaskStartsBeforePullRequest(t *testing.T) {
 	}
 	_ = json.NewDecoder(response.Body).Decode(&started)
 	response.Body.Close()
-	if response.StatusCode != http.StatusCreated || started.Task.Status != proposals.TaskInProgress || started.Session.PullRequestID == "" || started.Session.TaskContext == nil || started.Session.TaskContext.ProposalDescription != proposal.Body || len(started.Session.TaskContext.Dependencies) != 1 || started.Run.State != changesessions.Queued {
+	if response.StatusCode != http.StatusCreated || started.Task.Status != proposals.TaskInProgress || started.Session.PullRequestID == "" || started.Session.TaskContext == nil || started.Session.TaskContext.ProposalDescription != proposal.Body || len(started.Session.TaskContext.Dependencies) != 1 || started.Session.TaskContext.ReasoningContext == nil || started.Session.TaskContext.ReasoningContext.ConclusionID != "conclusion" || started.Run.State != changesessions.Queued {
 		t.Fatalf("started = %#v status %d", started, response.StatusCode)
 	}
 	branch, err := opened.ReadReference(storage.ReferenceName(started.Credential.Branch))

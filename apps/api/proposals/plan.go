@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/greptile-projects/vivarium-komodo/apps/api/reasoning"
 )
 
 var (
@@ -74,6 +76,7 @@ type Task struct {
 	BlockedBy            []string           `json:"blocked_by,omitempty"`
 	Assignment           *TaskAssignment    `json:"assignment,omitempty"`
 	Contributions        []TaskContribution `json:"contributions,omitempty"`
+	ReasoningContext     *reasoning.Context `json:"reasoning_context,omitempty"`
 }
 
 func (s *Store) PublishTaskContribution(repositoryID, proposalID, taskID, actorID string, contribution TaskContribution) (Task, error) {
@@ -239,6 +242,7 @@ type TaskInput struct {
 	Status               TaskStatus
 	DependsOn            []string
 	DiscussionCommentIDs []string
+	ReasoningContext     *reasoning.Context
 }
 
 type PlanEvent struct {
@@ -300,7 +304,7 @@ func (s *Store) CreateTask(repositoryID, proposalID, actorID string, input TaskI
 		return Task{}, err
 	}
 	now := s.now().UTC()
-	task := Task{ID: id, ProposalID: proposalID, Title: input.Title, Outcome: input.Outcome, Status: input.Status, DependsOn: input.DependsOn, DiscussionCommentIDs: input.DiscussionCommentIDs, CreatedByID: actorID, UpdatedByID: actorID, CreatedAt: now, UpdatedAt: now}
+	task := Task{ID: id, ProposalID: proposalID, Title: input.Title, Outcome: input.Outcome, Status: input.Status, DependsOn: input.DependsOn, DiscussionCommentIDs: input.DiscussionCommentIDs, ReasoningContext: input.ReasoningContext, CreatedByID: actorID, UpdatedByID: actorID, CreatedAt: now, UpdatedAt: now}
 	tasks = insertTask(tasks, task, input.Position)
 	deriveReadiness(tasks)
 	created := taskByID(tasks, id)
