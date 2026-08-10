@@ -145,30 +145,66 @@ type StewardshipDecision struct {
 	SnoozedUntil *time.Time `json:"snoozed_until,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 }
+type StewardshipClassRule struct {
+	Class            string `json:"class"`
+	Mode             string `json:"mode"` // approval or auto_start
+	MaxRisk          string `json:"max_risk,omitempty"`
+	MaxRunsPerDay    int    `json:"max_runs_per_day,omitempty"`
+	MaxHoursPerMonth int    `json:"max_hours_per_month,omitempty"`
+}
+type StewardshipWorkPolicy struct {
+	MandateID      string                 `json:"mandate_id"`
+	MandateVersion int64                  `json:"mandate_version"`
+	Version        int64                  `json:"version"`
+	Rules          []StewardshipClassRule `json:"rules"`
+	UpdatedByID    string                 `json:"updated_by_id"`
+	UpdatedAt      time.Time              `json:"updated_at"`
+}
+type StewardshipWorkDecision struct {
+	Version       int64     `json:"version"`
+	PolicyVersion int64     `json:"policy_version"`
+	Mode          string    `json:"mode"`
+	State         string    `json:"state"`
+	Risk          string    `json:"risk"`
+	Hours         int       `json:"hours"`
+	Blockers      []string  `json:"blockers"`
+	ActorID       string    `json:"actor_id"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+type StewardshipWorkLink struct {
+	ProposalID   string    `json:"proposal_id"`
+	TaskIDs      []string  `json:"task_ids"`
+	BaseRevision string    `json:"base_revision"`
+	PromotedByID string    `json:"promoted_by_id"`
+	PromotedAt   time.Time `json:"promoted_at"`
+}
 type StewardshipOpportunity struct {
-	ID                string                `json:"id"`
-	DeduplicationKey  string                `json:"deduplication_key"`
-	MandateID         string                `json:"mandate_id"`
-	MandateVersion    int64                 `json:"mandate_version"`
-	RepositoryID      string                `json:"repository_id"`
-	Title             string                `json:"title"`
-	Summary           string                `json:"summary"`
-	Severity          string                `json:"severity"`
-	ExpectedValue     string                `json:"expected_value"`
-	Confidence        float64               `json:"confidence"`
-	AffectedOwnerIDs  []string              `json:"affected_owner_ids"`
-	AffectedRevisions []string              `json:"affected_revisions"`
-	Citations         []StewardshipCitation `json:"citations"`
-	InScopeReason     string                `json:"in_scope_reason"`
-	Signal            string                `json:"signal"`
-	State             string                `json:"state"`
-	Rank              int                   `json:"rank"`
-	EvidenceStale     bool                  `json:"evidence_stale"`
-	StaleReason       string                `json:"stale_reason,omitempty"`
-	Comments          []StewardshipComment  `json:"comments"`
-	Decisions         []StewardshipDecision `json:"decisions"`
-	EvaluatedAt       time.Time             `json:"evaluated_at"`
-	UpdatedAt         time.Time             `json:"updated_at"`
+	ID                string                    `json:"id"`
+	DeduplicationKey  string                    `json:"deduplication_key"`
+	MandateID         string                    `json:"mandate_id"`
+	MandateVersion    int64                     `json:"mandate_version"`
+	RepositoryID      string                    `json:"repository_id"`
+	Title             string                    `json:"title"`
+	Summary           string                    `json:"summary"`
+	Severity          string                    `json:"severity"`
+	ExpectedValue     string                    `json:"expected_value"`
+	Confidence        float64                   `json:"confidence"`
+	AffectedOwnerIDs  []string                  `json:"affected_owner_ids"`
+	AffectedRevisions []string                  `json:"affected_revisions"`
+	Citations         []StewardshipCitation     `json:"citations"`
+	InScopeReason     string                    `json:"in_scope_reason"`
+	Signal            string                    `json:"signal"`
+	Class             string                    `json:"class"`
+	State             string                    `json:"state"`
+	Rank              int                       `json:"rank"`
+	EvidenceStale     bool                      `json:"evidence_stale"`
+	StaleReason       string                    `json:"stale_reason,omitempty"`
+	Comments          []StewardshipComment      `json:"comments"`
+	Decisions         []StewardshipDecision     `json:"decisions"`
+	WorkDecisions     []StewardshipWorkDecision `json:"work_decisions"`
+	Work              *StewardshipWorkLink      `json:"work,omitempty"`
+	EvaluatedAt       time.Time                 `json:"evaluated_at"`
+	UpdatedAt         time.Time                 `json:"updated_at"`
 }
 
 // ResourceRef names one authority boundary without implying authority over the
@@ -332,6 +368,7 @@ type Organization struct {
 	Initiatives              []Initiative             `json:"initiatives"`
 	StewardshipMandates      []StewardshipMandate     `json:"stewardship_mandates"`
 	StewardshipOpportunities []StewardshipOpportunity `json:"stewardship_opportunities"`
+	StewardshipWorkPolicies  []StewardshipWorkPolicy  `json:"stewardship_work_policies"`
 	CreatedAt                time.Time                `json:"created_at"`
 	UpdatedAt                time.Time                `json:"updated_at"`
 }
@@ -1351,8 +1388,11 @@ func (s *Store) EvaluateStewardship(id, actor string, in StewardshipOpportunity)
 		if !operator || !inMandateScope(m, in.RepositoryID, strings.TrimSpace(in.Signal)) {
 			return ErrForbidden
 		}
-		in.DeduplicationKey, in.Title, in.Summary, in.ExpectedValue, in.InScopeReason = strings.TrimSpace(in.DeduplicationKey), strings.TrimSpace(in.Title), strings.TrimSpace(in.Summary), strings.TrimSpace(in.ExpectedValue), strings.TrimSpace(in.InScopeReason)
-		if in.DeduplicationKey == "" || len(in.DeduplicationKey) > 200 || in.Title == "" || len(in.Title) > 160 || in.Summary == "" || in.ExpectedValue == "" || in.InScopeReason == "" || in.Confidence < 0 || in.Confidence > 1 || len(in.Citations) == 0 || len(in.AffectedOwnerIDs) == 0 || len(in.AffectedRevisions) == 0 {
+		in.DeduplicationKey, in.Title, in.Summary, in.ExpectedValue, in.InScopeReason, in.Class = strings.TrimSpace(in.DeduplicationKey), strings.TrimSpace(in.Title), strings.TrimSpace(in.Summary), strings.TrimSpace(in.ExpectedValue), strings.TrimSpace(in.InScopeReason), strings.TrimSpace(in.Class)
+		if in.Class == "" {
+			in.Class = strings.TrimSpace(in.Signal)
+		}
+		if in.DeduplicationKey == "" || len(in.DeduplicationKey) > 200 || in.Class == "" || len(in.Class) > 100 || in.Title == "" || len(in.Title) > 160 || in.Summary == "" || in.ExpectedValue == "" || in.InScopeReason == "" || in.Confidence < 0 || in.Confidence > 1 || len(in.Citations) == 0 || len(in.AffectedOwnerIDs) == 0 || len(in.AffectedRevisions) == 0 {
 			return ErrInvalid
 		}
 		if in.Severity != "low" && in.Severity != "medium" && in.Severity != "high" && in.Severity != "critical" {
@@ -1368,15 +1408,19 @@ func (s *Store) EvaluateStewardship(id, actor string, in StewardshipOpportunity)
 		// Attribution and queue disposition are always derived from storage, not
 		// accepted from an evaluator payload.
 		in.ID, in.State, in.StaleReason = "", "", ""
-		in.Rank, in.EvidenceStale, in.Comments, in.Decisions = 0, false, nil, nil
+		in.Rank, in.EvidenceStale, in.Comments, in.Decisions, in.WorkDecisions = 0, false, []StewardshipComment{}, []StewardshipDecision{}, []StewardshipWorkDecision{}
 		in.EvaluatedAt, in.UpdatedAt = time.Time{}, time.Time{}
 		for i := range o.StewardshipOpportunities {
 			x := &o.StewardshipOpportunities[i]
 			if x.MandateID == in.MandateID && x.RepositoryID == in.RepositoryID && x.DeduplicationKey == in.DeduplicationKey {
 				// Keep the public challenge history while replacing only the newly
 				// evaluated recommendation and its immutable source snapshot.
-				in.ID, in.Comments, in.Decisions, in.Rank = x.ID, x.Comments, x.Decisions, x.Rank
+				in.ID, in.Comments, in.Decisions, in.Rank, in.WorkDecisions, in.Work = x.ID, x.Comments, x.Decisions, x.Rank, x.WorkDecisions, x.Work
 				in.State = x.State
+				if in.State == "accepted" && len(in.WorkDecisions) > 0 {
+					in.WorkDecisions = append(in.WorkDecisions, StewardshipWorkDecision{Version: int64(len(in.WorkDecisions) + 1), PolicyVersion: in.WorkDecisions[len(in.WorkDecisions)-1].PolicyVersion, Mode: "system", State: "superseded", Blockers: []string{"evidence_revision_changed"}, ActorID: actor, CreatedAt: now})
+					in.State = "open"
+				}
 				if in.State == "" {
 					in.State = "open"
 				}
@@ -1471,6 +1515,241 @@ func (s *Store) DecideStewardship(id, opportunityID, actor string, in Stewardshi
 				event(o, "stewardship.opportunity_"+in.Action, actor, x.ID, now)
 				return nil
 			}
+		}
+		return ErrNotFound
+	})
+	return o, changed, err
+}
+
+func validRisk(risk string) bool {
+	return risk == "low" || risk == "medium" || risk == "high" || risk == "critical"
+}
+func riskLevel(risk string) int {
+	for i, candidate := range []string{"low", "medium", "high", "critical"} {
+		if risk == candidate {
+			return i
+		}
+	}
+	return 99
+}
+
+// PutStewardshipWorkPolicy appends policy rather than rewriting the policy that
+// an earlier approval evaluated. expectedVersion is the concurrency token.
+func (s *Store) PutStewardshipWorkPolicy(id, actor, mandateID string, mandateVersion, expectedVersion int64, rules []StewardshipClassRule) (Organization, StewardshipWorkPolicy, error) {
+	var made StewardshipWorkPolicy
+	o, err := s.change(id, func(o *Organization) error {
+		member, ok := membership(*o, actor, true)
+		if !ok || member.Role != "owner" {
+			return ErrForbidden
+		}
+		found, current := false, int64(0)
+		for _, m := range o.StewardshipMandates {
+			if m.ID == mandateID && m.Version == mandateVersion {
+				found = true
+			}
+		}
+		for _, p := range o.StewardshipWorkPolicies {
+			if p.MandateID == mandateID && p.MandateVersion == mandateVersion && p.Version > current {
+				current = p.Version
+			}
+		}
+		if !found {
+			return ErrNotFound
+		}
+		if current != expectedVersion {
+			return ErrConflict
+		}
+		if len(rules) == 0 {
+			return ErrInvalid
+		}
+		seen := map[string]bool{}
+		for i := range rules {
+			r := &rules[i]
+			r.Class, r.Mode, r.MaxRisk = strings.TrimSpace(r.Class), strings.TrimSpace(r.Mode), strings.TrimSpace(r.MaxRisk)
+			if r.Class == "" || seen[r.Class] || (r.Mode != "approval" && r.Mode != "auto_start") || (r.MaxRisk != "" && !validRisk(r.MaxRisk)) || r.MaxRunsPerDay < 0 || r.MaxHoursPerMonth < 0 {
+				return ErrInvalid
+			}
+			seen[r.Class] = true
+		}
+		now := s.now().UTC()
+		made = StewardshipWorkPolicy{MandateID: mandateID, MandateVersion: mandateVersion, Version: current + 1, Rules: rules, UpdatedByID: actor, UpdatedAt: now}
+		o.StewardshipWorkPolicies = append(o.StewardshipWorkPolicies, made)
+		event(o, "stewardship.work_policy_updated", actor, mandateID, now)
+		return nil
+	})
+	return o, made, err
+}
+
+func latestWorkPolicy(o *Organization, mandateID string, version int64) *StewardshipWorkPolicy {
+	var found *StewardshipWorkPolicy
+	for i := range o.StewardshipWorkPolicies {
+		p := &o.StewardshipWorkPolicies[i]
+		if p.MandateID == mandateID && p.MandateVersion == version && (found == nil || p.Version > found.Version) {
+			found = p
+		}
+	}
+	return found
+}
+
+// DecideStewardshipWork performs the atomic human/automatic admission decision.
+// External safety checks are named blockers supplied by trusted server adapters.
+func (s *Store) DecideStewardshipWork(id, opportunityID, actor, risk string, hours int, expectedDecisionVersion, expectedPolicyVersion int64, auto bool, systemBlockers []string) (Organization, StewardshipOpportunity, error) {
+	var changed StewardshipOpportunity
+	o, err := s.change(id, func(o *Organization) error {
+		now := s.now().UTC()
+		member, isMember := membership(*o, actor, true)
+		for i := range o.StewardshipOpportunities {
+			x := &o.StewardshipOpportunities[i]
+			if x.ID != opportunityID {
+				continue
+			}
+			if !validRisk(risk) || hours < 1 || hours > 1000 {
+				return ErrInvalid
+			}
+			if int64(len(x.WorkDecisions)) != expectedDecisionVersion {
+				return ErrConflict
+			}
+			m := activeMandate(o, x.MandateID, x.MandateVersion, now)
+			blockers := append([]string(nil), systemBlockers...)
+			if m == nil {
+				blockers = append(blockers, "mandate_inactive_or_superseded")
+			}
+			if x.EvidenceStale {
+				blockers = append(blockers, "evidence_stale")
+			}
+			if x.State != "open" {
+				blockers = append(blockers, "opportunity_not_open")
+			}
+			if x.Work != nil {
+				blockers = append(blockers, "work_already_promoted")
+			}
+			policy := latestWorkPolicy(o, x.MandateID, x.MandateVersion)
+			if policy == nil || policy.Version != expectedPolicyVersion {
+				blockers = append(blockers, "policy_changed")
+			}
+			var rule *StewardshipClassRule
+			if policy != nil {
+				for j := range policy.Rules {
+					if policy.Rules[j].Class == x.Class {
+						rule = &policy.Rules[j]
+					}
+				}
+			}
+			if rule == nil {
+				blockers = append(blockers, "class_requires_policy")
+			}
+			if auto && rule != nil && rule.Mode != "auto_start" {
+				blockers = append(blockers, "human_approval_required")
+			}
+			if !auto && (!isMember || member.Role != "owner") {
+				return ErrForbidden
+			}
+			if auto && m != nil {
+				operator := false
+				for _, a := range o.Agents {
+					if a.ID == m.AgentID {
+						for _, user := range a.OperatorIDs {
+							operator = operator || user == actor
+						}
+					}
+				}
+				if !operator {
+					return ErrForbidden
+				}
+			}
+			if rule != nil && rule.MaxRisk != "" && riskLevel(risk) > riskLevel(rule.MaxRisk) {
+				blockers = append(blockers, "risk_exceeds_mandate")
+			}
+			dailyRuns, monthlyHours := 0, 0
+			for _, other := range o.StewardshipOpportunities {
+				for _, d := range other.WorkDecisions {
+					if d.State != "accepted" || d.PolicyVersion != expectedPolicyVersion {
+						continue
+					}
+					if d.CreatedAt.Year() == now.Year() && d.CreatedAt.YearDay() == now.YearDay() {
+						dailyRuns++
+					}
+					if d.CreatedAt.Year() == now.Year() && d.CreatedAt.Month() == now.Month() {
+						monthlyHours += d.Hours
+					}
+				}
+			}
+			if m != nil && (dailyRuns >= m.Budget.MaxRunsPerDay || monthlyHours+hours > m.Budget.MaxHoursPerMonth) {
+				blockers = append(blockers, "mandate_budget_exhausted")
+			}
+			if rule != nil && ((rule.MaxRunsPerDay > 0 && dailyRuns >= rule.MaxRunsPerDay) || (rule.MaxHoursPerMonth > 0 && monthlyHours+hours > rule.MaxHoursPerMonth)) {
+				blockers = append(blockers, "class_budget_exhausted")
+			}
+			for j := range o.StewardshipOpportunities {
+				other := &o.StewardshipOpportunities[j]
+				if other.ID != x.ID && other.RepositoryID == x.RepositoryID && other.Work != nil && slicesOverlap(other.AffectedRevisions, x.AffectedRevisions) {
+					blockers = append(blockers, "conflicting_work")
+				}
+			}
+			state := "accepted"
+			if len(blockers) > 0 {
+				state = "blocked"
+			}
+			mode := "approval"
+			if auto {
+				mode = "auto_start"
+			}
+			decision := StewardshipWorkDecision{Version: int64(len(x.WorkDecisions) + 1), PolicyVersion: expectedPolicyVersion, Mode: mode, State: state, Risk: risk, Hours: hours, Blockers: uniqueStrings(blockers), ActorID: actor, CreatedAt: now}
+			x.WorkDecisions = append(x.WorkDecisions, decision)
+			if state == "accepted" {
+				x.State = "accepted"
+			}
+			x.UpdatedAt = now
+			changed = *x
+			event(o, "stewardship.opportunity_"+state, actor, x.ID, now)
+			return nil
+		}
+		return ErrNotFound
+	})
+	return o, changed, err
+}
+
+func slicesOverlap(a, b []string) bool {
+	seen := map[string]bool{}
+	for _, x := range a {
+		seen[x] = true
+	}
+	for _, x := range b {
+		if seen[x] {
+			return true
+		}
+	}
+	return false
+}
+func uniqueStrings(in []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, x := range in {
+		if x != "" && !seen[x] {
+			seen[x] = true
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+func (s *Store) LinkStewardshipWork(id, opportunityID, actor, proposalID, baseRevision string, taskIDs []string) (Organization, StewardshipOpportunity, error) {
+	var changed StewardshipOpportunity
+	o, err := s.change(id, func(o *Organization) error {
+		for i := range o.StewardshipOpportunities {
+			x := &o.StewardshipOpportunities[i]
+			if x.ID != opportunityID {
+				continue
+			}
+			if x.State != "accepted" || x.Work != nil || proposalID == "" || baseRevision == "" || len(taskIDs) == 0 {
+				return ErrConflict
+			}
+			now := s.now().UTC()
+			x.Work = &StewardshipWorkLink{ProposalID: proposalID, TaskIDs: taskIDs, BaseRevision: baseRevision, PromotedByID: actor, PromotedAt: now}
+			x.State, x.UpdatedAt = "promoted", now
+			changed = *x
+			event(o, "stewardship.opportunity_promoted", actor, x.ID, now)
+			return nil
 		}
 		return ErrNotFound
 	})

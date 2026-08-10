@@ -64,6 +64,12 @@ type Task struct {
 	ProposalID           string             `json:"proposal_id"`
 	Title                string             `json:"title"`
 	Outcome              string             `json:"outcome"`
+	OwnerKind            string             `json:"owner_kind,omitempty"`
+	OwnerID              string             `json:"owner_id,omitempty"`
+	CompletionCriteria   []string           `json:"completion_criteria,omitempty"`
+	Risk                 string             `json:"risk,omitempty"`
+	VerificationPlan     []string           `json:"verification_plan,omitempty"`
+	BaseRevision         string             `json:"base_revision,omitempty"`
 	Position             int                `json:"position"`
 	Status               TaskStatus         `json:"status"`
 	DependsOn            []string           `json:"depends_on"`
@@ -238,6 +244,12 @@ type AssignmentInput struct {
 type TaskInput struct {
 	Title                string
 	Outcome              string
+	OwnerKind            string
+	OwnerID              string
+	CompletionCriteria   []string
+	Risk                 string
+	VerificationPlan     []string
+	BaseRevision         string
 	Position             int
 	Status               TaskStatus
 	DependsOn            []string
@@ -304,7 +316,7 @@ func (s *Store) CreateTask(repositoryID, proposalID, actorID string, input TaskI
 		return Task{}, err
 	}
 	now := s.now().UTC()
-	task := Task{ID: id, ProposalID: proposalID, Title: input.Title, Outcome: input.Outcome, Status: input.Status, DependsOn: input.DependsOn, DiscussionCommentIDs: input.DiscussionCommentIDs, ReasoningContext: input.ReasoningContext, CreatedByID: actorID, UpdatedByID: actorID, CreatedAt: now, UpdatedAt: now}
+	task := Task{ID: id, ProposalID: proposalID, Title: input.Title, Outcome: input.Outcome, OwnerKind: input.OwnerKind, OwnerID: input.OwnerID, CompletionCriteria: input.CompletionCriteria, Risk: input.Risk, VerificationPlan: input.VerificationPlan, BaseRevision: input.BaseRevision, Status: input.Status, DependsOn: input.DependsOn, DiscussionCommentIDs: input.DiscussionCommentIDs, ReasoningContext: input.ReasoningContext, CreatedByID: actorID, UpdatedByID: actorID, CreatedAt: now, UpdatedAt: now}
 	tasks = insertTask(tasks, task, input.Position)
 	deriveReadiness(tasks)
 	created := taskByID(tasks, id)
@@ -504,17 +516,25 @@ func taskIndex(tasks []Task, id string) int {
 }
 
 func normalizeTaskInput(input TaskInput) TaskInput {
-	input.Title, input.Outcome = strings.TrimSpace(input.Title), strings.TrimSpace(input.Outcome)
+	input.Title, input.Outcome, input.OwnerKind, input.OwnerID, input.Risk, input.BaseRevision = strings.TrimSpace(input.Title), strings.TrimSpace(input.Outcome), strings.TrimSpace(input.OwnerKind), strings.TrimSpace(input.OwnerID), strings.TrimSpace(input.Risk), strings.TrimSpace(input.BaseRevision)
 	if input.Status == "" {
 		input.Status = TaskPlanned
 	}
 	input.DependsOn = uniqueStrings(input.DependsOn)
 	input.DiscussionCommentIDs = uniqueStrings(input.DiscussionCommentIDs)
+	input.CompletionCriteria = uniqueStrings(input.CompletionCriteria)
+	input.VerificationPlan = uniqueStrings(input.VerificationPlan)
 	return input
 }
 
 func validateTaskInput(input TaskInput, maximumPosition int) error {
 	if input.Title == "" || len(input.Title) > 200 || input.Outcome == "" || len(input.Outcome) > 4096 || input.Position < 1 || input.Position > maximumPosition || !validTaskStatus(input.Status) {
+		return ErrInvalidTask
+	}
+	if input.OwnerKind != "" && (input.OwnerKind != "human" && input.OwnerKind != "agent" || input.OwnerID == "") {
+		return ErrInvalidTask
+	}
+	if input.Risk != "" && input.Risk != "low" && input.Risk != "medium" && input.Risk != "high" && input.Risk != "critical" {
 		return ErrInvalidTask
 	}
 	return nil

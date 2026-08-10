@@ -64,13 +64,16 @@ type StewardshipMandate = {
 type StewardshipPreview = { state: string; authority_created_by_mandate: boolean; mandate_write_authority: boolean; mandate_merge_authority: boolean; note: string; scopes: Record<string, { branches: string[]; effective_policy: unknown[]; existing_agent_grants: RoleGrant[] }> };
 type StewardshipOpportunity = {
   id: string; mandate_id: string; mandate_version: number; repository_id: string;
-  title: string; summary: string; severity: string; expected_value: string; confidence: number;
+  title: string; summary: string; severity: string; expected_value: string; confidence: number; class: string;
   affected_owner_ids: string[]; affected_revisions: string[]; in_scope_reason: string;
   state: string; rank: number; evidence_stale: boolean; stale_reason?: string; updated_at: string;
   citations: { kind: string; resource_id: string; revision: string; summary: string; observed_at: string }[];
   comments: { id: string; actor_id: string; body: string; created_at: string }[];
   decisions: { action: string; actor_id: string; reason?: string; created_at: string }[];
+  work_decisions: { version: number; policy_version: number; mode: string; state: string; risk: string; hours: number; blockers: string[]; actor_id: string; created_at: string }[];
+  work?: { proposal_id: string; task_ids: string[]; base_revision: string; promoted_by_id: string };
 };
+type StewardshipWorkPolicy = { mandate_id: string; mandate_version: number; version: number; rules: { class: string; mode: string; max_risk?: string; max_runs_per_day?: number; max_hours_per_month?: number }[] };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -114,6 +117,7 @@ export default function OrganizationsPage() {
   const [mandates, setMandates] = useState<StewardshipMandate[]>([]);
   const [previews, setPreviews] = useState<Record<string, StewardshipPreview>>({});
   const [opportunities, setOpportunities] = useState<StewardshipOpportunity[]>([]);
+  const [workPolicies, setWorkPolicies] = useState<StewardshipWorkPolicy[]>([]);
   const selectedID = selected?.id;
   const load = useCallback(async () => {
     try {
@@ -130,14 +134,15 @@ export default function OrganizationsPage() {
           api<{ items: RoleGrant[] }>(`/organizations/${selectedID}/access/effective`),
           api<{ items: Initiative[] }>(`/organizations/${selectedID}/initiatives`),
           api<{ items: StewardshipMandate[] }>(`/organizations/${selectedID}/stewardship-mandates`),
-          api<{ items: StewardshipOpportunity[] }>(`/organizations/${selectedID}/stewardship-opportunities`),
+          api<{ items: StewardshipOpportunity[]; work_policies: StewardshipWorkPolicy[] }>(`/organizations/${selectedID}/stewardship-opportunities`),
         ]);
         setSelected(organization);
         setPortfolio(view);
         setEffective(access.items);
         setInitiatives(initiativeView.items);
         setMandates(stewardship.items);
-        setOpportunities(stewardshipQueue.items);
+        setOpportunities(stewardshipQueue.items.map((item) => ({ ...item, work_decisions: item.work_decisions ?? [] })));
+        setWorkPolicies(stewardshipQueue.work_policies ?? []);
       }
     } catch (error) {
       setMessage(
@@ -302,6 +307,21 @@ export default function OrganizationsPage() {
     await api(`/organizations/${selected.id}/stewardship-opportunities/${opportunity.id}/comments`, { method: "POST", body: JSON.stringify({ body: form.get("body") }) });
     event.currentTarget.reset(); setMessage("Challenge added to the shared finding."); await load();
   }
+  async function saveWorkPolicy(event: FormEvent<HTMLFormElement>, mandate: StewardshipMandate) {
+    event.preventDefault(); if (!selected) return; const form = new FormData(event.currentTarget); const current = workPolicies.filter((policy) => policy.mandate_id === mandate.id && policy.mandate_version === mandate.version).sort((a, b) => b.version - a.version)[0];
+    await api(`/organizations/${selected.id}/stewardship-mandates/${mandate.id}/versions/${mandate.version}/work-policy`, { method: "PUT", body: JSON.stringify({ expected_version: current?.version ?? 0, rules: [{ class: form.get("class"), mode: form.get("mode"), max_risk: form.get("risk"), max_runs_per_day: Number(form.get("runs")), max_hours_per_month: Number(form.get("hours")) }] }) });
+    setMessage("Opportunity admission policy version recorded."); await load();
+  }
+  async function admitOpportunity(event: FormEvent<HTMLFormElement>, opportunity: StewardshipOpportunity) {
+    event.preventDefault(); if (!selected) return; const form = new FormData(event.currentTarget); const policy = workPolicies.filter((item) => item.mandate_id === opportunity.mandate_id && item.mandate_version === opportunity.mandate_version).sort((a, b) => b.version - a.version)[0];
+    await api(`/organizations/${selected.id}/stewardship-opportunities/${opportunity.id}/work-decisions`, { method: "POST", body: JSON.stringify({ mode: form.get("mode"), risk: form.get("risk"), hours: Number(form.get("hours")), expected_decision_version: opportunity.work_decisions?.length ?? 0, expected_policy_version: policy?.version ?? 0 }) });
+    setMessage("Governed work decision recorded."); await load();
+  }
+  async function promoteOpportunity(event: FormEvent<HTMLFormElement>, opportunity: StewardshipOpportunity) {
+    event.preventDefault(); if (!selected) return; const form = new FormData(event.currentTarget);
+    await api(`/organizations/${selected.id}/stewardship-opportunities/${opportunity.id}/promotion`, { method: "POST", body: JSON.stringify({ title: form.get("proposal_title"), body: opportunity.summary, base_revision: form.get("base_revision"), tasks: [{ title: form.get("task_title"), outcome: form.get("outcome"), owner_kind: form.get("owner_kind"), owner_id: form.get("owner_id"), completion_criteria: lines(form.get("criteria")), risk: form.get("risk"), verification_plan: lines(form.get("verification")), depends_on: [] }] }) });
+    setMessage("Opportunity promoted into ordinary proposal work."); await load();
+  }
 
   return (
     <AppShell>
@@ -424,6 +444,7 @@ export default function OrganizationsPage() {
                     {mandate.acceptance && <p>Accepted by operator <strong>{mandate.acceptance.operator_id}</strong> at {new Date(mandate.acceptance.accepted_at).toLocaleString()}.</p>}
                     <div><Button size="sm" variant="secondary" onClick={() => previewMandate(mandate)}>Preview effective policy</Button>{mandate.state === "pending_acceptance" && <Button size="sm" onClick={() => transitionMandate(mandate, "accept")}>Accept as operator</Button>}{mandate.state === "active" && <Button size="sm" variant="secondary" onClick={() => transitionMandate(mandate, "pause")}>Pause</Button>}{mandate.state === "paused" && <Button size="sm" variant="secondary" onClick={() => transitionMandate(mandate, "resume")}>Resume</Button>}{mandate.state !== "revoked" && mandate.state !== "expired" && <Button size="sm" variant="secondary" onClick={() => transitionMandate(mandate, "revoke")}>Revoke</Button>}</div>
                     {preview && <div className="notice"><strong>No implicit authority:</strong> {preview.note}<br />Mandate write: {String(preview.mandate_write_authority)} · mandate merge: {String(preview.mandate_merge_authority)} · mandate-created authority: {String(preview.authority_created_by_mandate)}<br />{Object.entries(preview.scopes).map(([repository, detail]) => `${portfolio?.repositories.find((repo) => repo.id === repository)?.name ?? repository}: ${detail.effective_policy.length} policy rules, ${detail.existing_agent_grants.length} existing independent grants`).join(" · ")}</div>}
+                    <details><summary>Govern opportunity classes</summary><form className="stack" onSubmit={(event) => saveWorkPolicy(event, mandate)}><label>Opportunity class<input required name="class" placeholder="check_failure" /></label><div className="content-grid"><label>Admission<select name="mode"><option value="approval">Human approval</option><option value="auto_start">Bounded auto-start</option></select></label><label>Maximum risk<select name="risk"><option>low</option><option>medium</option><option>high</option><option>critical</option></select></label><label>Runs / day<input name="runs" type="number" min="0" defaultValue="1" /></label><label>Hours / month<input name="hours" type="number" min="0" defaultValue="4" /></label></div><Button size="sm" type="submit">Record policy version</Button></form></details>
                     <details><summary>Revise this mandate</summary><MandateForm repositories={portfolio?.repositories ?? []} agents={selected.agents} mandate={mandate} onSubmit={(event) => saveMandate(event, mandate.id)} /></details>
                   </div>;
                 })}
@@ -442,6 +463,7 @@ export default function OrganizationsPage() {
                     {opportunity.evidence_stale && <div className="notice"><strong>Evidence needs reevaluation:</strong> {opportunity.stale_reason}</div>}
                     <div><h3>Supporting citations</h3>{opportunity.citations.map((citation) => <p key={`${citation.kind}:${citation.resource_id}:${citation.revision}`}><strong>{citation.kind} · {citation.resource_id}</strong> at <code>{citation.revision}</code><br />{citation.summary} · observed {new Date(citation.observed_at).toLocaleString()}</p>)}</div>
                     <div><h3>Discussion and decisions</h3>{opportunity.comments.map((comment) => <p key={comment.id}><strong>{comment.actor_id}</strong>: {comment.body}</p>)}{opportunity.decisions.map((decision, index) => <p key={`${decision.created_at}:${index}`}><strong>{decision.actor_id}</strong> marked {decision.action}{decision.reason ? ` — ${decision.reason}` : ""}</p>)}</div>
+                    <div><h3>Work admission · {opportunity.class}</h3>{opportunity.work_decisions.map((decision) => <p key={decision.version}><strong>{decision.actor_id}</strong> · {decision.mode} · {decision.state}{decision.blockers.length ? ` — ${decision.blockers.join(", ")}` : ""}</p>)}{opportunity.state === "open" && <form className="content-grid" onSubmit={(event) => admitOpportunity(event, opportunity)}><label>Decision<select name="mode"><option value="approval">Approve</option><option value="auto_start">Evaluate auto-start</option></select></label><label>Risk<select name="risk"><option>low</option><option>medium</option><option>high</option><option>critical</option></select></label><label>Estimated hours<input required name="hours" min="1" type="number" defaultValue="1" /></label><Button size="sm" type="submit">Evaluate before work</Button></form>}{opportunity.state === "accepted" && <form className="stack" onSubmit={(event) => promoteOpportunity(event, opportunity)}><label>Proposal title<input required name="proposal_title" defaultValue={opportunity.title} /></label><label>Current base revision<select required name="base_revision">{opportunity.affected_revisions.map((revision) => <option key={revision}>{revision}</option>)}</select></label><label>First task<input required name="task_title" defaultValue={opportunity.title} /></label><label>Observable outcome<textarea required name="outcome" defaultValue={opportunity.expected_value} /></label><div className="content-grid"><label>Owner type<select name="owner_kind"><option value="human">Human</option><option value="agent">Agent</option></select></label><label>Owner ID<input required name="owner_id" /></label><label>Risk<select name="risk"><option>low</option><option>medium</option><option>high</option><option>critical</option></select></label></div><label>Completion criteria<textarea required name="criteria" /></label><label>Verification plan<textarea required name="verification" /></label><Button size="sm" type="submit">Create linked proposal and task</Button></form>}{opportunity.work && <p>Promoted to <Link href={`/repositories/${opportunity.repository_id}?view=proposals&proposal=${opportunity.work.proposal_id}`}>proposal {opportunity.work.proposal_id}</Link> at <code>{opportunity.work.base_revision}</code>.</p>}</div>
                     <div className="button-row"><Button size="sm" variant="secondary" onClick={() => opportunityDecision(opportunity, "rank", 1)}>Rank first</Button><Button size="sm" variant="secondary" onClick={() => opportunityDecision(opportunity, "snooze")}>Snooze 7 days</Button><Button size="sm" variant="secondary" onClick={() => opportunityDecision(opportunity, "dismiss", "Not a current priority")}>Dismiss</Button><Button size="sm" variant="secondary" onClick={() => opportunityDecision(opportunity, "incorrect", "The recommendation is incorrect")}>Mark incorrect</Button>{opportunity.state !== "open" && <Button size="sm" variant="secondary" onClick={() => opportunityDecision(opportunity, "reopen")}>Reopen</Button>}</div>
                     <form className="stack" onSubmit={(event) => commentOnOpportunity(event, opportunity)}><label>Challenge or discuss<textarea required name="body" /></label><Button type="submit" size="sm">Add to discussion</Button></form>
                   </div>
