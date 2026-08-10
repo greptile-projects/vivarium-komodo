@@ -1748,6 +1748,33 @@ reproducible after a branch moves. The repository web surface derives context
 from the current file, proposal, pull request, incident, or workspace and links
 citations back to the exact-commit browser.
 
+## Collaborative code investigations
+
+Repository writers open a shared canvas with `POST
+/repositories/{repository}/investigations`, naming a title, framing question,
+and revision. The revision is resolved once; the record, its ordered runs, and
+all entries are durable beneath `$INVESTIGATION_ROOT` (default
+`apps/api/data/investigations`). Collection and detail reads require ordinary
+repository access plus explicit canvas participation. Existing repository
+participants can be invited, but a canvas invitation does not broaden their
+repository permissions.
+
+`POST .../{investigation}/entries` appends actor-attributed code references,
+reproducible queries, runtime observations, hypotheses, agent findings,
+conclusions, or challenges. Code citations are verified against the exact
+canvas commit and retain the blob, path, and line. A runtime observation must
+cite an existing ordered event from a bounded development workspace founded on
+that same commit; the canvas stores the safe collaborator-authored observation
+and pointer, never terminal output, runtime files, credentials, or private agent
+context. Challenges and supersessions point to immutable prior entry IDs.
+
+`POST .../{investigation}/runs` resolves a new revision and appends a run. It
+preserves every prior entry and visibly marks commit-bound evidence stale when
+the commit differs, allowing collaborators to re-verify or supersede it. The
+shareable web surface is
+`view=investigations&investigation={investigation}` and exposes invitations,
+reruns, citations, challenges, and the ordered canvas.
+
 ## Reproducible development workspaces
 
 Development environments are repository collaboration resources rather than
