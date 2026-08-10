@@ -3,6 +3,24 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Evidence-driven technical decisions
+
+Repository participants open consequential choices at `POST
+/repositories/{repository}/decisions`. A pending decision begins in repository,
+proposal, investigation, incident, evolution-plan, or stewardship-opportunity
+context and names one accountable owner plus the participating repository
+collaborators. Its current scope keeps the question, constraints, observable
+success measures, optional deadline, and affected resource links together.
+
+Scope edits append a complete attributable version through the decision
+resource; they never replace earlier boundaries. Discussion is append-only at
+the decision's `/comments` collection. Collection reads can filter by
+`context_kind` and `context_id`, allowing related work to show advisory pending
+context without making the decision a general contribution or merge gate. The
+shareable repository surface is `view=decisions&decision={id}`. Decision data
+lives beneath `$DECISION_ROOT`, defaulting to `apps/api/data/decisions` when the
+API is started through the documented root command.
+
 ## Proactive agent stewardship
 
 An organization owner can define long-running responsibility without turning a
