@@ -131,7 +131,8 @@ func publishProposalTaskContribution(plans proposalStore, sessions changeSession
 		sourceBranch := strings.TrimSpace(input.SourceBranch)
 		sessionID := strings.TrimSpace(input.SessionID)
 		governed := task.ReasoningContext != nil && (task.ReasoningContext.Kind == "stewardship_opportunity" || task.ReasoningContext.Kind == "decision")
-		if governed && (sessionID == "" || !validGovernedDelivery(task.CompletionCriteria, input.DeliveryEvidence, task.ReasoningContext.Kind == "decision")) {
+		requiresSession := worker || task.Assignment.Kind == proposals.AgentAssignee
+		if governed && ((requiresSession && sessionID == "") || !validGovernedDelivery(task.CompletionCriteria, input.DeliveryEvidence, task.ReasoningContext.Kind == "decision")) {
 			writeJSON(w, 422, map[string]string{"error": "governed_delivery_evidence_required"})
 			return
 		}

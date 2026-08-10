@@ -80,13 +80,22 @@ session or workspace, pull request, check, integration, release, and deployment
 contracts. Release pull-request inclusions retain the decision identity and
 version so delivered artifacts remain traceable to the choice they implement.
 
-Publishing a decision-governed task requires a session and a review-facing
-delivery account whose criteria exactly match the task and are all evidenced as
-met. If an assumption changes, a measure fails, work proves incompatible, or a
+Publishing a decision-governed task requires a review-facing delivery account
+whose criteria exactly match the task and are all evidenced as met. Agent work
+also requires its scoped change session; human work retains assignment, Git,
+pull-request, and review attribution without manufacturing an agent session. If
+an assumption changes, a measure fails, work proves incompatible, or a
 constraint must be deviated from, a participant posts an evidence link at
 `/revisit-requests`; the request is retained as an actionable blocker and
 reopens the decision. A time-bounded owner exception remains the explicit path
 for an authorized deviation, never an implicit waiver by implementation.
+
+`decision_workflow_test.go` composes the complete public decision contract. It
+proves affected-owner participation, agent research, competing and reproduced
+experiments, approval with retained dissent, dependent human and Codex delivery,
+ordinary checks and reviews, immutable release inclusion, success-measure
+evidence, and a post-release changed-assumption revisit through public HTTP and
+stock Git.
 
 ## Proactive agent stewardship
 

@@ -292,10 +292,15 @@ whenever dependencies change or the web job fails before it starts.
   their immutable reasoning context retains the decision and commitment version
   through sessions, workspaces, pull requests, checks, queues, releases, and
   deployments. Decision-governed pull requests require a structured delivery
-  account with every assigned criterion met. Changed assumptions, failed
-  measures, incompatible work, or constraint deviations instead append an
-  evidence-linked revisit request and reopen the decision; do not silently
-  waive them or rewrite the commitment.
+  account with every assigned criterion met. Agent-authored tasks additionally
+  require their scoped change session; human-authored tasks retain assignment,
+  Git, pull-request, and review attribution without an agent session. Changed
+  assumptions, failed measures, incompatible work, or constraint deviations
+  instead append an evidence-linked revisit request and reopen the decision; do
+  not silently waive them or rewrite the commitment. `decision_workflow_test.go` is the
+  black-box regression boundary from genuine uncertainty through reproduced
+  alternatives, approval and dissent, human/agent delivery, release evidence,
+  and a post-release revisit.
 
   Public repository resources also carry an owner-scoped normalized name,
   description, and create/update timestamps; their immutable ID remains the
