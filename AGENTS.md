@@ -577,6 +577,12 @@ whenever dependencies change or the web job fails before it starts.
   and anomalous consumption reported by an owner or accepted agent operator
   atomically pause only the affected version and append an actionable notice;
   resumption remains an explicit lifecycle decision.
+  `stewardship_workflow_test.go` is the black-box regression boundary for the
+  complete proactive signal-to-release loop. It proves bounded operator-accepted
+  authority, evidence-backed prioritization and dismissal, policy admission,
+  guided branch-only agent work, structured delivery evidence, ordinary checks,
+  review and merge, verified release attestation, outcome/cost reporting, and
+  final mandate revocation through public HTTP and stock Git surfaces.
   Organization governance baselines are immutable policy versions in the
   organization record. Rules cover repository visibility, reviews, required
   checks, integration, release provenance, dependency use, environment
