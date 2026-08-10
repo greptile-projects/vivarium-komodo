@@ -49,8 +49,15 @@ type Definition struct {
 	Tools        []Tool         `json:"tools"`
 	Dependencies []string       `json:"dependencies"`
 	Setup        []string       `json:"setup"`
+	Commands     []NamedCommand `json:"commands,omitempty"`
 	Ports        []Port         `json:"ports,omitempty"`
 	Resources    ResourceLimits `json:"resources"`
+}
+type NamedCommand struct {
+	Name           string `json:"name"`
+	Command        string `json:"command"`
+	Directory      string `json:"directory,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 type SourceContext struct {
 	Type     string `json:"type"`

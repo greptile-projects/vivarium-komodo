@@ -271,6 +271,12 @@ whenever dependencies change or the web job fails before it starts.
   advisory pending context on related work; a pending decision does not block
   unrelated contributions. The shareable surface is
   `view=decisions&decision={id}`.
+  Decision alternative experiments are exact-revision, policy-bounded shared
+  workspaces launched only with named commands from `.komodo/workspaces.json`.
+  Their attributed checkpoints cite retained workspace logs, diffs, artifacts,
+  measurements, and derived resource use; validity compares code, dependency,
+  and environment fingerprints. Experiments carry no implicit publication,
+  pull-request, or merge authority, and reproductions remain separate records.
 
   Public repository resources also carry an owner-scoped normalized name,
   description, and create/update timestamps; their immutable ID remains the

@@ -107,3 +107,25 @@ func TestAlternativesCompareCurrentEvidenceAndBoundResearch(t *testing.T) {
 		t.Fatalf("persistence: %v %#v", err, got)
 	}
 }
+
+func TestExperimentRetainsWorkspaceEvidenceAndReportsInvalidation(t *testing.T) {
+	s, _ := New(t.TempDir())
+	in := ScopeInput{Question: "Which cache?", Constraints: []string{"bounded"}, SuccessMeasures: []string{"latency"}, ParticipantIDs: []string{"author", "owner"}, OwnerID: "owner"}
+	v, _ := s.Create("repo", "author", "Cache", Context{Kind: "repository"}, in)
+	v, _ = s.AddAlternative("repo", v.ID, "author", "Local cache", []Claim{{Kind: "assumption", Body: "fits"}}, nil)
+	alt := v.Alternatives[0]
+	revision := "0123456789012345678901234567890123456789"
+	v, x, err := s.StartExperiment("repo", v.ID, alt.ID, "owner", Experiment{WorkspaceID: "workspace-1", Revision: revision, CommandName: "benchmark", DefinitionDigest: "env-1", DependencyDigest: "deps-1"})
+	if err != nil || x.CreatedByID != "owner" || x.State != "running" {
+		t.Fatalf("start: %v %#v", err, x)
+	}
+	v, err = s.AddExperimentCheckpoint("repo", v.ID, alt.ID, x.ID, "author", ExperimentCheckpoint{WorkspaceCheckpointID: "checkpoint-1", Summary: "p95 improved", Measurements: []Measurement{{Name: "p95", Value: 42, Unit: "ms"}}, LogSequences: []int64{3}, ArtifactPaths: []string{"bench.json"}, ResourceUse: map[string]int64{"cpu_seconds": 4}})
+	if err != nil || v.Alternatives[0].Experiments[0].Checkpoints[0].ActorID != "author" || v.Alternatives[0].Experiments[0].State != "completed" {
+		t.Fatalf("checkpoint: %v %#v", err, v)
+	}
+	v, err = s.AssessExperiment("repo", v.ID, alt.ID, x.ID, "owner", revision, "deps-2", "env-2")
+	got := v.Alternatives[0].Experiments[0]
+	if err != nil || got.State != "invalidated" || len(got.InvalidatedBy) != 2 {
+		t.Fatalf("validity: %v %#v", err, got)
+	}
+}
