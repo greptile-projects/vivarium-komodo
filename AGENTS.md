@@ -217,6 +217,14 @@ whenever dependencies change or the web job fails before it starts.
   and provider repository read checks; never combine results from different
   revisions or disclose a dependency on an unreadable repository. The web
   surface is the shareable `view=intelligence&ref={revision}` repository tab.
+  Grounded questions are durable resources beneath `$QUESTION_ROOT` (default
+  `apps/api/data/questions`). Authenticated collaborators ask from repository,
+  file, proposal, task, pull-request, incident, or workspace context at
+  `/repositories/{ID}/questions`. Resolve the revision once; retain actor,
+  context, exact commit, structured evidence/inference/uncertainty claims, and
+  exact citations. Replay ordered results through `/events?after={sequence}`
+  SSE; never regenerate old conversations at a moved branch or cite unreadable
+  dependency evidence.
 
   Public repository resources also carry an owner-scoped normalized name,
   description, and create/update timestamps; their immutable ID remains the
