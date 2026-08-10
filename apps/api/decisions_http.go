@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/decisions"
@@ -24,6 +25,94 @@ type decisionStore interface {
 	StartExperiment(string, string, string, string, decisions.Experiment) (decisions.Decision, decisions.Experiment, error)
 	AddExperimentCheckpoint(string, string, string, string, string, decisions.ExperimentCheckpoint) (decisions.Decision, error)
 	AssessExperiment(string, string, string, string, string, string, string, string) (decisions.Decision, error)
+	RequestApproval(string, string, string, string, string, string) (decisions.Decision, error)
+	RespondApproval(string, string, string, string, string, string) (decisions.Decision, error)
+	Publish(string, string, string, string, []string, string, []string, []string, []string, *time.Time, []decisions.Evidence) (decisions.Decision, error)
+	AuthorizeException(string, string, string, decisions.Exception) (decisions.Decision, error)
+	RevokeException(string, string, string, string) (decisions.Decision, error)
+}
+
+func requestDecisionApproval(s decisionStore, repos proposalRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Kind    string `json:"kind"`
+			ActorID string `json:"actor_id"`
+			Policy  string `json:"policy"`
+		}
+		if !readJSON(w, r, &in, 8<<10) {
+			return
+		}
+		v, e := s.RequestApproval(string(repo.ID), r.PathValue("decision"), a.UserID, in.Kind, in.ActorID, in.Policy)
+		writeDecision(w, v, e, 201)
+	}
+}
+func respondDecisionApproval(s decisionStore, repos proposalRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Response string `json:"response"`
+			Note     string `json:"note"`
+		}
+		if !readJSON(w, r, &in, 8<<10) {
+			return
+		}
+		v, e := s.RespondApproval(string(repo.ID), r.PathValue("decision"), r.PathValue("requirement"), a.UserID, in.Response, in.Note)
+		writeDecision(w, v, e, 200)
+	}
+}
+func publishDecision(s decisionStore, repos proposalRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			SelectedAlternativeID  string               `json:"selected_alternative_id"`
+			RejectedAlternativeIDs []string             `json:"rejected_alternative_ids"`
+			Rationale              string               `json:"rationale"`
+			AcceptedTradeoffs      []string             `json:"accepted_tradeoffs"`
+			Dissent                []string             `json:"dissent"`
+			Conditions             []string             `json:"conditions"`
+			ReviewDate             *time.Time           `json:"review_date"`
+			Evidence               []decisions.Evidence `json:"evidence_considered"`
+		}
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		v, e := s.Publish(string(repo.ID), r.PathValue("decision"), a.UserID, in.SelectedAlternativeID, in.RejectedAlternativeIDs, in.Rationale, in.AcceptedTradeoffs, in.Dissent, in.Conditions, in.ReviewDate, in.Evidence)
+		writeDecision(w, v, e, 201)
+	}
+}
+func authorizeDecisionException(s decisionStore, repos proposalRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in decisions.Exception
+		if !readJSON(w, r, &in, 16<<10) {
+			return
+		}
+		v, e := s.AuthorizeException(string(repo.ID), r.PathValue("decision"), a.UserID, in)
+		writeDecision(w, v, e, 201)
+	}
+}
+func revokeDecisionException(s decisionStore, repos proposalRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		v, e := s.RevokeException(string(repo.ID), r.PathValue("decision"), r.PathValue("exception"), a.UserID)
+		writeDecision(w, v, e, 200)
+	}
 }
 
 func registerDecisionsHTTP(mux *http.ServeMux, s decisionStore, repos proposalRepositoryStore, c authStore, ws workspaceStore, runner workspaceRunner) {
@@ -34,6 +123,11 @@ func registerDecisionsHTTP(mux *http.ServeMux, s decisionStore, repos proposalRe
 	mux.HandleFunc("PATCH "+base+"/{decision}", reviseDecision(s, repos, c))
 	mux.HandleFunc("POST "+base+"/{decision}/comments", commentDecision(s, repos, c))
 	mux.HandleFunc("POST "+base+"/{decision}/alternatives", addDecisionAlternative(s, repos, c))
+	mux.HandleFunc("POST "+base+"/{decision}/approval-requirements", requestDecisionApproval(s, repos, c))
+	mux.HandleFunc("POST "+base+"/{decision}/approval-requirements/{requirement}/responses", respondDecisionApproval(s, repos, c))
+	mux.HandleFunc("POST "+base+"/{decision}/commitments", publishDecision(s, repos, c))
+	mux.HandleFunc("POST "+base+"/{decision}/exceptions", authorizeDecisionException(s, repos, c))
+	mux.HandleFunc("DELETE "+base+"/{decision}/exceptions/{exception}", revokeDecisionException(s, repos, c))
 	mux.HandleFunc("POST "+base+"/{decision}/alternatives/{alternative}/claims", addDecisionClaims(s, repos, c))
 	mux.HandleFunc("POST "+base+"/{decision}/alternatives/{alternative}/agent-runs", startDecisionResearch(s, repos, c))
 	mux.HandleFunc("POST "+base+"/{decision}/alternatives/{alternative}/experiments", startDecisionExperiment(s, repos, c, ws, runner))

@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-10T20:44:54Z: Added owner-governed technical decision commitments with targeted acknowledgements and policy approvals, immutable rationale/evidence/approval versions, explicit alternative selection and rejection, public blockers and conflicts, material-change reopening, and attributable time-bounded downstream exceptions. The Decisions workspace exposes the complete lifecycle without granting implicit repository authority.
+
 2026-08-10T16:32:56Z: Added append-only stewardship outcome and mandate-goal reporting with implementation, verification, release, resource, and false-positive evidence; owners can version priority/confidence/evidence rules without changing authority. Repeated failures, inactivity, revoked access, and anomalous consumption now pause the exact affected mandate and retain actionable notices for explicit review and resume.
 
 2026-08-10T13:20:26Z: Added an evidence-pinned organization stewardship backlog with mandate/signal enforcement, stable-key deduplication, severity/value/confidence and owner/revision citations, explicit stale evidence, and attributed collaborator ranking, discussion, snooze, dismissal, and incorrectness decisions. The organization workspace exposes the explainable queue without granting authority or starting work.
