@@ -77,6 +77,49 @@ type Agent struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+// StewardshipMandate is an immutable version of a maintainer's standing
+// request to an approved agent. It describes responsibility but grants no
+// credential or repository authority.
+type StewardshipScope struct {
+	RepositoryID string   `json:"repository_id"`
+	Branches     []string `json:"branches"`
+}
+type StewardshipBudget struct {
+	MaxHoursPerMonth int `json:"max_hours_per_month"`
+	MaxRunsPerDay    int `json:"max_runs_per_day"`
+}
+type StewardshipSchedule struct {
+	StartsAt  time.Time `json:"starts_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Cadence   string    `json:"cadence"`
+}
+type StewardshipAcceptance struct {
+	OperatorID string    `json:"operator_id"`
+	AcceptedAt time.Time `json:"accepted_at"`
+}
+type StewardshipMandate struct {
+	ID                     string                 `json:"id"`
+	Version                int64                  `json:"version"`
+	Title                  string                 `json:"title"`
+	DesiredOutcomes        []string               `json:"desired_outcomes"`
+	Scopes                 []StewardshipScope     `json:"scopes"`
+	TrustedSignals         []string               `json:"trusted_signals"`
+	Exclusions             []string               `json:"exclusions"`
+	Budget                 StewardshipBudget      `json:"budget"`
+	Schedule               StewardshipSchedule    `json:"schedule"`
+	AgentID                string                 `json:"agent_id"`
+	AllowedActions         []string               `json:"allowed_actions"`
+	RequiredHumanDecisions []string               `json:"required_human_decisions"`
+	State                  string                 `json:"state"`
+	CreatedByID            string                 `json:"created_by_id"`
+	CreatedAt              time.Time              `json:"created_at"`
+	Acceptance             *StewardshipAcceptance `json:"acceptance,omitempty"`
+	PausedByID             string                 `json:"paused_by_id,omitempty"`
+	PausedAt               *time.Time             `json:"paused_at,omitempty"`
+	RevokedByID            string                 `json:"revoked_by_id,omitempty"`
+	RevokedAt              *time.Time             `json:"revoked_at,omitempty"`
+}
+
 // ResourceRef names one authority boundary without implying authority over the
 // rest of the organization portfolio. RepositoryID is retained for nested
 // resources so effective access can always explain its ownership boundary.
@@ -222,22 +265,23 @@ type InitiativeItem struct {
 	UpdatedAt          time.Time     `json:"updated_at"`
 }
 type Organization struct {
-	ID               string            `json:"id"`
-	Slug             string            `json:"slug"`
-	Name             string            `json:"name"`
-	Description      string            `json:"description"`
-	Members          []Member          `json:"members"`
-	Transfers        []Transfer        `json:"transfers"`
-	Events           []Event           `json:"events"`
-	Teams            []Team            `json:"teams"`
-	Agents           []Agent           `json:"agents"`
-	RoleGrants       []RoleGrant       `json:"role_grants"`
-	AccessRequests   []AccessRequest   `json:"access_requests"`
-	Policies         []PolicyVersion   `json:"policies"`
-	PolicyExceptions []PolicyException `json:"policy_exceptions"`
-	Initiatives      []Initiative      `json:"initiatives"`
-	CreatedAt        time.Time         `json:"created_at"`
-	UpdatedAt        time.Time         `json:"updated_at"`
+	ID                  string               `json:"id"`
+	Slug                string               `json:"slug"`
+	Name                string               `json:"name"`
+	Description         string               `json:"description"`
+	Members             []Member             `json:"members"`
+	Transfers           []Transfer           `json:"transfers"`
+	Events              []Event              `json:"events"`
+	Teams               []Team               `json:"teams"`
+	Agents              []Agent              `json:"agents"`
+	RoleGrants          []RoleGrant          `json:"role_grants"`
+	AccessRequests      []AccessRequest      `json:"access_requests"`
+	Policies            []PolicyVersion      `json:"policies"`
+	PolicyExceptions    []PolicyException    `json:"policy_exceptions"`
+	Initiatives         []Initiative         `json:"initiatives"`
+	StewardshipMandates []StewardshipMandate `json:"stewardship_mandates"`
+	CreatedAt           time.Time            `json:"created_at"`
+	UpdatedAt           time.Time            `json:"updated_at"`
 }
 
 type Store struct {
@@ -994,6 +1038,223 @@ func (s *Store) ResolveTransfer(id, transfer, actor, state string) (Organization
 }
 
 var policyDomains = map[string]bool{"repository_visibility": true, "reviews": true, "required_checks": true, "integration": true, "release_provenance": true, "dependency_use": true, "environment_promotion": true, "agent_authority": true}
+
+func cleanMandateStrings(in []string, required bool) ([]string, bool) {
+	if (required && len(in) == 0) || len(in) > 50 {
+		return nil, false
+	}
+	out, seen := []string{}, map[string]bool{}
+	for _, value := range in {
+		value = strings.TrimSpace(value)
+		if value == "" || len(value) > 500 || seen[value] {
+			return nil, false
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out, true
+}
+
+func validateMandate(o Organization, in *StewardshipMandate, now time.Time) bool {
+	in.Title = strings.TrimSpace(in.Title)
+	var agent *Agent
+	for i := range o.Agents {
+		if o.Agents[i].ID == in.AgentID {
+			agent = &o.Agents[i]
+		}
+	}
+	if agent == nil || len(agent.OperatorIDs) == 0 || in.Title == "" || len(in.Title) > 120 || len(in.Scopes) == 0 || len(in.Scopes) > 50 || in.Budget.MaxHoursPerMonth < 1 || in.Budget.MaxHoursPerMonth > 744 || in.Budget.MaxRunsPerDay < 1 || in.Budget.MaxRunsPerDay > 100 || !in.Schedule.ExpiresAt.After(now) || !in.Schedule.ExpiresAt.After(in.Schedule.StartsAt) || in.Schedule.ExpiresAt.After(in.Schedule.StartsAt.Add(366*24*time.Hour)) {
+		return false
+	}
+	if in.Schedule.Cadence != "continuous" && in.Schedule.Cadence != "daily" && in.Schedule.Cadence != "weekly" {
+		return false
+	}
+	var ok bool
+	if in.DesiredOutcomes, ok = cleanMandateStrings(in.DesiredOutcomes, true); !ok {
+		return false
+	}
+	if in.TrustedSignals, ok = cleanMandateStrings(in.TrustedSignals, true); !ok {
+		return false
+	}
+	if in.Exclusions, ok = cleanMandateStrings(in.Exclusions, false); !ok {
+		return false
+	}
+	if in.AllowedActions, ok = cleanMandateStrings(in.AllowedActions, true); !ok {
+		return false
+	}
+	if in.RequiredHumanDecisions, ok = cleanMandateStrings(in.RequiredHumanDecisions, true); !ok {
+		return false
+	}
+	seen := map[string]bool{}
+	for i := range in.Scopes {
+		scope := &in.Scopes[i]
+		if scope.RepositoryID == "" || seen[scope.RepositoryID] || len(scope.Branches) == 0 || len(scope.Branches) > 50 {
+			return false
+		}
+		seen[scope.RepositoryID] = true
+		if scope.Branches, ok = cleanMandateStrings(scope.Branches, true); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func canMaintainMandate(o Organization, actor string, scopes []StewardshipScope, now time.Time) bool {
+	if owner(o, actor) {
+		return true
+	}
+	for _, scope := range scopes {
+		allowed := false
+		for _, grant := range o.RoleGrants {
+			if (grant.Role != "maintainer" && grant.Role != "operator") || grant.RevokedAt != nil || !grant.ExpiresAt.After(now) || !principalIncludes(o, grant, actor) {
+				continue
+			}
+			for _, resource := range grant.Resources {
+				if resource.Kind == "repository" && resource.ID == scope.RepositoryID {
+					allowed = true
+				}
+			}
+		}
+		if !allowed {
+			return false
+		}
+	}
+	return len(scopes) > 0
+}
+
+func (s *Store) DraftStewardship(id, actor, mandateID string, in StewardshipMandate) (Organization, StewardshipMandate, error) {
+	var made StewardshipMandate
+	o, err := s.change(id, func(o *Organization) error {
+		now := s.now().UTC()
+		if !canMaintainMandate(*o, actor, in.Scopes, now) {
+			return ErrForbidden
+		}
+		if !validateMandate(*o, &in, now) {
+			return ErrInvalid
+		}
+		version := int64(1)
+		if mandateID == "" {
+			var e error
+			mandateID, e = newID()
+			if e != nil {
+				return e
+			}
+		} else {
+			found := false
+			for i := range o.StewardshipMandates {
+				if o.StewardshipMandates[i].ID == mandateID {
+					found = true
+					if o.StewardshipMandates[i].Version >= version {
+						version = o.StewardshipMandates[i].Version + 1
+					}
+				}
+			}
+			if !found {
+				return ErrNotFound
+			}
+		}
+		in.ID, in.Version, in.State, in.CreatedByID, in.CreatedAt = mandateID, version, "pending_acceptance", actor, now
+		in.Acceptance, in.PausedAt, in.RevokedAt = nil, nil, nil
+		o.StewardshipMandates = append(o.StewardshipMandates, in)
+		made = in
+		event(o, "stewardship.drafted", actor, mandateID, now)
+		return nil
+	})
+	return o, made, err
+}
+
+func (s *Store) AcceptStewardship(id, mandateID string, version int64, operator string) (Organization, StewardshipMandate, error) {
+	var accepted StewardshipMandate
+	o, err := s.change(id, func(o *Organization) error {
+		for i := range o.StewardshipMandates {
+			m := &o.StewardshipMandates[i]
+			if m.ID == mandateID && m.Version == version {
+				if m.State != "pending_acceptance" {
+					return ErrConflict
+				}
+				if !m.Schedule.ExpiresAt.After(s.now().UTC()) {
+					return ErrConflict
+				}
+				for _, candidate := range o.StewardshipMandates {
+					if candidate.ID == mandateID && candidate.Version > version {
+						return ErrConflict
+					}
+				}
+				approved := false
+				for _, a := range o.Agents {
+					if a.ID == m.AgentID {
+						for _, user := range a.OperatorIDs {
+							approved = approved || user == operator
+						}
+					}
+				}
+				if !approved {
+					return ErrForbidden
+				}
+				now := s.now().UTC()
+				for prior := range o.StewardshipMandates {
+					candidate := &o.StewardshipMandates[prior]
+					if candidate.ID == mandateID && candidate.Version != version && candidate.State != "revoked" {
+						candidate.State = "superseded"
+					}
+				}
+				m.State = "active"
+				m.Acceptance = &StewardshipAcceptance{OperatorID: operator, AcceptedAt: now}
+				accepted = *m
+				event(o, "stewardship.accepted", operator, mandateID, now)
+				return nil
+			}
+		}
+		return ErrNotFound
+	})
+	return o, accepted, err
+}
+
+func (s *Store) TransitionStewardship(id, mandateID string, version int64, actor, action string) (Organization, StewardshipMandate, error) {
+	var changed StewardshipMandate
+	o, err := s.change(id, func(o *Organization) error {
+		for i := range o.StewardshipMandates {
+			m := &o.StewardshipMandates[i]
+			if m.ID == mandateID && m.Version == version {
+				now := s.now().UTC()
+				if !canMaintainMandate(*o, actor, m.Scopes, now) {
+					return ErrForbidden
+				}
+				switch action {
+				case "pause":
+					if m.State != "active" {
+						return ErrConflict
+					}
+					m.State, m.PausedByID, m.PausedAt = "paused", actor, &now
+				case "resume":
+					if m.State != "paused" || !m.Schedule.ExpiresAt.After(now) {
+						return ErrConflict
+					}
+					m.State, m.PausedByID, m.PausedAt = "active", "", nil
+				case "revoke":
+					if m.State == "revoked" {
+						return ErrConflict
+					}
+					m.State, m.RevokedByID, m.RevokedAt = "revoked", actor, &now
+				default:
+					return ErrInvalid
+				}
+				changed = *m
+				event(o, "stewardship."+action+"d", actor, mandateID, now)
+				return nil
+			}
+		}
+		return ErrNotFound
+	})
+	return o, changed, err
+}
+
+func StewardshipState(m StewardshipMandate, now time.Time) string {
+	if m.State != "revoked" && !m.Schedule.ExpiresAt.After(now) {
+		return "expired"
+	}
+	return m.State
+}
 
 // DraftPolicy appends a version. Supplying policyID creates the next immutable
 // version in that lineage; an empty policyID starts a new policy.
