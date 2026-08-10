@@ -1746,4 +1746,31 @@ inspectable without forwarding a sandbox or host network socket. Setup, later
 commands, and previews receive no repository credentials or secrets. The web
 workbench combines explorer, editor, search, command terminal, retained evidence,
 declared ports, and a sandboxed preview in the shareable workspace URL. Live
-pairing, checkpoints, and publication build on this lifecycle later.
+pairing and publication build on this lifecycle.
+
+### Safe workspace checkpoints
+
+Ready workspace participants create durable checkpoints at `POST
+/repositories/{repository}/workspaces/{workspace}/checkpoints`. A checkpoint
+names the repository paths that constitute meaningful unfinished work and
+captures only their add, modify, or delete delta from the workspace's immutable
+base commit. It retains the creator, optional parent checkpoint, exact base,
+complete environment definition and digest, readable text patches or binary
+metadata, and declared dependencies and reproduction commands. File bytes are
+stored by SHA-256 beneath `$WORKSPACE_ROOT`; internal blob addresses and bytes
+are not returned by public workspace resources.
+
+The explicit path boundary prevents setup products and unrelated mutable
+runtime state from becoming evidence accidentally. `.env`, SSH/AWS/Git stores,
+private-key files, dependency directories, symlinks, oversized files, and
+credential-like content are rejected. Private commands, terminal streams,
+credentials, and undeclared files are never inferred into a checkpoint.
+
+Checkpoint reads expose parent lineage, changes, patches, missing declared
+dependencies, and non-reproducibility reasons. Restore rechecks the workspace
+base and environment definition and compares each target path with both its
+base and checkpoint digest. Divergence returns `checkpoint_conflict` with the
+conflicting paths before any file is changed; a clean restore verifies every
+content-addressed blob before applying it. Collaborators can create a child
+checkpoint after restoring or extending an earlier one, preserving a branch of
+unfinished work without depending on the original machine.

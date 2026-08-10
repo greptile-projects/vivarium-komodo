@@ -746,6 +746,13 @@ whenever dependencies change or the web job fails before it starts.
   File saves may carry the digest returned by the file read and conflict if the
   live file changed. Never place raw terminal commands, stdin, stdout, or stderr
   in shared workspace activity; only the invoking response may contain them.
+  Workspace checkpoints capture only explicitly declared repository paths as
+  content-addressed changes against the immutable workspace revision. They
+  retain creator, parent lineage, environment definition, dependency and
+  reproduction declarations, readable diffs, and safety status. Reject
+  credential-like paths/content, setup output, terminal streams, symlinks, and
+  unrelated runtime files. Restore must preflight the base, definition, and
+  every changed path and reject divergence instead of overwriting it.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 

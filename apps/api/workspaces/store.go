@@ -102,6 +102,43 @@ type FileChange struct {
 	Deleted   bool      `json:"deleted,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
+type Reproducibility struct {
+	Dependencies []string `json:"dependencies,omitempty"`
+	Commands     []string `json:"commands,omitempty"`
+	Notes        string   `json:"notes,omitempty"`
+}
+type CheckpointChange struct {
+	Path       string `json:"path"`
+	Operation  string `json:"operation"`
+	BaseDigest string `json:"base_digest,omitempty"`
+	Digest     string `json:"digest,omitempty"`
+	BlobDigest string `json:"-"`
+	Patch      string `json:"patch,omitempty"`
+	Binary     bool   `json:"binary,omitempty"`
+	Size       int64  `json:"size,omitempty"`
+}
+type CheckpointStatus struct {
+	Reproducible        bool     `json:"reproducible"`
+	Diverged            bool     `json:"diverged"`
+	Conflicts           []string `json:"conflicts"`
+	MissingDependencies []string `json:"missing_dependencies"`
+	Reasons             []string `json:"reasons"`
+}
+type Checkpoint struct {
+	ID               string             `json:"id"`
+	WorkspaceID      string             `json:"workspace_id"`
+	RepositoryID     string             `json:"repository_id"`
+	ParentID         string             `json:"parent_id,omitempty"`
+	CreatorID        string             `json:"creator_id"`
+	BaseRevision     string             `json:"base_revision"`
+	Definition       Definition         `json:"environment_definition"`
+	DefinitionDigest string             `json:"definition_digest"`
+	Summary          string             `json:"summary"`
+	Reproducibility  Reproducibility    `json:"reproducibility"`
+	Changes          []CheckpointChange `json:"changes"`
+	Status           CheckpointStatus   `json:"status"`
+	CreatedAt        time.Time          `json:"created_at"`
+}
 type Workspace struct {
 	ID               string         `json:"id"`
 	RepositoryID     string         `json:"repository_id"`
@@ -121,6 +158,7 @@ type Workspace struct {
 	Changes          []FileChange   `json:"changes"`
 	Presence         []Presence     `json:"presence"`
 	Controls         []ControlGrant `json:"controls"`
+	Checkpoints      []Checkpoint   `json:"checkpoints"`
 }
 
 func newID() (string, error) {
@@ -298,7 +336,57 @@ func New(root string) (*Store, error) {
 	if err = os.MkdirAll(filepath.Join(abs, "environments"), 0o750); err != nil {
 		return nil, err
 	}
+	if err = os.MkdirAll(filepath.Join(abs, "checkpoint-blobs"), 0o750); err != nil {
+		return nil, err
+	}
 	return &Store{root: abs, now: time.Now}, nil
+}
+
+func (s *Store) AddCheckpoint(repositoryID, workspaceID string, checkpoint Checkpoint, blobs map[string][]byte) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, err := s.read(workspaceID)
+	if err != nil || w.RepositoryID != repositoryID {
+		return Workspace{}, ErrNotFound
+	}
+	if w.State != Ready {
+		return Workspace{}, ErrInvalidTransition
+	}
+	for _, existing := range w.Checkpoints {
+		if existing.ID == checkpoint.ParentID {
+			checkpoint.ParentID = existing.ID
+			break
+		}
+	}
+	if checkpoint.ParentID != "" {
+		found := false
+		for _, existing := range w.Checkpoints {
+			found = found || existing.ID == checkpoint.ParentID
+		}
+		if !found {
+			return Workspace{}, ErrConflict
+		}
+	}
+	for digest, data := range blobs {
+		path := filepath.Join(s.root, "checkpoint-blobs", digest)
+		if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+			if err = os.WriteFile(path, data, 0o640); err != nil {
+				return Workspace{}, err
+			}
+		}
+	}
+	w.Checkpoints = append(w.Checkpoints, checkpoint)
+	now := s.now().UTC()
+	w.UpdatedAt = now
+	w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: "checkpoint", Kind: "authorship", ActorID: checkpoint.CreatorID, TargetID: checkpoint.ID, Message: checkpoint.Summary, CreatedAt: now})
+	return w, s.write(w)
+}
+
+func (s *Store) Blob(digest string) ([]byte, error) {
+	if len(digest) != 64 {
+		return nil, ErrNotFound
+	}
+	return os.ReadFile(filepath.Join(s.root, "checkpoint-blobs", digest))
 }
 func (s *Store) Environment(id string) string { return filepath.Join(s.root, "environments", id) }
 
