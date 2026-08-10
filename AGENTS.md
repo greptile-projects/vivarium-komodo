@@ -558,6 +558,14 @@ whenever dependencies change or the web job fails before it starts.
   linked ordinary proposal and ordered tasks retaining owners, completion
   criteria, risk, verification plan, and evaluated base revision. Promotion
   creates no credential, branch, session, or implicit repository authority.
+  Promotion also snapshots the opportunity, mandate version, citations, and
+  affected-owner acknowledgement requirements into each task's immutable
+  reasoning context. A stewarded task may publish only from its scoped change
+  session and must attach review-facing implementation reasoning, commands,
+  residual risks, and an exact status for every recorded completion criterion.
+  The resulting pull request retains this server-attributed delivery evidence;
+  ordinary checks, reviews, acknowledgements, fork policy, integration queues,
+  and owner-only merge authority remain unchanged.
   Organization governance baselines are immutable policy versions in the
   organization record. Rules cover repository visibility, reviews, required
   checks, integration, release provenance, dependency use, environment

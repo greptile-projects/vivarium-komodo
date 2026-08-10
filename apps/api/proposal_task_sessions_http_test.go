@@ -145,3 +145,23 @@ func TestAgentAssignedTaskStartsBeforePullRequest(t *testing.T) {
 		t.Fatalf("closed task contribution = %#v status %d", plan.Tasks[1], response.StatusCode)
 	}
 }
+
+func TestStewardshipDeliveryRequiresEveryCriterion(t *testing.T) {
+	criteria := []string{"The regression is fixed", "The required check passes"}
+	evidence := &pullrequests.DeliveryEvidence{
+		Reasoning:     "The failure was caused by an unchecked empty value.",
+		Commands:      []string{"go test ./..."},
+		ResidualRisks: []string{"The external integration was not available locally."},
+		CompletionCriteria: []pullrequests.CriterionStatus{
+			{Criterion: criteria[0], Status: "met", Evidence: "Added a focused regression test."},
+			{Criterion: criteria[1], Status: "unmet", Evidence: "The ordinary pull request pipeline will run it."},
+		},
+	}
+	if !validStewardshipDelivery(criteria, evidence) {
+		t.Fatal("complete stewardship evidence was rejected")
+	}
+	evidence.CompletionCriteria[1].Criterion = "A different criterion"
+	if validStewardshipDelivery(criteria, evidence) {
+		t.Fatal("publication accepted a rewritten completion criterion")
+	}
+}

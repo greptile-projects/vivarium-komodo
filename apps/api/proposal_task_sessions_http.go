@@ -99,13 +99,14 @@ func publishProposalTaskContribution(plans proposalStore, sessions changeSession
 			}
 		}
 		var input struct {
-			Title                string `json:"title"`
-			Body                 string `json:"body"`
-			SourceBranch         string `json:"source_branch"`
-			TargetBranch         string `json:"target_branch"`
-			SessionID            string `json:"session_id"`
-			Draft                bool   `json:"draft"`
-			ExpectedAssignmentID string `json:"expected_assignment_id"`
+			Title                string                         `json:"title"`
+			Body                 string                         `json:"body"`
+			SourceBranch         string                         `json:"source_branch"`
+			TargetBranch         string                         `json:"target_branch"`
+			SessionID            string                         `json:"session_id"`
+			Draft                bool                           `json:"draft"`
+			ExpectedAssignmentID string                         `json:"expected_assignment_id"`
+			DeliveryEvidence     *pullrequests.DeliveryEvidence `json:"delivery_evidence"`
 		}
 		if !readJSON(w, r, &input, 70<<10) {
 			return
@@ -129,6 +130,11 @@ func publishProposalTaskContribution(plans proposalStore, sessions changeSession
 		}
 		sourceBranch := strings.TrimSpace(input.SourceBranch)
 		sessionID := strings.TrimSpace(input.SessionID)
+		stewarded := task.ReasoningContext != nil && task.ReasoningContext.Kind == "stewardship_opportunity"
+		if stewarded && (sessionID == "" || !validStewardshipDelivery(task.CompletionCriteria, input.DeliveryEvidence)) {
+			writeJSON(w, 422, map[string]string{"error": "stewardship_delivery_evidence_required"})
+			return
+		}
 		if sessionID != "" {
 			session, err := sessions.Get(string(repository.ID), taskSessionScope(task.ID), sessionID)
 			if err != nil || session.TaskContext == nil || session.TaskContext.TaskID != task.ID {
@@ -166,7 +172,7 @@ func publishProposalTaskContribution(plans proposalStore, sessions changeSession
 			writeJSON(w, 422, map[string]string{"error": "invalid_branches"})
 			return
 		}
-		item, err := pulls.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), SourceRepositoryID: string(repository.ID), ProposalID: proposal.ID, TaskID: task.ID, ChangeSessionID: sessionID, AuthorID: actorID, Title: input.Title, Body: input.Body, SourceBranch: sourceName, TargetBranch: targetName, SourceCommitID: string(source), TargetCommitID: string(target), Draft: input.Draft, ReasoningContext: task.ReasoningContext})
+		item, err := pulls.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), SourceRepositoryID: string(repository.ID), ProposalID: proposal.ID, TaskID: task.ID, ChangeSessionID: sessionID, AuthorID: actorID, Title: input.Title, Body: input.Body, SourceBranch: sourceName, TargetBranch: targetName, SourceCommitID: string(source), TargetCommitID: string(target), Draft: input.Draft, ReasoningContext: task.ReasoningContext, DeliveryEvidence: input.DeliveryEvidence})
 		if err != nil {
 			writePullRequestError(w, err)
 			return
@@ -198,6 +204,23 @@ func publishProposalTaskContribution(plans proposalStore, sessions changeSession
 		w.Header().Set("Location", "/repositories/"+item.RepositoryID+"/pull-requests/"+item.ID)
 		writeJSON(w, http.StatusCreated, map[string]any{"task": updated, "pull_request": item})
 	}
+}
+
+func validStewardshipDelivery(criteria []string, evidence *pullrequests.DeliveryEvidence) bool {
+	if evidence == nil || strings.TrimSpace(evidence.Reasoning) == "" || len(evidence.Reasoning) > 10000 || len(evidence.Commands) == 0 || len(evidence.Commands) > 100 || len(evidence.ResidualRisks) > 100 || len(evidence.CompletionCriteria) != len(criteria) {
+		return false
+	}
+	for _, value := range append(append([]string{}, evidence.Commands...), evidence.ResidualRisks...) {
+		if strings.TrimSpace(value) == "" || len(value) > 2000 {
+			return false
+		}
+	}
+	for index, status := range evidence.CompletionCriteria {
+		if status.Criterion != criteria[index] || (status.Status != "met" && status.Status != "unmet" && status.Status != "not_applicable") || (status.Status != "met" && strings.TrimSpace(status.Evidence) == "") || len(status.Evidence) > 4000 {
+			return false
+		}
+	}
+	return true
 }
 
 func mustTaskSession(sessions changeSessionStore, repositoryID, taskID, sessionID string) changesessions.Session {

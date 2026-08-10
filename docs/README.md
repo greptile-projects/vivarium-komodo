@@ -74,6 +74,26 @@ not create a branch, credential, session, or contributor authority; those begin
 only through the existing assignment and change-session contracts. Refreshed
 evidence supersedes an unpromoted acceptance and requires a new decision.
 
+### Stewarded delivery evidence
+
+Promotion copies the accepted opportunity ID, exact mandate version, evaluated
+commit, citations, rationale, risk, verification plan, and affected-owner
+acknowledgements into each task's immutable reasoning context. Starting the
+task still uses the ordinary assignment concurrency token and creates the same
+branch-only, 24-hour change-session credential as any other Codex task; pause,
+guidance, cancellation, revocation, and worker event controls are unchanged.
+
+Publishing a stewarded task through its `/contributions` resource requires the
+linked session and a structured delivery account: implementation reasoning,
+commands run, residual risks, and one `met`, `unmet`, or `not_applicable`
+decision for every original completion criterion. Criteria cannot be renamed or
+omitted during publication, and unmet decisions require explanatory evidence.
+The API derives source and target commits, files, actor, and recording time and
+copies the opportunity context and account onto the ordinary pull request.
+Reviewers see that evidence in the pull request overview, while required checks,
+reviews, owner acknowledgements, fork boundaries, protected integration queues,
+and merge permissions continue to apply without a stewardship exception.
+
 ## Prospective impact assessment
 
 Impact assessment is a pre-implementation, exact-revision record rather than a
