@@ -1703,6 +1703,21 @@ retains that materialized state. `POST .../{id}/resume` uses the retained files
 and re-reads the definition from the same immutable commit; missing files or a
 digest mismatch produce a conflict rather than a silent rebuild. The repository
 web tab at `view=workspaces&workspace={id}` launches, reconnects to setup
-evidence, and controls suspension and resume. Editing, terminals, live pairing,
-checkpoints, and publication intentionally build on this lifecycle in later
-workspace milestones.
+evidence, and controls suspension and resume. A ready environment also exposes
+path-safe file reads, writer-attributed edits and deletions, bounded text search,
+and credential-free command execution. Commands run in a fresh Bubblewrap
+namespace over the retained environment with the definition's resource bounds;
+the durable record retains actor, command, bounded output, exit code, and exact
+revision. File evidence retains actor, path, deletion state, and SHA-256 digest
+rather than a second content snapshot.
+
+Schema-version `1` definitions may declare preview `ports`, each mapping a
+familiar port number and label to a relative static-output directory. The
+workspace preview route serves only declared text assets through repository read
+policy with restrictive content security, no cache, and the exact revision
+header. Generated documentation and static browser applications are therefore
+inspectable without forwarding a sandbox or host network socket. Setup, later
+commands, and previews receive no repository credentials or secrets. The web
+workbench combines explorer, editor, search, command terminal, retained evidence,
+declared ports, and a sandboxed preview in the shareable workspace URL. Live
+pairing, checkpoints, and publication build on this lifecycle later.

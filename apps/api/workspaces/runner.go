@@ -53,7 +53,7 @@ func (r *Runner) Definition(repositoryID, revision string) (Definition, string, 
 }
 func digest(raw []byte) string { sum := sha256.Sum256(raw); return fmt.Sprintf("%x", sum[:]) }
 func validate(d Definition) error {
-	if d.Version != 1 || len(d.Setup) == 0 || len(d.Setup) > 20 || len(d.Tools) > 50 || len(d.Dependencies) > 100 {
+	if d.Version != 1 || len(d.Setup) == 0 || len(d.Setup) > 20 || len(d.Tools) > 50 || len(d.Dependencies) > 100 || len(d.Ports) > 20 {
 		return errors.New("invalid workspace definition")
 	}
 	if d.Resources.CPUSeconds < 1 || d.Resources.CPUSeconds > 3600 || d.Resources.MemoryMB < 128 || d.Resources.MemoryMB > 16384 || d.Resources.DiskMB < 128 || d.Resources.DiskMB > 20480 || d.Resources.SetupTimeoutSeconds < 1 || d.Resources.SetupTimeoutSeconds > 3600 {
@@ -73,6 +73,17 @@ func validate(d Definition) error {
 		if strings.TrimSpace(v) == "" || len(v) > 300 {
 			return errors.New("invalid dependency")
 		}
+	}
+	seenPorts := map[int]bool{}
+	for _, v := range d.Ports {
+		if v.Number < 1 || v.Number > 65535 || seenPorts[v.Number] || strings.TrimSpace(v.Label) == "" || len(v.Label) > 100 {
+			return errors.New("invalid preview port")
+		}
+		clean := filepath.Clean(v.Path)
+		if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return errors.New("invalid preview path")
+		}
+		seenPorts[v.Number] = true
 	}
 	return nil
 }

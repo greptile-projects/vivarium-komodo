@@ -84,6 +84,7 @@ type DevelopmentWorkspace = {
     tools: Array<{ name: string; version: string }>;
     dependencies: string[];
     setup: string[];
+    ports?: Array<{ number: number; label: string; path: string }>;
     resources: {
       cpu_seconds: number;
       memory_mb: number;
@@ -103,7 +104,11 @@ type DevelopmentWorkspace = {
     message?: string;
     exit_code?: number;
   }>;
+  activity: Array<{ sequence: number; command?: string; message?: string; exit_code?: number }>;
+  changes: Array<{ sequence: number; path: string; actor_id: string; digest?: string; deleted?: boolean }>;
 };
+type WorkspaceFile = { path: string; directory: boolean; size?: number; content?: string; binary?: boolean };
+type WorkspaceMatch = { path: string; line: number; text: string };
 type Commits = {
   items: Commit[];
   revision: string;
@@ -1864,6 +1869,13 @@ function DevelopmentWorkspaces({ repository, branches, actor, selected }: { repo
   const [parentID, setParentID] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [files, setFiles] = useState<WorkspaceFile[]>([]);
+  const [filePath, setFilePath] = useState("");
+  const [content, setContent] = useState("");
+  const [search, setSearch] = useState("");
+  const [matches, setMatches] = useState<WorkspaceMatch[]>([]);
+  const [command, setCommand] = useState("");
+  const [terminal, setTerminal] = useState("");
   const load = useCallback(async () => {
     try { setItems((await get<{ items: DevelopmentWorkspace[] }>(`/repositories/${repository.id}/workspaces`)).items); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Workspaces unavailable."); }
@@ -1881,6 +1893,10 @@ function DevelopmentWorkspaces({ repository, branches, actor, selected }: { repo
     try { await send(`/repositories/${repository.id}/workspaces/${item.id}/${action}`, "POST", {}); await load(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : `Unable to ${action}.`); }
     finally { setBusy(false); }
+  }
+  async function browse(item: DevelopmentWorkspace, path = "") {
+    try { const result = await get<{ items: WorkspaceFile[] }>(`/repositories/${repository.id}/workspaces/${item.id}/files?path=${encodeURIComponent(path)}`); setFiles(result.items); if (result.items.length === 1 && !result.items[0].directory) { setFilePath(result.items[0].path); setContent(result.items[0].content ?? ""); } }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to browse workspace files."); }
   }
   return <section className="development-workspaces">
     <header className="proposal-toolbar"><div><p className="eyebrow">Exact-revision environments</p><h2>Development workspaces</h2><p>Enter the repository-defined project state with retained setup evidence.</p></div></header>
@@ -1903,6 +1919,13 @@ function DevelopmentWorkspaces({ repository, branches, actor, selected }: { repo
         <dl><div><dt>Revision</dt><dd><code>{inspected.revision}</code></dd></div><div><dt>Effective access</dt><dd>{inspected.effective_access.permission} · <Actor id={inspected.effective_access.actor_id} /></dd></div><div><dt>Resources</dt><dd>{inspected.definition.resources.memory_mb} MB memory · {inspected.definition.resources.disk_mb} MB disk · {inspected.definition.resources.cpu_seconds}s CPU</dd></div><div><dt>Tools</dt><dd>{inspected.definition.tools.map((tool) => `${tool.name} ${tool.version}`).join(", ") || "System runtime"}</dd></div></dl>
         <div className="workspace-controls">{inspected.state === "ready" && <Button disabled={busy} variant="secondary" onClick={() => void control(inspected, "suspend")}>Suspend</Button>}{inspected.state === "suspended" && <Button disabled={busy} onClick={() => void control(inspected, "resume")}>Resume retained foundation</Button>}</div>
         <section><h4>Setup evidence</h4><pre>{inspected.setup_evidence.map((event) => `${event.sequence}. ${event.command ?? event.stream ?? event.type}${event.message ? ` — ${event.message}` : ""}${event.exit_code !== undefined ? ` (exit ${event.exit_code})` : ""}`).join("\n")}</pre></section>
+        {inspected.state === "ready" && <section className="workspace-ide"><nav aria-label="Workspace tools"><Button size="sm" variant="secondary" onClick={() => void browse(inspected)}>Files</Button>{inspected.definition.ports?.map((port) => <a key={port.number} target="workspace-preview" href={`/api/repositories/${repository.id}/workspaces/${inspected.id}/preview/${port.number}/index.html`}>{port.label} :{port.number}</a>)}</nav>
+          <div className="workspace-file-tools"><label>Search files<input value={search} onChange={(event) => setSearch(event.target.value)} /></label><Button size="sm" onClick={async () => { const result = await get<{items: WorkspaceMatch[]}>(`/repositories/${repository.id}/workspaces/${inspected.id}/search?q=${encodeURIComponent(search)}`); setMatches(result.items); }}>Search</Button></div>
+          {matches.length > 0 && <ul className="workspace-search-results">{matches.map((match) => <li key={`${match.path}:${match.line}`}><button onClick={() => void browse(inspected, match.path)}><code>{match.path}:{match.line}</code> {match.text}</button></li>)}</ul>}
+          <div className="workspace-editor-layout"><aside>{files.map((file) => <button key={file.path} onClick={() => void browse(inspected, file.path)}>{file.directory ? "▸" : "·"} {file.path}</button>)}</aside><div><label>Editor<input value={filePath} onChange={(event) => setFilePath(event.target.value)} /></label><textarea aria-label="File contents" value={content} onChange={(event) => setContent(event.target.value)} /><Button size="sm" disabled={!filePath} onClick={async () => { await send(`/repositories/${repository.id}/workspaces/${inspected.id}/files`, "PUT", {path:filePath,content}); await load(); }}>Save file</Button></div></div>
+          <form className="workspace-terminal" onSubmit={async (event) => { event.preventDefault(); setBusy(true); try { const response = await send<{result:{stdout:string;stderr:string;exit_code:number}}>(`/repositories/${repository.id}/workspaces/${inspected.id}/commands`, "POST", {command}); setTerminal(`$ ${command}\n${response.result.stdout}${response.result.stderr}\n[exit ${response.result.exit_code}]`); setCommand(""); await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Command failed."); } finally { setBusy(false); } }}><label>Terminal command<input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="bun test" /></label><Button size="sm" disabled={busy || !command}>Run</Button><pre>{terminal || "Commands run without network or credentials."}</pre></form>
+          {inspected.definition.ports?.length ? <iframe title="Workspace application preview" name="workspace-preview" sandbox="allow-scripts" /> : <p className="muted">Declare a static preview port and path in .komodo/workspaces.json.</p>}
+        </section>}
       </article>}
     </div>
   </section>;
