@@ -72,6 +72,38 @@ type Blob = {
   truncated: boolean;
   content: string;
 };
+type DevelopmentWorkspace = {
+  id: string;
+  repository_id: string;
+  revision: string;
+  creator_id: string;
+  source_context: { type: string; id?: string; parent_id?: string };
+  effective_access: { actor_id: string; permission: string };
+  definition: {
+    version: number;
+    tools: Array<{ name: string; version: string }>;
+    dependencies: string[];
+    setup: string[];
+    resources: {
+      cpu_seconds: number;
+      memory_mb: number;
+      disk_mb: number;
+      setup_timeout_seconds: number;
+    };
+  };
+  definition_digest: string;
+  state: "setting_up" | "ready" | "failed" | "suspended";
+  created_at: string;
+  updated_at: string;
+  setup_evidence: Array<{
+    sequence: number;
+    type: string;
+    stream?: string;
+    command?: string;
+    message?: string;
+    exit_code?: number;
+  }>;
+};
 type Commits = {
   items: Commit[];
   revision: string;
@@ -957,6 +989,7 @@ export default function RepositoryPage({
     section?: string;
     release?: string;
     incident?: string;
+    workspace?: string;
   }>;
 }) {
   const { id } = use(params);
@@ -979,6 +1012,8 @@ export default function RepositoryPage({
                 ? "releases"
                 : query.view === "incidents"
                   ? "incidents"
+                  : query.view === "workspaces"
+                    ? "workspaces"
                   : query.view === "people"
                     ? "people"
                     : "code";
@@ -1029,6 +1064,7 @@ export default function RepositoryPage({
         view === "relationships" ||
         view === "releases" ||
         view === "incidents" ||
+        view === "workspaces" ||
         view === "people" ||
         repo.empty ||
         !selected
@@ -1093,6 +1129,7 @@ export default function RepositoryPage({
       nextView !== "queue" &&
       nextView !== "relationships" &&
       nextView !== "releases" &&
+      nextView !== "workspaces" &&
       nextView !== "people"
     ) {
       const nextRef = next.ref ?? ref;
@@ -1245,6 +1282,13 @@ export default function RepositoryPage({
       )}
       <nav className="repository-tabs" aria-label="Repository">
         <button
+          className={view === "workspaces" ? "active" : ""}
+          onClick={() => navigate({ view: "workspaces", path: "" })}
+        >
+          <Code size={15} />
+          Workspaces
+        </button>
+        <button
           className={view === "incidents" ? "active" : ""}
           onClick={() => navigate({ view: "incidents", path: "" })}
         >
@@ -1352,6 +1396,13 @@ export default function RepositoryPage({
           repository={repository}
           actor={actor}
           selected={query.incident}
+        />
+      ) : view === "workspaces" ? (
+        <DevelopmentWorkspaces
+          repository={repository}
+          branches={branches.items}
+          actor={actor}
+          selected={query.workspace}
         />
       ) : view === "people" && actor === repository.owner_id ? (
         <CollaboratorWorkspace repository={id} />
@@ -1803,6 +1854,58 @@ function CommitList({
       ))}
     </section>
   );
+}
+
+function DevelopmentWorkspaces({ repository, branches, actor, selected }: { repository: Repository; branches: BranchRecord[]; actor: string; selected?: string }) {
+  const [items, setItems] = useState<DevelopmentWorkspace[]>([]);
+  const [revision, setRevision] = useState(branches.find((branch) => branch.is_default)?.commit_id ?? "");
+  const [contextType, setContextType] = useState("repository");
+  const [contextID, setContextID] = useState("");
+  const [parentID, setParentID] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    try { setItems((await get<{ items: DevelopmentWorkspace[] }>(`/repositories/${repository.id}/workspaces`)).items); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Workspaces unavailable."); }
+  }, [repository.id]);
+  useEffect(() => {
+    // Remote workspace lifecycle is intentionally refreshed while setup runs.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+    const timer = setInterval(() => void load(), 2500);
+    return () => clearInterval(timer);
+  }, [load]);
+  const inspected = items.find((item) => item.id === selected) ?? items[0];
+  async function control(item: DevelopmentWorkspace, action: "suspend" | "resume") {
+    setBusy(true); setError("");
+    try { await send(`/repositories/${repository.id}/workspaces/${item.id}/${action}`, "POST", {}); await load(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : `Unable to ${action}.`); }
+    finally { setBusy(false); }
+  }
+  return <section className="development-workspaces">
+    <header className="proposal-toolbar"><div><p className="eyebrow">Exact-revision environments</p><h2>Development workspaces</h2><p>Enter the repository-defined project state with retained setup evidence.</p></div></header>
+    {actor && <form className="workspace-launch panel" onSubmit={async (event) => {
+      event.preventDefault(); setBusy(true); setError("");
+      try { await send(`/repositories/${repository.id}/workspaces`, "POST", { revision, source_context: { type: contextType, ...(contextID ? { id: contextID } : {}), ...(parentID ? { parent_id: parentID } : {}) } }); await load(); }
+      catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to launch workspace."); }
+      finally { setBusy(false); }
+    }}>
+      <label>Exact revision<input required list="workspace-revisions" value={revision} onChange={(event) => setRevision(event.target.value)} /><datalist id="workspace-revisions">{branches.map((branch) => <option key={branch.name} value={branch.commit_id}>{branch.name}</option>)}</datalist></label>
+      <label>Shared context<select value={contextType} onChange={(event) => setContextType(event.target.value)}><option value="repository">Repository</option><option value="proposal_task">Proposal task</option><option value="pull_request">Pull request</option><option value="incident_repair">Incident repair</option></select></label>
+      {contextType !== "repository" && <label>{contextType === "proposal_task" ? "Task ID" : contextType === "incident_repair" ? "Mitigation ID" : "Pull request ID"}<input required value={contextID} onChange={(event) => setContextID(event.target.value)} /></label>}
+      {(contextType === "proposal_task" || contextType === "incident_repair") && <label>{contextType === "proposal_task" ? "Proposal ID" : "Incident ID"}<input required value={parentID} onChange={(event) => setParentID(event.target.value)} /></label>}
+      <Button type="submit" disabled={busy || !revision}>{busy ? "Launching…" : "Launch workspace"}</Button>
+    </form>}
+    {error && <p className="form-error" role="alert">{error}</p>}
+    <div className="workspace-runtime-layout">
+      <aside className="workspace-runtime-list panel">{items.map((item) => <Link key={item.id} className={item.id === inspected?.id ? "active" : ""} href={`/repositories/${repository.id}?view=workspaces&workspace=${item.id}`}><span><strong>{item.source_context.type.replaceAll("_", " ")}</strong><Badge>{item.state}</Badge></span><code>{short(item.revision)}</code><small>by <Actor id={item.creator_id} /></small></Link>)}{!items.length && <p>No environments have been launched yet.</p>}</aside>
+      {inspected && <article className="workspace-runtime panel"><header><div><p className="eyebrow">Foundation {short(inspected.definition_digest)}</p><h3>{inspected.source_context.type.replaceAll("_", " ")} workspace</h3></div><Badge>{inspected.state}</Badge></header>
+        <dl><div><dt>Revision</dt><dd><code>{inspected.revision}</code></dd></div><div><dt>Effective access</dt><dd>{inspected.effective_access.permission} · <Actor id={inspected.effective_access.actor_id} /></dd></div><div><dt>Resources</dt><dd>{inspected.definition.resources.memory_mb} MB memory · {inspected.definition.resources.disk_mb} MB disk · {inspected.definition.resources.cpu_seconds}s CPU</dd></div><div><dt>Tools</dt><dd>{inspected.definition.tools.map((tool) => `${tool.name} ${tool.version}`).join(", ") || "System runtime"}</dd></div></dl>
+        <div className="workspace-controls">{inspected.state === "ready" && <Button disabled={busy} variant="secondary" onClick={() => void control(inspected, "suspend")}>Suspend</Button>}{inspected.state === "suspended" && <Button disabled={busy} onClick={() => void control(inspected, "resume")}>Resume retained foundation</Button>}</div>
+        <section><h4>Setup evidence</h4><pre>{inspected.setup_evidence.map((event) => `${event.sequence}. ${event.command ?? event.stream ?? event.type}${event.message ? ` — ${event.message}` : ""}${event.exit_code !== undefined ? ` (exit ${event.exit_code})` : ""}`).join("\n")}</pre></section>
+      </article>}
+    </div>
+  </section>;
 }
 
 function CollaboratorWorkspace({ repository }: { repository: string }) {

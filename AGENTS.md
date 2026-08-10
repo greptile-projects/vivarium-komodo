@@ -712,6 +712,20 @@ whenever dependencies change or the web job fails before it starts.
   and agent repairs, exact-candidate verification and attestations, atomic
   disclosure, and negative pre-disclosure checks across Git advertisement,
   exact-commit browsing, public advisory, and ordinary activity surfaces.
+  Reproducible development workspaces are durable records beneath
+  `$WORKSPACE_ROOT` (default `apps/api/data/workspaces`). Exact commits define
+  `.komodo/workspaces.json` schema version `1`, including declared tool
+  versions, dependencies, ordered setup commands, and CPU, memory, disk, and
+  setup-time bounds. Authenticated repository writers may launch from a
+  repository, proposal task, same-repository pull request, or incident emergency
+  repair only when the named source context resolves to that exact revision.
+  Setup materializes the immutable snapshot and runs without network,
+  credentials, Git metadata, or host filesystem access in Bubblewrap while
+  retaining command, output, outcome, creator, access, context, definition
+  digest, and lifecycle evidence. Suspension retains the materialized
+  foundation; resume revalidates the captured definition at the captured commit
+  and must never resolve a moving branch or rebuild silently. The shareable web
+  surface is `view=workspaces&workspace={id}`.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 

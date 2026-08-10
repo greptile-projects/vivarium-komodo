@@ -1675,3 +1675,34 @@ responsibility, developer and approved-agent grants, shared review/check/
 promotion/agent policy, an expiring exception, ordered cross-repository human
 and agent work, delivery resource identities, membership-change blockers, and
 the complete persisted evidence sequence.
+
+## Reproducible development workspaces
+
+Development environments are repository collaboration resources rather than
+undocumented local-machine recipes. A repository opts in with the exact
+revision's `.komodo/workspaces.json` (schema version `1`). The definition names
+the expected tools and dependencies, provides ordered setup commands, and sets
+bounded CPU seconds, memory, disk, and total setup time. A launch fails closed
+when the definition is absent or invalid.
+
+Authenticated repository writers launch with `POST
+/repositories/{repository}/workspaces`, naming a full commit ID and one durable
+source context: the repository itself, an assigned or contributed proposal task,
+a same-repository pull request snapshot, or an incident emergency-repair pull
+request. The API verifies that contextual resource already names the requested
+commit; a branch name or caller-asserted association is never accepted as the
+foundation. Collection and detail reads follow ordinary repository read policy.
+
+Setup materializes only the captured Git tree beneath `$WORKSPACE_ROOT`
+(default `apps/api/data/workspaces`) and executes each command in Bubblewrap
+without network, credentials, repository metadata, or host filesystem access.
+The durable record retains creator, exact revision, source IDs, effective access
+at launch, the complete normalized definition and SHA-256 digest, lifecycle,
+commands, bounded stdout/stderr, outcomes, and timestamps. `POST .../{id}/suspend`
+retains that materialized state. `POST .../{id}/resume` uses the retained files
+and re-reads the definition from the same immutable commit; missing files or a
+digest mismatch produce a conflict rather than a silent rebuild. The repository
+web tab at `view=workspaces&workspace={id}` launches, reconnects to setup
+evidence, and controls suspension and resume. Editing, terminals, live pairing,
+checkpoints, and publication intentionally build on this lifecycle in later
+workspace milestones.
