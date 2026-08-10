@@ -241,7 +241,11 @@ func createDecisionDelivery(s decisionStore, plans decisionPlanStore, repos task
 				dependencies = append(dependencies, tasks[position-1].ID)
 			}
 			context := &reasoning.Context{Kind: "decision", DecisionID: d.ID, DecisionVersion: commitment.Version, RepositoryID: string(repo.ID), CommitID: in.BaseRevision, Claim: d.Scope.Question, State: "accepted", Rationale: commitment.Rationale, Verification: append([]string{}, input.VerificationPlan...), Evidence: evidence}
-			made, createErr := plans.CreateTask(string(repo.ID), proposal.ID, actor.UserID, proposals.TaskInput{Title: input.Title, Outcome: input.Outcome, Position: index + 1, Status: proposals.TaskPlanned, DependsOn: dependencies, OwnerKind: input.OwnerKind, OwnerID: input.OwnerID, CompletionCriteria: input.CompletionCriteria, VerificationPlan: input.VerificationPlan, BaseRevision: in.BaseRevision, ReasoningContext: context})
+			ownerKind := input.OwnerKind
+			if ownerKind == "codex" {
+				ownerKind = "agent"
+			}
+			made, createErr := plans.CreateTask(string(repo.ID), proposal.ID, actor.UserID, proposals.TaskInput{Title: input.Title, Outcome: input.Outcome, Position: index + 1, Status: proposals.TaskPlanned, DependsOn: dependencies, OwnerKind: ownerKind, OwnerID: input.OwnerID, CompletionCriteria: input.CompletionCriteria, VerificationPlan: input.VerificationPlan, BaseRevision: in.BaseRevision, ReasoningContext: context})
 			if createErr != nil {
 				writeJSON(w, 422, map[string]string{"error": "invalid_task"})
 				return
