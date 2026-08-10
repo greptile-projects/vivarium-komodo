@@ -208,6 +208,16 @@ whenever dependencies change or the web job fails before it starts.
   registered in `repository_browser_http.go`. They resolve data only through
   the catalog and `RepositoryStorage`, and apply the same anonymous-public or
   authenticated-participant policy as repository metadata and Git reads.
+  Revision-aware code intelligence is derived on demand at
+  `/repositories/{ID}/code-intelligence` from one visible immutable commit.
+  The response joins supported-language definitions, references, callers,
+  tests, first-parent last-touch commit ownership, and permission-filtered
+  declared relationships, with source path/line evidence. Preserve the exact
+  `commit_id`, analysis completeness reasons, scan bounds, embargo visibility,
+  and provider repository read checks; never combine results from different
+  revisions or disclose a dependency on an unreadable repository. The web
+  surface is the shareable `view=intelligence&ref={revision}` repository tab.
+
   Public repository resources also carry an owner-scoped normalized name,
   description, and create/update timestamps; their immutable ID remains the
   API and Git transport identity. Repository and access-grant collections use

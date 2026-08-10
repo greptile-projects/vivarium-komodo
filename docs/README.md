@@ -1702,6 +1702,32 @@ promotion/agent policy, an expiring exception, ordered cross-repository human
 and agent work, delivery resource identities, membership-change blockers, and
 the complete persisted evidence sequence.
 
+## Revision-aware code intelligence
+
+`GET /repositories/{repository}/code-intelligence?ref={branch-or-commit}`
+builds a knowledge map from exactly the resolved visible commit. Optional `q`
+filters symbol names and paths, while `symbol` expands the matching definition
+with source locations for references, function-call candidates, and tests. Each
+symbol also exposes the first-parent commit that most recently changed its file,
+including author identity and commit evidence. Go, TypeScript/JavaScript, Python,
+and Rust are analyzed with deliberately conservative syntax patterns; consumers
+must treat the relationships as navigation evidence, not compiler guarantees.
+
+The response always identifies `repository_id`, the requested `revision`, and
+the immutable analyzed `commit_id`. Its `analysis` object reports `complete` or
+`incomplete`, skipped files, bounded-scan truncation, permission-hidden
+relationships, and `stale`; results from different commits are never merged.
+Binary, unsupported, or excess files are reported rather than silently omitted.
+Declared dependencies are included only when their declaration names the exact
+consumer commit and the caller can also read the provider repository. Resolved
+interface schema paths remain source evidence owned by the relationship store.
+
+The repository's shareable `view=intelligence&ref={revision}` tab searches and
+navigates this map. Definition, caller, reference, and test links open the
+ordinary exact-commit blob browser at the cited line, while dependency links
+lead to the permitted provider's own map. Branch changes create a fresh request
+instead of carrying analysis forward to a new revision.
+
 ## Reproducible development workspaces
 
 Development environments are repository collaboration resources rather than
