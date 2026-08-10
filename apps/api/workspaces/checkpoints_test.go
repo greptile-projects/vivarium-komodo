@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -60,6 +61,23 @@ func TestCheckpointCapturesSafeDiffAndRestoresWithoutRuntimeData(t *testing.T) {
 	}
 	if secret, _ := os.ReadFile(store.Environment(workspace.ID) + "/.env"); string(secret) != "TOKEN=secret" {
 		t.Fatal("restore touched unrelated runtime data")
+	}
+	current, _ = store.Get(string(repository.ID()), workspace.ID)
+	published, contributors, err := runner.Publish(current, "owner", checkpoint.ID, PublishRequest{Branch: "workspace/parser", Message: "Preserve parser work"})
+	if err != nil || len(contributors) != 2 || contributors[0] != "owner" || contributors[1] != "peer" {
+		t.Fatalf("publication = %s %#v %v", published, contributors, err)
+	}
+	ref, _ := repository.ReadReference("refs/heads/workspace/parser")
+	commitObject, _ := repository.ReadCommit(ref.ObjectID)
+	if ref.ObjectID != published || !strings.Contains(string(commitObject.Content), "Workspace-ID: "+workspace.ID) {
+		t.Fatalf("published commit is not linked: %#v", commitObject)
+	}
+	publishedTree, _ := repository.ReadTree(commitObject.Tree)
+	if len(publishedTree.Entries) != 2 { // .komodo and the explicitly checkpointed README; never .env.
+		t.Fatalf("unpublished runtime data entered tree: %#v", publishedTree.Entries)
+	}
+	if output, err := exec.Command("git", "--git-dir="+repository.GitDir(), "fsck", "--full").CombinedOutput(); err != nil {
+		t.Fatalf("published repository is invalid: %v: %s", err, output)
 	}
 }
 

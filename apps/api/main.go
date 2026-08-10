@@ -227,7 +227,7 @@ func main() {
 	registerEvolutionRolloutHTTP(mux, relationshipStore, repositoryCatalog, credentials, integrationQueueStore, releaseStore, deploymentStore, pullRequestStore, checkRunStore)
 	registerDeploymentsHTTP(mux, deploymentStore, releaseStore, checkRunStore, repositoryCatalog, credentials, activityStore, changeSessionStore, pullRequestStore, packageSafetyEnforcer{inventories: dependencyInventoryStore, packages: packageStore})
 	registerIncidentsHTTP(mux, incidentStore, deploymentStore, releaseStore, pullRequestStore, repositoryCatalog, credentials, proposalStore, activityStore, checkRunStore)
-	registerWorkspacesHTTP(mux, workspaceStore, workspaceRunner, repositoryCatalog, credentials, proposalStore, pullRequestStore, incidentStore, organizationStore)
+	registerWorkspacesHTTP(mux, workspaceStore, workspaceRunner, repositoryCatalog, credentials, proposalStore, pullRequestStore, incidentStore, organizationStore, checkRunner)
 	registerSecurityReportsHTTP(mux, securityReportStore, repositoryCatalog, userStore, credentials, activityStore)
 	registerChangeSessionsHTTP(mux, changeSessionStore, pullRequestStore, repositoryCatalog, credentials, activityStore, checkRunner)
 	registerCheckRunsHTTP(mux, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials, changeSessionStore, activityStore)

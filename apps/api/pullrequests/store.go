@@ -25,6 +25,22 @@ var (
 )
 
 type Status string
+type ContributorIDs string
+
+func (ids ContributorIDs) MarshalJSON() ([]byte, error) {
+	if ids == "" {
+		return []byte("[]"), nil
+	}
+	return json.Marshal(strings.Split(string(ids), "\x00"))
+}
+func (ids *ContributorIDs) UnmarshalJSON(data []byte) error {
+	var values []string
+	if err := json.Unmarshal(data, &values); err != nil {
+		return err
+	}
+	*ids = ContributorIDs(strings.Join(values, "\x00"))
+	return nil
+}
 
 const (
 	Open   Status = "open"
@@ -33,45 +49,53 @@ const (
 )
 
 type PullRequest struct {
-	ID                  string     `json:"id"`
-	RepositoryID        string     `json:"repository_id"`
-	SourceRepositoryID  string     `json:"source_repository_id"`
-	ProposalID          string     `json:"proposal_id,omitempty"`
-	TaskID              string     `json:"task_id,omitempty"`
-	ChangeSessionID     string     `json:"change_session_id,omitempty"`
-	AuthorID            string     `json:"author_id"`
-	Title               string     `json:"title"`
-	Body                string     `json:"body"`
-	SourceBranch        string     `json:"source_branch"`
-	TargetBranch        string     `json:"target_branch"`
-	SourceCommitID      string     `json:"source_commit_id"`
-	TargetCommitID      string     `json:"target_commit_id"`
-	Draft               bool       `json:"draft"`
-	Status              Status     `json:"status"`
-	CreatedAt           time.Time  `json:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at"`
-	MergedAt            *time.Time `json:"merged_at,omitempty"`
-	MergedByID          string     `json:"merged_by_id,omitempty"`
-	MergeCommitID       string     `json:"merge_commit_id,omitempty"`
-	ClosedAt            *time.Time `json:"closed_at,omitempty"`
-	ClosedByID          string     `json:"closed_by_id,omitempty"`
-	MaintainerCanModify bool       `json:"maintainer_can_modify"`
+	ID                  string         `json:"id"`
+	RepositoryID        string         `json:"repository_id"`
+	SourceRepositoryID  string         `json:"source_repository_id"`
+	ProposalID          string         `json:"proposal_id,omitempty"`
+	TaskID              string         `json:"task_id,omitempty"`
+	ChangeSessionID     string         `json:"change_session_id,omitempty"`
+	AuthorID            string         `json:"author_id"`
+	Title               string         `json:"title"`
+	Body                string         `json:"body"`
+	SourceBranch        string         `json:"source_branch"`
+	TargetBranch        string         `json:"target_branch"`
+	SourceCommitID      string         `json:"source_commit_id"`
+	TargetCommitID      string         `json:"target_commit_id"`
+	Draft               bool           `json:"draft"`
+	Status              Status         `json:"status"`
+	CreatedAt           time.Time      `json:"created_at"`
+	UpdatedAt           time.Time      `json:"updated_at"`
+	MergedAt            *time.Time     `json:"merged_at,omitempty"`
+	MergedByID          string         `json:"merged_by_id,omitempty"`
+	MergeCommitID       string         `json:"merge_commit_id,omitempty"`
+	ClosedAt            *time.Time     `json:"closed_at,omitempty"`
+	ClosedByID          string         `json:"closed_by_id,omitempty"`
+	MaintainerCanModify bool           `json:"maintainer_can_modify"`
+	WorkspaceID         string         `json:"workspace_id,omitempty"`
+	CheckpointID        string         `json:"checkpoint_id,omitempty"`
+	OriginPullRequestID string         `json:"origin_pull_request_id,omitempty"`
+	ContributorIDs      ContributorIDs `json:"contributor_ids,omitempty"`
 }
 
 type CreateParams struct {
-	RepositoryID       string
-	SourceRepositoryID string
-	ProposalID         string
-	TaskID             string
-	ChangeSessionID    string
-	AuthorID           string
-	Title              string
-	Body               string
-	SourceBranch       string
-	TargetBranch       string
-	SourceCommitID     string
-	TargetCommitID     string
-	Draft              bool
+	RepositoryID        string
+	SourceRepositoryID  string
+	ProposalID          string
+	TaskID              string
+	ChangeSessionID     string
+	AuthorID            string
+	Title               string
+	Body                string
+	SourceBranch        string
+	TargetBranch        string
+	SourceCommitID      string
+	TargetCommitID      string
+	Draft               bool
+	WorkspaceID         string
+	CheckpointID        string
+	OriginPullRequestID string
+	ContributorIDs      []string
 }
 
 type Comment struct {
@@ -135,7 +159,7 @@ func (s *Store) Create(params CreateParams) (PullRequest, error) {
 		return PullRequest{}, err
 	}
 	now := s.now().UTC()
-	item := PullRequest{ID: id, RepositoryID: params.RepositoryID, SourceRepositoryID: params.SourceRepositoryID, ProposalID: params.ProposalID, TaskID: params.TaskID, ChangeSessionID: params.ChangeSessionID, AuthorID: params.AuthorID, Title: params.Title, Body: params.Body, SourceBranch: params.SourceBranch, TargetBranch: params.TargetBranch, SourceCommitID: params.SourceCommitID, TargetCommitID: params.TargetCommitID, Draft: params.Draft, Status: Open, CreatedAt: now, UpdatedAt: now}
+	item := PullRequest{ID: id, RepositoryID: params.RepositoryID, SourceRepositoryID: params.SourceRepositoryID, ProposalID: params.ProposalID, TaskID: params.TaskID, ChangeSessionID: params.ChangeSessionID, OriginPullRequestID: params.OriginPullRequestID, AuthorID: params.AuthorID, Title: params.Title, Body: params.Body, SourceBranch: params.SourceBranch, TargetBranch: params.TargetBranch, SourceCommitID: params.SourceCommitID, TargetCommitID: params.TargetCommitID, Draft: params.Draft, WorkspaceID: params.WorkspaceID, CheckpointID: params.CheckpointID, ContributorIDs: ContributorIDs(strings.Join(params.ContributorIDs, "\x00")), Status: Open, CreatedAt: now, UpdatedAt: now}
 	if err := s.write(item); err != nil {
 		return PullRequest{}, err
 	}

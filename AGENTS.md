@@ -753,6 +753,14 @@ whenever dependencies change or the web job fails before it starts.
   credential-like paths/content, setup output, terminal streams, symlinks, and
   unrelated runtime files. Restore must preflight the base, definition, and
   every changed path and reject divergence instead of overwriting it.
+  Checkpoint publication reconstructs Git content only from the immutable base
+  and verified checkpoint blobs, then creates or base-checked advances a named
+  branch. Optional pull-request creation retains workspace/checkpoint,
+  proposal/task/session or originating-request context and exact contributors,
+  summarizes declared commands, and starts ordinary commit-bound checks. Keep
+  mutable workspace files, private command output, credentials, and activity
+  outside the commit; later review, required-check, queue, and stale-revision
+  behavior belongs to the established pull-request workflow.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 
