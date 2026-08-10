@@ -70,6 +70,24 @@ is retained instead of deleting the record. Active, expired, and revoked
 exceptions remain visible in the Decisions workspace and grant no repository,
 Git, publication, or merge authority by themselves.
 
+An accepted commitment becomes accountable implementation at the decision's
+`/delivery` resource. Promotion creates one ordinary proposal and ordered human-
+or Codex-owned tasks at an exact base commit. Their completion criteria must
+collectively cover every scope constraint, success measure, and commitment
+condition without inventing substitutes. The immutable decision ID, commitment
+version, rationale, and evidence flow through the existing task assignment,
+session or workspace, pull request, check, integration, release, and deployment
+contracts. Release pull-request inclusions retain the decision identity and
+version so delivered artifacts remain traceable to the choice they implement.
+
+Publishing a decision-governed task requires a session and a review-facing
+delivery account whose criteria exactly match the task and are all evidenced as
+met. If an assumption changes, a measure fails, work proves incompatible, or a
+constraint must be deviated from, a participant posts an evidence link at
+`/revisit-requests`; the request is retained as an actionable blocker and
+reopens the decision. A time-bounded owner exception remains the explicit path
+for an authorized deviation, never an implicit waiver by implementation.
+
 ## Proactive agent stewardship
 
 An organization owner can define long-running responsibility without turning a

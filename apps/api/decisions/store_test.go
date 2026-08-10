@@ -179,6 +179,33 @@ func TestDecisionCommitmentApprovalsReopeningAndExceptions(t *testing.T) {
 	}
 }
 
+func TestAcceptedDecisionLinksDeliveryAndReopensOnFailedOutcome(t *testing.T) {
+	s, _ := New(t.TempDir())
+	in := ScopeInput{Question: "Which queue?", Constraints: []string{"No loss"}, SuccessMeasures: []string{"Recovery under a minute"}, ParticipantIDs: []string{"author", "owner"}, OwnerID: "owner"}
+	v, _ := s.Create("repo", "author", "Queue", Context{Kind: "repository"}, in)
+	evidence := []Evidence{{Kind: "code", RepositoryID: "repo", Revision: "0123456789012345678901234567890123456789", Path: "queue.go", Summary: "queue", ObservedAt: time.Now()}}
+	v, err := s.AddAlternative("repo", v.ID, "author", "Durable", []Claim{{Kind: "outcome", Body: "recovers"}}, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err = s.Publish("repo", v.ID, "owner", v.Alternatives[0].ID, nil, "It meets the recovery goal.", nil, nil, nil, nil, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := "0123456789012345678901234567890123456789"
+	v, err = s.LinkDelivery("repo", v.ID, "author", "proposal-1", revision, []string{"task-1", "task-2"})
+	if err != nil || len(v.Deliveries) != 1 || v.Deliveries[0].CommitmentVersion != 1 {
+		t.Fatalf("delivery: %v %#v", err, v)
+	}
+	if _, err = s.LinkDelivery("repo", v.ID, "author", "proposal-2", revision, []string{"task-3"}); err != ErrInvalid {
+		t.Fatalf("duplicate delivery: %v", err)
+	}
+	v, err = s.RequestRevisit("repo", v.ID, "author", "failed_measure", "Recovery took two minutes.", "/check-runs/run-1")
+	if err != nil || v.State != "reopened" || len(v.RevisitRequests) != 1 || v.RevisitRequests[0].CommitmentVersion != 1 {
+		t.Fatalf("revisit: %v %#v", err, v)
+	}
+}
+
 func TestRejectedPolicyApprovalIsPublicConflict(t *testing.T) {
 	s, _ := New(t.TempDir())
 	in := ScopeInput{Question: "Ship?", Constraints: []string{"Policy"}, SuccessMeasures: []string{"Approved"}, ParticipantIDs: []string{"owner", "reviewer"}, OwnerID: "owner"}

@@ -171,7 +171,11 @@ func createRelease(store releaseStore, controller releaseBuildController, pulls 
 			if pull.Status != pullrequests.Merged || !reachable[merge] || priorReachable[merge] {
 				continue
 			}
-			links = append(links, releases.PullRequestLink{ID: pull.ID, Title: pull.Title, AuthorID: pull.AuthorID, MergeCommitID: pull.MergeCommitID})
+			link := releases.PullRequestLink{ID: pull.ID, Title: pull.Title, AuthorID: pull.AuthorID, MergeCommitID: pull.MergeCommitID}
+			if pull.ReasoningContext != nil && pull.ReasoningContext.Kind == "decision" {
+				link.DecisionID, link.DecisionVersion = pull.ReasoningContext.DecisionID, pull.ReasoningContext.DecisionVersion
+			}
+			links = append(links, link)
 			proposalIDs = append(proposalIDs, pull.ProposalID)
 			taskIDs = append(taskIDs, pull.TaskID)
 			contributors = append(contributors, pull.AuthorID)

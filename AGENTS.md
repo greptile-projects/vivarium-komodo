@@ -286,6 +286,16 @@ whenever dependencies change or the web job fails before it starts.
   measurements, and derived resource use; validity compares code, dependency,
   and environment fingerprints. Experiments carry no implicit publication,
   pull-request, or merge authority, and reproductions remain separate records.
+  A published commitment may be promoted once into an ordinary proposal and
+  ordered human/Codex tasks at an exact base commit. The tasks must collectively
+  cover every committed constraint, success measure, and condition verbatim;
+  their immutable reasoning context retains the decision and commitment version
+  through sessions, workspaces, pull requests, checks, queues, releases, and
+  deployments. Decision-governed pull requests require a structured delivery
+  account with every assigned criterion met. Changed assumptions, failed
+  measures, incompatible work, or constraint deviations instead append an
+  evidence-linked revisit request and reopen the decision; do not silently
+  waive them or rewrite the commitment.
 
   Public repository resources also carry an owner-scoped normalized name,
   description, and create/update timestamps; their immutable ID remains the
