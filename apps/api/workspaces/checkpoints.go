@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
@@ -21,6 +23,204 @@ type CheckpointRequest struct {
 	Paths           []string
 	ParentID        string
 	Reproducibility Reproducibility
+}
+
+type PublishRequest struct{ Branch, Message string }
+
+// Publish writes only the immutable bytes named by a checkpoint. The mutable
+// workspace is deliberately never walked here.
+func (r *Runner) Publish(w Workspace, actor, checkpointID string, request PublishRequest) (storage.ObjectID, []string, error) {
+	r.mutationMu.Lock()
+	defer r.mutationMu.Unlock()
+	var checkpoint *Checkpoint
+	for i := range w.Checkpoints {
+		if w.Checkpoints[i].ID == checkpointID {
+			checkpoint = &w.Checkpoints[i]
+			break
+		}
+	}
+	branch := strings.TrimSpace(request.Branch)
+	message := strings.TrimSpace(request.Message)
+	if checkpoint == nil {
+		return "", nil, ErrNotFound
+	}
+	if checkpoint.Publication != nil || branch == "" || message == "" || len(message) > 10000 || strings.HasPrefix(branch, "refs/") {
+		return "", nil, ErrConflict
+	}
+	repo, err := r.repositories.Open(storage.ID(w.RepositoryID))
+	if err != nil {
+		return "", nil, err
+	}
+	base, err := repo.ReadCommit(storage.ObjectID(checkpoint.BaseRevision))
+	if err != nil {
+		return "", nil, err
+	}
+	files := map[string]treeFile{}
+	if err = flattenTree(repo, base.Tree, "", files); err != nil {
+		return "", nil, err
+	}
+	for _, change := range checkpoint.Changes {
+		if change.Operation == "delete" {
+			delete(files, change.Path)
+			continue
+		}
+		blobDigest := change.BlobDigest
+		if blobDigest == "" {
+			blobDigest = change.Digest
+		}
+		data, e := r.store.Blob(blobDigest)
+		if e != nil || sha(data) != change.Digest {
+			return "", nil, ErrUnsafeCheckpoint
+		}
+		blob, e := repo.WriteObject(storage.BlobObject, data)
+		if e != nil {
+			return "", nil, e
+		}
+		mode := uint32(0100644)
+		if old, ok := files[change.Path]; ok {
+			mode = old.mode
+		}
+		files[change.Path] = treeFile{mode: mode, id: blob}
+	}
+	tree, err := writeTree(repo, files)
+	if err != nil {
+		return "", nil, err
+	}
+	stamp := strconv.FormatInt(time.Now().UTC().Unix(), 10) + " +0000"
+	trailers := "\nWorkspace-ID: " + w.ID + "\nCheckpoint-ID: " + checkpoint.ID
+	if w.Context.Type != "repository" {
+		trailers += "\nWorkspace-Context: " + w.Context.Type + "/" + w.Context.ID
+	}
+	content := fmt.Sprintf("tree %s\nparent %s\nauthor %s <%s@users.local> %s\ncommitter %s <%s@users.local> %s\n\n%s%s\n", tree, checkpoint.BaseRevision, actor, actor, stamp, actor, actor, stamp, message, trailers)
+	commit, err := repo.WriteObject(storage.CommitObject, []byte(content))
+	if err != nil {
+		return "", nil, err
+	}
+	refName := storage.ReferenceName("refs/heads/" + branch)
+	ref, readErr := repo.ReadReference(refName)
+	if readErr == nil {
+		if ref.ObjectID != storage.ObjectID(checkpoint.BaseRevision) {
+			return "", nil, ErrConflict
+		}
+		err = repo.CompareAndSwapReference(refName, ref.ObjectID, commit)
+	} else if errors.Is(readErr, storage.ErrReferenceNotFound) {
+		err = repo.CreateReference(storage.Reference{Name: refName, ObjectID: commit})
+	} else {
+		err = readErr
+	}
+	if err != nil {
+		return "", nil, ErrConflict
+	}
+	contributors := map[string]bool{checkpoint.CreatorID: true, actor: true}
+	paths := map[string]bool{}
+	for _, c := range checkpoint.Changes {
+		paths[c.Path] = true
+	}
+	for _, c := range w.Changes {
+		if paths[c.Path] {
+			contributors[c.ActorID] = true
+		}
+	}
+	ids := []string{}
+	for id := range contributors {
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	_, err = r.store.RecordPublication(w.RepositoryID, w.ID, checkpoint.ID, Publication{CommitID: string(commit), Branch: branch, PublisherID: actor, ContributorIDs: ids, PublishedAt: time.Now().UTC()})
+	if err != nil {
+		return "", nil, err
+	}
+	return commit, ids, nil
+}
+
+type treeFile struct {
+	mode uint32
+	id   storage.ObjectID
+}
+
+func flattenTree(repo *storage.Repository, id storage.ObjectID, prefix string, files map[string]treeFile) error {
+	tree, err := repo.ReadTree(id)
+	if err != nil {
+		return err
+	}
+	for _, entry := range tree.Entries {
+		path := entry.Name
+		if prefix != "" {
+			path = prefix + "/" + path
+		}
+		if entry.Type == storage.TreeObject {
+			if err := flattenTree(repo, entry.ObjectID, path, files); err != nil {
+				return err
+			}
+		} else {
+			files[path] = treeFile{entry.Mode, entry.ObjectID}
+		}
+	}
+	return nil
+}
+
+type treeNode struct {
+	files map[string]treeFile
+	dirs  map[string]*treeNode
+}
+
+func writeTree(repo *storage.Repository, files map[string]treeFile) (storage.ObjectID, error) {
+	root := &treeNode{map[string]treeFile{}, map[string]*treeNode{}}
+	for path, file := range files {
+		parts := strings.Split(path, "/")
+		node := root
+		for _, part := range parts[:len(parts)-1] {
+			if node.dirs[part] == nil {
+				node.dirs[part] = &treeNode{map[string]treeFile{}, map[string]*treeNode{}}
+			}
+			node = node.dirs[part]
+		}
+		node.files[parts[len(parts)-1]] = file
+	}
+	var build func(*treeNode) (storage.ObjectID, error)
+	build = func(node *treeNode) (storage.ObjectID, error) {
+		names := []string{}
+		for n := range node.files {
+			names = append(names, n)
+		}
+		for n := range node.dirs {
+			names = append(names, n)
+		}
+		sort.Slice(names, func(i, j int) bool {
+			left, right := names[i], names[j]
+			if node.dirs[left] != nil {
+				left += "/"
+			}
+			if node.dirs[right] != nil {
+				right += "/"
+			}
+			return left < right
+		})
+		var data bytes.Buffer
+		for _, n := range names {
+			file, ok := node.files[n]
+			mode := file.mode
+			id := file.id
+			if !ok {
+				var e error
+				id, e = build(node.dirs[n])
+				if e != nil {
+					return "", e
+				}
+				mode = 040000
+			}
+			fmt.Fprintf(&data, "%o %s%c", mode, n, byte(0))
+			raw, e := hex.DecodeString(string(id))
+			if e != nil {
+				return "", e
+			}
+			data.Write(raw)
+		}
+		return repo.WriteObject(storage.TreeObject, data.Bytes())
+	}
+	return build(root)
 }
 
 func sha(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }

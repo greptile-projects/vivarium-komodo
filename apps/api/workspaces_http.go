@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
 )
@@ -25,6 +27,8 @@ type workspaceStore interface {
 	AddMessage(string, string, string, string) (workspaces.Workspace, error)
 	Grant(string, string, string, string, string, string, []string) (workspaces.Workspace, error)
 	Intervene(string, string, string, string, string, string, int64) (workspaces.Workspace, error)
+	RecordPublication(string, string, string, workspaces.Publication) (workspaces.Workspace, error)
+	LinkPublicationPullRequest(string, string, string, string) (workspaces.Workspace, error)
 }
 type workspaceRunner interface {
 	Definition(string, string) (workspaces.Definition, string, error)
@@ -36,12 +40,13 @@ type workspaceRunner interface {
 	Checkpoint(workspaces.Workspace, string, workspaces.CheckpointRequest) (workspaces.Workspace, error)
 	Restore(workspaces.Workspace, string, string) (workspaces.Workspace, workspaces.CheckpointStatus, error)
 	InspectCheckpoint(workspaces.Workspace, string) (workspaces.Checkpoint, error)
+	Publish(workspaces.Workspace, string, string, workspaces.PublishRequest) (storage.ObjectID, []string, error)
 }
 type workspaceOrganizationStore interface {
 	Get(string) (organizations.Organization, error)
 }
 
-func registerWorkspacesHTTP(mux *http.ServeMux, store workspaceStore, runner workspaceRunner, repositories taskSessionRepositoryStore, credentials authStore, plans proposalStore, pulls pullRequestStore, incidentStore incidentStore, orgs ...workspaceOrganizationStore) {
+func registerWorkspacesHTTP(mux *http.ServeMux, store workspaceStore, runner workspaceRunner, repositories taskSessionRepositoryStore, credentials authStore, plans proposalStore, pulls pullRequestStore, incidentStore incidentStore, extras ...any) {
 	base := "/repositories/{repository}/workspaces"
 	mux.HandleFunc("POST "+base, createWorkspace(store, runner, repositories, credentials, plans, pulls, incidentStore))
 	mux.HandleFunc("GET "+base, listWorkspaces(store, repositories, credentials))
@@ -55,15 +60,111 @@ func registerWorkspacesHTTP(mux *http.ServeMux, store workspaceStore, runner wor
 	mux.HandleFunc("GET "+base+"/{workspace}/preview/{port}/{path...}", workspacePreview(store, runner, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/presence", workspacePresence(store, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/messages", workspaceMessage(store, repositories, credentials))
-	var organizationStore workspaceOrganizationStore
-	if len(orgs) > 0 {
-		organizationStore = orgs[0]
-	}
-	mux.HandleFunc("POST "+base+"/{workspace}/controls", workspaceGrantControl(store, repositories, credentials, organizationStore))
-	mux.HandleFunc("POST "+base+"/{workspace}/controls/{control}/interventions", workspaceIntervention(store, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/checkpoints", createWorkspaceCheckpoint(store, runner, repositories, credentials))
 	mux.HandleFunc("GET "+base+"/{workspace}/checkpoints/{checkpoint}", getWorkspaceCheckpoint(store, runner, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/checkpoints/{checkpoint}/restore", restoreWorkspaceCheckpoint(store, runner, repositories, credentials))
+	var checks checkRunStarter
+	var organizationStore workspaceOrganizationStore
+	for _, extra := range extras {
+		if value, ok := extra.(checkRunStarter); ok {
+			checks = value
+		}
+		if value, ok := extra.(workspaceOrganizationStore); ok {
+			organizationStore = value
+		}
+	}
+	mux.HandleFunc("POST "+base+"/{workspace}/controls", workspaceGrantControl(store, repositories, credentials, organizationStore))
+	mux.HandleFunc("POST "+base+"/{workspace}/controls/{control}/interventions", workspaceIntervention(store, repositories, credentials))
+	mux.HandleFunc("POST "+base+"/{workspace}/checkpoints/{checkpoint}/publication", publishWorkspaceCheckpoint(store, runner, repositories, credentials, plans, pulls, checks))
+}
+
+func publishWorkspaceCheckpoint(store workspaceStore, runner workspaceRunner, repositories taskSessionRepositoryStore, credentials authStore, plans proposalStore, pulls pullRequestStore, checks checkRunStarter) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		item, actor, ok := readyWorkspace(w, r, store, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Branch            string `json:"branch"`
+			TargetBranch      string `json:"target_branch"`
+			Title             string `json:"title"`
+			Message           string `json:"message"`
+			CreatePullRequest bool   `json:"create_pull_request"`
+		}
+		if !readJSON(w, r, &in, 32<<10) {
+			return
+		}
+		var target storage.Reference
+		if in.CreatePullRequest {
+			repo, e := repositories.Open(storage.ID(item.RepositoryID))
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			target, e = repo.ReadReference(storage.ReferenceName("refs/heads/" + strings.TrimSpace(in.TargetBranch)))
+			if e != nil || strings.TrimSpace(in.Title) == "" {
+				writeJSON(w, 422, map[string]string{"error": "invalid_pull_request"})
+				return
+			}
+		}
+		commit, contributors, err := runner.Publish(item, actor.UserID, r.PathValue("checkpoint"), workspaces.PublishRequest{Branch: in.Branch, Message: in.Message})
+		if errors.Is(err, workspaces.ErrConflict) {
+			writeJSON(w, 409, map[string]string{"error": "checkpoint_publication_conflict"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "checkpoint_publication_failed"})
+			return
+		}
+		var pull *pullrequests.PullRequest
+		if in.CreatePullRequest {
+			targetName := strings.TrimSpace(in.TargetBranch)
+			proposalID, taskID, sessionID := "", "", ""
+			if item.Context.Type == "proposal_task" {
+				proposalID, taskID = item.Context.ParentID, item.Context.ID
+				if plan, e := plans.GetPlan(item.RepositoryID, proposalID); e == nil {
+					for _, task := range plan.Tasks {
+						if task.ID == taskID && task.Assignment != nil {
+							sessionID = task.Assignment.SessionID
+						}
+					}
+				}
+			}
+			originPullID := ""
+			if item.Context.Type == "pull_request" {
+				originPullID = item.Context.ID
+			}
+			body := "Published from workspace `" + item.ID + "` checkpoint `" + r.PathValue("checkpoint") + "`.\n\nChanges: " + in.Message
+			for _, cp := range item.Checkpoints {
+				if cp.ID == r.PathValue("checkpoint") && len(cp.Reproducibility.Commands) > 0 {
+					body += "\n\nCommands performed:\n- `" + strings.Join(cp.Reproducibility.Commands, "`\n- `") + "`"
+				}
+			}
+			created, e := pulls.Create(pullrequests.CreateParams{RepositoryID: item.RepositoryID, SourceRepositoryID: item.RepositoryID, ProposalID: proposalID, TaskID: taskID, ChangeSessionID: sessionID, OriginPullRequestID: originPullID, AuthorID: actor.UserID, Title: in.Title, Body: body, SourceBranch: strings.TrimSpace(in.Branch), TargetBranch: targetName, SourceCommitID: string(commit), TargetCommitID: string(target.ObjectID), WorkspaceID: item.ID, CheckpointID: r.PathValue("checkpoint"), ContributorIDs: contributors})
+			if e != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_pull_request"})
+				return
+			}
+			pull = &created
+			if checks != nil {
+				_ = checks.Start(item.RepositoryID, item.RepositoryID, created.ID, string(commit))
+			}
+		}
+		pullID := ""
+		if pull != nil {
+			pullID = pull.ID
+		}
+		publication := workspaces.Publication{CommitID: string(commit), Branch: strings.TrimSpace(in.Branch), PullRequestID: pullID, PublisherID: actor.UserID, ContributorIDs: contributors, PublishedAt: time.Now().UTC()}
+		updated, err := store.Get(item.RepositoryID, item.ID)
+		if pullID != "" {
+			updated, err = store.LinkPublicationPullRequest(item.RepositoryID, item.ID, r.PathValue("checkpoint"), pullID)
+		}
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "publication_link_failed"})
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"workspace": updated, "publication": publication, "pull_request": pull})
+	}
 }
 
 func getWorkspaceCheckpoint(store workspaceStore, runner workspaceRunner, repositories taskSessionRepositoryStore, credentials authStore) http.HandlerFunc {

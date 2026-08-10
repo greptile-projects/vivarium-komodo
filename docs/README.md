@@ -1774,3 +1774,23 @@ conflicting paths before any file is changed; a clean restore verifies every
 content-addressed blob before applying it. Collaborators can create a child
 checkpoint after restoring or extending an earlier one, preserving a branch of
 unfinished work without depending on the original machine.
+
+### Governed workspace publication
+
+Repository writers publish an immutable checkpoint through `POST
+/repositories/{repository}/workspaces/{workspace}/checkpoints/{checkpoint}/publication`.
+The request names a working branch and commit message and may create an ordinary
+pull request against an existing target branch. Publication reconstructs a Git
+tree from the checkpoint base plus only its explicitly captured, digest-verified
+changes; it never walks the mutable environment. The branch is created or
+atomically advanced only from that base, so moved branches reject stale work.
+
+The commit, checkpoint, workspace, and pull request retain bidirectional IDs,
+the publisher and exact checkpoint/file contributors, proposal-task and change-
+session context when present, and an originating pull request when applicable.
+Commit trailers preserve the workspace and checkpoint link in Git history. Pull
+request text summarizes the declared change and verification commands without
+copying private command output or activity. New requests enter existing checks,
+reviews, required-check, integration-queue, and stale-revision governance.
+Credentials, unselected files, setup products, terminal data, and runtime state
+are never inferred into repository content.

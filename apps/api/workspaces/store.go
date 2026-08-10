@@ -138,6 +138,15 @@ type Checkpoint struct {
 	Changes          []CheckpointChange `json:"changes"`
 	Status           CheckpointStatus   `json:"status"`
 	CreatedAt        time.Time          `json:"created_at"`
+	Publication      *Publication       `json:"publication,omitempty"`
+}
+type Publication struct {
+	CommitID       string    `json:"commit_id"`
+	Branch         string    `json:"branch"`
+	PullRequestID  string    `json:"pull_request_id,omitempty"`
+	PublisherID    string    `json:"publisher_id"`
+	ContributorIDs []string  `json:"contributor_ids"`
+	PublishedAt    time.Time `json:"published_at"`
 }
 type Workspace struct {
 	ID               string         `json:"id"`
@@ -300,6 +309,45 @@ func (s *Store) RecordActivity(repositoryID, id string, event Event) (Workspace,
 	w.Activity = append(w.Activity, event)
 	w.UpdatedAt = event.CreatedAt
 	return w, s.write(w)
+}
+
+func (s *Store) RecordPublication(repositoryID, id, checkpointID string, publication Publication) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, err := s.read(id)
+	if err != nil || w.RepositoryID != repositoryID {
+		return Workspace{}, ErrNotFound
+	}
+	for i := range w.Checkpoints {
+		if w.Checkpoints[i].ID != checkpointID {
+			continue
+		}
+		if w.Checkpoints[i].Publication != nil {
+			return Workspace{}, ErrConflict
+		}
+		w.Checkpoints[i].Publication = &publication
+		w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: "checkpoint_published", Kind: "authorship", ActorID: publication.PublisherID, TargetID: checkpointID, Message: publication.CommitID, CreatedAt: publication.PublishedAt})
+		w.UpdatedAt = publication.PublishedAt
+		return w, s.write(w)
+	}
+	return Workspace{}, ErrNotFound
+}
+
+func (s *Store) LinkPublicationPullRequest(repositoryID, id, checkpointID, pullRequestID string) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, err := s.read(id)
+	if err != nil || w.RepositoryID != repositoryID {
+		return Workspace{}, ErrNotFound
+	}
+	for i := range w.Checkpoints {
+		if w.Checkpoints[i].ID == checkpointID && w.Checkpoints[i].Publication != nil && w.Checkpoints[i].Publication.PullRequestID == "" {
+			w.Checkpoints[i].Publication.PullRequestID = pullRequestID
+			w.UpdatedAt = s.now().UTC()
+			return w, s.write(w)
+		}
+	}
+	return Workspace{}, ErrConflict
 }
 
 func (s *Store) RecordChange(repositoryID, id, actor, path, digest string, deleted bool) (Workspace, error) {
