@@ -120,6 +120,23 @@ review the retained detail and explicitly resume through the ordinary mandate
 lifecycle; reporting a safety condition never grants replacement access or
 quietly broadens another mandate.
 
+### Complete stewardship workflow
+
+`stewardship_workflow_test.go` composes the public stewardship contract as one
+regression. A maintainer creates an organization repository and bounded mandate,
+an operator accepts it and explains a current usage finding, and collaborators
+rank and guide the accepted improvement while dismissing a second finding. The
+accepted item passes versioned auto-start policy into an ordinary proposal task,
+branch-only agent session, structured contribution, commit-bound check, owner
+review, merge, and immutable release build.
+
+The retained mandate report connects estimated and actual effort, run count,
+signal citation, decisions, session events, exact code, review-facing reasoning,
+verification, release evidence, and goal progress. Revoking the mandate after
+delivery proves that the historical record survives while future stewardship
+authority stops; neither the mandate nor the completed workflow bypasses normal
+repository, review, merge, or release permissions.
+
 ## Prospective impact assessment
 
 Impact assessment is a pre-implementation, exact-revision record rather than a
