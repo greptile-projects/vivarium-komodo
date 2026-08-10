@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Badge, Button } from "@/components/ui";
 import { GroundedQuestions } from "@/components/grounded-questions";
 import { CollaborativeInvestigations } from "@/components/collaborative-investigations";
+import { ImpactAssessments } from "@/components/impact-assessments";
 import {
   Book,
   Branch,
@@ -1163,6 +1164,7 @@ export default function RepositoryPage({
     workspace?: string;
     symbol?: string;
     investigation?: string;
+    assessment?: string;
   }>;
 }) {
   const { id } = use(params);
@@ -1191,6 +1193,8 @@ export default function RepositoryPage({
                       ? "intelligence"
                       : query.view === "investigations"
                         ? "investigations"
+                        : query.view === "impact"
+                          ? "impact"
                       : query.view === "people"
                         ? "people"
                         : "code";
@@ -1461,6 +1465,13 @@ export default function RepositoryPage({
       )}
       <nav className="repository-tabs" aria-label="Repository">
         <button
+          className={view === "impact" ? "active" : ""}
+          onClick={() => navigate({ view: "impact", ref, path: "" })}
+        >
+          <Sparkles size={15} />
+          Impact
+        </button>
+        <button
           className={view === "investigations" ? "active" : ""}
           onClick={() => navigate({ view: "investigations", ref, path: "" })}
         >
@@ -1610,6 +1621,13 @@ export default function RepositoryPage({
           repository={repository.id}
           revision={ref}
           selected={query.investigation}
+        />
+      ) : view === "impact" ? (
+        <ImpactAssessments
+          repository={repository.id}
+          revision={ref}
+          selected={query.assessment}
+          actor={actor}
         />
       ) : view === "people" && actor === repository.owner_id ? (
         <CollaboratorWorkspace repository={id} />

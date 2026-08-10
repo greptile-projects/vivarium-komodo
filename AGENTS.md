@@ -238,6 +238,18 @@ whenever dependencies change or the web job fails before it starts.
   Reruns append an exact-revision run and mark older commit-bound entries stale
   rather than rewriting them; never persist workspace output, credentials, or
   hidden agent context in the canvas.
+  Prospective impact assessments live beneath `$IMPACT_ASSESSMENT_ROOT`
+  (default `apps/api/data/impact-assessments`) and begin from selected code,
+  symbols, an exact current investigation conclusion, or a proposed diff. Keep
+  every assessment pinned to one visible commit and retain references, tests,
+  last-touch ownership, packages, published interfaces, readable consumers,
+  releases, and deployment environments as explicit evidence. Participants may
+  refine impacts and record mitigations, accepted risks, and unknowns; affected
+  owners acknowledge or raise concerns without receiving repository authority.
+  Assessment agents receive only credential-bound read-only context and may
+  cite retained evidence in attributable findings; they never receive Git or
+  repository-write access. The shareable surface is
+  `view=impact&assessment={id}&ref={commit}`.
 
   Public repository resources also carry an owner-scoped normalized name,
   description, and create/update timestamps; their immutable ID remains the
