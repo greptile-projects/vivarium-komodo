@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-10T13:20:26Z: Added an evidence-pinned organization stewardship backlog with mandate/signal enforcement, stable-key deduplication, severity/value/confidence and owner/revision citations, explicit stale evidence, and attributed collaborator ranking, discussion, snooze, dismissal, and incorrectness decisions. The organization workspace exposes the explainable queue without granting authority or starting work.
+
 2026-08-10T12:29:03Z: Added versioned organization stewardship mandates with explicit outcomes, repository/branch scope, signals, exclusions, budgets, schedules, approved-agent operator acceptance, lifecycle controls, and effective policy/access preview. Mandates issue no credential or implicit write/merge authority, and the organization web workspace now supports their full accountable lifecycle.
 
 2026-08-10T11:28:57Z: Completed the grounded-question-to-shared-investigation handoff with exact-commit validation and durable conversation provenance through investigation- and impact-derived tasks, sessions, pull requests, checks, and review. The web now carries a completed explanation directly into its revision-pinned collaborative canvas.

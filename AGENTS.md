@@ -540,6 +540,16 @@ whenever dependencies change or the web job fails before it starts.
   organization policy and independently granted agent roles for every scoped
   repository, but the mandate itself never issues a credential or supplies
   write or merge authority.
+  Active stewardship mandates publish their shared backlog beneath
+  `/organizations/{organization}/stewardship-opportunities`. Evaluations are
+  accepted only from the approved agent's current operator, for a repository
+  and exact signal named by that active mandate. Findings retain severity,
+  expected value, confidence, affected owners and revisions, typed citations,
+  and the explicit mandate-scope rationale. A stable mandate/repository/finding
+  key deduplicates reevaluations while preserving collaborator discussion,
+  ranking, dismissal, snooze, incorrectness, and stale-evidence decisions.
+  Never move citations along with a branch: report stale evidence explicitly
+  and refresh the same finding only after evaluating a new exact revision.
   Organization governance baselines are immutable policy versions in the
   organization record. Rules cover repository visibility, reviews, required
   checks, integration, release provenance, dependency use, environment
