@@ -3,6 +3,28 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Prospective impact assessment
+
+Impact assessment is a pre-implementation, exact-revision record rather than a
+prediction that silently follows a branch. A repository writer starts at
+`POST /repositories/{repository}/impact-assessments` with selected paths or
+symbols, a current conclusion from a shared investigation, or a proposed
+unified diff. The service derives reviewable evidence across references, tests,
+last-touch history, published packages and interfaces, permission-visible
+consumers, releases, and deployment environments. Scan limits and unsupported
+files remain explicit completeness reasons.
+
+Repository participants can add missed impacts and classify each item as open,
+mitigated, an accepted risk, or unknown with a durable rationale. Requests to
+affected owner IDs add those owners to the assessment—not to the repository—so
+they can acknowledge the conclusion or record a concern. A delegated Codex
+credential can read only the assessment and append findings citing evidence
+already retained by it; it carries no Git or repository mutation authority.
+The repository `view=impact&assessment={id}&ref={commit}` surface keeps scope,
+decisions, acknowledgements, verification paths, uncertainty, and evidence
+together before implementation begins. Data is rooted at
+`$IMPACT_ASSESSMENT_ROOT`, defaulting to `apps/api/data/impact-assessments`.
+
 ## Live workspace collaboration
 
 Every ready development workspace is also a permission-aware shared room.
