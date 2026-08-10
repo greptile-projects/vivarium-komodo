@@ -1928,3 +1928,27 @@ suspension, conflict-preflights and restores a checkpoint, publishes its linked
 task contribution, passes repository checks and protected integration, then
 expires the compute while proving the merged intent and collaboration trail
 remain readable through public resources and stock Git.
+
+## Reasoning-connected implementation
+
+Shared understanding enters delivery through `POST
+/repositories/{repository}/connected-work`. A repository writer selects
+non-stale investigation conclusions and/or impact-assessment items, describes
+ordered tasks by earlier task indexes, and may assign each task to a repository
+participant or the `codex` agent. The service validates every source and
+dependency before creating the proposal, then uses the selected evidence's
+exact commit as the assignment base revision.
+
+Each plan task owns an immutable `reasoning_context` snapshot containing the
+origin resource and item IDs, claim or risk, decision and rationale,
+verification paths, permitted evidence, and owner acknowledgements. Starting
+an agent task copies that context into its scoped change session. Publishing
+from either a task session or a task-derived workspace copies it into the pull
+request, so reviewers do not need to reconstruct why the change exists from a
+mutable branch or prose description.
+
+Investigation reruns continue to mark old commit-bound entries stale and append
+a new run. They do not rewrite contexts already attached to tasks, sessions, or
+pull requests. Consequently the origin clearly reports invalidation while the
+delivery record continues to identify the exact understanding that initiated
+the work.

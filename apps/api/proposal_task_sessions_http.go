@@ -166,7 +166,7 @@ func publishProposalTaskContribution(plans proposalStore, sessions changeSession
 			writeJSON(w, 422, map[string]string{"error": "invalid_branches"})
 			return
 		}
-		item, err := pulls.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), SourceRepositoryID: string(repository.ID), ProposalID: proposal.ID, TaskID: task.ID, ChangeSessionID: sessionID, AuthorID: actorID, Title: input.Title, Body: input.Body, SourceBranch: sourceName, TargetBranch: targetName, SourceCommitID: string(source), TargetCommitID: string(target), Draft: input.Draft})
+		item, err := pulls.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), SourceRepositoryID: string(repository.ID), ProposalID: proposal.ID, TaskID: task.ID, ChangeSessionID: sessionID, AuthorID: actorID, Title: input.Title, Body: input.Body, SourceBranch: sourceName, TargetBranch: targetName, SourceCommitID: string(source), TargetCommitID: string(target), Draft: input.Draft, ReasoningContext: task.ReasoningContext})
 		if err != nil {
 			writePullRequestError(w, err)
 			return
@@ -304,7 +304,7 @@ func startProposalTask(plans proposalStore, sessions changeSessionStore, reposit
 		if head, err := opened.DefaultBranch(); err == nil {
 			defaultBranch = strings.TrimPrefix(string(head), "refs/heads/")
 		}
-		context := changesessions.TaskContext{ProposalID: proposal.ID, ProposalTitle: proposal.Title, ProposalDescription: proposal.Body, TaskID: task.ID, TaskTitle: task.Title, TaskOutcome: task.Outcome, Mandate: task.Assignment.Mandate, Dependencies: dependencies, Repository: changesessions.RepositoryContext{ID: string(repository.ID), Name: repository.Name, Description: repository.Description, DefaultBranch: defaultBranch, BaseRevision: task.Assignment.BaseRevision, WorkingBranch: branch}}
+		context := changesessions.TaskContext{ProposalID: proposal.ID, ProposalTitle: proposal.Title, ProposalDescription: proposal.Body, TaskID: task.ID, TaskTitle: task.Title, TaskOutcome: task.Outcome, Mandate: task.Assignment.Mandate, Dependencies: dependencies, Repository: changesessions.RepositoryContext{ID: string(repository.ID), Name: repository.Name, Description: repository.Description, DefaultBranch: defaultBranch, BaseRevision: task.Assignment.BaseRevision, WorkingBranch: branch}, ReasoningContext: task.ReasoningContext}
 		session, err := sessions.CreateForTask(string(repository.ID), taskSessionScope(task.ID), actorID, task.Assignment.BaseRevision, context)
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})

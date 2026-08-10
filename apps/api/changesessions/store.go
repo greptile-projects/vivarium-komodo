@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/greptile-projects/vivarium-komodo/apps/api/reasoning"
 )
 
 var (
@@ -300,15 +302,16 @@ func (s *Store) LinkTaskContribution(repositoryID, scopeID, sessionID, pullReque
 // TaskContext is the immutable shared intent captured when an assigned plan
 // task starts before a pull request exists.
 type TaskContext struct {
-	ProposalID          string            `json:"proposal_id"`
-	ProposalTitle       string            `json:"proposal_title"`
-	ProposalDescription string            `json:"proposal_description"`
-	TaskID              string            `json:"task_id"`
-	TaskTitle           string            `json:"task_title"`
-	TaskOutcome         string            `json:"task_outcome"`
-	Mandate             string            `json:"mandate"`
-	Dependencies        []TaskDependency  `json:"dependencies"`
-	Repository          RepositoryContext `json:"repository"`
+	ProposalID          string             `json:"proposal_id"`
+	ProposalTitle       string             `json:"proposal_title"`
+	ProposalDescription string             `json:"proposal_description"`
+	TaskID              string             `json:"task_id"`
+	TaskTitle           string             `json:"task_title"`
+	TaskOutcome         string             `json:"task_outcome"`
+	Mandate             string             `json:"mandate"`
+	Dependencies        []TaskDependency   `json:"dependencies"`
+	Repository          RepositoryContext  `json:"repository"`
+	ReasoningContext    *reasoning.Context `json:"reasoning_context,omitempty"`
 }
 
 type TaskDependency struct {
