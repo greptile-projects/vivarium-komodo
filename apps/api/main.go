@@ -242,7 +242,7 @@ func main() {
 	registerRepositoryBrowserHTTP(mux, repositoryCatalog, credentials)
 	registerCodeIntelligenceHTTP(mux, repositoryCatalog, credentials, relationshipStore)
 	registerQuestionsHTTP(mux, questionStore, repositoryCatalog, credentials, relationshipStore, checkRunStore)
-	registerInvestigationsHTTP(mux, investigationStore, repositoryCatalog, credentials, workspaceStore)
+	registerInvestigationsHTTP(mux, investigationStore, repositoryCatalog, credentials, workspaceStore, questionStore)
 	registerImpactAssessmentsHTTP(mux, impactStore, repositoryCatalog, credentials, relationshipStore, investigationStore, releaseStore, deploymentStore, packageStore)
 	registerReasoningWorkHTTP(mux, investigationStore, impactStore, proposalStore, repositoryCatalog, credentials)
 	registerCollaboratorsHTTP(mux, repositoryCatalog, userStore, credentials, activityStore)

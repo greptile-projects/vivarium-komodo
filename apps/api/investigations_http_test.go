@@ -10,6 +10,7 @@ import (
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/investigations"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/questions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
@@ -21,6 +22,7 @@ func TestSharedInvestigationRetainsChallengesInvitesAndStaleEvidence(t *testing.
 	credentials, _ := auth.New(t.TempDir())
 	canvas, _ := investigations.New(t.TempDir())
 	workspaceStore, _ := workspaces.New(t.TempDir())
+	questionStore, _ := questions.New(t.TempDir())
 	item, _ := catalog.Create("owner", repositories.Metadata{Name: "inquiry", Visibility: repositories.Public})
 	_, _ = catalog.AddCollaborator("owner", item.ID, "peer")
 	repo, _ := catalog.Open(item.ID)
@@ -32,14 +34,18 @@ func TestSharedInvestigationRetainsChallengesInvitesAndStaleEvidence(t *testing.
 	owner := issueAccess(t, credentials, "owner", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	peer := issueAccess(t, credentials, "peer", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	mux := http.NewServeMux()
-	registerInvestigationsHTTP(mux, canvas, catalog, credentials, workspaceStore)
+	registerInvestigationsHTTP(mux, canvas, catalog, credentials, workspaceStore, questionStore)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	base := server.URL + "/repositories/" + string(item.ID) + "/investigations"
 	var created investigations.Investigation
-	investigationJSON(t, http.MethodPost, base, owner, map[string]any{"title": "Trace routing", "question": "Why is the route stable?", "revision": "main"}, http.StatusCreated, &created)
+	conversation, _ := questionStore.Create(questions.Conversation{RepositoryID: string(item.ID), CommitID: string(commit), ActorID: "owner", Question: "How does routing work?"})
+	investigationJSON(t, http.MethodPost, base, owner, map[string]any{"title": "Trace routing", "question": "Why is the route stable?", "revision": "main", "conversation_id": conversation.ID}, http.StatusCreated, &created)
 	if created.CommitID != string(commit) || len(created.Runs) != 1 {
 		t.Fatalf("created = %#v", created)
+	}
+	if created.ConversationID != conversation.ID {
+		t.Fatalf("grounded conversation was not retained: %#v", created)
 	}
 	investigationJSON(t, http.MethodGet, base+"/"+created.ID, peer, nil, http.StatusNotFound, nil)
 	investigationJSON(t, http.MethodPost, base+"/"+created.ID+"/participants", owner, map[string]string{"user_id": "peer"}, http.StatusOK, &created)

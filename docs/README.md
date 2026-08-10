@@ -1770,6 +1770,14 @@ reproducible after a branch moves. The repository web surface derives context
 from the current file, proposal, pull request, incident, or workspace and links
 citations back to the exact-commit browser.
 
+A completed explanation can continue directly into the shared investigation
+surface. `POST /repositories/{repository}/investigations` accepts its
+`conversation_id` only when the conversation belongs to the repository and its
+immutable commit matches the new canvas revision. That durable link is copied
+into reasoning-connected tasks, agent sessions, and pull requests, preserving
+the attributed question and permitted evidence as implementation moves through
+checks and review.
+
 ## Collaborative code investigations
 
 Repository writers open a shared canvas with `POST

@@ -23,6 +23,7 @@ type Acknowledgement struct {
 type Context struct {
 	Kind             string            `json:"kind"`
 	InvestigationID  string            `json:"investigation_id,omitempty"`
+	ConversationID   string            `json:"conversation_id,omitempty"`
 	ConclusionID     string            `json:"conclusion_id,omitempty"`
 	AssessmentID     string            `json:"assessment_id,omitempty"`
 	ImpactID         string            `json:"impact_id,omitempty"`

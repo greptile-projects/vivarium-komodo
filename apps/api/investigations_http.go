@@ -8,12 +8,13 @@ import (
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/investigations"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/questions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
 )
 
 type investigationStore interface {
-	Create(string, string, string, string, string, string) (investigations.Investigation, error)
+	Create(string, string, string, string, string, string, string) (investigations.Investigation, error)
 	Get(string, string) (investigations.Investigation, error)
 	List(string) ([]investigations.Investigation, error)
 	Invite(string, string, string, string) (investigations.Investigation, error)
@@ -24,9 +25,13 @@ type investigationWorkspaceStore interface {
 	Get(string, string) (workspaces.Workspace, error)
 }
 
-func registerInvestigationsHTTP(mux *http.ServeMux, store investigationStore, repositories codeIntelligenceStore, credentials authStore, workspaceStore investigationWorkspaceStore) {
+type investigationQuestionStore interface {
+	Get(string, string) (questions.Conversation, error)
+}
+
+func registerInvestigationsHTTP(mux *http.ServeMux, store investigationStore, repositories codeIntelligenceStore, credentials authStore, workspaceStore investigationWorkspaceStore, conversations investigationQuestionStore) {
 	base := "/repositories/{repository}/investigations"
-	mux.HandleFunc("POST "+base, createInvestigation(store, repositories, credentials))
+	mux.HandleFunc("POST "+base, createInvestigation(store, repositories, credentials, conversations))
 	mux.HandleFunc("GET "+base, listInvestigations(store, repositories, credentials))
 	mux.HandleFunc("GET "+base+"/{investigation}", getInvestigation(store, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{investigation}/participants", inviteInvestigation(store, repositories, credentials))
@@ -34,13 +39,16 @@ func registerInvestigationsHTTP(mux *http.ServeMux, store investigationStore, re
 	mux.HandleFunc("POST "+base+"/{investigation}/runs", rerunInvestigation(store, repositories, credentials))
 }
 
-func createInvestigation(store investigationStore, repositories codeIntelligenceStore, credentials authStore) http.HandlerFunc {
+func createInvestigation(store investigationStore, repositories codeIntelligenceStore, credentials authStore, conversations investigationQuestionStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		item, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
 			return
 		}
-		var in struct{ Title, Question, Revision string }
+		var in struct {
+			Title, Question, Revision string
+			ConversationID            string `json:"conversation_id"`
+		}
 		if !readJSON(w, r, &in, 32<<10) {
 			return
 		}
@@ -60,7 +68,14 @@ func createInvestigation(store investigationStore, repositories codeIntelligence
 			writeJSON(w, 404, map[string]string{"error": "revision_not_found"})
 			return
 		}
-		v, err := store.Create(string(item.ID), in.Title, in.Question, revision, string(commit), actor.UserID)
+		if in.ConversationID != "" {
+			conversation, questionErr := conversations.Get(string(item.ID), in.ConversationID)
+			if questionErr != nil || conversation.CommitID != string(commit) {
+				writeJSON(w, 422, map[string]string{"error": "invalid_conversation"})
+				return
+			}
+		}
+		v, err := store.Create(string(item.ID), in.Title, in.Question, revision, string(commit), actor.UserID, in.ConversationID)
 		writeInvestigation(w, v, err, 201)
 	}
 }

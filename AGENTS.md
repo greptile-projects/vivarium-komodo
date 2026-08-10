@@ -224,7 +224,10 @@ whenever dependencies change or the web job fails before it starts.
   context, exact commit, structured evidence/inference/uncertainty claims, and
   exact citations. Replay ordered results through `/events?after={sequence}`
   SSE; never regenerate old conversations at a moved branch or cite unreadable
-  dependency evidence.
+  dependency evidence. A grounded conversation may seed a shared investigation
+  only at that same exact commit; retain its `conversation_id` through the
+  investigation and every reasoning-connected task, session, and pull request
+  so the eventual review record links back to the original attributed answer.
   Shared code investigations live beneath `$INVESTIGATION_ROOT` (default
   `apps/api/data/investigations`) and are opened from the repository's
   `view=investigations&investigation={id}` surface. Only explicitly invited

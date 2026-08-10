@@ -55,18 +55,19 @@ type Run struct {
 }
 
 type Investigation struct {
-	ID           string    `json:"id"`
-	RepositoryID string    `json:"repository_id"`
-	Title        string    `json:"title"`
-	Question     string    `json:"question"`
-	CreatorID    string    `json:"creator_id"`
-	Participants []string  `json:"participants"`
-	Revision     string    `json:"revision"`
-	CommitID     string    `json:"commit_id"`
-	Runs         []Run     `json:"runs"`
-	Entries      []Entry   `json:"entries"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID             string    `json:"id"`
+	RepositoryID   string    `json:"repository_id"`
+	Title          string    `json:"title"`
+	Question       string    `json:"question"`
+	ConversationID string    `json:"conversation_id,omitempty"`
+	CreatorID      string    `json:"creator_id"`
+	Participants   []string  `json:"participants"`
+	Revision       string    `json:"revision"`
+	CommitID       string    `json:"commit_id"`
+	Runs           []Run     `json:"runs"`
+	Entries        []Entry   `json:"entries"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type Store struct {
@@ -90,7 +91,7 @@ func newID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func (s *Store) Create(repositoryID, title, question, revision, commitID, actor string) (Investigation, error) {
+func (s *Store) Create(repositoryID, title, question, revision, commitID, actor, conversationID string) (Investigation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id, err := newID()
@@ -102,7 +103,7 @@ func (s *Store) Create(repositoryID, title, question, revision, commitID, actor 
 		return Investigation{}, err
 	}
 	now := s.now().UTC()
-	v := Investigation{ID: id, RepositoryID: repositoryID, Title: strings.TrimSpace(title), Question: strings.TrimSpace(question), CreatorID: actor, Participants: []string{actor}, Revision: revision, CommitID: commitID, CreatedAt: now, UpdatedAt: now, Runs: []Run{{ID: runID, Revision: revision, CommitID: commitID, ActorID: actor, CreatedAt: now}}}
+	v := Investigation{ID: id, RepositoryID: repositoryID, Title: strings.TrimSpace(title), Question: strings.TrimSpace(question), ConversationID: conversationID, CreatorID: actor, Participants: []string{actor}, Revision: revision, CommitID: commitID, CreatedAt: now, UpdatedAt: now, Runs: []Run{{ID: runID, Revision: revision, CommitID: commitID, ActorID: actor, CreatedAt: now}}}
 	return v, s.write(v)
 }
 

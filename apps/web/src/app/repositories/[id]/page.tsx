@@ -1164,6 +1164,7 @@ export default function RepositoryPage({
     workspace?: string;
     symbol?: string;
     investigation?: string;
+    conversation?: string;
     assessment?: string;
   }>;
 }) {
@@ -1621,6 +1622,7 @@ export default function RepositoryPage({
           repository={repository.id}
           revision={ref}
           selected={query.investigation}
+          conversation={query.conversation}
         />
       ) : view === "impact" ? (
         <ImpactAssessments
