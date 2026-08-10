@@ -15,6 +15,7 @@ import (
 	packagecatalog "github.com/greptile-projects/vivarium-komodo/apps/api/packages"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/reasoning"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/relationships"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
@@ -265,6 +266,14 @@ func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, re
 			return
 		}
 		tasks := []proposals.Task{}
+		evidence := make([]reasoning.Evidence, 0, len(opportunity.Citations))
+		for _, citation := range opportunity.Citations {
+			evidence = append(evidence, reasoning.Evidence{RepositoryID: citation.RepositoryID, CommitID: citation.Revision, Kind: citation.Kind, ResourceID: citation.ResourceID, Label: citation.Summary})
+		}
+		acknowledgements := make([]reasoning.Acknowledgement, 0, len(opportunity.AffectedOwnerIDs))
+		for _, ownerID := range opportunity.AffectedOwnerIDs {
+			acknowledgements = append(acknowledgements, reasoning.Acknowledgement{OwnerID: ownerID, State: "pending"})
+		}
 		for index, input := range in.Tasks {
 			deps := []string{}
 			valid := true
@@ -279,7 +288,8 @@ func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, re
 				writeJSON(w, 422, map[string]string{"error": "invalid_task_dependency"})
 				return
 			}
-			made, createErr := proposalStore.CreateTask(opportunity.RepositoryID, proposal.ID, actor.UserID, proposals.TaskInput{Title: input.Title, Outcome: input.Outcome, Position: index + 1, Status: proposals.TaskPlanned, DependsOn: deps, OwnerKind: input.OwnerKind, OwnerID: input.OwnerID, CompletionCriteria: input.CompletionCriteria, Risk: input.Risk, VerificationPlan: input.VerificationPlan, BaseRevision: in.BaseRevision})
+			context := &reasoning.Context{Kind: "stewardship_opportunity", OrganizationID: o.ID, OpportunityID: opportunity.ID, MandateID: opportunity.MandateID, MandateVersion: opportunity.MandateVersion, RepositoryID: opportunity.RepositoryID, CommitID: in.BaseRevision, Claim: opportunity.Summary, Risk: input.Risk, State: "accepted", Rationale: opportunity.InScopeReason, Verification: input.VerificationPlan, Evidence: evidence, Acknowledgements: acknowledgements}
+			made, createErr := proposalStore.CreateTask(opportunity.RepositoryID, proposal.ID, actor.UserID, proposals.TaskInput{Title: input.Title, Outcome: input.Outcome, Position: index + 1, Status: proposals.TaskPlanned, DependsOn: deps, OwnerKind: input.OwnerKind, OwnerID: input.OwnerID, CompletionCriteria: input.CompletionCriteria, Risk: input.Risk, VerificationPlan: input.VerificationPlan, BaseRevision: in.BaseRevision, ReasoningContext: context})
 			if createErr != nil {
 				writeJSON(w, 422, map[string]string{"error": "invalid_task"})
 				return

@@ -288,6 +288,8 @@ type ProposalTask = {
   created_at: string;
   updated_at: string;
   ready: boolean;
+  completion_criteria?: string[];
+  reasoning_context?: { kind: string; opportunity_id?: string };
   assignment?: {
     id: string;
     kind: "human" | "agent";
@@ -343,6 +345,15 @@ type PullRequest = {
   merged_at?: string;
   merged_by_id?: string;
   merge_commit_id?: string;
+  reasoning_context?: { kind: string; opportunity_id?: string };
+  delivery_evidence?: {
+    reasoning: string;
+    commands: string[];
+    residual_risks: string[];
+    completion_criteria: Array<{ criterion: string; status: string; evidence?: string }>;
+    recorded_by_id: string;
+    recorded_at: string;
+  };
 };
 type PullRequestCommit = {
   id: string;
@@ -8376,6 +8387,11 @@ function TaskContributionForm({
   const [title, setTitle] = useState(task.title);
   const [body, setBody] = useState(`Delivers proposal task: ${task.outcome}`);
   const [draft, setDraft] = useState(false);
+  const stewarded = task.reasoning_context?.kind === "stewardship_opportunity";
+  const [reasoning, setReasoning] = useState("");
+  const [commands, setCommands] = useState("");
+  const [risks, setRisks] = useState("");
+  const [criteria, setCriteria] = useState<Record<string, { status: string; evidence: string }>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   return (
@@ -8396,6 +8412,13 @@ function TaskContributionForm({
               title,
               body,
               draft,
+              session_id: task.assignment?.session_id,
+              delivery_evidence: stewarded ? {
+                reasoning,
+                commands: commands.split("\n").map((value) => value.trim()).filter(Boolean),
+                residual_risks: risks.split("\n").map((value) => value.trim()).filter(Boolean),
+                completion_criteria: (task.completion_criteria ?? []).map((criterion) => ({ criterion, status: criteria[criterion]?.status ?? "", evidence: criteria[criterion]?.evidence ?? "" })),
+              } : undefined,
             },
           );
           onPublished();
@@ -8442,6 +8465,7 @@ function TaskContributionForm({
           onChange={(event) => setBody(event.target.value)}
         />
       </label>
+      {stewarded && <fieldset className="stack"><legend>Stewardship delivery evidence</legend><p>Retain the decisions a reviewer needs to verify this opportunity became trustworthy work.</p><label>Implementation reasoning<textarea required value={reasoning} onChange={(event) => setReasoning(event.target.value)} /></label><label>Commands run · one per line<textarea required value={commands} onChange={(event) => setCommands(event.target.value)} /></label><label>Residual risks · one per line<textarea value={risks} onChange={(event) => setRisks(event.target.value)} /></label>{(task.completion_criteria ?? []).map((criterion) => <div key={criterion} className="content-grid"><strong>{criterion}</strong><label>Status<select required value={criteria[criterion]?.status ?? ""} onChange={(event) => setCriteria((current) => ({ ...current, [criterion]: { status: event.target.value, evidence: current[criterion]?.evidence ?? "" } }))}><option value="">Choose…</option><option value="met">Met</option><option value="unmet">Unmet</option><option value="not_applicable">Not applicable</option></select></label><label>Evidence<textarea required value={criteria[criterion]?.evidence ?? ""} onChange={(event) => setCriteria((current) => ({ ...current, [criterion]: { status: current[criterion]?.status ?? "", evidence: event.target.value } }))} /></label></div>)}</fieldset>}
       <label>
         <input
           type="checkbox"
@@ -9362,6 +9386,7 @@ function PullRequestDetail({
       </nav>
       {active === "overview" ? (
         <PullOverview
+          pull={item}
           commits={commits}
           files={files}
           comments={comments}
@@ -10823,11 +10848,13 @@ function ReviewWorkflow({
 }
 
 function PullOverview({
+  pull,
   commits,
   files,
   comments,
   onSection,
 }: {
+  pull: PullRequest;
   commits: PullRequestCommit[];
   files: PullRequestFile[];
   comments: PullRequestComment[];
@@ -10835,6 +10862,7 @@ function PullOverview({
 }) {
   return (
     <div className="pull-overview">
+      {pull.delivery_evidence && <article className="panel"><h3>Stewardship delivery evidence</h3><p>{pull.delivery_evidence.reasoning}</p><dl><div><dt>Recorded by</dt><dd>{pull.delivery_evidence.recorded_by_id} · {new Date(pull.delivery_evidence.recorded_at).toLocaleString()}</dd></div><div><dt>Opportunity</dt><dd>{pull.reasoning_context?.opportunity_id}</dd></div></dl><h4>Commands</h4><ul>{pull.delivery_evidence.commands.map((command) => <li key={command}><code>{command}</code></li>)}</ul><h4>Completion criteria</h4><ul>{pull.delivery_evidence.completion_criteria.map((criterion) => <li key={criterion.criterion}><strong>{criterion.status}</strong> · {criterion.criterion}{criterion.evidence ? ` — ${criterion.evidence}` : ""}</li>)}</ul><h4>Residual risks</h4>{pull.delivery_evidence.residual_risks.length ? <ul>{pull.delivery_evidence.residual_risks.map((risk) => <li key={risk}>{risk}</li>)}</ul> : <p>None reported.</p>}</article>}
       <article className="panel overview-card">
         <header>
           <span>
