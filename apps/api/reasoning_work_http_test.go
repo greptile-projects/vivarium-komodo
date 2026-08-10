@@ -23,7 +23,7 @@ func TestConnectedWorkSnapshotsReasoningIntoOrderedOwnedTasks(t *testing.T) {
 	impacts, _ := impactassessments.New(t.TempDir())
 	credentials, _ := auth.New(t.TempDir())
 	repository, _ := repositoriesStore.Create("owner", repositories.Metadata{Name: "reasoned", Visibility: repositories.Private})
-	canvas, _ := canvases.Create(string(repository.ID), "Routing", "What must remain stable?", "main", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "owner")
+	canvas, _ := canvases.Create(string(repository.ID), "Routing", "What must remain stable?", "main", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "owner", "grounded-question")
 	canvas, _ = canvases.Add(string(repository.ID), canvas.ID, "owner", investigations.Entry{Type: "conclusion", Body: "Callers require stable routing.", Citations: []investigations.Citation{{RepositoryID: string(repository.ID), CommitID: canvas.CommitID, Kind: "source", Path: "route.go", LineStart: 4}}})
 	assessment, _ := impacts.Create(impactassessments.Assessment{RepositoryID: string(repository.ID), Title: "Routing risk", Revision: "main", CommitID: canvas.CommitID, CreatorID: "owner", Sources: []impactassessments.Source{{Kind: "investigation_conclusion", InvestigationID: canvas.ID, ConclusionID: canvas.Entries[0].ID}}, Impacts: []impactassessments.Impact{{Category: "test", Summary: "Compatibility needs a regression check.", Verification: []string{"go test ./..."}, Evidence: []impactassessments.Evidence{{RepositoryID: string(repository.ID), CommitID: canvas.CommitID, Kind: "test", Path: "route_test.go", Label: "routing contract"}}}}})
 	token := issueAccess(t, credentials, "owner", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
@@ -54,7 +54,7 @@ func TestConnectedWorkSnapshotsReasoningIntoOrderedOwnedTasks(t *testing.T) {
 	if response.StatusCode != http.StatusCreated || len(result.Tasks) != 3 {
 		t.Fatalf("status=%d result=%#v", response.StatusCode, result)
 	}
-	if result.Tasks[0].ReasoningContext == nil || result.Tasks[0].ReasoningContext.ConclusionID != canvas.Entries[0].ID || result.Tasks[1].ReasoningContext == nil || result.Tasks[1].ReasoningContext.ImpactID != assessment.Impacts[0].ID {
+	if result.Tasks[0].ReasoningContext == nil || result.Tasks[0].ReasoningContext.ConclusionID != canvas.Entries[0].ID || result.Tasks[0].ReasoningContext.ConversationID != "grounded-question" || result.Tasks[1].ReasoningContext == nil || result.Tasks[1].ReasoningContext.ImpactID != assessment.Impacts[0].ID || result.Tasks[1].ReasoningContext.ConversationID != "grounded-question" {
 		t.Fatalf("reasoning = %#v", result.Tasks)
 	}
 	if len(result.Tasks[2].DependsOn) != 2 || result.Tasks[2].DependsOn[0] != result.Tasks[0].ID || result.Tasks[1].Assignment == nil || result.Tasks[1].Assignment.BaseRevision != canvas.CommitID {

@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-10T11:28:57Z: Completed the grounded-question-to-shared-investigation handoff with exact-commit validation and durable conversation provenance through investigation- and impact-derived tasks, sessions, pull requests, checks, and review. The web now carries a completed explanation directly into its revision-pinned collaborative canvas.
+
 2026-08-10T05:51:23Z: Proved the complete planned-task-to-merged shared workspace loop across public HTTP and stock Git, including peer/approved-agent collaboration, intervention, suspension, checkpoint restore, checks, protected integration, plan reconciliation, and durable evidence after runtime expiry. Fixed organization agent lookup, task-contribution linkage for workspace publications, and terminal environment cleanup.
 
 2026-08-10T05:00:16Z: Added repository/organization workspace governance for bounded resources, network, idle suspension, retention, sharing, and agent execution, with effective-policy snapshots, attributed consumption, rebuild/revocation evidence, announced expiry, safe unpublished-work export, and terminal stop/expiry that retains checkpoints and published Git evidence.

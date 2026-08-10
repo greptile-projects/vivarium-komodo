@@ -112,12 +112,18 @@ func registerReasoningWorkHTTP(mux *http.ServeMux, canvases investigationStore, 
 						for _, c := range entry.Citations {
 							evidence = append(evidence, reasoning.Evidence{RepositoryID: c.RepositoryID, CommitID: c.CommitID, Kind: c.Kind, Path: c.Path, ResourceID: c.ObjectID, Label: c.Label})
 						}
-						contexts[i] = &reasoning.Context{Kind: task.SourceKind, InvestigationID: canvas.ID, ConclusionID: entry.ID, RepositoryID: canvas.RepositoryID, CommitID: entry.CommitID, Claim: entry.Body, Evidence: evidence}
+						contexts[i] = &reasoning.Context{Kind: task.SourceKind, InvestigationID: canvas.ID, ConversationID: canvas.ConversationID, ConclusionID: entry.ID, RepositoryID: canvas.RepositoryID, CommitID: entry.CommitID, Claim: entry.Body, Evidence: evidence}
 					}
 				}
 			case "impact_item":
 				for _, impact := range assessment.Impacts {
 					if impact.ID == task.SourceID {
+						investigationID, conversationID := "", ""
+						for _, source := range assessment.Sources {
+							if source.Kind == "investigation_conclusion" && source.InvestigationID == canvas.ID {
+								investigationID, conversationID = canvas.ID, canvas.ConversationID
+							}
+						}
 						evidence := make([]reasoning.Evidence, 0, len(impact.Evidence))
 						for _, e := range impact.Evidence {
 							evidence = append(evidence, reasoning.Evidence{RepositoryID: e.RepositoryID, CommitID: e.CommitID, Kind: e.Kind, Path: e.Path, Line: e.Line, ResourceID: e.ResourceID, Label: e.Label})
@@ -126,7 +132,7 @@ func registerReasoningWorkHTTP(mux *http.ServeMux, canvases investigationStore, 
 						for _, a := range impact.Acknowledgements {
 							acks = append(acks, reasoning.Acknowledgement{OwnerID: a.OwnerID, State: a.State, Note: a.Note, DecidedByID: a.DecidedByID})
 						}
-						contexts[i] = &reasoning.Context{Kind: task.SourceKind, AssessmentID: assessment.ID, ImpactID: impact.ID, RepositoryID: assessment.RepositoryID, CommitID: assessment.CommitID, Claim: impact.Summary, Risk: impact.Category, State: impact.State, Rationale: impact.Rationale, Verification: append([]string{}, impact.Verification...), Evidence: evidence, Acknowledgements: acks}
+						contexts[i] = &reasoning.Context{Kind: task.SourceKind, InvestigationID: investigationID, ConversationID: conversationID, AssessmentID: assessment.ID, ImpactID: impact.ID, RepositoryID: assessment.RepositoryID, CommitID: assessment.CommitID, Claim: impact.Summary, Risk: impact.Category, State: impact.State, Rationale: impact.Rationale, Verification: append([]string{}, impact.Verification...), Evidence: evidence, Acknowledgements: acks}
 					}
 				}
 			}
