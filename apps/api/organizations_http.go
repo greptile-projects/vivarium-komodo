@@ -95,9 +95,85 @@ func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, re
 				}
 				return items[i].Rank < items[j].Rank
 			}
+			priority := func(item organizations.StewardshipOpportunity) int {
+				policyVersion, value := int64(0), 0
+				for _, policy := range o.StewardshipWorkPolicies {
+					if policy.MandateID != item.MandateID || policy.MandateVersion != item.MandateVersion || policy.Version < policyVersion {
+						continue
+					}
+					policyVersion, value = policy.Version, 0
+					for _, rule := range policy.Rules {
+						if rule.Class == item.Class {
+							value = rule.Priority
+						}
+					}
+				}
+				return value
+			}
+			if left, right := priority(items[i]), priority(items[j]); left != right {
+				return left > right
+			}
 			return items[i].UpdatedAt.After(items[j].UpdatedAt)
 		})
 		writeJSON(w, 200, map[string]any{"items": items, "work_policies": o.StewardshipWorkPolicies})
+	})
+	mux.HandleFunc("GET /organizations/{organization}/stewardship-mandates/{mandate}/versions/{version}/report", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryRead)
+		if !ok {
+			return
+		}
+		if !orgs.IsMember(r.PathValue("organization"), actor.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		version, err := parsePositiveInt64(r.PathValue("version"))
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_version"})
+			return
+		}
+		report, err := orgs.StewardshipReport(r.PathValue("organization"), r.PathValue("mandate"), version)
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 200, report)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/stewardship-opportunities/{opportunity}/outcomes", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in organizations.StewardshipOutcome
+		if !readJSON(w, r, &in, 131072) {
+			return
+		}
+		_, made, err := orgs.RecordStewardshipOutcome(r.PathValue("organization"), r.PathValue("opportunity"), actor.UserID, in)
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 201, made)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/stewardship-mandates/{mandate}/versions/{version}/health-events", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		version, err := parsePositiveInt64(r.PathValue("version"))
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_version"})
+			return
+		}
+		var in struct {
+			Kind   string `json:"kind"`
+			Detail string `json:"detail"`
+		}
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		_, notice, err := orgs.RecordStewardshipHealth(r.PathValue("organization"), r.PathValue("mandate"), version, actor.UserID, in.Kind, in.Detail)
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 201, notice)
 	})
 	mux.HandleFunc("POST /organizations/{organization}/stewardship-opportunities/evaluations", func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)

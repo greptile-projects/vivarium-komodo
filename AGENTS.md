@@ -566,6 +566,17 @@ whenever dependencies change or the web job fails before it starts.
   The resulting pull request retains this server-attributed delivery evidence;
   ordinary checks, reviews, acknowledgements, fork policy, integration queues,
   and owner-only merge authority remain unchanged.
+  Long-running stewardship history is exposed at each exact mandate version's
+  `/report`: preserve recommendation disposition, implementation, verification,
+  release, actual resource use, false-positive feedback, goal results, retained
+  evidence citations, and automation notices. Owners may version class priority,
+  minimum confidence, and required evidence kinds from that history, but these
+  work-policy settings must never change mandate scope, agent identity, allowed
+  actions, budgets, or authority. Those changes require a new mandate version
+  and fresh operator acceptance. Repeated failures, inactivity, revoked access,
+  and anomalous consumption reported by an owner or accepted agent operator
+  atomically pause only the affected version and append an actionable notice;
+  resumption remains an explicit lifecycle decision.
   Organization governance baselines are immutable policy versions in the
   organization record. Rules cover repository visibility, reviews, required
   checks, integration, release provenance, dependency use, environment
