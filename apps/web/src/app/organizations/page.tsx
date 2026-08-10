@@ -62,6 +62,15 @@ type StewardshipMandate = {
   acceptance?: { operator_id: string; accepted_at: string };
 };
 type StewardshipPreview = { state: string; authority_created_by_mandate: boolean; mandate_write_authority: boolean; mandate_merge_authority: boolean; note: string; scopes: Record<string, { branches: string[]; effective_policy: unknown[]; existing_agent_grants: RoleGrant[] }> };
+type StewardshipOpportunity = {
+  id: string; mandate_id: string; mandate_version: number; repository_id: string;
+  title: string; summary: string; severity: string; expected_value: string; confidence: number;
+  affected_owner_ids: string[]; affected_revisions: string[]; in_scope_reason: string;
+  state: string; rank: number; evidence_stale: boolean; stale_reason?: string; updated_at: string;
+  citations: { kind: string; resource_id: string; revision: string; summary: string; observed_at: string }[];
+  comments: { id: string; actor_id: string; body: string; created_at: string }[];
+  decisions: { action: string; actor_id: string; reason?: string; created_at: string }[];
+};
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -104,6 +113,7 @@ export default function OrganizationsPage() {
   const [initiatives, setInitiatives] = useState<Initiative[]>([]);
   const [mandates, setMandates] = useState<StewardshipMandate[]>([]);
   const [previews, setPreviews] = useState<Record<string, StewardshipPreview>>({});
+  const [opportunities, setOpportunities] = useState<StewardshipOpportunity[]>([]);
   const selectedID = selected?.id;
   const load = useCallback(async () => {
     try {
@@ -114,18 +124,20 @@ export default function OrganizationsPage() {
       setOrganizations(data.items);
       setUserID(session.user.id);
       if (selectedID) {
-        const [organization, view, access, initiativeView, stewardship] = await Promise.all([
+        const [organization, view, access, initiativeView, stewardship, stewardshipQueue] = await Promise.all([
           api<Organization>(`/organizations/${selectedID}`),
           api<Portfolio>(`/organizations/${selectedID}/portfolio`),
           api<{ items: RoleGrant[] }>(`/organizations/${selectedID}/access/effective`),
           api<{ items: Initiative[] }>(`/organizations/${selectedID}/initiatives`),
           api<{ items: StewardshipMandate[] }>(`/organizations/${selectedID}/stewardship-mandates`),
+          api<{ items: StewardshipOpportunity[] }>(`/organizations/${selectedID}/stewardship-opportunities`),
         ]);
         setSelected(organization);
         setPortfolio(view);
         setEffective(access.items);
         setInitiatives(initiativeView.items);
         setMandates(stewardship.items);
+        setOpportunities(stewardshipQueue.items);
       }
     } catch (error) {
       setMessage(
@@ -276,6 +288,20 @@ export default function OrganizationsPage() {
   async function previewMandate(mandate: StewardshipMandate) {
     if (!selected) return; const preview = await api<StewardshipPreview>(`/organizations/${selected.id}/stewardship-mandates/${mandate.id}/versions/${mandate.version}/preview`); setPreviews((current) => ({ ...current, [`${mandate.id}:${mandate.version}`]: preview }));
   }
+  async function opportunityDecision(opportunity: StewardshipOpportunity, action: string, detail?: string | number) {
+    if (!selected) return;
+    const body: Record<string, unknown> = { action };
+    if (action === "rank") body.rank = detail;
+    else if (action === "snooze") body.snoozed_until = new Date(Date.now() + 7 * 86400000).toISOString();
+    else if (detail) body.reason = detail;
+    await api(`/organizations/${selected.id}/stewardship-opportunities/${opportunity.id}/decisions`, { method: "POST", body: JSON.stringify(body) });
+    setMessage(`Opportunity ${action} recorded.`); await load();
+  }
+  async function commentOnOpportunity(event: FormEvent<HTMLFormElement>, opportunity: StewardshipOpportunity) {
+    event.preventDefault(); if (!selected) return; const form = new FormData(event.currentTarget);
+    await api(`/organizations/${selected.id}/stewardship-opportunities/${opportunity.id}/comments`, { method: "POST", body: JSON.stringify({ body: form.get("body") }) });
+    event.currentTarget.reset(); setMessage("Challenge added to the shared finding."); await load();
+  }
 
   return (
     <AppShell>
@@ -403,6 +429,24 @@ export default function OrganizationsPage() {
                 })}
                 {mandates.length === 0 && <p>No standing agent responsibility has been defined.</p>}
                 <details><summary>New stewardship mandate</summary><MandateForm repositories={portfolio?.repositories ?? []} agents={selected.agents} onSubmit={saveMandate} /></details>
+              </section>
+              <section className="panel">
+                <p className="eyebrow">Proactive attention</p>
+                <h2>Stewardship backlog</h2>
+                <p>Ranked recommendations remain pinned to the evidence the steward evaluated. Collaborators can challenge the reasoning, and moved evidence is shown as stale until it is evaluated again.</p>
+                {opportunities.map((opportunity) => <details key={opportunity.id} open={opportunity.rank === 1 || opportunity.evidence_stale}>
+                  <summary><strong>{opportunity.rank ? `#${opportunity.rank} · ` : ""}{opportunity.title}</strong> <Badge>{opportunity.severity}</Badge> <Badge>{opportunity.state}</Badge>{opportunity.evidence_stale && <Badge>stale evidence</Badge>}</summary>
+                  <div className="stack">
+                    <p>{opportunity.summary}</p>
+                    <dl><div><dt>Expected value</dt><dd>{opportunity.expected_value}</dd></div><div><dt>Confidence</dt><dd>{Math.round(opportunity.confidence * 100)}%</dd></div><div><dt>Why in scope</dt><dd>{opportunity.in_scope_reason}</dd></div><div><dt>Affected owners</dt><dd>{opportunity.affected_owner_ids.join(", ")}</dd></div><div><dt>Exact revisions</dt><dd>{opportunity.affected_revisions.join(", ")}</dd></div></dl>
+                    {opportunity.evidence_stale && <div className="notice"><strong>Evidence needs reevaluation:</strong> {opportunity.stale_reason}</div>}
+                    <div><h3>Supporting citations</h3>{opportunity.citations.map((citation) => <p key={`${citation.kind}:${citation.resource_id}:${citation.revision}`}><strong>{citation.kind} · {citation.resource_id}</strong> at <code>{citation.revision}</code><br />{citation.summary} · observed {new Date(citation.observed_at).toLocaleString()}</p>)}</div>
+                    <div><h3>Discussion and decisions</h3>{opportunity.comments.map((comment) => <p key={comment.id}><strong>{comment.actor_id}</strong>: {comment.body}</p>)}{opportunity.decisions.map((decision, index) => <p key={`${decision.created_at}:${index}`}><strong>{decision.actor_id}</strong> marked {decision.action}{decision.reason ? ` — ${decision.reason}` : ""}</p>)}</div>
+                    <div className="button-row"><Button size="sm" variant="secondary" onClick={() => opportunityDecision(opportunity, "rank", 1)}>Rank first</Button><Button size="sm" variant="secondary" onClick={() => opportunityDecision(opportunity, "snooze")}>Snooze 7 days</Button><Button size="sm" variant="secondary" onClick={() => opportunityDecision(opportunity, "dismiss", "Not a current priority")}>Dismiss</Button><Button size="sm" variant="secondary" onClick={() => opportunityDecision(opportunity, "incorrect", "The recommendation is incorrect")}>Mark incorrect</Button>{opportunity.state !== "open" && <Button size="sm" variant="secondary" onClick={() => opportunityDecision(opportunity, "reopen")}>Reopen</Button>}</div>
+                    <form className="stack" onSubmit={(event) => commentOnOpportunity(event, opportunity)}><label>Challenge or discuss<textarea required name="body" /></label><Button type="submit" size="sm">Add to discussion</Button></form>
+                  </div>
+                </details>)}
+                {opportunities.length === 0 && <p>No evidence-backed opportunities have been published yet.</p>}
               </section>
               <section className="panel">
                 <p className="eyebrow">Shared outcomes</p>

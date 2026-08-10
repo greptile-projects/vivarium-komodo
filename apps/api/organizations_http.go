@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -61,6 +62,85 @@ type organizationSecurityReports interface {
 }
 
 func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, repos organizationRepositories, people organizationUsers, packages organizationPackages, releaseStore organizationReleases, pulls organizationPulls, incidentStore organizationIncidents, proposalStore organizationProposals, evolutionStore organizationEvolutions, securityStore organizationSecurityReports, credentials organizationCredentialStore) {
+	mux.HandleFunc("GET /organizations/{organization}/stewardship-opportunities", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryRead)
+		if !ok {
+			return
+		}
+		id := r.PathValue("organization")
+		if !orgs.IsMember(id, actor.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		o, err := orgs.Get(id)
+		if organizationError(w, err) {
+			return
+		}
+		items := append([]organizations.StewardshipOpportunity(nil), o.StewardshipOpportunities...)
+		sort.SliceStable(items, func(i, j int) bool {
+			if items[i].Rank != items[j].Rank {
+				if items[i].Rank == 0 {
+					return false
+				}
+				if items[j].Rank == 0 {
+					return true
+				}
+				return items[i].Rank < items[j].Rank
+			}
+			return items[i].UpdatedAt.After(items[j].UpdatedAt)
+		})
+		writeJSON(w, 200, map[string]any{"items": items})
+	})
+	mux.HandleFunc("POST /organizations/{organization}/stewardship-opportunities/evaluations", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in organizations.StewardshipOpportunity
+		if !readJSON(w, r, &in, 131072) {
+			return
+		}
+		if !organizationRepository(w, r.PathValue("organization"), in.RepositoryID, repos) {
+			return
+		}
+		_, made, err := orgs.EvaluateStewardship(r.PathValue("organization"), actor.UserID, in)
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 201, made)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/stewardship-opportunities/{opportunity}/comments", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in struct {
+			Body string `json:"body"`
+		}
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		_, made, err := orgs.DiscussStewardship(r.PathValue("organization"), r.PathValue("opportunity"), actor.UserID, in.Body)
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 201, made)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/stewardship-opportunities/{opportunity}/decisions", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in organizations.StewardshipDecision
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		_, made, err := orgs.DecideStewardship(r.PathValue("organization"), r.PathValue("opportunity"), actor.UserID, in)
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 200, made)
+	})
 	mux.HandleFunc("GET /organizations/{organization}/stewardship-mandates", func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryRead)
 		if !ok {

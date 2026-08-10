@@ -28,6 +28,28 @@ organization workspace exposes drafting, inspection, preview, operator
 acceptance, revision, pause/resume, and revocation while keeping every version
 readable for accountability.
 
+### Evidence-backed stewardship backlog
+
+An active mandate's approved agent operator submits evaluations at `POST
+/organizations/{organization}/stewardship-opportunities/evaluations`. The
+repository and signal must be explicitly trusted by that exact active mandate
+version. Each finding includes severity, expected value, confidence, affected
+owners and immutable revisions, typed source citations with observation times,
+and a plain-language explanation of why the mandate includes it.
+
+The mandate, repository, and stable finding key form the deduplication boundary.
+A later evaluation refreshes the same item rather than creating suggestion
+noise, while its shared discussion, decisions, and rank remain intact. Evidence
+does not silently follow a moving branch: collaborators can mark it stale with
+a reason, and only a new exact-revision evaluation clears that state.
+
+Organization collaborators inspect the ranked queue at `GET
+/organizations/{organization}/stewardship-opportunities`, discuss items through
+their `/comments` collection, and append rank, dismiss, snooze, incorrect,
+reopen, or stale decisions through `/decisions`. The organization web workspace
+keeps citations, scope reasoning, state, and challenges together. These queue
+actions prioritize attention only; they issue no credential and start no work.
+
 ## Prospective impact assessment
 
 Impact assessment is a pre-implementation, exact-revision record rather than a

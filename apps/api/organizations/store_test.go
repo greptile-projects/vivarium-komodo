@@ -199,6 +199,50 @@ func TestStewardshipMandateVersionsAcceptanceAndBoundedLifecycle(t *testing.T) {
 	}
 }
 
+func TestStewardshipOpportunityDeduplicationChallengeAndStaleEvidence(t *testing.T) {
+	s, _ := New(t.TempDir())
+	now := time.Date(2026, 8, 10, 13, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	o, _ := s.Create("owner", "steward-queue", "Steward queue", "")
+	o, _ = s.Invite(o.ID, "owner", "operator")
+	o, _ = s.Accept(o.ID, "operator")
+	o, _ = s.Invite(o.ID, "owner", "collaborator")
+	o, _ = s.Accept(o.ID, "collaborator")
+	_, agent, _ := s.RegisterAgent(o.ID, "owner", Agent{Slug: "caretaker", Name: "Caretaker", Capabilities: []string{"checks:read"}, OperatorIDs: []string{"operator"}, Visibility: "internal"})
+	mandate := StewardshipMandate{Title: "Keep checks healthy", AgentID: agent.ID, DesiredOutcomes: []string{"main stays green"}, Scopes: []StewardshipScope{{RepositoryID: "repo", Branches: []string{"main"}}}, TrustedSignals: []string{"check.changed"}, Budget: StewardshipBudget{MaxHoursPerMonth: 10, MaxRunsPerDay: 2}, Schedule: StewardshipSchedule{StartsAt: now, ExpiresAt: now.Add(24 * time.Hour), Cadence: "continuous"}, AllowedActions: []string{"publish opportunity"}, RequiredHumanDecisions: []string{"start work"}}
+	_, mandate, _ = s.DraftStewardship(o.ID, "owner", "", mandate)
+	_, mandate, _ = s.AcceptStewardship(o.ID, mandate.ID, 1, "operator")
+	finding := StewardshipOpportunity{DeduplicationKey: "check:test:main", MandateID: mandate.ID, MandateVersion: 1, RepositoryID: "repo", Title: "Repair main test", Summary: "test failed", Severity: "high", ExpectedValue: "restore merge confidence", Confidence: .9, AffectedOwnerIDs: []string{"owner"}, AffectedRevisions: []string{"aaa"}, InScopeReason: "The accepted outcome requires main to stay green.", Signal: "check.changed", Citations: []StewardshipCitation{{Kind: "check_run", ResourceID: "run-1", RepositoryID: "repo", Revision: "aaa", Summary: "test exited 1", ObservedAt: now}}}
+	_, first, err := s.EvaluateStewardship(o.ID, "operator", finding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = s.DiscussStewardship(o.ID, first.ID, "collaborator", "This is flaky; compare the prior attempt."); err != nil {
+		t.Fatal(err)
+	}
+	_, ranked, err := s.DecideStewardship(o.ID, first.ID, "owner", StewardshipDecision{Action: "rank", Rank: 1})
+	if err != nil || ranked.Rank != 1 {
+		t.Fatalf("rank = %#v, %v", ranked, err)
+	}
+	_, stale, err := s.DecideStewardship(o.ID, first.ID, "collaborator", StewardshipDecision{Action: "stale", Reason: "main moved to bbb"})
+	if err != nil || !stale.EvidenceStale {
+		t.Fatalf("stale = %#v, %v", stale, err)
+	}
+	now = now.Add(time.Minute)
+	finding.AffectedRevisions = []string{"bbb"}
+	finding.Citations[0].Revision = "bbb"
+	finding.Citations[0].ResourceID = "run-2"
+	finding.Citations[0].ObservedAt = now
+	_, refreshed, err := s.EvaluateStewardship(o.ID, "operator", finding)
+	if err != nil || refreshed.ID != first.ID || refreshed.EvidenceStale || len(refreshed.Comments) != 1 || refreshed.Rank != 1 {
+		t.Fatalf("refresh = %#v, %v", refreshed, err)
+	}
+	o, _ = s.Get(o.ID)
+	if len(o.StewardshipOpportunities) != 1 {
+		t.Fatalf("deduplication produced %d findings", len(o.StewardshipOpportunities))
+	}
+}
+
 func TestVersionedPoliciesPreviewActivationAndExpiringExceptions(t *testing.T) {
 	s, _ := New(t.TempDir())
 	now := time.Date(2026, 8, 9, 20, 0, 0, 0, time.UTC)

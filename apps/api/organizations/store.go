@@ -120,6 +120,57 @@ type StewardshipMandate struct {
 	RevokedAt              *time.Time             `json:"revoked_at,omitempty"`
 }
 
+// StewardshipOpportunity is a shared, evidence-pinned recommendation. Evidence
+// never follows a moving source implicitly; it remains stale until a later
+// evaluation refreshes the finding at a new exact revision.
+type StewardshipCitation struct {
+	Kind         string    `json:"kind"`
+	ResourceID   string    `json:"resource_id"`
+	RepositoryID string    `json:"repository_id"`
+	Revision     string    `json:"revision"`
+	Summary      string    `json:"summary"`
+	ObservedAt   time.Time `json:"observed_at"`
+}
+type StewardshipComment struct {
+	ID        string    `json:"id"`
+	ActorID   string    `json:"actor_id"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type StewardshipDecision struct {
+	Action       string     `json:"action"`
+	ActorID      string     `json:"actor_id"`
+	Reason       string     `json:"reason,omitempty"`
+	Rank         int        `json:"rank,omitempty"`
+	SnoozedUntil *time.Time `json:"snoozed_until,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+type StewardshipOpportunity struct {
+	ID                string                `json:"id"`
+	DeduplicationKey  string                `json:"deduplication_key"`
+	MandateID         string                `json:"mandate_id"`
+	MandateVersion    int64                 `json:"mandate_version"`
+	RepositoryID      string                `json:"repository_id"`
+	Title             string                `json:"title"`
+	Summary           string                `json:"summary"`
+	Severity          string                `json:"severity"`
+	ExpectedValue     string                `json:"expected_value"`
+	Confidence        float64               `json:"confidence"`
+	AffectedOwnerIDs  []string              `json:"affected_owner_ids"`
+	AffectedRevisions []string              `json:"affected_revisions"`
+	Citations         []StewardshipCitation `json:"citations"`
+	InScopeReason     string                `json:"in_scope_reason"`
+	Signal            string                `json:"signal"`
+	State             string                `json:"state"`
+	Rank              int                   `json:"rank"`
+	EvidenceStale     bool                  `json:"evidence_stale"`
+	StaleReason       string                `json:"stale_reason,omitempty"`
+	Comments          []StewardshipComment  `json:"comments"`
+	Decisions         []StewardshipDecision `json:"decisions"`
+	EvaluatedAt       time.Time             `json:"evaluated_at"`
+	UpdatedAt         time.Time             `json:"updated_at"`
+}
+
 // ResourceRef names one authority boundary without implying authority over the
 // rest of the organization portfolio. RepositoryID is retained for nested
 // resources so effective access can always explain its ownership boundary.
@@ -265,23 +316,24 @@ type InitiativeItem struct {
 	UpdatedAt          time.Time     `json:"updated_at"`
 }
 type Organization struct {
-	ID                  string               `json:"id"`
-	Slug                string               `json:"slug"`
-	Name                string               `json:"name"`
-	Description         string               `json:"description"`
-	Members             []Member             `json:"members"`
-	Transfers           []Transfer           `json:"transfers"`
-	Events              []Event              `json:"events"`
-	Teams               []Team               `json:"teams"`
-	Agents              []Agent              `json:"agents"`
-	RoleGrants          []RoleGrant          `json:"role_grants"`
-	AccessRequests      []AccessRequest      `json:"access_requests"`
-	Policies            []PolicyVersion      `json:"policies"`
-	PolicyExceptions    []PolicyException    `json:"policy_exceptions"`
-	Initiatives         []Initiative         `json:"initiatives"`
-	StewardshipMandates []StewardshipMandate `json:"stewardship_mandates"`
-	CreatedAt           time.Time            `json:"created_at"`
-	UpdatedAt           time.Time            `json:"updated_at"`
+	ID                       string                   `json:"id"`
+	Slug                     string                   `json:"slug"`
+	Name                     string                   `json:"name"`
+	Description              string                   `json:"description"`
+	Members                  []Member                 `json:"members"`
+	Transfers                []Transfer               `json:"transfers"`
+	Events                   []Event                  `json:"events"`
+	Teams                    []Team                   `json:"teams"`
+	Agents                   []Agent                  `json:"agents"`
+	RoleGrants               []RoleGrant              `json:"role_grants"`
+	AccessRequests           []AccessRequest          `json:"access_requests"`
+	Policies                 []PolicyVersion          `json:"policies"`
+	PolicyExceptions         []PolicyException        `json:"policy_exceptions"`
+	Initiatives              []Initiative             `json:"initiatives"`
+	StewardshipMandates      []StewardshipMandate     `json:"stewardship_mandates"`
+	StewardshipOpportunities []StewardshipOpportunity `json:"stewardship_opportunities"`
+	CreatedAt                time.Time                `json:"created_at"`
+	UpdatedAt                time.Time                `json:"updated_at"`
 }
 
 type Store struct {
@@ -1254,6 +1306,175 @@ func StewardshipState(m StewardshipMandate, now time.Time) string {
 		return "expired"
 	}
 	return m.State
+}
+
+func activeMandate(o *Organization, mandateID string, version int64, now time.Time) *StewardshipMandate {
+	for i := range o.StewardshipMandates {
+		m := &o.StewardshipMandates[i]
+		if m.ID == mandateID && m.Version == version && StewardshipState(*m, now) == "active" {
+			return m
+		}
+	}
+	return nil
+}
+
+func inMandateScope(m *StewardshipMandate, repositoryID, signal string) bool {
+	scoped, trusted := false, false
+	for _, scope := range m.Scopes {
+		scoped = scoped || scope.RepositoryID == repositoryID
+	}
+	for _, candidate := range m.TrustedSignals {
+		trusted = trusted || candidate == signal
+	}
+	return scoped && trusted
+}
+
+// EvaluateStewardship publishes or refreshes one finding produced from a
+// trusted change signal. The stable caller-supplied key describes the finding,
+// not an evaluation attempt, and therefore prevents suggestion spam.
+func (s *Store) EvaluateStewardship(id, actor string, in StewardshipOpportunity) (Organization, StewardshipOpportunity, error) {
+	var made StewardshipOpportunity
+	o, err := s.change(id, func(o *Organization) error {
+		now := s.now().UTC()
+		m := activeMandate(o, in.MandateID, in.MandateVersion, now)
+		if m == nil {
+			return ErrConflict
+		}
+		operator := false
+		for _, agent := range o.Agents {
+			if agent.ID == m.AgentID {
+				for _, user := range agent.OperatorIDs {
+					operator = operator || user == actor
+				}
+			}
+		}
+		if !operator || !inMandateScope(m, in.RepositoryID, strings.TrimSpace(in.Signal)) {
+			return ErrForbidden
+		}
+		in.DeduplicationKey, in.Title, in.Summary, in.ExpectedValue, in.InScopeReason = strings.TrimSpace(in.DeduplicationKey), strings.TrimSpace(in.Title), strings.TrimSpace(in.Summary), strings.TrimSpace(in.ExpectedValue), strings.TrimSpace(in.InScopeReason)
+		if in.DeduplicationKey == "" || len(in.DeduplicationKey) > 200 || in.Title == "" || len(in.Title) > 160 || in.Summary == "" || in.ExpectedValue == "" || in.InScopeReason == "" || in.Confidence < 0 || in.Confidence > 1 || len(in.Citations) == 0 || len(in.AffectedOwnerIDs) == 0 || len(in.AffectedRevisions) == 0 {
+			return ErrInvalid
+		}
+		if in.Severity != "low" && in.Severity != "medium" && in.Severity != "high" && in.Severity != "critical" {
+			return ErrInvalid
+		}
+		for i := range in.Citations {
+			c := &in.Citations[i]
+			c.Kind, c.ResourceID, c.RepositoryID, c.Revision, c.Summary = strings.TrimSpace(c.Kind), strings.TrimSpace(c.ResourceID), strings.TrimSpace(c.RepositoryID), strings.TrimSpace(c.Revision), strings.TrimSpace(c.Summary)
+			if c.Kind == "" || c.ResourceID == "" || c.RepositoryID != in.RepositoryID || c.Revision == "" || c.Summary == "" || c.ObservedAt.IsZero() || c.ObservedAt.After(now) {
+				return ErrInvalid
+			}
+		}
+		// Attribution and queue disposition are always derived from storage, not
+		// accepted from an evaluator payload.
+		in.ID, in.State, in.StaleReason = "", "", ""
+		in.Rank, in.EvidenceStale, in.Comments, in.Decisions = 0, false, nil, nil
+		in.EvaluatedAt, in.UpdatedAt = time.Time{}, time.Time{}
+		for i := range o.StewardshipOpportunities {
+			x := &o.StewardshipOpportunities[i]
+			if x.MandateID == in.MandateID && x.RepositoryID == in.RepositoryID && x.DeduplicationKey == in.DeduplicationKey {
+				// Keep the public challenge history while replacing only the newly
+				// evaluated recommendation and its immutable source snapshot.
+				in.ID, in.Comments, in.Decisions, in.Rank = x.ID, x.Comments, x.Decisions, x.Rank
+				in.State = x.State
+				if in.State == "" {
+					in.State = "open"
+				}
+				in.EvidenceStale, in.StaleReason, in.EvaluatedAt, in.UpdatedAt = false, "", now, now
+				*x, made = in, in
+				event(o, "stewardship.opportunity_refreshed", actor, in.ID, now)
+				return nil
+			}
+		}
+		new, e := newID()
+		if e != nil {
+			return e
+		}
+		in.ID, in.State, in.EvaluatedAt, in.UpdatedAt = new, "open", now, now
+		o.StewardshipOpportunities = append(o.StewardshipOpportunities, in)
+		made = in
+		event(o, "stewardship.opportunity_published", actor, in.ID, now)
+		return nil
+	})
+	return o, made, err
+}
+
+func (s *Store) DiscussStewardship(id, opportunityID, actor, body string) (Organization, StewardshipOpportunity, error) {
+	var changed StewardshipOpportunity
+	o, err := s.change(id, func(o *Organization) error {
+		if _, ok := membership(*o, actor, true); !ok {
+			return ErrForbidden
+		}
+		body = strings.TrimSpace(body)
+		if body == "" || len(body) > 5000 {
+			return ErrInvalid
+		}
+		for i := range o.StewardshipOpportunities {
+			if o.StewardshipOpportunities[i].ID == opportunityID {
+				now := s.now().UTC()
+				cid, e := newID()
+				if e != nil {
+					return e
+				}
+				x := &o.StewardshipOpportunities[i]
+				x.Comments = append(x.Comments, StewardshipComment{ID: cid, ActorID: actor, Body: body, CreatedAt: now})
+				x.UpdatedAt = now
+				changed = *x
+				event(o, "stewardship.opportunity_commented", actor, x.ID, now)
+				return nil
+			}
+		}
+		return ErrNotFound
+	})
+	return o, changed, err
+}
+
+func (s *Store) DecideStewardship(id, opportunityID, actor string, in StewardshipDecision) (Organization, StewardshipOpportunity, error) {
+	var changed StewardshipOpportunity
+	o, err := s.change(id, func(o *Organization) error {
+		if _, ok := membership(*o, actor, true); !ok {
+			return ErrForbidden
+		}
+		now := s.now().UTC()
+		in.Reason = strings.TrimSpace(in.Reason)
+		if in.Action != "rank" && in.Action != "dismiss" && in.Action != "snooze" && in.Action != "incorrect" && in.Action != "reopen" && in.Action != "stale" {
+			return ErrInvalid
+		}
+		if (in.Action == "dismiss" || in.Action == "incorrect" || in.Action == "stale") && in.Reason == "" {
+			return ErrInvalid
+		}
+		if in.Action == "rank" && (in.Rank < 1 || in.Rank > 1000) {
+			return ErrInvalid
+		}
+		if in.Action == "snooze" && (in.SnoozedUntil == nil || !in.SnoozedUntil.After(now)) {
+			return ErrInvalid
+		}
+		for i := range o.StewardshipOpportunities {
+			if o.StewardshipOpportunities[i].ID == opportunityID {
+				x := &o.StewardshipOpportunities[i]
+				switch in.Action {
+				case "rank":
+					x.Rank = in.Rank
+				case "dismiss", "incorrect":
+					x.State = in.Action
+				case "snooze":
+					x.State = "snoozed"
+				case "reopen":
+					x.State = "open"
+				case "stale":
+					x.EvidenceStale, x.StaleReason = true, in.Reason
+				}
+				in.ActorID, in.CreatedAt = actor, now
+				x.Decisions = append(x.Decisions, in)
+				x.UpdatedAt = now
+				changed = *x
+				event(o, "stewardship.opportunity_"+in.Action, actor, x.ID, now)
+				return nil
+			}
+		}
+		return ErrNotFound
+	})
+	return o, changed, err
 }
 
 // DraftPolicy appends a version. Supplying policyID creates the next immutable
