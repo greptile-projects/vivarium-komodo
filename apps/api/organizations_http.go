@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/incidents"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
@@ -53,15 +54,21 @@ type organizationCredentialStore interface {
 }
 type organizationProposals interface {
 	Get(string, string) (proposals.Proposal, error)
+	Create(string, string, string, string) (proposals.Proposal, error)
+	CreateTask(string, string, string, proposals.TaskInput) (proposals.Task, error)
 }
 type organizationEvolutions interface {
 	Evolution(string) (relationships.EvolutionPlan, error)
 }
 type organizationSecurityReports interface {
 	Get(string, string, func(string) bool) (securityreports.Report, error)
+	ListVisible(string, func(string) bool) ([]securityreports.Report, error)
+}
+type organizationActivities interface {
+	Record(activities.Input) (activities.Event, error)
 }
 
-func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, repos organizationRepositories, people organizationUsers, packages organizationPackages, releaseStore organizationReleases, pulls organizationPulls, incidentStore organizationIncidents, proposalStore organizationProposals, evolutionStore organizationEvolutions, securityStore organizationSecurityReports, credentials organizationCredentialStore) {
+func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, repos organizationRepositories, people organizationUsers, packages organizationPackages, releaseStore organizationReleases, pulls organizationPulls, incidentStore organizationIncidents, proposalStore organizationProposals, evolutionStore organizationEvolutions, securityStore organizationSecurityReports, credentials organizationCredentialStore, activity organizationActivities) {
 	mux.HandleFunc("GET /organizations/{organization}/stewardship-opportunities", func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryRead)
 		if !ok {
@@ -89,7 +96,7 @@ func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, re
 			}
 			return items[i].UpdatedAt.After(items[j].UpdatedAt)
 		})
-		writeJSON(w, 200, map[string]any{"items": items})
+		writeJSON(w, 200, map[string]any{"items": items, "work_policies": o.StewardshipWorkPolicies})
 	})
 	mux.HandleFunc("POST /organizations/{organization}/stewardship-opportunities/evaluations", func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
@@ -140,6 +147,155 @@ func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, re
 			return
 		}
 		writeJSON(w, 200, made)
+	})
+	mux.HandleFunc("PUT /organizations/{organization}/stewardship-mandates/{mandate}/versions/{version}/work-policy", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		version, err := parsePositiveInt64(r.PathValue("version"))
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_version"})
+			return
+		}
+		var in struct {
+			ExpectedVersion int64                                `json:"expected_version"`
+			Rules           []organizations.StewardshipClassRule `json:"rules"`
+		}
+		if !readJSON(w, r, &in, 32768) {
+			return
+		}
+		_, made, err := orgs.PutStewardshipWorkPolicy(r.PathValue("organization"), actor.UserID, r.PathValue("mandate"), version, in.ExpectedVersion, in.Rules)
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 200, made)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/stewardship-opportunities/{opportunity}/work-decisions", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in struct {
+			Mode                    string `json:"mode"`
+			Risk                    string `json:"risk"`
+			Hours                   int    `json:"hours"`
+			ExpectedDecisionVersion int64  `json:"expected_decision_version"`
+			ExpectedPolicyVersion   int64  `json:"expected_policy_version"`
+		}
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		auto := in.Mode == "auto_start"
+		if !auto && in.Mode != "approval" {
+			writeJSON(w, 422, map[string]string{"error": "invalid_mode"})
+			return
+		}
+		o, err := orgs.Get(r.PathValue("organization"))
+		if organizationError(w, err) {
+			return
+		}
+		var opportunity *organizations.StewardshipOpportunity
+		for i := range o.StewardshipOpportunities {
+			if o.StewardshipOpportunities[i].ID == r.PathValue("opportunity") {
+				opportunity = &o.StewardshipOpportunities[i]
+			}
+		}
+		if opportunity == nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		blockers := stewardshipSafetyBlockers(actor.UserID, *opportunity, incidentStore, securityStore)
+		_, made, err := orgs.DecideStewardshipWork(o.ID, opportunity.ID, actor.UserID, in.Risk, in.Hours, in.ExpectedDecisionVersion, in.ExpectedPolicyVersion, auto, blockers)
+		if organizationError(w, err) {
+			return
+		}
+		recordStewardshipActivity(activity, made, actor.UserID, "stewardship.work_"+made.WorkDecisions[len(made.WorkDecisions)-1].State)
+		writeJSON(w, 200, made)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/stewardship-opportunities/{opportunity}/promotion", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		type taskInput struct {
+			Title              string   `json:"title"`
+			Outcome            string   `json:"outcome"`
+			OwnerKind          string   `json:"owner_kind"`
+			OwnerID            string   `json:"owner_id"`
+			Risk               string   `json:"risk"`
+			CompletionCriteria []string `json:"completion_criteria"`
+			VerificationPlan   []string `json:"verification_plan"`
+			DependsOn          []int    `json:"depends_on"`
+		}
+		var in struct {
+			Title        string      `json:"title"`
+			Body         string      `json:"body"`
+			BaseRevision string      `json:"base_revision"`
+			Tasks        []taskInput `json:"tasks"`
+		}
+		if !readJSON(w, r, &in, 131072) {
+			return
+		}
+		o, err := orgs.Get(r.PathValue("organization"))
+		if organizationError(w, err) {
+			return
+		}
+		var opportunity *organizations.StewardshipOpportunity
+		for i := range o.StewardshipOpportunities {
+			if o.StewardshipOpportunities[i].ID == r.PathValue("opportunity") {
+				opportunity = &o.StewardshipOpportunities[i]
+			}
+		}
+		if opportunity == nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		baseCurrent := false
+		for _, revision := range opportunity.AffectedRevisions {
+			baseCurrent = baseCurrent || revision == strings.TrimSpace(in.BaseRevision)
+		}
+		if opportunity.State != "accepted" || !baseCurrent || len(in.Tasks) == 0 || len(stewardshipSafetyBlockers(actor.UserID, *opportunity, incidentStore, securityStore)) > 0 {
+			writeJSON(w, 409, map[string]string{"error": "promotion_blocked_or_base_changed"})
+			return
+		}
+		proposal, err := proposalStore.Create(opportunity.RepositoryID, actor.UserID, in.Title, in.Body)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_promotion"})
+			return
+		}
+		tasks := []proposals.Task{}
+		for index, input := range in.Tasks {
+			deps := []string{}
+			valid := true
+			for _, position := range input.DependsOn {
+				if position < 1 || position > len(tasks) {
+					valid = false
+					break
+				}
+				deps = append(deps, tasks[position-1].ID)
+			}
+			if !valid {
+				writeJSON(w, 422, map[string]string{"error": "invalid_task_dependency"})
+				return
+			}
+			made, createErr := proposalStore.CreateTask(opportunity.RepositoryID, proposal.ID, actor.UserID, proposals.TaskInput{Title: input.Title, Outcome: input.Outcome, Position: index + 1, Status: proposals.TaskPlanned, DependsOn: deps, OwnerKind: input.OwnerKind, OwnerID: input.OwnerID, CompletionCriteria: input.CompletionCriteria, Risk: input.Risk, VerificationPlan: input.VerificationPlan, BaseRevision: in.BaseRevision})
+			if createErr != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_task"})
+				return
+			}
+			tasks = append(tasks, made)
+		}
+		ids := make([]string, len(tasks))
+		for i := range tasks {
+			ids[i] = tasks[i].ID
+		}
+		_, made, err := orgs.LinkStewardshipWork(o.ID, opportunity.ID, actor.UserID, proposal.ID, in.BaseRevision, ids)
+		if organizationError(w, err) {
+			return
+		}
+		recordStewardshipActivity(activity, made, actor.UserID, "stewardship.opportunity_promoted")
+		writeJSON(w, 201, map[string]any{"opportunity": made, "proposal": proposal, "tasks": tasks})
 	})
 	mux.HandleFunc("GET /organizations/{organization}/stewardship-mandates", func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryRead)
@@ -1172,4 +1328,43 @@ func organizationError(w http.ResponseWriter, e error) bool {
 		writeJSON(w, 500, map[string]string{"error": "internal_error"})
 	}
 	return true
+}
+
+func stewardshipSafetyBlockers(actor string, opportunity organizations.StewardshipOpportunity, incidentStore organizationIncidents, securityStore organizationSecurityReports) []string {
+	blockers := []string{}
+	if incidents, err := incidentStore.List(opportunity.RepositoryID); err == nil {
+		for _, incident := range incidents {
+			if incident.Status != "resolved" {
+				blockers = append(blockers, "active_incident")
+				break
+			}
+		}
+	}
+	if reports, err := securityStore.ListVisible(actor, func(repository string) bool { return repository == opportunity.RepositoryID }); err == nil {
+		for _, report := range reports {
+			if report.EmbargoState == "lifted" {
+				continue
+			}
+			for _, affected := range report.Affected {
+				if affected.RepositoryID == opportunity.RepositoryID {
+					blockers = append(blockers, "embargoed_evidence")
+					break
+				}
+			}
+		}
+	}
+	return blockers
+}
+
+func recordStewardshipActivity(activity organizationActivities, opportunity organizations.StewardshipOpportunity, actor, eventType string) {
+	metadata := map[string]string{"organization_opportunity_id": opportunity.ID, "state": opportunity.State}
+	if opportunity.Work != nil {
+		metadata["proposal_id"], metadata["base_revision"] = opportunity.Work.ProposalID, opportunity.Work.BaseRevision
+	}
+	if len(opportunity.WorkDecisions) > 0 {
+		metadata["decision_version"] = strconv.FormatInt(opportunity.WorkDecisions[len(opportunity.WorkDecisions)-1].Version, 10)
+	}
+	for _, owner := range opportunity.AffectedOwnerIDs {
+		_, _ = activity.Record(activities.Input{RepositoryID: opportunity.RepositoryID, ActorID: actor, Type: eventType, Resource: activities.Resource{Type: "stewardship_opportunity", ID: opportunity.ID}, TargetUserID: owner, Metadata: metadata})
+	}
 }

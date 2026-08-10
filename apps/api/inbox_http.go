@@ -95,6 +95,14 @@ func registerInboxHTTP(mux *http.ServeMux, activity inboxActivityStore, state in
 				if event.TargetUserID == userID {
 					classification, title, summary = "awareness", "Repository access granted", "You can now contribute to this repository."
 				}
+			case "stewardship.work_accepted", "stewardship.opportunity_promoted":
+				if event.TargetUserID == userID {
+					classification, title, summary, href = "awareness", "Stewardship work accepted", "An evidence-backed opportunity affecting your work was accepted and linked to governed delivery.", "/organizations"
+				}
+			case "stewardship.work_blocked":
+				if event.TargetUserID == userID {
+					classification, title, summary, href = "response", "Stewardship work blocked", "Review the attributed blockers before compute or contributor attention is spent.", "/organizations"
+				}
 			case "security_advisory.published":
 				if event.TargetUserID == userID {
 					classification, title, summary = "response", "Security upgrade available", event.Metadata["upgrade_guidance"]

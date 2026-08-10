@@ -50,6 +50,30 @@ reopen, or stale decisions through `/decisions`. The organization web workspace
 keeps citations, scope reasoning, state, and challenges together. These queue
 actions prioritize attention only; they issue no credential and start no work.
 
+### Governed opportunity admission
+
+Organization owners version opportunity-class rules at a mandate version's
+`/work-policy` resource. A class either requires an owner decision or permits
+the accepted agent operator to request bounded auto-start, with maximum risk,
+daily-run, and monthly-hour limits composed with the mandate's smaller budget.
+Every request sends the current policy version and opportunity decision version;
+stale concurrent decisions fail instead of spending resources twice.
+
+`POST /organizations/{organization}/stewardship-opportunities/{opportunity}/work-decisions`
+records accepted and blocked decisions. Stale evidence, changed or inactive
+mandates, changed policy, conflicting accepted work, active incidents,
+embargoed security evidence, excessive risk, and exhausted budgets remain
+explicit blocker codes. Decisions target affected owners through ordinary
+repository activity, which also feeds established inbox projections.
+
+An accepted item is promoted through its `/promotion` resource into an ordinary
+repository proposal and ordered proposal-plan tasks. The handoff retains the
+opportunity link, current evaluated base revision, human or agent owners,
+observable outcomes, completion criteria, risk, and verification plan. It does
+not create a branch, credential, session, or contributor authority; those begin
+only through the existing assignment and change-session contracts. Refreshed
+evidence supersedes an unpromoted acceptance and requires a new decision.
+
 ## Prospective impact assessment
 
 Impact assessment is a pre-implementation, exact-revision record rather than a

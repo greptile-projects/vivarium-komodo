@@ -238,7 +238,7 @@ func main() {
 	})
 	registerGitHTTP(mux, repositoryCatalog, credentials)
 	registerRepositoriesHTTP(mux, repositoryCatalog, credentials)
-	registerOrganizationsHTTP(mux, organizationStore, repositoryCatalog, userStore, packageStore, releaseStore, pullRequestStore, incidentStore, proposalStore, relationshipStore, securityReportStore, credentials)
+	registerOrganizationsHTTP(mux, organizationStore, repositoryCatalog, userStore, packageStore, releaseStore, pullRequestStore, incidentStore, proposalStore, relationshipStore, securityReportStore, credentials, activityStore)
 	registerRepositoryBrowserHTTP(mux, repositoryCatalog, credentials)
 	registerCodeIntelligenceHTTP(mux, repositoryCatalog, credentials, relationshipStore)
 	registerQuestionsHTTP(mux, questionStore, repositoryCatalog, credentials, relationshipStore, checkRunStore)

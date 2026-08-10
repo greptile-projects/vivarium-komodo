@@ -550,6 +550,14 @@ whenever dependencies change or the web job fails before it starts.
   ranking, dismissal, snooze, incorrectness, and stale-evidence decisions.
   Never move citations along with a branch: report stale evidence explicitly
   and refresh the same finding only after evaluating a new exact revision.
+  Opportunity admission is controlled by immutable mandate-version work-policy
+  versions. Approval and bounded auto-start use the policy version and decision
+  count as concurrency tokens, and must expose stale evidence, policy/mandate
+  changes, risk or budget excess, conflicting work, active incidents, and
+  embargoed evidence as blockers. An accepted opportunity promotes only into a
+  linked ordinary proposal and ordered tasks retaining owners, completion
+  criteria, risk, verification plan, and evaluated base revision. Promotion
+  creates no credential, branch, session, or implicit repository authority.
   Organization governance baselines are immutable policy versions in the
   organization record. Rules cover repository visibility, reviews, required
   checks, integration, release provenance, dependency use, environment

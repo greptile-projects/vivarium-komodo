@@ -243,6 +243,43 @@ func TestStewardshipOpportunityDeduplicationChallengeAndStaleEvidence(t *testing
 	}
 }
 
+func TestStewardshipWorkPolicyAdmissionBudgetsConcurrencyAndPromotion(t *testing.T) {
+	s, _ := New(t.TempDir())
+	now := time.Date(2026, 8, 10, 14, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	o, _ := s.Create("owner", "govern-work", "Govern work", "")
+	o, _ = s.Invite(o.ID, "owner", "operator")
+	o, _ = s.Accept(o.ID, "operator")
+	_, agent, _ := s.RegisterAgent(o.ID, "owner", Agent{Slug: "steward", Name: "Steward", Capabilities: []string{"checks:read"}, OperatorIDs: []string{"operator"}, Visibility: "internal"})
+	mandate := StewardshipMandate{Title: "Healthy checks", AgentID: agent.ID, DesiredOutcomes: []string{"main stays green"}, Scopes: []StewardshipScope{{RepositoryID: "repo", Branches: []string{"main"}}}, TrustedSignals: []string{"check.failed"}, Budget: StewardshipBudget{MaxHoursPerMonth: 3, MaxRunsPerDay: 1}, Schedule: StewardshipSchedule{StartsAt: now, ExpiresAt: now.Add(24 * time.Hour), Cadence: "continuous"}, AllowedActions: []string{"draft proposal"}, RequiredHumanDecisions: []string{"high risk work"}}
+	_, mandate, _ = s.DraftStewardship(o.ID, "owner", "", mandate)
+	_, mandate, _ = s.AcceptStewardship(o.ID, mandate.ID, 1, "operator")
+	_, policy, err := s.PutStewardshipWorkPolicy(o.ID, "owner", mandate.ID, 1, 0, []StewardshipClassRule{{Class: "check_failure", Mode: "auto_start", MaxRisk: "medium", MaxRunsPerDay: 1, MaxHoursPerMonth: 3}})
+	if err != nil || policy.Version != 1 {
+		t.Fatalf("policy = %#v, %v", policy, err)
+	}
+	finding := StewardshipOpportunity{DeduplicationKey: "test-main", MandateID: mandate.ID, MandateVersion: 1, RepositoryID: "repo", Class: "check_failure", Title: "Repair test", Summary: "test failed", Severity: "high", ExpectedValue: "restore confidence", Confidence: .9, AffectedOwnerIDs: []string{"owner"}, AffectedRevisions: []string{"aaa"}, InScopeReason: "main must stay green", Signal: "check.failed", Citations: []StewardshipCitation{{Kind: "check", ResourceID: "run", RepositoryID: "repo", Revision: "aaa", Summary: "failed", ObservedAt: now}}}
+	_, opportunity, err := s.EvaluateStewardship(o.ID, "operator", finding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, blocked, err := s.DecideStewardshipWork(o.ID, opportunity.ID, "operator", "high", 1, 0, 1, true, nil)
+	if err != nil || blocked.WorkDecisions[0].State != "blocked" || blocked.WorkDecisions[0].Blockers[0] != "risk_exceeds_mandate" {
+		t.Fatalf("risk decision = %#v, %v", blocked, err)
+	}
+	_, accepted, err := s.DecideStewardshipWork(o.ID, opportunity.ID, "operator", "medium", 2, 1, 1, true, nil)
+	if err != nil || accepted.State != "accepted" {
+		t.Fatalf("accepted = %#v, %v", accepted, err)
+	}
+	if _, _, err := s.DecideStewardshipWork(o.ID, opportunity.ID, "owner", "medium", 1, 1, 1, false, nil); err != ErrConflict {
+		t.Fatalf("concurrent decision = %v", err)
+	}
+	_, promoted, err := s.LinkStewardshipWork(o.ID, opportunity.ID, "owner", "proposal", "aaa", []string{"task-1"})
+	if err != nil || promoted.State != "promoted" || promoted.Work.BaseRevision != "aaa" {
+		t.Fatalf("promoted = %#v, %v", promoted, err)
+	}
+}
+
 func TestVersionedPoliciesPreviewActivationAndExpiringExceptions(t *testing.T) {
 	s, _ := New(t.TempDir())
 	now := time.Date(2026, 8, 9, 20, 0, 0, 0, time.UTC)
