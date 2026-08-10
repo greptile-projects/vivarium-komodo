@@ -155,6 +155,50 @@ func TestNestedTeamsResponsibilitiesAgentsAndConcurrency(t *testing.T) {
 	}
 }
 
+func TestStewardshipMandateVersionsAcceptanceAndBoundedLifecycle(t *testing.T) {
+	s, _ := New(t.TempDir())
+	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	o, _ := s.Create("owner", "stewards", "Stewards", "")
+	o, _ = s.Invite(o.ID, "owner", "operator")
+	o, _ = s.Accept(o.ID, "operator")
+	_, agent, _ := s.RegisterAgent(o.ID, "owner", Agent{Slug: "caretaker", Name: "Caretaker", Capabilities: []string{"checks:read"}, OperatorIDs: []string{"operator"}, Visibility: "internal"})
+	in := StewardshipMandate{Title: "Keep the SDK healthy", AgentID: agent.ID, DesiredOutcomes: []string{"Required checks remain green"}, Scopes: []StewardshipScope{{RepositoryID: "sdk", Branches: []string{"main", "release/*"}}}, TrustedSignals: []string{"required check failures"}, Exclusions: []string{"security incidents"}, Budget: StewardshipBudget{MaxHoursPerMonth: 20, MaxRunsPerDay: 3}, Schedule: StewardshipSchedule{StartsAt: now, ExpiresAt: now.Add(30 * 24 * time.Hour), Cadence: "daily"}, AllowedActions: []string{"inspect checks", "draft proposal"}, RequiredHumanDecisions: []string{"merge", "release promotion"}}
+	_, first, err := s.DraftStewardship(o.ID, "owner", "", in)
+	if err != nil || first.Version != 1 || first.State != "pending_acceptance" {
+		t.Fatalf("draft = %#v, %v", first, err)
+	}
+	if _, _, err = s.AcceptStewardship(o.ID, first.ID, 1, "owner"); err != ErrForbidden {
+		t.Fatalf("non-operator accepted: %v", err)
+	}
+	_, active, err := s.AcceptStewardship(o.ID, first.ID, 1, "operator")
+	if err != nil || active.State != "active" || active.Acceptance.OperatorID != "operator" {
+		t.Fatalf("acceptance = %#v, %v", active, err)
+	}
+	_, paused, err := s.TransitionStewardship(o.ID, first.ID, 1, "owner", "pause")
+	if err != nil || paused.State != "paused" {
+		t.Fatalf("pause = %#v, %v", paused, err)
+	}
+	in.Title = "Keep the SDK healthy within the new budget"
+	in.Budget.MaxHoursPerMonth = 10
+	_, revision, err := s.DraftStewardship(o.ID, "owner", first.ID, in)
+	if err != nil || revision.Version != 2 || revision.Acceptance != nil {
+		t.Fatalf("revision = %#v, %v", revision, err)
+	}
+	_, revoked, err := s.TransitionStewardship(o.ID, first.ID, 1, "owner", "revoke")
+	if err != nil || revoked.State != "revoked" {
+		t.Fatalf("revoke = %#v, %v", revoked, err)
+	}
+	now = in.Schedule.ExpiresAt.Add(time.Second)
+	if StewardshipState(revision, now) != "expired" {
+		t.Fatal("schedule expiry was not effective")
+	}
+	o, _ = s.Get(o.ID)
+	if len(o.RoleGrants) != 0 {
+		t.Fatal("mandate implicitly created authority")
+	}
+}
+
 func TestVersionedPoliciesPreviewActivationAndExpiringExceptions(t *testing.T) {
 	s, _ := New(t.TempDir())
 	now := time.Date(2026, 8, 9, 20, 0, 0, 0, time.UTC)

@@ -23,7 +23,7 @@ type Organization = {
   members: Member[];
   transfers: Transfer[];
   teams: { id: string; name: string }[];
-  agents: { id: string; name: string }[];
+  agents: { id: string; name: string; operator_ids: string[] }[];
   role_grants: RoleGrant[];
   access_requests: AccessRequest[];
 };
@@ -53,6 +53,15 @@ type InitiativeItem = {
 type Initiative = { id: string; title: string; outcome: string; state: string; sources: ResourceRef[]; items: InitiativeItem[] };
 type Envelope<T> = { items: T[] };
 type Session = { user: { id: string } };
+type StewardshipMandate = {
+  id: string; version: number; title: string; desired_outcomes: string[];
+  scopes: { repository_id: string; branches: string[] }[]; trusted_signals: string[];
+  exclusions: string[]; budget: { max_hours_per_month: number; max_runs_per_day: number };
+  schedule: { starts_at: string; expires_at: string; cadence: string }; agent_id: string;
+  allowed_actions: string[]; required_human_decisions: string[]; state: string;
+  acceptance?: { operator_id: string; accepted_at: string };
+};
+type StewardshipPreview = { state: string; authority_created_by_mandate: boolean; mandate_write_authority: boolean; mandate_merge_authority: boolean; note: string; scopes: Record<string, { branches: string[]; effective_policy: unknown[]; existing_agent_grants: RoleGrant[] }> };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -66,6 +75,25 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return response.status === 204 ? (undefined as T) : response.json();
 }
 
+function MandateForm({ repositories, agents, mandate, onSubmit }: { repositories: Repository[]; agents: Organization["agents"]; mandate?: StewardshipMandate; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  const scope = (id: string) => mandate?.scopes.find((item) => item.repository_id === id);
+  const localTime = (value?: string) => value ? new Date(value).toISOString().slice(0, 16) : "";
+  return <form className="stack" onSubmit={onSubmit}>
+    <label>Mandate title<input required name="title" defaultValue={mandate?.title} /></label>
+    <label>Approved agent<select required name="agent_id" defaultValue={mandate?.agent_id ?? ""}><option value="">Select…</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label>
+    <label>Desired outcomes (one per line)<textarea required name="outcomes" defaultValue={mandate?.desired_outcomes.join("\n")} /></label>
+    <fieldset><legend>Repository and branch scope</legend>{repositories.map((repository) => <div className="repo-row" key={repository.id}><label><input type="checkbox" name="repository_id" value={repository.id} defaultChecked={Boolean(scope(repository.id))} /> {repository.name}</label><label>Branches<textarea name={`branches:${repository.id}`} defaultValue={scope(repository.id)?.branches.join("\n")} placeholder="main" /></label></div>)}</fieldset>
+    <label>Trusted signals (one per line)<textarea required name="signals" defaultValue={mandate?.trusted_signals.join("\n")} placeholder="Required check failure" /></label>
+    <label>Exclusions / stop conditions<textarea name="exclusions" defaultValue={mandate?.exclusions.join("\n")} /></label>
+    <label>Allowed actions<textarea required name="actions" defaultValue={mandate?.allowed_actions.join("\n")} placeholder="Inspect check evidence&#10;Draft a proposal" /></label>
+    <label>Required human decisions<textarea required name="decisions" defaultValue={mandate?.required_human_decisions.join("\n")} placeholder="Merge&#10;Release promotion" /></label>
+    <div className="content-grid"><label>Hours / month<input required min="1" max="744" type="number" name="hours" defaultValue={mandate?.budget.max_hours_per_month ?? 20} /></label><label>Runs / day<input required min="1" max="100" type="number" name="runs" defaultValue={mandate?.budget.max_runs_per_day ?? 3} /></label></div>
+    <div className="content-grid"><label>Starts<input required type="datetime-local" name="starts_at" defaultValue={localTime(mandate?.schedule.starts_at)} /></label><label>Expires<input required type="datetime-local" name="expires_at" defaultValue={localTime(mandate?.schedule.expires_at)} /></label></div>
+    <label>Cadence<select name="cadence" defaultValue={mandate?.schedule.cadence ?? "daily"}><option value="continuous">Continuous</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select></label>
+    <Button type="submit">{mandate ? "Create revised version" : "Draft mandate"}</Button>
+  </form>;
+}
+
 export default function OrganizationsPage() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selected, setSelected] = useState<Organization>();
@@ -74,6 +102,8 @@ export default function OrganizationsPage() {
   const [userID, setUserID] = useState("");
   const [effective, setEffective] = useState<RoleGrant[]>([]);
   const [initiatives, setInitiatives] = useState<Initiative[]>([]);
+  const [mandates, setMandates] = useState<StewardshipMandate[]>([]);
+  const [previews, setPreviews] = useState<Record<string, StewardshipPreview>>({});
   const selectedID = selected?.id;
   const load = useCallback(async () => {
     try {
@@ -84,16 +114,18 @@ export default function OrganizationsPage() {
       setOrganizations(data.items);
       setUserID(session.user.id);
       if (selectedID) {
-        const [organization, view, access, initiativeView] = await Promise.all([
+        const [organization, view, access, initiativeView, stewardship] = await Promise.all([
           api<Organization>(`/organizations/${selectedID}`),
           api<Portfolio>(`/organizations/${selectedID}/portfolio`),
           api<{ items: RoleGrant[] }>(`/organizations/${selectedID}/access/effective`),
           api<{ items: Initiative[] }>(`/organizations/${selectedID}/initiatives`),
+          api<{ items: StewardshipMandate[] }>(`/organizations/${selectedID}/stewardship-mandates`),
         ]);
         setSelected(organization);
         setPortfolio(view);
         setEffective(access.items);
         setInitiatives(initiativeView.items);
+        setMandates(stewardship.items);
       }
     } catch (error) {
       setMessage(
@@ -230,6 +262,20 @@ export default function OrganizationsPage() {
     }) });
     event.currentTarget.reset(); setMessage("Cross-repository work connected to the initiative."); await load();
   }
+  const lines = (value: FormDataEntryValue | null) => String(value || "").split("\n").map((item) => item.trim()).filter(Boolean);
+  async function saveMandate(event: FormEvent<HTMLFormElement>, mandateID?: string) {
+    event.preventDefault(); if (!selected) return; const form = new FormData(event.currentTarget);
+    const repositoryIDs = form.getAll("repository_id").map(String).filter(Boolean);
+    const body = { title: form.get("title"), agent_id: form.get("agent_id"), desired_outcomes: lines(form.get("outcomes")), trusted_signals: lines(form.get("signals")), exclusions: lines(form.get("exclusions")), allowed_actions: lines(form.get("actions")), required_human_decisions: lines(form.get("decisions")), scopes: repositoryIDs.map((repository_id) => ({ repository_id, branches: lines(form.get(`branches:${repository_id}`)) })), budget: { max_hours_per_month: Number(form.get("hours")), max_runs_per_day: Number(form.get("runs")) }, schedule: { starts_at: new Date(String(form.get("starts_at"))).toISOString(), expires_at: new Date(String(form.get("expires_at"))).toISOString(), cadence: form.get("cadence") } };
+    await api(`/organizations/${selected.id}/stewardship-mandates${mandateID ? `/${mandateID}/versions` : ""}`, { method: "POST", body: JSON.stringify(body) });
+    event.currentTarget.reset(); setMessage(mandateID ? "A new mandate version is awaiting operator acceptance." : "Stewardship mandate drafted for operator acceptance."); await load();
+  }
+  async function transitionMandate(mandate: StewardshipMandate, action: "accept" | "pause" | "resume" | "revoke") {
+    if (!selected) return; await api(`/organizations/${selected.id}/stewardship-mandates/${mandate.id}/versions/${mandate.version}/${action}`, { method: "POST" }); setMessage(`Mandate ${action} recorded.`); await load();
+  }
+  async function previewMandate(mandate: StewardshipMandate) {
+    if (!selected) return; const preview = await api<StewardshipPreview>(`/organizations/${selected.id}/stewardship-mandates/${mandate.id}/versions/${mandate.version}/preview`); setPreviews((current) => ({ ...current, [`${mandate.id}:${mandate.version}`]: preview }));
+  }
 
   return (
     <AppShell>
@@ -339,6 +385,24 @@ export default function OrganizationsPage() {
                   {portfolio?.releases.length ?? 0} releases ·{" "}
                   {portfolio?.incidents.length ?? 0} active incidents
                 </p>
+              </section>
+              <section className="panel">
+                <p className="eyebrow">Bounded proactive care</p>
+                <h2>Stewardship mandates</h2>
+                <p>State what success means, which signals the agent may trust, and where it must stop. A mandate creates accountability—not a credential, write access, or merge authority.</p>
+                {mandates.map((mandate) => {
+                  const key = `${mandate.id}:${mandate.version}`; const preview = previews[key];
+                  return <div className="stack" key={key}>
+                    <div className="repo-row"><span><strong>{mandate.title}</strong> · version {mandate.version}<br />Agent {selected.agents.find((agent) => agent.id === mandate.agent_id)?.name ?? mandate.agent_id} · {mandate.schedule.cadence} · expires {new Date(mandate.schedule.expires_at).toLocaleString()}<br />{mandate.scopes.map((item) => `${portfolio?.repositories.find((repo) => repo.id === item.repository_id)?.name ?? item.repository_id} (${item.branches.join(", ")})`).join(" · ")}</span><Badge>{mandate.state}</Badge></div>
+                    <p><strong>Outcomes:</strong> {mandate.desired_outcomes.join(" · ")}<br /><strong>May:</strong> {mandate.allowed_actions.join(" · ")}<br /><strong>Human decisions:</strong> {mandate.required_human_decisions.join(" · ")}</p>
+                    {mandate.acceptance && <p>Accepted by operator <strong>{mandate.acceptance.operator_id}</strong> at {new Date(mandate.acceptance.accepted_at).toLocaleString()}.</p>}
+                    <div><Button size="sm" variant="secondary" onClick={() => previewMandate(mandate)}>Preview effective policy</Button>{mandate.state === "pending_acceptance" && <Button size="sm" onClick={() => transitionMandate(mandate, "accept")}>Accept as operator</Button>}{mandate.state === "active" && <Button size="sm" variant="secondary" onClick={() => transitionMandate(mandate, "pause")}>Pause</Button>}{mandate.state === "paused" && <Button size="sm" variant="secondary" onClick={() => transitionMandate(mandate, "resume")}>Resume</Button>}{mandate.state !== "revoked" && mandate.state !== "expired" && <Button size="sm" variant="secondary" onClick={() => transitionMandate(mandate, "revoke")}>Revoke</Button>}</div>
+                    {preview && <div className="notice"><strong>No implicit authority:</strong> {preview.note}<br />Mandate write: {String(preview.mandate_write_authority)} · mandate merge: {String(preview.mandate_merge_authority)} · mandate-created authority: {String(preview.authority_created_by_mandate)}<br />{Object.entries(preview.scopes).map(([repository, detail]) => `${portfolio?.repositories.find((repo) => repo.id === repository)?.name ?? repository}: ${detail.effective_policy.length} policy rules, ${detail.existing_agent_grants.length} existing independent grants`).join(" · ")}</div>}
+                    <details><summary>Revise this mandate</summary><MandateForm repositories={portfolio?.repositories ?? []} agents={selected.agents} mandate={mandate} onSubmit={(event) => saveMandate(event, mandate.id)} /></details>
+                  </div>;
+                })}
+                {mandates.length === 0 && <p>No standing agent responsibility has been defined.</p>}
+                <details><summary>New stewardship mandate</summary><MandateForm repositories={portfolio?.repositories ?? []} agents={selected.agents} onSubmit={saveMandate} /></details>
               </section>
               <section className="panel">
                 <p className="eyebrow">Shared outcomes</p>

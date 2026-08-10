@@ -529,6 +529,17 @@ whenever dependencies change or the web job fails before it starts.
   branch-only Git credentials; grant or membership revocation invalidates only
   the credentials derived by the affected principal. These scoped roles do not
   silently add repository collaborators or replace existing owner policy.
+  Standing agent stewardship is an organization-owned, immutable versioned
+  mandate beneath `/organizations/{organization}/stewardship-mandates`. Each
+  version names observable outcomes, repository-and-branch scope, trusted
+  signals, exclusions, bounded hours/runs, cadence and expiry, one approved
+  agent, allowed actions, and decisions reserved for humans. A new or revised
+  version remains pending until one of that agent's current operators accepts
+  it. Owners may pause, resume, or irrevocably revoke a version; its schedule
+  makes expiry effective without deleting evidence. Preview joins current
+  organization policy and independently granted agent roles for every scoped
+  repository, but the mandate itself never issues a credential or supplies
+  write or merge authority.
   Organization governance baselines are immutable policy versions in the
   organization record. Rules cover repository visibility, reviews, required
   checks, integration, release provenance, dependency use, environment

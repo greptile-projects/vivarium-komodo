@@ -3,6 +3,31 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Proactive agent stewardship
+
+An organization owner can define long-running responsibility without turning a
+goal into ambient authority. `POST /organizations/{organization}/stewardship-mandates`
+creates version 1; later versions are appended at the mandate's `/versions`
+collection. Every immutable version records desired outcomes, repository and
+branch boundaries, trusted signals, exclusions, monthly hours and daily run
+budgets, cadence and expiry, the approved agent, allowed actions, and decisions
+that must return to a human.
+
+Versions begin `pending_acceptance`. Only a current operator of the named agent
+can accept one, retaining operator identity and time. An organization owner can
+pause, resume, or revoke an exact version, and revisions require fresh
+acceptance rather than inheriting consent. The schedule makes a retained
+version effectively `expired` after its deadline.
+
+The version preview resolves current organization policy and existing agent
+role grants separately for every scoped repository. It always reports that the
+mandate created no authority and provides no write or merge permission. Any
+actual execution must still pass through an independently scoped grant and the
+ordinary proposal, session, review, check, and integration controls. The
+organization workspace exposes drafting, inspection, preview, operator
+acceptance, revision, pause/resume, and revocation while keeping every version
+readable for accountability.
+
 ## Prospective impact assessment
 
 Impact assessment is a pre-implementation, exact-revision record rather than a

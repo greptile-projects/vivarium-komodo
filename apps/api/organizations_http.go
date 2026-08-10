@@ -61,6 +61,156 @@ type organizationSecurityReports interface {
 }
 
 func registerOrganizationsHTTP(mux *http.ServeMux, orgs *organizations.Store, repos organizationRepositories, people organizationUsers, packages organizationPackages, releaseStore organizationReleases, pulls organizationPulls, incidentStore organizationIncidents, proposalStore organizationProposals, evolutionStore organizationEvolutions, securityStore organizationSecurityReports, credentials organizationCredentialStore) {
+	mux.HandleFunc("GET /organizations/{organization}/stewardship-mandates", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryRead)
+		if !ok {
+			return
+		}
+		id := r.PathValue("organization")
+		if !orgs.IsMember(id, actor.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		o, err := orgs.Get(id)
+		if organizationError(w, err) {
+			return
+		}
+		items := append([]organizations.StewardshipMandate(nil), o.StewardshipMandates...)
+		for i := range items {
+			items[i].State = organizations.StewardshipState(items[i], time.Now().UTC())
+		}
+		writeJSON(w, 200, map[string]any{"items": items})
+	})
+	mux.HandleFunc("POST /organizations/{organization}/stewardship-mandates", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in organizations.StewardshipMandate
+		if !readJSON(w, r, &in, 65536) {
+			return
+		}
+		for _, scope := range in.Scopes {
+			if !organizationRepository(w, r.PathValue("organization"), scope.RepositoryID, repos) {
+				return
+			}
+		}
+		_, made, err := orgs.DraftStewardship(r.PathValue("organization"), actor.UserID, "", in)
+		if organizationError(w, err) {
+			return
+		}
+		w.Header().Set("Location", "/organizations/"+r.PathValue("organization")+"/stewardship-mandates/"+made.ID+"/versions/1")
+		writeJSON(w, 201, made)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/stewardship-mandates/{mandate}/versions", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in organizations.StewardshipMandate
+		if !readJSON(w, r, &in, 65536) {
+			return
+		}
+		for _, scope := range in.Scopes {
+			if !organizationRepository(w, r.PathValue("organization"), scope.RepositoryID, repos) {
+				return
+			}
+		}
+		_, made, err := orgs.DraftStewardship(r.PathValue("organization"), actor.UserID, r.PathValue("mandate"), in)
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 201, made)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/stewardship-mandates/{mandate}/versions/{version}/accept", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		version, err := parsePositiveInt64(r.PathValue("version"))
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_organization"})
+			return
+		}
+		_, made, err := orgs.AcceptStewardship(r.PathValue("organization"), r.PathValue("mandate"), version, actor.UserID)
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 200, made)
+	})
+	mux.HandleFunc("POST /organizations/{organization}/stewardship-mandates/{mandate}/versions/{version}/{action}", func(w http.ResponseWriter, r *http.Request) {
+		action := r.PathValue("action")
+		if action != "pause" && action != "resume" && action != "revoke" {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		version, err := parsePositiveInt64(r.PathValue("version"))
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_organization"})
+			return
+		}
+		_, made, err := orgs.TransitionStewardship(r.PathValue("organization"), r.PathValue("mandate"), version, actor.UserID, action)
+		if organizationError(w, err) {
+			return
+		}
+		writeJSON(w, 200, made)
+	})
+	mux.HandleFunc("GET /organizations/{organization}/stewardship-mandates/{mandate}/versions/{version}/preview", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryRead)
+		if !ok {
+			return
+		}
+		id := r.PathValue("organization")
+		if !orgs.IsMember(id, actor.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		version, err := parsePositiveInt64(r.PathValue("version"))
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_organization"})
+			return
+		}
+		o, err := orgs.Get(id)
+		if organizationError(w, err) {
+			return
+		}
+		var mandate *organizations.StewardshipMandate
+		for i := range o.StewardshipMandates {
+			if o.StewardshipMandates[i].ID == r.PathValue("mandate") && o.StewardshipMandates[i].Version == version {
+				mandate = &o.StewardshipMandates[i]
+			}
+		}
+		if mandate == nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		scopes := map[string]any{}
+		now := time.Now().UTC()
+		for _, scope := range mandate.Scopes {
+			rules, e := orgs.EffectivePolicy(id, scope.RepositoryID, nil)
+			if organizationError(w, e) {
+				return
+			}
+			grants := []organizations.RoleGrant{}
+			for _, grant := range o.RoleGrants {
+				if grant.PrincipalKind != "agent" || grant.PrincipalID != mandate.AgentID || grant.RevokedAt != nil || !grant.ExpiresAt.After(now) {
+					continue
+				}
+				for _, resource := range grant.Resources {
+					if resource.Kind == "repository" && resource.ID == scope.RepositoryID {
+						grants = append(grants, grant)
+						break
+					}
+				}
+			}
+			scopes[scope.RepositoryID] = map[string]any{"branches": scope.Branches, "effective_policy": rules, "existing_agent_grants": grants}
+		}
+		writeJSON(w, 200, map[string]any{"mandate_id": mandate.ID, "version": mandate.Version, "state": organizations.StewardshipState(*mandate, now), "scopes": scopes, "allowed_actions": mandate.AllowedActions, "authority_created_by_mandate": false, "mandate_write_authority": false, "mandate_merge_authority": false, "note": "The mandate records responsibility only. Existing grants remain independently bounded and revocable."})
+	})
 	mux.HandleFunc("POST /organizations/{organization}/policies", func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
 		if !ok {
