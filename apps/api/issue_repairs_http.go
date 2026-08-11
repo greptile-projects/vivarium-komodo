@@ -1,14 +1,220 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/issues"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/reasoning"
 )
+
+func repairAndVerification(item issues.Issue, repairID, verificationID string) (*issues.Repair, *issues.RepairVerification) {
+	for i := range item.Repairs {
+		if item.Repairs[i].ID == repairID {
+			if verificationID == "" {
+				return &item.Repairs[i], nil
+			}
+			for j := range item.Repairs[i].Verifications {
+				if item.Repairs[i].Verifications[j].ID == verificationID {
+					return &item.Repairs[i], &item.Repairs[i].Verifications[j]
+				}
+			}
+			return &item.Repairs[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func inputDigest(inputs []issues.ReproductionInput) string {
+	values := make([]string, 0, len(inputs))
+	for _, in := range inputs {
+		values = append(values, in.Name+":"+in.SHA256)
+	}
+	sort.Strings(values)
+	sum := sha256.Sum256([]byte(strings.Join(values, "\n")))
+	return hex.EncodeToString(sum[:])
+}
+
+func verificationEvidence(v issues.RepairVerification, attempt issues.ReproductionAttempt, runs []checkruns.Run, currentRevision string) map[string]any {
+	checks := map[string]string{}
+	allChecks := true
+	for _, name := range v.RequiredChecks {
+		state := "missing"
+		for _, run := range runs {
+			if run.ID != "" && run.Definition.Name == name && run.CommitID == v.Revision {
+				state = string(run.State)
+				break
+			}
+		}
+		checks[name] = state
+		if state != "succeeded" {
+			allChecks = false
+		}
+	}
+	reproductionFixed := attempt.ID != "" && attempt.State == "failed" && !attempt.Reproduced && attempt.FailureReason == "reproduction command failed"
+	stale := currentRevision != v.Revision || v.InvalidReason != "" || attempt.ID == "" || attempt.Revision != v.Revision || attempt.DefinitionDigest != v.CandidateDefinitionDigest || inputDigest(attempt.Inputs) != v.InputDigest
+	state := "running"
+	if stale {
+		state = "invalid"
+	} else if attempt.State == "queued" || attempt.State == "running" {
+		state = "running"
+	} else if reproductionFixed && allChecks {
+		state = "ready_for_reporter"
+	} else {
+		state = "failed"
+	}
+	payload := map[string]any{"verification": v, "state": state, "stale": stale, "reproduction_fixed": reproductionFixed, "required_checks_passed": allChecks, "checks": checks, "reproduction": attempt, "acceptance_criteria": v.AcceptanceCriteria}
+	raw, _ := json.Marshal([]any{v.Revision, v.CandidateDefinitionDigest, v.InputDigest, v.RequiredChecks, v.AcceptanceCriteria, reproductionFixed, checks})
+	sum := sha256.Sum256(raw)
+	payload["evidence_digest"] = hex.EncodeToString(sum[:])
+	if v.PreviewArtifactPath != "" {
+		for _, a := range attempt.Artifacts {
+			if a.Path == v.PreviewArtifactPath {
+				payload["preview"] = map[string]any{"safe": true, "path": a.Path, "media_type": a.MediaType, "sha256": a.SHA256, "content": a.Content}
+			}
+		}
+	}
+	return payload
+}
+
+func startIssueRepairVerification(store issueStore, pulls pullRequestStore, repos issueRepositoryStore, credentials authStore, runner *issues.ReproductionRunner, checks readinessCheckStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, item, ok := reproductionIssue(w, r, store, repos, credentials)
+		if !ok {
+			return
+		}
+		repair, _ := repairAndVerification(item, r.PathValue("repair"), "")
+		if repair == nil || repair.PullRequestID == "" {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		pull, err := pulls.Get(string(repo.ID), repair.PullRequestID)
+		if err != nil || pull.Status != "open" {
+			writeJSON(w, 409, map[string]string{"error": "repair_pull_request_unavailable"})
+			return
+		}
+		original, err := store.GetReproduction(string(repo.ID), item.ID, repair.ReproductionID)
+		if err != nil {
+			writeJSON(w, 409, map[string]string{"error": "retained_reproduction_unavailable"})
+			return
+		}
+		definition, digest, err := runner.Definition(pull.SourceRepositoryID, pull.SourceCommitID)
+		invalid := ""
+		if err != nil || digest != original.DefinitionDigest {
+			invalid = "reproduction definition or environment changed"
+		}
+		var in struct {
+			PreviewArtifactPath string `json:"preview_artifact_path"`
+		}
+		if !readJSON(w, r, &in, 4<<10) {
+			return
+		}
+		runs, _ := checks.List(string(repo.ID), pull.ID)
+		required := append([]string{}, repo.RequiredChecks[pull.TargetBranch]...)
+		ids := []string{}
+		for _, run := range runs {
+			if run.CommitID == pull.SourceCommitID {
+				for _, name := range required {
+					if run.Definition.Name == name {
+						ids = append(ids, run.ID)
+					}
+				}
+			}
+		}
+		v := issues.RepairVerification{Revision: pull.SourceCommitID, PullRequestID: pull.ID, OriginalDefinitionDigest: original.DefinitionDigest, CandidateDefinitionDigest: digest, InputDigest: inputDigest(original.Inputs), RequiredChecks: required, CheckRunIDs: ids, AcceptanceCriteria: append([]string{}, repair.AcceptanceCriteria...), InvalidReason: invalid, PreviewArtifactPath: strings.TrimSpace(in.PreviewArtifactPath)}
+		if invalid == "" {
+			attempt, e := store.CreateReproduction(item, pull.SourceCommitID, "", "", actor.UserID, original.ID, definition, digest, original.Command, original.Inputs)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			v.ReproductionAttemptID = attempt.ID
+			runner.Start(attempt)
+		}
+		_, created, err := store.AddRepairVerification(string(repo.ID), item.ID, repair.ID, actor.UserID, v)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, 201, created)
+	}
+}
+
+func getIssueRepairVerification(store issueStore, pulls pullRequestStore, repos issueRepositoryStore, credentials authStore, runner *issues.ReproductionRunner, checks readinessCheckStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, _, item, ok := reproductionIssue(w, r, store, repos, credentials)
+		if !ok {
+			return
+		}
+		repair, v := repairAndVerification(item, r.PathValue("repair"), r.PathValue("verification"))
+		if repair == nil || v == nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		pull, err := pulls.Get(string(repo.ID), v.PullRequestID)
+		current := ""
+		if err == nil {
+			current = pull.SourceCommitID
+		}
+		attempt, _ := store.GetReproduction(string(repo.ID), item.ID, v.ReproductionAttemptID)
+		runs, _ := checks.List(string(repo.ID), v.PullRequestID)
+		writeJSON(w, 200, verificationEvidence(*v, attempt, runs, current))
+	}
+}
+
+func decideIssueRepairVerification(store issueStore, pulls pullRequestStore, repos issueRepositoryStore, credentials authStore, runner *issues.ReproductionRunner, checks readinessCheckStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, item, ok := reproductionIssue(w, r, store, repos, credentials)
+		if !ok {
+			return
+		}
+		repair, v := repairAndVerification(item, r.PathValue("repair"), r.PathValue("verification"))
+		if repair == nil || v == nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var in struct {
+			Kind           string `json:"kind"`
+			Reason         string `json:"reason"`
+			EvidenceDigest string `json:"evidence_digest"`
+		}
+		if !readJSON(w, r, &in, 8<<10) {
+			return
+		}
+		if in.Kind == "override" {
+			if actor.UserID != repo.OwnerID {
+				writeJSON(w, 403, map[string]string{"error": "owner_required"})
+				return
+			}
+		} else if actor.UserID != item.ReporterID {
+			writeJSON(w, 403, map[string]string{"error": "reporter_required"})
+			return
+		}
+		pull, _ := pulls.Get(string(repo.ID), v.PullRequestID)
+		attempt, _ := store.GetReproduction(string(repo.ID), item.ID, v.ReproductionAttemptID)
+		runs, _ := checks.List(string(repo.ID), v.PullRequestID)
+		evidence := verificationEvidence(*v, attempt, runs, pull.SourceCommitID)
+		digest, _ := evidence["evidence_digest"].(string)
+		state, _ := evidence["state"].(string)
+		if digest == "" || digest != in.EvidenceDigest || state == "invalid" || ((in.Kind == "confirmed" || in.Kind == "override") && state != "ready_for_reporter") {
+			writeJSON(w, 409, map[string]string{"error": "verification_evidence_changed"})
+			return
+		}
+		_, updated, err := store.DecideRepairVerification(string(repo.ID), item.ID, repair.ID, v.ID, actor.UserID, in.Kind, in.Reason, v.Revision, digest)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_decision"})
+			return
+		}
+		writeJSON(w, 200, updated)
+	}
+}
 
 func createIssueRepair(store issueStore, plans proposalStore, repos issueRepositoryStore, credentials authStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

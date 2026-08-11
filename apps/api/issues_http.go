@@ -29,14 +29,19 @@ type issueStore interface {
 	AgentContext(string) (issues.Issue, issues.Investigation, issues.AgentRun, error)
 	CreateRepair(string, string, string, issues.Repair) (issues.Issue, issues.Repair, error)
 	LinkRepairPullRequest(string, string, string, string, string) (issues.Issue, issues.Repair, error)
+	AddRepairVerification(string, string, string, string, issues.RepairVerification) (issues.Issue, issues.RepairVerification, error)
+	DecideRepairVerification(string, string, string, string, string, string, string, string, string) (issues.Issue, issues.RepairVerification, error)
 	CreateReproduction(issues.Issue, string, string, string, string, string, issues.ReproductionDefinition, string, issues.ReproductionCommand, []issues.ReproductionInput) (issues.ReproductionAttempt, error)
 	GetReproduction(string, string, string) (issues.ReproductionAttempt, error)
 	ListReproductions(string, string) ([]issues.ReproductionAttempt, error)
 }
 
-func registerIssueRepairsHTTP(mux *http.ServeMux, store issueStore, plans proposalStore, pulls pullRequestStore, repositories issueRepositoryStore, credentials authStore) {
+func registerIssueRepairsHTTP(mux *http.ServeMux, store issueStore, plans proposalStore, pulls pullRequestStore, repositories issueRepositoryStore, credentials authStore, runner *issues.ReproductionRunner, checks readinessCheckStore) {
 	mux.HandleFunc("POST /repositories/{repository}/issues/{issue}/repairs", createIssueRepair(store, plans, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/issues/{issue}/repairs/{repair}/pull-request", linkIssueRepairPullRequest(store, plans, pulls, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/issues/{issue}/repairs/{repair}/verifications", startIssueRepairVerification(store, pulls, repositories, credentials, runner, checks))
+	mux.HandleFunc("GET /repositories/{repository}/issues/{issue}/repairs/{repair}/verifications/{verification}", getIssueRepairVerification(store, pulls, repositories, credentials, runner, checks))
+	mux.HandleFunc("POST /repositories/{repository}/issues/{issue}/repairs/{repair}/verifications/{verification}/decisions", decideIssueRepairVerification(store, pulls, repositories, credentials, runner, checks))
 }
 
 type issueReleaseStore interface {
