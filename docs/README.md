@@ -48,6 +48,28 @@ starting point fails. Reports are attributable and repository-visible and must
 not copy secrets, private terminal history, or inaccessible evidence. The fork
 and workspace provide no upstream write authority.
 
+Starting also creates an opportunity-bound collaboration ledger at
+`.../contribution-opportunities/{opportunity}/collaboration`. Its 45-second
+presence leases show the claimant and designated mentors in the help thread,
+files, setup, or checkpoint surfaces without granting mentors access to the
+private fork. Durable typed events distinguish questions, requested early
+checkpoints, advice, answers, handoffs, interventions, scope changes, and
+resolution. Entries retain actor role and an explicit decision owner, while
+mentor availability and the start-selected response deadline make outstanding
+attention visible.
+
+The claimant or upstream owner may authorize an organization-approved agent in
+one explicit mode: explain, diagnose setup, or edit named workspace paths.
+Agent explanations, diagnoses, and edits append attributable actions to the
+same ledger; edits use the normal workspace mutation and authorship boundary.
+Pausing or revoking the versioned control rejects later agent action. A mentor
+never receives fork membership through this workflow, and an agent control is
+not a general repository or Git credential. When response inactivity, changed
+scope, or lost access makes the current arrangement untenable, participants
+record `reassignment_required` or `exited`; that terminal transition revokes
+agent controls and presence but retains questions, advice, handoffs, edits,
+checkpoints, and other legitimate progress.
+
 Repository owners publish the project participation contract at `POST
 /repositories/{repository}/contributor-pathway/versions`. Each immutable
 version gathers project goals, prerequisites, conduct and private-security
