@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
@@ -13,6 +14,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deliveryteams"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/investigations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
 )
@@ -34,6 +36,8 @@ type deliveryTeamStore interface {
 	AcceptHandoff(string, string, string, string, string, string, int64) (deliveryteams.Team, error)
 	ReportStream(string, string, string, string, string, int64, deliveryteams.StreamStatusInput) (deliveryteams.Team, error)
 	Control(string, string, string, int64, deliveryteams.ControlInput) (deliveryteams.Team, error)
+	Reconcile(string, string, string, int64, deliveryteams.IntegrationInput) (deliveryteams.Team, error)
+	LinkPullRequest(string, string, string, string, string, string, int64) (deliveryteams.Team, error)
 }
 type deliveryOrganizationStore interface {
 	Get(string) (organizations.Organization, error)
@@ -54,7 +58,17 @@ type deliveryExecutionStores struct {
 	}
 }
 
-func registerDeliveryTeamsHTTP(mux *http.ServeMux, teams deliveryTeamStore, repos proposalRepositoryStore, credentials authStore, orgs deliveryOrganizationStore, execution deliveryExecutionStores) {
+func registerDeliveryTeamsHTTP(mux *http.ServeMux, teams deliveryTeamStore, repos pullRequestRepositoryStore, credentials authStore, orgs deliveryOrganizationStore, execution deliveryExecutionStores, extras ...any) {
+	var pulls pullRequestStore
+	var checks checkRunStarter
+	for _, extra := range extras {
+		switch value := extra.(type) {
+		case pullRequestStore:
+			pulls = value
+		case checkRunStarter:
+			checks = value
+		}
+	}
 	base := "/repositories/{repository}/delivery-teams"
 	mux.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
 		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
@@ -396,6 +410,150 @@ func registerDeliveryTeamsHTTP(mux *http.ServeMux, teams deliveryTeamStore, repo
 		}
 		v, e := teams.Control(string(repo.ID), r.PathValue("team"), a.UserID, in.ExpectedVersion, in.ControlInput)
 		writeDeliveryTeamResult(w, v, e, 201)
+	})
+	mux.HandleFunc("POST "+base+"/{team}/integration/reconciliations", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := deliveryRepositoryWriteAccess(w, r, repos, credentials)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64 `json:"expected_version"`
+			deliveryteams.IntegrationInput
+		}
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		// Branch identities and conflicts are derived from Git, never trusted from
+		// a participant's reconciliation narrative.
+		opened, err := repos.Open(repo.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		for i := range in.Contributions {
+			c := &in.Contributions[i]
+			if c.SourceRepositoryID != "" && c.SourceRepositoryID != string(repo.ID) {
+				writeDeliveryTeamResult(w, deliveryteams.Team{}, deliveryteams.ErrForbidden, 422)
+				return
+			}
+			source, sourceName, sourceOK := branchTip(opened, c.SourceBranch)
+			target, targetName, targetOK := branchTip(opened, c.TargetBranch)
+			if !sourceOK || !targetOK || sourceName == targetName {
+				writeDeliveryTeamResult(w, deliveryteams.Team{}, deliveryteams.ErrInvalid, 422)
+				return
+			}
+			c.SourceRepositoryID = string(repo.ID)
+			c.SourceBranch = sourceName
+			c.TargetBranch = targetName
+			c.SourceCommitID = string(source)
+			c.TargetCommitID = string(target)
+			c.Conflict, err = mergeHasConflicts(r.Context(), opened, target, source)
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+		}
+		v, e := teams.Reconcile(string(repo.ID), r.PathValue("team"), a.UserID, in.ExpectedVersion, in.IntegrationInput)
+		writeDeliveryTeamResult(w, v, e, 201)
+	})
+	mux.HandleFunc("POST "+base+"/{team}/integration/reconciliations/{integration}/streams/{stream}/pull-request", func(w http.ResponseWriter, r *http.Request) {
+		if pulls == nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		repo, a, ok := deliveryRepositoryWriteAccess(w, r, repos, credentials)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64 `json:"expected_version"`
+		}
+		if !readJSON(w, r, &in, 8<<10) {
+			return
+		}
+		team, e := teams.Get(string(repo.ID), r.PathValue("team"))
+		if e != nil {
+			writeDeliveryTeamResult(w, team, e, 200)
+			return
+		}
+		if in.ExpectedVersion != team.Version {
+			writeDeliveryTeamResult(w, team, deliveryteams.ErrConflict, 200)
+			return
+		}
+		var integration *deliveryteams.Integration
+		for i := range team.Integrations {
+			if team.Integrations[i].ID == r.PathValue("integration") {
+				integration = &team.Integrations[i]
+			}
+		}
+		if integration == nil || integration.Status != "ready" {
+			writeDeliveryTeamResult(w, team, deliveryteams.ErrInvalid, 422)
+			return
+		}
+		var contribution *deliveryteams.Contribution
+		for i := range integration.Contributions {
+			if integration.Contributions[i].StreamID == r.PathValue("stream") {
+				contribution = &integration.Contributions[i]
+			}
+		}
+		if contribution == nil || contribution.PullRequestID != "" {
+			writeDeliveryTeamResult(w, team, deliveryteams.ErrInvalid, 422)
+			return
+		}
+		for _, prior := range integration.Contributions {
+			if prior.StreamID == contribution.StreamID {
+				break
+			}
+			if prior.PullRequestID == "" {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "integration_order_pending", "stream_id": prior.StreamID})
+				return
+			}
+		}
+		opened, openErr := repos.Open(repo.ID)
+		if openErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		source, _, sourceOK := branchTip(opened, contribution.SourceBranch)
+		target, _, targetOK := branchTip(opened, contribution.TargetBranch)
+		if !sourceOK || !targetOK || string(source) != contribution.SourceCommitID || string(target) != contribution.TargetCommitID {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "reconciliation_stale"})
+			return
+		}
+		contributors := []string{}
+		body := "Team outcome: " + team.Charter.Outcome + "\n\n" + contribution.Summary + "\n\nEvidence: " + strings.Join(contribution.EvidenceEntryIDs, ", ") + "\nHandoffs: " + strings.Join(contribution.HandoffIDs, ", ") + "\nResidual risks: " + strings.Join(contribution.ResidualRisks, "; ")
+		for _, run := range team.StreamRuns {
+			if run.StreamID == contribution.StreamID {
+				body += "\nResource use: " + strconv.Itoa(run.ResourceUse.Hours) + " hours, " + strconv.Itoa(run.ResourceUse.CostUnits) + " cost units, " + strconv.Itoa(run.ResourceUse.AgentRuns) + " agent runs"
+			}
+		}
+		for _, p := range team.Participants {
+			for _, entry := range team.Timeline {
+				if entry.StreamID == contribution.StreamID && entry.AuthorParticipantID == p.ID {
+					contributors = append(contributors, p.PrincipalID)
+					break
+				}
+			}
+		}
+		criteria := []pullrequests.CriterionStatus{}
+		for _, x := range contribution.Criteria {
+			criteria = append(criteria, pullrequests.CriterionStatus{Criterion: x.Criterion, Status: x.Status, Evidence: strings.Join(x.EvidenceEntryIDs, ", ")})
+		}
+		pr, err := pulls.Create(pullrequests.CreateParams{RepositoryID: string(repo.ID), SourceRepositoryID: string(repo.ID), AuthorID: a.UserID, Title: contribution.Title, Body: body, SourceBranch: contribution.SourceBranch, TargetBranch: contribution.TargetBranch, SourceCommitID: contribution.SourceCommitID, TargetCommitID: contribution.TargetCommitID, ContributorIDs: contributors, DeliveryEvidence: &pullrequests.DeliveryEvidence{Reasoning: "Delivery team " + team.ID + ", plan version " + strconv.FormatInt(integration.PlanVersion, 10) + ", stream " + contribution.StreamID, ResidualRisks: contribution.ResidualRisks, CompletionCriteria: criteria, RecordedByID: a.UserID, RecordedAt: time.Now().UTC()}})
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_pull_request"})
+			return
+		}
+		updated, err := teams.LinkPullRequest(string(repo.ID), team.ID, integration.ID, contribution.StreamID, a.UserID, pr.ID, in.ExpectedVersion)
+		if err != nil {
+			writeDeliveryTeamResult(w, updated, err, 200)
+			return
+		}
+		if checks != nil {
+			_ = checks.Start(string(repo.ID), string(repo.ID), pr.ID, pr.SourceCommitID)
+		}
+		w.Header().Set("Location", "/repositories/"+string(repo.ID)+"/pull-requests/"+pr.ID)
+		writeJSON(w, 201, map[string]any{"team": updated, "pull_request": pr})
 	})
 }
 

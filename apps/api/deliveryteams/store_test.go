@@ -142,6 +142,18 @@ func TestGovernedTimelineAndVerifiableHandoff(t *testing.T) {
 	if v.Handoffs[0].Status != "accepted" || v.Handoffs[0].Acceptance.ActorID != "reviewer" {
 		t.Fatalf("acceptance = %#v", v.Handoffs[0])
 	}
+	blocked, err := s.Reconcile("repo", v.ID, "dev", v.Version, IntegrationInput{Contributions: []Contribution{{StreamID: "api", SourceBranch: "team/api", SourceCommitID: revision, TargetBranch: "main", TargetCommitID: revision, Title: "Deliver API", Summary: "Conflict-safe handler", EvidenceEntryIDs: []string{entryID}, HandoffIDs: []string{h.ID}, Criteria: []Criterion{{Criterion: "tests pass", Status: "unmet"}}, Conflict: true}}})
+	if err != nil || blocked.Integrations[0].Status != "blocked" || len(blocked.Integrations[0].Blockers) != 2 {
+		t.Fatalf("blocked reconciliation = %v %#v", err, blocked.Integrations)
+	}
+	v, err = s.Reconcile("repo", v.ID, "dev", blocked.Version, IntegrationInput{Contributions: []Contribution{{StreamID: "api", SourceBranch: "team/api", SourceCommitID: revision, TargetBranch: "main", TargetCommitID: revision, Title: "Deliver API", Summary: "Conflict-safe handler", EvidenceEntryIDs: []string{entryID}, HandoffIDs: []string{h.ID}, Criteria: []Criterion{{Criterion: "tests pass", Status: "met", EvidenceEntryIDs: []string{entryID}}}, ResidualRisks: []string{"empty branches remain unverified"}}}})
+	if err != nil || v.Integrations[1].Status != "ready" {
+		t.Fatalf("ready reconciliation = %v %#v", err, v.Integrations)
+	}
+	v, err = s.LinkPullRequest("repo", v.ID, v.Integrations[1].ID, "api", "dev", "pull-1", v.Version)
+	if err != nil || v.Integrations[1].Contributions[0].PullRequestID != "pull-1" || v.Integrations[1].Contributions[0].PublishedByID != "dev" {
+		t.Fatalf("published contribution = %v %#v", err, v.Integrations[1])
+	}
 	_, err = s.PublishTimeline("repo", v.ID, "dev", v.Participants[0].ID, v.Version, TimelineInput{StreamID: "api", Kind: "artifact", Summary: "secret", Context: context, Citations: []Citation{{RepositoryID: "repo", Revision: revision, Path: ".env", ResourceKind: "blob", ResourceID: "secret"}}})
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("out-of-scope evidence should fail, got %v", err)
