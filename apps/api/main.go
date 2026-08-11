@@ -297,7 +297,7 @@ func main() {
 	registerProposalsHTTP(mux, proposalStore, repositoryCatalog, credentials, activityStore)
 	registerIssuesHTTP(mux, issueStore, releaseStore, repositoryCatalog, credentials, issueReproductionRunner)
 	registerContributorPathwaysHTTP(mux, contributorPathwayStore, repositoryCatalog, credentials, releaseStore, issueStore, proposalStore)
-	registerContributionOpportunitiesHTTP(mux, contributionOpportunityStore, repositoryCatalog, credentials, issueStore, proposalStore, organizationStore, contributorPathwayStore, workspaceStore, workspaceRunner)
+	registerContributionOpportunitiesHTTP(mux, contributionOpportunityStore, repositoryCatalog, credentials, issueStore, proposalStore, organizationStore, contributorPathwayStore, workspaceStore, workspaceRunner, pullRequestStore, checkRunner)
 	registerIssueRepairsHTTP(mux, issueStore, proposalStore, pullRequestStore, repositoryCatalog, credentials, issueReproductionRunner, checkRunStore)
 	registerProposalTaskSessionsHTTP(mux, proposalStore, changeSessionStore, repositoryCatalog, credentials, activityStore, pullRequestStore, checkRunner)
 	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore)

@@ -11,6 +11,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/issues"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
@@ -24,9 +25,20 @@ type opportunityRunner interface {
 	Definition(string, string) (workspaces.Definition, string, error)
 	Start(workspaces.Workspace)
 	WriteFile(workspaces.Workspace, string, string, []byte, bool, *string) (workspaces.Workspace, error)
+	Publish(workspaces.Workspace, string, string, workspaces.PublishRequest) (storage.ObjectID, []string, error)
 }
 
-func registerContributionOpportunitiesHTTP(mux *http.ServeMux, store *contributionopportunities.Store, repos opportunityRepositories, credentials authStore, issueStore *issues.Store, proposalStore *proposals.Store, organizationStore *organizations.Store, pathways contributorPathwayStore, workspaceStore workspaceStore, runner opportunityRunner) {
+func registerContributionOpportunitiesHTTP(mux *http.ServeMux, store *contributionopportunities.Store, repos opportunityRepositories, credentials authStore, issueStore *issues.Store, proposalStore *proposals.Store, organizationStore *organizations.Store, pathways contributorPathwayStore, workspaceStore workspaceStore, runner opportunityRunner, extras ...any) {
+	var pulls pullRequestStore
+	var checks checkRunStarter
+	for _, extra := range extras {
+		switch value := extra.(type) {
+		case pullRequestStore:
+			pulls = value
+		case checkRunStarter:
+			checks = value
+		}
+	}
 	access := func(w http.ResponseWriter, r *http.Request, write bool) (string, bool) {
 		_, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, write)
 		return actor.UserID, ok
@@ -251,6 +263,157 @@ func registerContributionOpportunitiesHTTP(mux *http.ServeMux, store *contributi
 			return
 		}
 		writeJSON(w, 201, report)
+	})
+	mux.HandleFunc("POST /repositories/{repository}/contribution-opportunities/{opportunity}/publication", func(w http.ResponseWriter, r *http.Request) {
+		upstream, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			WorkspaceRepositoryID string                         `json:"workspace_repository_id"`
+			WorkspaceID           string                         `json:"workspace_id"`
+			CheckpointID          string                         `json:"checkpoint_id"`
+			Branch                string                         `json:"branch"`
+			TargetBranch          string                         `json:"target_branch"`
+			Title                 string                         `json:"title"`
+			Message               string                         `json:"message"`
+			DryRun                bool                           `json:"dry_run"`
+			AcceptanceCriteria    []pullrequests.CriterionStatus `json:"acceptance_criteria"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		o, err := store.Get(string(upstream.ID), r.PathValue("opportunity"))
+		if opportunityError(w, err) {
+			return
+		}
+		collaboration, err := store.Collaboration(string(upstream.ID), o.ID)
+		if opportunityError(w, err) {
+			return
+		}
+		fork, err := repos.Inspect(storage.ID(in.WorkspaceRepositoryID))
+		if err != nil || fork.OwnerID != actor.UserID || fork.UpstreamID != upstream.ID || collaboration.ContributorID != actor.UserID || collaboration.WorkspaceRepositoryID != string(fork.ID) || collaboration.WorkspaceID != in.WorkspaceID {
+			writeJSON(w, 422, map[string]string{"error": "invalid_opportunity_workspace"})
+			return
+		}
+		workspace, err := workspaceStore.Get(string(fork.ID), in.WorkspaceID)
+		if err != nil || workspace.Context.Type != "contribution_opportunity" || workspace.Context.ID != o.ID || workspace.Context.UpstreamRepositoryID != string(upstream.ID) || workspace.Revision != o.Revision {
+			writeJSON(w, 422, map[string]string{"error": "invalid_opportunity_workspace"})
+			return
+		}
+		var checkpoint *workspaces.Checkpoint
+		for i := range workspace.Checkpoints {
+			if workspace.Checkpoints[i].ID == in.CheckpointID {
+				checkpoint = &workspace.Checkpoints[i]
+			}
+		}
+		blocking, coaching := []map[string]string{}, []map[string]string{}
+		add := func(dst *[]map[string]string, code, message string) {
+			*dst = append(*dst, map[string]string{"code": code, "message": message})
+		}
+		pathwayVersion, acknowledged := int64(0), false
+		if pathway, e := pathways.Get(string(upstream.ID)); e == nil {
+			pathwayVersion = pathway.CurrentVersion
+			for _, a := range pathway.Acknowledgements {
+				acknowledged = acknowledged || a.ActorID == actor.UserID && a.Version == pathwayVersion
+			}
+		}
+		if pathwayVersion == 0 || workspace.Context.GuidanceVersion != pathwayVersion {
+			add(&blocking, "current_pathway_required", "Restart or refresh the workspace against the current contributor pathway.")
+		} else if !acknowledged {
+			add(&blocking, "pathway_acknowledgement_required", "Acknowledge the contributor pathway revision used by this workspace.")
+		}
+		if checkpoint == nil {
+			add(&blocking, "checkpoint_required", "Select an existing workspace checkpoint.")
+		} else if !checkpoint.Status.Reproducible {
+			add(&blocking, "reproducible_checkpoint_required", "Resolve the checkpoint's setup or dependency omissions before publication.")
+		} else if checkpoint.Publication != nil {
+			add(&blocking, "unpublished_checkpoint_required", "Create a new checkpoint for work that has not already been published.")
+		}
+		if collaboration.State == "exited" {
+			add(&blocking, "active_contribution_required", "The exited contribution must be reclaimed before publication.")
+		}
+		if strings.TrimSpace(in.Branch) == "" || strings.HasPrefix(strings.TrimSpace(in.Branch), "refs/") || strings.TrimSpace(in.TargetBranch) == "" || strings.TrimSpace(in.Title) == "" || strings.TrimSpace(in.Message) == "" {
+			add(&blocking, "publication_details_required", "Provide a source branch, target branch, title, and commit message.")
+		}
+		var target storage.Reference
+		if opened, e := repos.Open(upstream.ID); e != nil {
+			add(&blocking, "target_branch_unavailable", "The upstream repository is unavailable.")
+		} else if ref, e := opened.ReadReference(storage.ReferenceName("refs/heads/" + strings.TrimSpace(in.TargetBranch))); e != nil {
+			add(&blocking, "target_branch_unavailable", "Select an existing upstream target branch.")
+		} else {
+			target = ref
+		}
+		provided := map[string]pullrequests.CriterionStatus{}
+		for _, c := range in.AcceptanceCriteria {
+			provided[strings.TrimSpace(c.Criterion)] = c
+		}
+		acceptedCriteria := make([]pullrequests.CriterionStatus, 0, len(o.AcceptanceCriteria))
+		for _, criterion := range o.AcceptanceCriteria {
+			c, exists := provided[criterion]
+			if !exists || c.Status != "satisfied" || strings.TrimSpace(c.Evidence) == "" {
+				add(&blocking, "acceptance_evidence_required", "Record satisfied evidence for: "+criterion)
+			} else {
+				acceptedCriteria = append(acceptedCriteria, pullrequests.CriterionStatus{Criterion: criterion, Status: "satisfied", Evidence: strings.TrimSpace(c.Evidence)})
+			}
+		}
+		mentorGuidance, agentAssistance := []string{}, []string{}
+		for _, event := range collaboration.Events {
+			if (event.Kind == "question" || event.Kind == "checkpoint_request") && !event.Resolved {
+				add(&coaching, "open_coaching_thread", event.Message)
+			}
+			if (event.Role == "mentor" || event.Role == "maintainer") && (event.Kind == "advice" || event.Kind == "answer") {
+				mentorGuidance = append(mentorGuidance, event.Message)
+			}
+			if event.Role == "agent" {
+				agentAssistance = append(agentAssistance, event.Message)
+			}
+		}
+		if len(mentorGuidance) == 0 {
+			add(&coaching, "no_mentor_guidance", "No mentor guidance is attached; this does not block project review.")
+		}
+		if len(agentAssistance) == 0 {
+			add(&coaching, "no_agent_assistance", "No agent assistance is attached; this does not block project review.")
+		}
+		preflight := map[string]any{"ready": len(blocking) == 0, "blocking_requirements": blocking, "coaching_needs": coaching}
+		if in.DryRun || len(blocking) > 0 {
+			status := 200
+			if !in.DryRun {
+				status = 409
+			}
+			writeJSON(w, status, preflight)
+			return
+		}
+		if pulls == nil {
+			writeJSON(w, 500, map[string]string{"error": "publication_unavailable"})
+			return
+		}
+		targetName := strings.TrimSpace(in.TargetBranch)
+		commit, contributors, e := runner.Publish(workspace, actor.UserID, in.CheckpointID, workspaces.PublishRequest{Branch: in.Branch, Message: in.Message})
+		if e != nil {
+			writeJSON(w, 409, map[string]string{"error": "checkpoint_publication_conflict"})
+			return
+		}
+		commands, dependencies := []string{}, []string{}
+		if checkpoint != nil {
+			commands = checkpoint.Reproducibility.Commands
+			dependencies = checkpoint.Reproducibility.Dependencies
+		}
+		context := &pullrequests.ContributionContext{OpportunityID: o.ID, PathwayVersion: pathwayVersion, PathwayAcknowledged: true, SetupCommands: commands, SetupDependencies: dependencies, MentorGuidance: mentorGuidance, AgentAssistance: agentAssistance, AcceptanceCriteria: acceptedCriteria, ContributorIDs: contributors}
+		body := "Guided contribution for opportunity `" + o.ID + "`.\n\n" + in.Message + "\n\nAcceptance criteria and onboarding support are retained in the structured contribution context."
+		created, e := pulls.Create(pullrequests.CreateParams{RepositoryID: string(upstream.ID), SourceRepositoryID: string(fork.ID), AuthorID: actor.UserID, Title: in.Title, Body: body, SourceBranch: strings.TrimSpace(in.Branch), TargetBranch: targetName, SourceCommitID: string(commit), TargetCommitID: string(target.ObjectID), WorkspaceID: workspace.ID, CheckpointID: in.CheckpointID, ContributorIDs: contributors, ContributionContext: context})
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_pull_request"})
+			return
+		}
+		if _, e = workspaceStore.LinkPublicationPullRequest(string(fork.ID), workspace.ID, in.CheckpointID, created.ID); e != nil {
+			writeJSON(w, 500, map[string]string{"error": "publication_link_failed"})
+			return
+		}
+		if checks != nil {
+			_ = checks.Start(string(upstream.ID), string(fork.ID), created.ID, string(commit))
+		}
+		writeJSON(w, 201, map[string]any{"preflight": preflight, "pull_request": created, "ordinary_governance": true})
 	})
 	role := func(repo repositories.Repository, o contributionopportunities.Opportunity, c contributionopportunities.Collaboration, actor string) string {
 		if actor == c.ContributorID {
