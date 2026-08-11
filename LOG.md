@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-11T16:09:12Z: Completed guided contribution trust outcomes: owners can immutably record server-verified merged/released contributor credit, feedback, support effort, readiness, and a next opportunity, and the Contribute surface exposes that record without granting authority. Existing claim release and safe setup-friction reporting provide abandoned-work and broken-onboarding recovery.
+
 2026-08-11T11:08:52Z: Added immutable repository contributor pathways covering goals, prerequisites, conduct/security/setup/communication/review guidance and human/agent work categories. Exact documentation/workspace revisions and linked ownership, release, issue, and proposal resources now report live current/stale/inaccessible health; the Contribute workspace retains attributed versions and acknowledgements without granting authority.
 
 2026-08-11T08:34:10Z: Connected confirmed issue failures to ordinary human/Codex proposal-task assignments with immutable reproduction, diagnosis, revision, and acceptance context. Only the resulting task pull request can report progress back to the issue, while existing credentials, repository permissions, checks, review, and merge controls remain authoritative.

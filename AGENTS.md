@@ -94,6 +94,12 @@ version, setup commands and dependencies, mentor guidance, agent assistance,
 criteria evidence, workspace/checkpoint, and exact contributors. From that
 point ordinary discussion, review, checks, reproduction, acknowledgements,
 queue, and permission policy remain authoritative.
+After that exact guided pull request is merged and included in a release, the
+repository owner records one immutable opportunity outcome containing explicit
+contributor credit, maintainer feedback, measured support hours, readiness for
+later work, and an optional next opportunity. Release inclusion and the guided
+pull-request context are server-verified; the assessment grants no membership
+or authority and remains visible on the Contribute surface.
 
 Contributor participation guidance lives beneath `$CONTRIBUTOR_PATHWAY_ROOT`
 (default `apps/api/data/contributor-pathways`). A repository owner publishes

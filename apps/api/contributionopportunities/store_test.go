@@ -74,3 +74,26 @@ func TestOpportunityRetainsBootstrapContractAndReportsFriction(t *testing.T) {
 		t.Fatalf("credential-like report accepted: %v", err)
 	}
 }
+
+func TestCompletedContributionRetainsTrustOutcome(t *testing.T) {
+	s, _ := New(t.TempDir())
+	in := Input{Source: Source{Kind: "proposal", ResourceID: "p"}, RequiredSkills: []string{"Go"}, Interests: []string{"onboarding"}, ExpectedOutcome: "Improve setup", Scope: []string{"README.md"}, Risk: "low", Assistance: "human_or_agent"}
+	o, err := s.Publish("repo", "owner", "Improve setup", "abc123", "open", true, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := s.Complete("repo", o.ID, "newcomer", "pull-1", "release-1", "Authored the setup repair", "Used feedback well and explained the tradeoff.", 1.5, "ready_with_support", "opportunity-2", "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.ContributorID != "newcomer" || out.SupportHours != 1.5 || out.RecordedByID != "owner" {
+		t.Fatalf("outcome = %#v", out)
+	}
+	data, _ := s.List("repo")
+	if len(data.Outcomes) != 1 || data.Outcomes[0].ReleaseID != "release-1" {
+		t.Fatalf("persisted outcomes = %#v", data.Outcomes)
+	}
+	if _, err = s.Complete("repo", o.ID, "newcomer", "pull-1", "release-1", "credit", "feedback", 1, "ready", "", "owner"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("mutable outcome accepted: %v", err)
+	}
+}
