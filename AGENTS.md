@@ -70,6 +70,18 @@ workspace context at that revision. Contributors can append typed
 `non_reproducible_prerequisite` reports to the opportunity; reports must never
 contain credentials or raw private execution state. Neither a claim nor a
 start grants upstream write authority.
+Each started opportunity also owns a collaboration ledger at its
+`/collaboration` resource. The claimant, designated mentors, repository owner,
+and organization-approved agents use renewable presence, typed questions,
+checkpoint requests, advice, handoffs, interventions, availability, and a
+declared response deadline without making mentors members of the private fork.
+Every entry retains actor role and decision owner. Contributor- or owner-issued
+agent controls are explicit `explain`, `diagnose_setup`, or exact-path `edit`
+modes; pause or revocation immediately blocks later actions, and edits flow
+through the existing workspace mutation boundary with agent authorship. Scope
+change, inactivity, or lost availability ends in an attributable
+`reassignment_required` or `exited` transition that revokes controls while
+preserving the thread and legitimate workspace progress.
 
 Contributor participation guidance lives beneath `$CONTRIBUTOR_PATHWAY_ROOT`
 (default `apps/api/data/contributor-pathways`). A repository owner publishes
