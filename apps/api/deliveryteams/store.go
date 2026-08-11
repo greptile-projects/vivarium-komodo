@@ -88,6 +88,7 @@ type Team struct {
 	CharterHistory []Charter     `json:"charter_history"`
 	Participants   []Participant `json:"participants"`
 	Events         []Event       `json:"events"`
+	Plan           *Plan         `json:"plan,omitempty"`
 	CreatedAt      time.Time     `json:"created_at"`
 	UpdatedAt      time.Time     `json:"updated_at"`
 }
@@ -175,6 +176,12 @@ func (s *Store) read(repo, team string) (Team, error) {
 	var v Team
 	if json.Unmarshal(b, &v) != nil {
 		return Team{}, ErrInvalid
+	}
+	if v.Plan != nil {
+		v.Plan.Current.Blockers = deriveBlockers(v, v.Plan.Current.Streams)
+		if len(v.Plan.Current.Blockers) > 0 && v.Plan.Current.Status == "accepted" {
+			v.Plan.Current.Status = "blocked"
+		}
 	}
 	return v, nil
 }

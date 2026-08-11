@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
@@ -21,6 +22,8 @@ type deliveryTeamStore interface {
 	Respond(string, string, string, string, string, int64) (deliveryteams.Team, error)
 	Remove(string, string, string, string, string, int64) (deliveryteams.Team, error)
 	Replace(string, string, string, string, int64, deliveryteams.ParticipantInput) (deliveryteams.Team, error)
+	ProposePlan(string, string, string, string, int64, deliveryteams.PlanInput) (deliveryteams.Team, error)
+	AcceptPlan(string, string, string, string, int64, int64) (deliveryteams.Team, error)
 }
 type deliveryOrganizationStore interface {
 	Get(string) (organizations.Organization, error)
@@ -166,6 +169,73 @@ func registerDeliveryTeamsHTTP(mux *http.ServeMux, teams deliveryTeamStore, repo
 		}
 		in.Access = preview
 		v, e := teams.Replace(string(repo.ID), r.PathValue("team"), r.PathValue("participant"), a.UserID, in.ExpectedVersion, in.ParticipantInput)
+		writeDeliveryTeamResult(w, v, e, 201)
+	})
+	mux.HandleFunc("POST "+base+"/{team}/plan/versions", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := deliveryRepositoryWriteAccess(w, r, repos, credentials)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64 `json:"expected_version"`
+			deliveryteams.PlanInput
+		}
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		current, e := teams.Get(string(repo.ID), r.PathValue("team"))
+		acting := ""
+		if e == nil && a.UserID != current.OrganizerID {
+			for _, p := range current.Participants {
+				if p.State == "accepted" && ((p.Kind == "human" && p.PrincipalID == a.UserID) || (p.Kind == "agent" && agentOperated(repo, p, a.UserID, orgs))) {
+					acting = p.ID
+					break
+				}
+			}
+			if acting == "" {
+				e = deliveryteams.ErrForbidden
+			}
+		}
+		var v deliveryteams.Team
+		if e == nil {
+			v, e = teams.ProposePlan(string(repo.ID), r.PathValue("team"), a.UserID, acting, in.ExpectedVersion, in.PlanInput)
+		}
+		writeDeliveryTeamResult(w, v, e, 201)
+	})
+	mux.HandleFunc("POST "+base+"/{team}/plan/versions/{planVersion}/acceptances", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := deliveryRepositoryWriteAccess(w, r, repos, credentials)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64  `json:"expected_version"`
+			ParticipantID   string `json:"participant_id"`
+		}
+		if !readJSON(w, r, &in, 8<<10) {
+			return
+		}
+		pv, e := strconv.ParseInt(r.PathValue("planVersion"), 10, 64)
+		if e != nil {
+			writeDeliveryTeamResult(w, deliveryteams.Team{}, deliveryteams.ErrInvalid, 422)
+			return
+		}
+		current, e := teams.Get(string(repo.ID), r.PathValue("team"))
+		var invited *deliveryteams.Participant
+		if e == nil {
+			for i := range current.Participants {
+				if current.Participants[i].ID == in.ParticipantID {
+					invited = &current.Participants[i]
+					break
+				}
+			}
+		}
+		if e == nil && (invited == nil || (invited.Kind == "human" && invited.PrincipalID != a.UserID) || (invited.Kind == "agent" && !agentOperated(repo, *invited, a.UserID, orgs))) {
+			e = deliveryteams.ErrForbidden
+		}
+		var v deliveryteams.Team
+		if e == nil {
+			v, e = teams.AcceptPlan(string(repo.ID), r.PathValue("team"), in.ParticipantID, a.UserID, in.ExpectedVersion, pv)
+		}
 		writeDeliveryTeamResult(w, v, e, 201)
 	})
 }

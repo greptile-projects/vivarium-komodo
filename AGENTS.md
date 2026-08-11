@@ -11,9 +11,16 @@ agent invitations retain complementary roles, rationale, responsibilities,
 individual budgets, deadlines, escalation, acceptance, replacement, and removal.
 Effective-access previews derive only from existing repository roles or current
 organization agent grants and are intersected with the organizer's own authority;
-teams never issue credentials or grant authority. Mutations use optimistic
-concurrency and append attributable events. The shareable repository surface is
-`view=teams&team={id}`; execution planning is a later transition.
+teams never issue credentials or grant authority. Team plans decompose the
+outcome into immutable revision-bound work-stream versions with accepted owners,
+inputs, expected artifacts, dependencies, criteria, repository paths, budgets,
+assumptions, and integration order. Derived blockers expose overlap, missing
+access, budget overflow, incompatible dependency order, and stale upstream
+assumptions; every materially revised plan requires its affected owners to
+accept again. Shared repository scopes at incompatible commits are blockers as
+well. Mutations use optimistic concurrency and append attributable
+events. The shareable repository surface is `view=teams&team={id}`; plans remain
+pre-execution contracts and do not start work or issue credentials.
 
 Guidance for coding agents working in this repository.
 

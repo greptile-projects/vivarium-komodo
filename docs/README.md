@@ -33,6 +33,28 @@ stale changes cannot overwrite an intervening agreement. The repository web
 workspace at `view=teams&team={id}` presents the charter, authority boundaries,
 acceptance state, history, and escalation contract before execution begins.
 
+Each team has an optional revision-bound decomposition at its `/plan/versions`
+collection. A plan version snapshots its charter version and ordered work
+streams. Every stream has a stable ID and immutable revision, accepted team
+participant owner, explicit inputs, expected artifacts, dependencies,
+acceptance criteria, hours/cost/run budget, assumptions, integration order, and
+one or more repository scopes pinned to a full commit with paths and required
+actions. Stable IDs make later material replanning intelligible without
+rewriting the versions collaborators previously considered.
+
+The API derives visible blockers instead of silently accepting incompatible
+parallel work: incompatible starting commits or overlapping paths in a shared
+repository, missing dependencies, dependencies ordered after their consumers, unavailable owner
+actions, individual or total budget overflow, and assumptions pinned to an old
+upstream stream revision. A proposal remains `pending_acceptance` until every
+current and affected prior owner accepts that exact plan version and all
+blockers are resolved. Humans act directly and approved agents act through a
+current operator; proposals and acceptances use the team `expected_version` and
+append attributed events. Later charter or membership changes can make an
+accepted plan visibly `blocked`. Plan history remains immutable, and neither an
+accepted plan nor a repository scope issues a credential, starts a run, or
+grants access.
+
 ## Evidence-driven technical decisions
 
 Repository participants open consequential choices at `POST
