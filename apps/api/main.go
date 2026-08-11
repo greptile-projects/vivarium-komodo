@@ -25,6 +25,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/issues"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
 	packagecatalog "github.com/greptile-projects/vivarium-komodo/apps/api/packages"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/previews"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/questions"
@@ -276,6 +277,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	previewRoot := os.Getenv("PREVIEW_ROOT")
+	if previewRoot == "" {
+		previewRoot = "data/previews"
+	}
+	previewStore, err := previews.New(previewRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	previewRunner := previews.NewRunner(previewStore, repositoryCatalog)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -301,6 +311,7 @@ func main() {
 	registerIssueRepairsHTTP(mux, issueStore, proposalStore, pullRequestStore, repositoryCatalog, credentials, issueReproductionRunner, checkRunStore)
 	registerProposalTaskSessionsHTTP(mux, proposalStore, changeSessionStore, repositoryCatalog, credentials, activityStore, pullRequestStore, checkRunner)
 	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore)
+	registerPreviewsHTTP(mux, previewStore, previewRunner, pullRequestStore, repositoryCatalog, credentials)
 	registerReleasesHTTP(mux, releaseStore, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials)
 	registerPackagesHTTP(mux, packageStore, releaseStore, checkRunStore, repositoryCatalog, credentials)
 	registerPackageRecoveryHTTP(mux, packageStore, dependencyInventoryStore, proposalStore, repositoryCatalog, credentials, activityStore)
