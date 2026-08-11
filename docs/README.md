@@ -2410,3 +2410,18 @@ a new run. They do not rewrite contexts already attached to tasks, sessions, or
 pull requests. Consequently the origin clearly reports invalidation while the
 delivery record continues to identify the exact understanding that initiated
 the work.
+
+## Connected issue repairs
+
+`POST /repositories/{repository}/issues/{issue}/repairs` turns confirmed issue
+evidence into an ordinary assigned proposal task. The request selects the
+completed reproduction, its exact-revision investigation and undisputed
+conclusion, explicit acceptance criteria, and a human participant or `codex`.
+Those values are copied into immutable task reasoning context so later branch
+movement or investigation reruns cannot silently change the starting evidence.
+
+Assignment issues no credential. Owners use existing task change-session or
+shared-workspace paths, then publish an ordinary task pull request. Linking that
+exact task request through the repair's `/pull-request` endpoint gives the issue
+a durable progress record while repository permissions, checks, reviews,
+queues, and owner-only merge policy remain authoritative.
