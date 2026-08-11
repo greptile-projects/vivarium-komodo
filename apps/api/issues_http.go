@@ -598,13 +598,22 @@ func createIssueReproduction(store issueStore, releases issueReleaseStore, repos
 			return
 		}
 		var input struct {
-			Name   string                     `json:"name"`
-			Inputs []issues.ReproductionInput `json:"inputs"`
+			Name      string                     `json:"name"`
+			ReleaseID string                     `json:"release_id"`
+			Inputs    []issues.ReproductionInput `json:"inputs"`
 		}
 		if !readJSON(w, r, &input, 6<<20) {
 			return
 		}
 		revision, releaseID, releaseVersion := item.AffectedCommitID, item.AffectedReleaseID, item.AffectedVersion
+		if input.ReleaseID != "" && input.ReleaseID != releaseID {
+			release, err := releases.Get(string(repo.ID), input.ReleaseID)
+			if err != nil || !issueRepairDeliveredByRelease(item, release) {
+				writeJSON(w, 422, map[string]string{"error": "unverified_repair_release"})
+				return
+			}
+			revision, releaseID, releaseVersion = release.CommitID, release.ID, release.Version
+		}
 		if releaseID != "" {
 			release, err := releases.Get(string(repo.ID), releaseID)
 			if err != nil || release.CommitID != revision {
@@ -645,6 +654,32 @@ func createIssueReproduction(store issueStore, releases issueReleaseStore, repos
 		runner.Start(attempt)
 		writeJSON(w, 202, attempt)
 	}
+}
+
+func issueRepairDeliveredByRelease(item issues.Issue, release releases.Release) bool {
+	for _, repair := range item.Repairs {
+		if repair.PullRequestID == "" {
+			continue
+		}
+		included := false
+		for _, pull := range release.PullRequests {
+			if pull.ID == repair.PullRequestID {
+				included = true
+				break
+			}
+		}
+		if !included {
+			continue
+		}
+		for _, verification := range repair.Verifications {
+			for _, decision := range verification.Decisions {
+				if decision.Revision == verification.Revision && decision.EvidenceDigest != "" && (decision.Kind == "confirmed" || decision.Kind == "override") {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func listIssueReproductions(store issueStore, repositories issueRepositoryStore, credentials authStore) http.HandlerFunc {
