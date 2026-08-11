@@ -82,6 +82,18 @@ through the existing workspace mutation boundary with agent authorship. Scope
 change, inactivity, or lost availability ends in an attributable
 `reassignment_required` or `exited` transition that revokes controls while
 preserving the thread and legitimate workspace progress.
+An opportunity claimant publishes a safe workspace checkpoint through the
+upstream opportunity's `/publication` action. Preflight requires the exact
+current pathway acknowledgement, the opportunity revision and workspace,
+reproducible checkpoint evidence, and satisfied evidence for every acceptance
+criterion; its response separates blocking project requirements from
+non-blocking coaching needs. Publication writes only the verified checkpoint to
+the claimant's fork and opens an ordinary cross-repository pull request against
+the upstream repository. The pull request retains the opportunity, pathway
+version, setup commands and dependencies, mentor guidance, agent assistance,
+criteria evidence, workspace/checkpoint, and exact contributors. From that
+point ordinary discussion, review, checks, reproduction, acknowledgements,
+queue, and permission policy remain authoritative.
 
 Contributor participation guidance lives beneath `$CONTRIBUTOR_PATHWAY_ROOT`
 (default `apps/api/data/contributor-pathways`). A repository owner publishes

@@ -70,6 +70,34 @@ record `reassignment_required` or `exited`; that terminal transition revokes
 agent controls and presence but retains questions, advice, handoffs, edits,
 checkpoints, and other legitimate progress.
 
+### Publishing a guided contribution
+
+The active claimant preflights or publishes a checkpoint at `POST
+/repositories/{upstream}/contribution-opportunities/{opportunity}/publication`.
+The request identifies the private fork workspace, immutable checkpoint,
+source and target branches, pull-request title, commit message, and one
+`satisfied` evidence statement for every opportunity acceptance criterion.
+Set `dry_run` to inspect the same requirements without writing Git or creating
+a pull request.
+
+Preflight reports `blocking_requirements` separately from `coaching_needs`.
+Blocking omissions include a missing acknowledgement of the current pathway,
+a stale opportunity workspace, a missing or non-reproducible checkpoint, and
+incomplete acceptance evidence. Unresolved questions or absent mentor/agent
+support stay visible as coaching context but do not impersonate repository
+policy or prevent a contributor from requesting review.
+
+Successful publication reconstructs and pushes only the verified checkpoint
+content to the contributor-owned fork, then creates an ordinary cross-repository
+pull request upstream. Its structured `contribution_context` retains the
+opportunity, exact pathway version and acknowledgement, declared setup commands
+and dependencies, safe mentor guidance and agent assistance summaries,
+acceptance evidence, workspace/checkpoint IDs, and exact file contributors.
+The platform immediately starts ordinary commit-bound checks. Discussion,
+reviews, reproductions, required checks, owner acknowledgement, protected
+integration queues, and merge permissions continue through the established
+pull-request workflow.
+
 Repository owners publish the project participation contract at `POST
 /repositories/{repository}/contributor-pathway/versions`. Each immutable
 version gathers project goals, prerequisites, conduct and private-security
