@@ -77,20 +77,23 @@ type Event struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 type Team struct {
-	ID             string        `json:"id"`
-	RepositoryID   string        `json:"repository_id"`
-	Name           string        `json:"name"`
-	Source         Outcome       `json:"source"`
-	OrganizerID    string        `json:"organizer_id"`
-	State          string        `json:"state"`
-	Version        int64         `json:"version"`
-	Charter        Charter       `json:"charter"`
-	CharterHistory []Charter     `json:"charter_history"`
-	Participants   []Participant `json:"participants"`
-	Events         []Event       `json:"events"`
-	Plan           *Plan         `json:"plan,omitempty"`
-	CreatedAt      time.Time     `json:"created_at"`
-	UpdatedAt      time.Time     `json:"updated_at"`
+	ID             string          `json:"id"`
+	RepositoryID   string          `json:"repository_id"`
+	Name           string          `json:"name"`
+	Source         Outcome         `json:"source"`
+	OrganizerID    string          `json:"organizer_id"`
+	State          string          `json:"state"`
+	Version        int64           `json:"version"`
+	Charter        Charter         `json:"charter"`
+	CharterHistory []Charter       `json:"charter_history"`
+	Participants   []Participant   `json:"participants"`
+	Events         []Event         `json:"events"`
+	Plan           *Plan           `json:"plan,omitempty"`
+	Executions     []Execution     `json:"executions"`
+	Timeline       []TimelineEntry `json:"timeline"`
+	Handoffs       []Handoff       `json:"handoffs"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 type CharterInput struct {
 	Outcome             string     `json:"outcome"`
@@ -215,7 +218,7 @@ func (s *Store) Create(repo, name, actor string, source Outcome, in CharterInput
 	if e != nil {
 		return Team{}, e
 	}
-	v := Team{ID: id(), RepositoryID: repo, Name: name, Source: source, OrganizerID: actor, State: "forming", Version: 1, Charter: c, CharterHistory: []Charter{c}, Participants: []Participant{}, Events: []Event{{Sequence: 1, Type: "team.created", ActorID: actor, Detail: source.Kind + ":" + source.ID, CreatedAt: now}}, CreatedAt: now, UpdatedAt: now}
+	v := Team{ID: id(), RepositoryID: repo, Name: name, Source: source, OrganizerID: actor, State: "forming", Version: 1, Charter: c, CharterHistory: []Charter{c}, Participants: []Participant{}, Events: []Event{{Sequence: 1, Type: "team.created", ActorID: actor, Detail: source.Kind + ":" + source.ID, CreatedAt: now}}, Executions: []Execution{}, Timeline: []TimelineEntry{}, Handoffs: []Handoff{}, CreatedAt: now, UpdatedAt: now}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return v, s.write(v)
