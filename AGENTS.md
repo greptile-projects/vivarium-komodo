@@ -44,7 +44,12 @@ pause, resume, and cancellation may target a stream or the effort; operational
 reassignment must use an accepted participant with existing effective actions,
 and narrowing must remain within accepted paths. Controls preserve accepted
 work, never rewrite plan ownership, never expand authority, and do not bypass
-the attached resource's own control or credential contract.
+the attached resource's own control or credential contract. Team integration
+reconciliations bind accepted streams, exact Git tips, conflict results, cited
+evidence, handoffs, criteria, and risks in integration order. Only ready
+reconciliations publish ordinary pull requests and checks; review, queues,
+release policy, repository permissions, and owner-only merge authority remain
+unchanged.
 
 Guidance for coding agents working in this repository.
 

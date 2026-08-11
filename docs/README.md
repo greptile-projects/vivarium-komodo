@@ -108,6 +108,23 @@ and always report `expands_authority: false`. They coordinate the public team
 contract but do not impersonate or directly mutate an attached execution
 resource; its established control and credential boundaries remain authoritative.
 
+Completed streams become reviewable through an immutable team reconciliation at
+`POST .../integration/reconciliations`. Each contribution names its branch,
+cited timeline entries, accepted handoffs, criterion evidence, and residual
+risks. The API derives exact branch tips and merge conflicts from Git, orders
+contributions by the accepted plan, and exposes every missing stream, stale
+evidence, unaccepted handoff, unmet criterion, and conflict. Blocked attempts
+remain retained and cannot publish; later attempts append instead of rewriting.
+
+A ready stream publishes through the reconciliation's
+`/streams/{stream}/pull-request` resource. This creates an ordinary commit-bound
+pull request, starts declared checks, and links it back to the exact team plan
+and reconciliation. Review-facing evidence retains participants, timeline and
+handoff IDs, criteria, stream costs, decisions, and residual risks. Existing
+review, owner approval, required-check, protected-queue, release, and repository
+permission rules remain authoritative: team membership grants no credential or
+merge authority.
+
 ## Evidence-driven technical decisions
 
 Repository participants open consequential choices at `POST

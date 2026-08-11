@@ -95,6 +95,7 @@ type Team struct {
 	StreamRuns     []StreamRun     `json:"stream_runs"`
 	Controls       []Control       `json:"controls"`
 	Runtime        RuntimeView     `json:"runtime"`
+	Integrations   []Integration   `json:"integrations"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
