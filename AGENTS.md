@@ -107,6 +107,17 @@ shared workspaces. Only a pull request published from that exact task may be
 linked at `/repairs/{repair}/pull-request`; the issue grants no Git,
 repository-write, review, or merge authority.
 
+Candidate repair verification extends the linked repair beneath
+`/repairs/{repair}/verifications`. Bind each attempt to the pull request's exact
+source commit, replay the retained sanitized reproduction in a clean
+credential-free environment, and join only required checks from that revision.
+Retain definition, input, environment, acceptance-criteria, check, and outcome
+fingerprints; changed manifests, inputs, check evidence, or pull request
+revisions invalidate prior confirmation. Reporter confirmation or rejection is
+append-only. Owner overrides require a reason and preserve reporter dissent.
+Safe previews remain retained reproduction evidence under the issue read policy
+and grant no execution or repository access.
+
 ## What this is
 
 A Bun workspace monorepo with two apps:

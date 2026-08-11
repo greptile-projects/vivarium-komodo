@@ -2425,3 +2425,23 @@ shared-workspace paths, then publish an ordinary task pull request. Linking that
 exact task request through the repair's `/pull-request` endpoint gives the issue
 a durable progress record while repository permissions, checks, reviews,
 queues, and owner-only merge policy remain authoritative.
+
+### Candidate repair verification
+
+After linking the task pull request, a participant can `POST
+.../repairs/{repair}/verifications` to bind verification to the pull request's
+exact source commit. The candidate reproduction manifest must match the retained
+definition and environment before the original sanitized inputs and command are
+replayed in a new credential-free, networkless Bubblewrap snapshot.
+
+`GET .../verifications/{verification}` joins that attempt with required checks
+from the same commit and the unchanged acceptance criteria. Its evidence digest
+covers revision, definition, inputs, criteria, reproduction, and check outcomes.
+A declared preview artifact is returned only through the issue visibility
+boundary as retained evidence. Revision, input, manifest, or check changes make
+prior confirmation stale.
+
+Only the reporter appends `confirmed` or `rejected` decisions. Confirmation
+requires that the retained failure no longer reproduces and all required checks
+succeed. The owner may append a reasoned `override` under the same conditions;
+it never replaces reporter dissent.
