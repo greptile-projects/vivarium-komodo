@@ -20,6 +20,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/incidents"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/integrationqueue"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/investigations"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/issues"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
 	packagecatalog "github.com/greptile-projects/vivarium-komodo/apps/api/packages"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
@@ -147,6 +148,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	issueRoot := os.Getenv("ISSUE_ROOT")
+	if issueRoot == "" {
+		issueRoot = "data/issues"
+	}
+	issueStore, err := issues.New(issueRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	changeSessionRoot := os.Getenv("CHANGE_SESSION_ROOT")
 	if changeSessionRoot == "" {
 		changeSessionRoot = "data/change-sessions"
@@ -267,6 +276,7 @@ func main() {
 	registerReasoningWorkHTTP(mux, investigationStore, impactStore, proposalStore, repositoryCatalog, credentials)
 	registerCollaboratorsHTTP(mux, repositoryCatalog, userStore, credentials, activityStore)
 	registerProposalsHTTP(mux, proposalStore, repositoryCatalog, credentials, activityStore)
+	registerIssuesHTTP(mux, issueStore, releaseStore, repositoryCatalog, credentials)
 	registerProposalTaskSessionsHTTP(mux, proposalStore, changeSessionStore, repositoryCatalog, credentials, activityStore, pullRequestStore, checkRunner)
 	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore)
 	registerReleasesHTTP(mux, releaseStore, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials)

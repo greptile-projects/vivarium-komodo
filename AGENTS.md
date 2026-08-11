@@ -57,6 +57,20 @@ team publication without erasing accepted progress.
 
 Guidance for coding agents working in this repository.
 
+Ordinary unexpected-behavior reports live beneath `$ISSUE_ROOT` (default
+`apps/api/data/issues`) and are owned by the `issues.Store` boundary. An
+authenticated repository reader may open one against the repository or an
+existing release, with required expected and observed behavior, severity,
+environment, and ordered reproduction steps. Evidence is limited to typed
+logs, screenshots, traces, and sample inputs: at most ten attachments, one MiB
+each and five MiB total. Reporters choose public or repository-participant
+visibility; list summaries omit evidence bodies and duplicate suggestions are
+computed only from issues already visible to the caller. Discussion and status
+changes append attributable history, and only the reporter or repository owner
+may close or reopen a report. The shareable web surface is
+`view=issues&issue={id}`; later reproduction and resolution workflows should
+extend these issue resources rather than copying evidence into another store.
+
 ## What this is
 
 A Bun workspace monorepo with two apps:
