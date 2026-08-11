@@ -8,6 +8,7 @@ import { GroundedQuestions } from "@/components/grounded-questions";
 import { CollaborativeInvestigations } from "@/components/collaborative-investigations";
 import { ImpactAssessments } from "@/components/impact-assessments";
 import { TechnicalDecisions } from "@/components/technical-decisions";
+import { DeliveryTeams } from "@/components/delivery-teams";
 import {
   Book,
   Branch,
@@ -1179,6 +1180,7 @@ export default function RepositoryPage({
     conversation?: string;
     assessment?: string;
     decision?: string;
+    team?: string;
   }>;
 }) {
   const { id } = use(params);
@@ -1211,6 +1213,8 @@ export default function RepositoryPage({
                           ? "impact"
                           : query.view === "decisions"
                             ? "decisions"
+                            : query.view === "teams"
+                              ? "teams"
                       : query.view === "people"
                         ? "people"
                         : "code";
@@ -1265,6 +1269,7 @@ export default function RepositoryPage({
         view === "intelligence" ||
         view === "investigations" ||
         view === "decisions" ||
+        view === "teams" ||
         view === "people" ||
         repo.empty ||
         !selected
@@ -1330,6 +1335,7 @@ export default function RepositoryPage({
       nextView !== "relationships" &&
       nextView !== "releases" &&
       nextView !== "workspaces" &&
+      nextView !== "teams" &&
       nextView !== "people"
     ) {
       const nextRef = next.ref ?? ref;
@@ -1482,6 +1488,13 @@ export default function RepositoryPage({
       )}
       <nav className="repository-tabs" aria-label="Repository">
         <button
+          className={view === "teams" ? "active" : ""}
+          onClick={() => navigate({ view: "teams", path: "" })}
+        >
+          <User size={15} />
+          Delivery teams
+        </button>
+        <button
           className={view === "decisions" ? "active" : ""}
           onClick={() => navigate({ view: "decisions", path: "" })}
         >
@@ -1593,6 +1606,8 @@ export default function RepositoryPage({
           initialState={query.state}
           initialQuery={query.q}
         />
+      ) : view === "teams" ? (
+        <DeliveryTeams repository={repository.id} actor={actor} selected={query.team} />
       ) : view === "decisions" ? (
         <TechnicalDecisions repository={repository} actor={actor} selected={query.decision} />
       ) : view === "pulls" ? (

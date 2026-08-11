@@ -3,6 +3,36 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Pre-execution delivery teams
+
+Repository collaborators form a temporary delivery team at `POST
+/repositories/{repository}/delivery-teams` around a proposal, organization
+initiative, accepted decision, incident follow-up, or another named planned
+outcome. The first charter and every later version retain the shared outcome,
+success measures, operating principles, total hours/cost-unit/agent-run budget,
+deadline, default escalation path, author, and reason for change. Team data is
+stored beneath `$DELIVERY_TEAM_ROOT`, defaulting to `data/delivery-teams` from
+the API working directory.
+
+Participant invitations declare `human` or `agent`, the stable principal ID,
+complementary role, why that participant is needed, responsibilities, an
+individual budget and deadline, escalation target, and requested actions.
+Humans must already participate in the repository. Agents must be registered
+with the repository-owning organization and their preview derives from active,
+unexpired organization role grants over that repository. In both cases the API
+intersects effective actions with the organizer's own authority and reports
+unavailable requests explicitly. The preview always states
+`grants_authority: false`: forming a team creates neither a credential nor a new
+repository, Git, merge, deployment, or agent permission.
+
+Invitees accept or decline explicitly; approved-agent operators respond for an
+agent. Accepted human members may collaboratively revise the charter, while
+replacement and removal preserve the old participant record. Every mutation
+uses `expected_version` and appends an actor-attributed event, so concurrent or
+stale changes cannot overwrite an intervening agreement. The repository web
+workspace at `view=teams&team={id}` presents the charter, authority boundaries,
+acceptance state, history, and escalation contract before execution begins.
+
 ## Evidence-driven technical decisions
 
 Repository participants open consequential choices at `POST
