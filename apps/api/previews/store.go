@@ -24,12 +24,38 @@ type Resources struct {
 	LifetimeMinutes     int `json:"lifetime_minutes"`
 }
 type Definition struct {
-	Version       int       `json:"version"`
-	Build         []string  `json:"build"`
-	Start         string    `json:"start"`
-	Port          int       `json:"port"`
-	Configuration []string  `json:"configuration,omitempty"`
-	Resources     Resources `json:"resources"`
+	Version       int            `json:"version"`
+	Build         []string       `json:"build"`
+	Start         string         `json:"start"`
+	Port          int            `json:"port"`
+	Configuration []string       `json:"configuration,omitempty"`
+	Resources     Resources      `json:"resources"`
+	Audience      AudiencePolicy `json:"audience"`
+}
+type AudiencePolicy struct {
+	Network  string   `json:"network"`
+	Data     string   `json:"data"`
+	Identity string   `json:"identity"`
+	Actions  []string `json:"actions"`
+}
+type Invitation struct {
+	ID          string     `json:"id"`
+	UserID      string     `json:"user_id"`
+	Role        string     `json:"role"`
+	SourceKind  string     `json:"source_kind"`
+	SourceID    string     `json:"source_id,omitempty"`
+	InvitedByID string     `json:"invited_by_id"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ExpiresAt   time.Time  `json:"expires_at"`
+	RevokedAt   *time.Time `json:"revoked_at,omitempty"`
+	RevokedByID string     `json:"revoked_by_id,omitempty"`
+}
+type AccessEvent struct {
+	Sequence     int64     `json:"sequence"`
+	Type         string    `json:"type"`
+	ActorID      string    `json:"actor_id"`
+	InvitationID string    `json:"invitation_id"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 type Attestation struct {
 	CommitID            string `json:"commit_id"`
@@ -66,6 +92,8 @@ type Preview struct {
 	StoppedAt          *time.Time        `json:"stopped_at,omitempty"`
 	ExpiresAt          time.Time         `json:"expires_at"`
 	LocalPort          int               `json:"local_port,omitempty"`
+	Invitations        []Invitation      `json:"invitations"`
+	AccessEvents       []AccessEvent     `json:"access_events"`
 }
 
 var ErrNotFound = errors.New("preview not found")
@@ -171,6 +199,60 @@ func (s *Store) Transition(id, state, url, failure string, port int) (Preview, e
 	}
 	p.Events = append(p.Events, Event{Sequence: int64(len(p.Events) + 1), Type: "state", State: state, Message: failure, CreatedAt: now})
 	return p, s.write(p)
+}
+func (s *Store) Invite(repo, pull, id, actor string, in Invitation) (Preview, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, e := s.read(id)
+	if e != nil || p.RepositoryID != repo || p.PullRequestID != pull {
+		return Preview{}, ErrNotFound
+	}
+	if in.UserID == "" || (in.Role != "view" && in.Role != "test" && in.Role != "feedback") || in.ExpiresAt.Before(s.now()) || in.ExpiresAt.After(p.ExpiresAt) {
+		return Preview{}, errors.New("invalid invitation")
+	}
+	b := make([]byte, 12)
+	if _, e = rand.Read(b); e != nil {
+		return Preview{}, e
+	}
+	now := s.now().UTC()
+	in.ID, in.InvitedByID, in.CreatedAt = hex.EncodeToString(b), actor, now
+	p.Invitations = append(p.Invitations, in)
+	p.AccessEvents = append(p.AccessEvents, AccessEvent{Sequence: int64(len(p.AccessEvents) + 1), Type: "invited", ActorID: actor, InvitationID: in.ID, CreatedAt: now})
+	return p, s.write(p)
+}
+func (s *Store) Revoke(repo, pull, id, invitation, actor string) (Preview, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, e := s.read(id)
+	if e != nil || p.RepositoryID != repo || p.PullRequestID != pull {
+		return Preview{}, ErrNotFound
+	}
+	now := s.now().UTC()
+	for i := range p.Invitations {
+		if p.Invitations[i].ID == invitation && p.Invitations[i].RevokedAt == nil {
+			p.Invitations[i].RevokedAt = &now
+			p.Invitations[i].RevokedByID = actor
+			p.AccessEvents = append(p.AccessEvents, AccessEvent{Sequence: int64(len(p.AccessEvents) + 1), Type: "revoked", ActorID: actor, InvitationID: invitation, CreatedAt: now})
+			return p, s.write(p)
+		}
+	}
+	return Preview{}, ErrNotFound
+}
+func (s *Store) Authorize(repo, pull, id, user string) (Preview, Invitation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, e := s.read(id)
+	if e != nil || p.RepositoryID != repo || p.PullRequestID != pull {
+		return Preview{}, Invitation{}, ErrNotFound
+	}
+	now := s.now().UTC()
+	for _, in := range p.Invitations {
+		if in.UserID == user && in.RevokedAt == nil && now.Before(in.ExpiresAt) {
+			p.AccessEvents = append(p.AccessEvents, AccessEvent{Sequence: int64(len(p.AccessEvents) + 1), Type: "entered", ActorID: user, InvitationID: in.ID, CreatedAt: now})
+			return p, in, s.write(p)
+		}
+	}
+	return Preview{}, Invitation{}, ErrNotFound
 }
 func (s *Store) read(id string) (Preview, error) {
 	b, e := os.ReadFile(filepath.Join(s.root, id+".json"))

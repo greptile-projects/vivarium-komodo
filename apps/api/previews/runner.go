@@ -41,6 +41,9 @@ func (r *Runner) Definition(repo, revision string) (Definition, string, error) {
 	dec := json.NewDecoder(strings.NewReader(string(raw)))
 	dec.DisallowUnknownFields()
 	e = dec.Decode(&d)
+	if d.Audience.Network == "" {
+		d.Audience = AudiencePolicy{Network: "none", Data: "synthetic", Identity: "anonymous", Actions: []string{"navigate"}}
+	}
 	if e == nil {
 		e = validate(d)
 	}
@@ -51,6 +54,24 @@ func validate(d Definition) error {
 	r := d.Resources
 	if d.Version != 1 || len(d.Build) > 20 || strings.TrimSpace(d.Start) == "" || len(d.Start) > 4000 || d.Port < 1 || d.Port > 65535 || len(d.Configuration) > 30 || r.CPUSeconds < 1 || r.CPUSeconds > 3600 || r.MemoryMB < 128 || r.MemoryMB > 16384 || r.DiskMB < 128 || r.DiskMB > 20480 || r.BuildTimeoutSeconds < 1 || r.BuildTimeoutSeconds > 3600 || r.LifetimeMinutes < 1 || r.LifetimeMinutes > 1440 {
 		return errors.New("invalid preview definition")
+	}
+	if d.Audience.Network == "" {
+		d.Audience.Network = "none"
+	}
+	if d.Audience.Data == "" {
+		d.Audience.Data = "synthetic"
+	}
+	if d.Audience.Identity == "" {
+		d.Audience.Identity = "anonymous"
+	}
+	if d.Audience.Network != "none" && d.Audience.Network != "repository_allowlist" || d.Audience.Data != "synthetic" && d.Audience.Data != "masked" || d.Audience.Identity != "anonymous" && d.Audience.Identity != "preview_alias" {
+		return errors.New("invalid audience policy")
+	}
+	allowedActions := map[string]bool{"navigate": true, "submit_test_data": true, "comment": true}
+	for _, a := range d.Audience.Actions {
+		if !allowedActions[a] {
+			return errors.New("invalid audience action")
+		}
 	}
 	seen := map[string]bool{}
 	for _, c := range d.Build {

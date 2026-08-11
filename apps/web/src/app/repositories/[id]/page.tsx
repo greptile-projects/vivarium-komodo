@@ -515,7 +515,9 @@ type Preview = {
   created_at: string;
   expires_at: string;
   build_attestation: { definition_digest: string; configuration_digest: string };
-  definition: { version: number; configuration?: string[]; resources: { cpu_seconds: number; memory_mb: number; disk_mb: number; lifetime_minutes: number } };
+  definition: { version: number; configuration?: string[]; audience: { network: string; data: string; identity: string; actions: string[] }; resources: { cpu_seconds: number; memory_mb: number; disk_mb: number; lifetime_minutes: number } };
+  invitations: Array<{ id: string; user_id: string; role: "view" | "test" | "feedback"; source_kind: string; source_id?: string; invited_by_id: string; expires_at: string; revoked_at?: string }>;
+  access_events: Array<{ sequence: number; type: string; actor_id: string; invitation_id: string; created_at: string }>;
   events: Array<{ sequence: number; type: string; state?: string; stream?: string; message?: string; command?: string; exit_code?: number }>;
 };
 type PreviewList = { items: Preview[] };
@@ -9585,6 +9587,7 @@ function PullPreviews({ repository, pull, actor, previews, onChanged }: { reposi
       setError(cause instanceof Error ? cause.message : "Preview could not be launched.");
     } finally { setBusy(false); }
   };
+  const invite = async (preview: Preview, form: HTMLFormElement) => { const values=new FormData(form); setBusy(true);setError("");try{await send(`/repositories/${repository}/pull-requests/${pull.id}/previews/${preview.id}/invitations`,"POST",{user_id:values.get("user_id"),role:values.get("role"),source_kind:values.get("source_kind"),source_id:values.get("source_id"),expires_at:new Date(String(values.get("expires_at"))).toISOString()});form.reset();onChanged()}catch(cause){setError(cause instanceof Error?cause.message:"Invitation could not be created.")}finally{setBusy(false)}};
   return <section className="checks-workspace">
     <aside className="check-attempts panel">
       <header><div><h3>Preview attempts</h3><p>Immutable environments for exact review revisions.</p></div><Badge>{previews.length}</Badge></header>
@@ -9593,6 +9596,9 @@ function PullPreviews({ repository, pull, actor, previews, onChanged }: { reposi
         <p>Created by <Actor id={preview.creator_id} /> · {new Date(preview.created_at).toLocaleString()}</p>
         {preview.url && preview.state === "ready" && <p><a href={preview.url} target="_blank" rel="noreferrer">Open exact preview ↗</a></p>}
         {preview.failure && <p className="form-error">{preview.failure}</p>}
+        <p><strong>Audience boundary:</strong> {preview.definition.audience.identity} identity · {preview.definition.audience.data} data · {preview.definition.audience.network} network · actions {preview.definition.audience.actions.join(", ") || "none"}. Invitations grant preview access only—never code, workspace, deployment, or production authority.</p>
+        {preview.invitations?.map((invitation)=><p key={invitation.id}><Badge>{invitation.revoked_at?"revoked":invitation.role}</Badge> <Actor id={invitation.user_id}/> via {invitation.source_kind}{invitation.source_id?` ${invitation.source_id}`:""} · expires {new Date(invitation.expires_at).toLocaleString()} {!invitation.revoked_at&&<Button size="sm" variant="secondary" onClick={async()=>{await send(`/repositories/${repository}/pull-requests/${pull.id}/previews/${preview.id}/invitations/${invitation.id}`,"DELETE");onChanged()}}>Revoke</Button>}</p>)}
+        {actor&&<details><summary>Invite an affected person</summary><form className="form-stack" onSubmit={(event)=>{event.preventDefault();void invite(preview,event.currentTarget)}}><label>User ID<input name="user_id" required/></label><label>Role<select name="role"><option value="view">View</option><option value="test">Test</option><option value="feedback">Feedback</option></select></label><label>Audience source<select name="source_kind"><option value="user">Named user</option><option value="issue">Issue participant</option><option value="decision">Decision participant</option><option value="proposal">Proposal participant</option></select></label><label>Source ID (for participant invitations)<input name="source_id"/></label><label>Expires at<input name="expires_at" type="datetime-local" required/></label><Button disabled={busy} type="submit">Invite to this preview</Button></form></details>}
         <small>Definition {short(preview.build_attestation.definition_digest)} · expires {new Date(preview.expires_at).toLocaleString()}</small>
         {preview.events.some((event) => event.type === "log") && <pre className="check-log">{preview.events.filter((event) => event.type === "log").map((event) => `[${event.stream}] ${event.message}`).join("\n")}</pre>}
       </article>) : <p>No candidate preview has been launched.</p>}
