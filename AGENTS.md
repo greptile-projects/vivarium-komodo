@@ -34,6 +34,17 @@ IDs, their exact revisions, context, stream revision, author, recipient,
 acceptance criteria, declared uncertainty, and the recipient's attributable
 verification. Never infer or copy private terminal input, credentials, hidden
 prompts, raw execution logs, or evidence outside the accepted scope.
+Accepted stream owners publish safe live checkpoints with captured revision,
+status, active action, question, predicted next action, cumulative resource use,
+and coarse access/output health. Derive the team runtime view from those
+checkpoints and the accepted plan, including dependencies, stale revisions,
+disconnection, conflicts, exhausted budgets, bounded failure recovery, and
+explicit escalation. Team controls are immutable and attributable. Guidance,
+pause, resume, and cancellation may target a stream or the effort; operational
+reassignment must use an accepted participant with existing effective actions,
+and narrowing must remain within accepted paths. Controls preserve accepted
+work, never rewrite plan ownership, never expand authority, and do not bypass
+the attached resource's own control or credential contract.
 
 Guidance for coding agents working in this repository.
 

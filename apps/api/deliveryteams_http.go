@@ -32,6 +32,8 @@ type deliveryTeamStore interface {
 	PublishTimeline(string, string, string, string, int64, deliveryteams.TimelineInput) (deliveryteams.Team, error)
 	RequestHandoff(string, string, string, string, int64, deliveryteams.HandoffInput) (deliveryteams.Team, error)
 	AcceptHandoff(string, string, string, string, string, string, int64) (deliveryteams.Team, error)
+	ReportStream(string, string, string, string, string, int64, deliveryteams.StreamStatusInput) (deliveryteams.Team, error)
+	Control(string, string, string, int64, deliveryteams.ControlInput) (deliveryteams.Team, error)
 }
 type deliveryOrganizationStore interface {
 	Get(string) (organizations.Organization, error)
@@ -356,6 +358,44 @@ func registerDeliveryTeamsHTTP(mux *http.ServeMux, teams deliveryTeamStore, repo
 			v, e = teams.AcceptHandoff(string(repo.ID), r.PathValue("team"), r.PathValue("handoff"), a.UserID, in.ParticipantID, in.Note, in.ExpectedVersion)
 		}
 		writeDeliveryTeamResult(w, v, e, 200)
+	})
+	mux.HandleFunc("POST "+base+"/{team}/streams/{stream}/status", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := deliveryRepositoryWriteAccess(w, r, repos, credentials)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64  `json:"expected_version"`
+			ParticipantID   string `json:"participant_id"`
+			deliveryteams.StreamStatusInput
+		}
+		if !readJSON(w, r, &in, 32<<10) {
+			return
+		}
+		current, e := teams.Get(string(repo.ID), r.PathValue("team"))
+		if e == nil {
+			e = authorizeDeliveryParticipant(repo, current, in.ParticipantID, a.UserID, orgs)
+		}
+		var v deliveryteams.Team
+		if e == nil {
+			v, e = teams.ReportStream(string(repo.ID), r.PathValue("team"), r.PathValue("stream"), a.UserID, in.ParticipantID, in.ExpectedVersion, in.StreamStatusInput)
+		}
+		writeDeliveryTeamResult(w, v, e, 200)
+	})
+	mux.HandleFunc("POST "+base+"/{team}/controls", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := deliveryRepositoryWriteAccess(w, r, repos, credentials)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64 `json:"expected_version"`
+			deliveryteams.ControlInput
+		}
+		if !readJSON(w, r, &in, 32<<10) {
+			return
+		}
+		v, e := teams.Control(string(repo.ID), r.PathValue("team"), a.UserID, in.ExpectedVersion, in.ControlInput)
+		writeDeliveryTeamResult(w, v, e, 201)
 	})
 }
 

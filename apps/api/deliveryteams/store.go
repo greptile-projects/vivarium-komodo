@@ -92,6 +92,9 @@ type Team struct {
 	Executions     []Execution     `json:"executions"`
 	Timeline       []TimelineEntry `json:"timeline"`
 	Handoffs       []Handoff       `json:"handoffs"`
+	StreamRuns     []StreamRun     `json:"stream_runs"`
+	Controls       []Control       `json:"controls"`
+	Runtime        RuntimeView     `json:"runtime"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
@@ -186,6 +189,7 @@ func (s *Store) read(repo, team string) (Team, error) {
 			v.Plan.Current.Status = "blocked"
 		}
 	}
+	v.Runtime = deriveRuntime(v, s.now().UTC())
 	return v, nil
 }
 func (s *Store) write(v Team) error {
@@ -193,6 +197,8 @@ func (s *Store) write(v Team) error {
 	if e := os.MkdirAll(filepath.Dir(p), 0750); e != nil {
 		return e
 	}
+	// Runtime is a clock-sensitive projection, not accepted source data.
+	v.Runtime = RuntimeView{}
 	b, e := json.MarshalIndent(v, "", "  ")
 	if e != nil {
 		return e
