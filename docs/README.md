@@ -1108,6 +1108,44 @@ attributed attempt copies the prior immutable definition, revision, command, and
 sanitized inputs instead of reading a moved manifest. This makes environment or
 fixture differences explicit while preserving every prior failure.
 
+### Shared issue triage and diagnosis
+
+Repository owners classify and prioritize an issue, assign existing repository
+participants, apply visible labels, or identify a visible same-repository
+duplicate through `PUT .../issues/{issue}/triage`. The issue version is an
+optimistic concurrency token, so two maintainers cannot silently replace one
+another's decision. Every accepted update records its actor and history event.
+Closing remains a separate reporter-or-owner action rather than an implied side
+effect of a label or diagnosis.
+
+`POST .../issues/{issue}/relationships` adds an attributable typed connection
+to code, a dependency, release, deployment, incident, proposal, pull request,
+decision, or existing investigation. Code links require an existing exact
+commit in the issue repository and retain an optional path. These links make
+affected surfaces and already-planned work inspectable without copying their
+evidence or changing their access policy.
+
+Any visible authenticated participant opens a diagnosis with `POST
+.../issues/{issue}/investigations`, selecting one retained reproduction attempt;
+the record captures that attempt's exact revision. Participants append a
+hypothesis, finding, reporter evidence request, conclusion, or challenge at its
+`/entries` collection. Every entry has one or more citations to an actual
+reproduction event or artifact, exact code revision, or issue relationship and
+may identify suspected revisions and participant owners. Challenges name and
+visibly dispute an earlier entry rather than overwriting it. Opening an
+investigation at another revision marks the older revision's entries stale,
+while keeping their authors, citations, dispute state, and chronology.
+
+The owner may start a named read-only agent through the investigation's
+`/agent-runs` collection. Its one-time credential expires after 24 hours and
+can only read `GET /issue-investigation-agent/context` for that selected issue
+and publish cited entries at `POST /issue-investigation-agent/entries`. The
+context omits attachment bodies and explicitly carries no repository read,
+repository write, or Git authority. Agent conclusions therefore remain visible,
+attributed claims that humans can challenge, not hidden truth or triage power.
+The owner can revoke an exact run through its agent-run resource; expiry and
+revocation remain visible on the issue instead of erasing the agent's entries.
+
 ## Web proposal workflow
 
 The repository Proposals tab brings decision context into the same browser as
