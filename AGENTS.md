@@ -313,6 +313,15 @@ whenever dependencies change or the web job fails before it starts.
 	through the authenticated pull-request preview proxy. Pull request source
 	synchronization makes older attempts stale on read and must never rewrite or
 	restart the environment participants already evaluated.
+	Preview owners may invite a named user or a validated issue, decision, or
+	proposal participant to one exact attempt with an expiring `view`, `test`, or
+	`feedback` role. Invitations grant only preview entry, never repository, Git,
+	workspace, deployment, environment, or production authority. The manifest's
+	audience policy declares network, data, identity, and action restrictions;
+	the gateway strips browser credentials and identity headers, intersects role
+	and action policy, and audits invitations, entry, and revocation. Keep the
+	effective audience and restrictions visible without exposing configuration
+	values or private services.
   Change sessions retain their initiating user, captured pull request source
   commit, current state, and ordered public timeline; keep later worker
   execution details behind this application-facing contract.

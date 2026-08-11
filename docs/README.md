@@ -2615,3 +2615,23 @@ attestation digest. Repository read policy also guards the preview gateway.
 When pull request synchronization records a newer source commit, earlier
 attempts remain intact and derive `stale: true` instead of being replaced. The
 shareable web surface is `view=pulls&pull={id}&section=previews`.
+
+Preview owners invite affected people with `POST .../previews/{preview}/invitations`.
+An invitation names a user, one of `view`, `test`, or `feedback`, an expiry no
+later than the attempt, and either a direct-user audience or an existing issue,
+decision, or proposal whose retained participants prove why that user belongs.
+`DELETE .../invitations/{invitation}` revokes it immediately. The attempt keeps
+attributable invitation, gateway-entry, and revocation events.
+An invitee can inspect `GET .../previews/{preview}/audience` for their role,
+expiry, exact revision, effective policy, and an explicit matrix showing that
+repository, Git, workspace, deployment, and production access remain false.
+
+The optional version-1 `audience` object declares `network` (`none` or
+`repository_allowlist`), `data` (`synthetic` or `masked`), `identity`
+(`anonymous` or `preview_alias`), and actions (`navigate`, `submit_test_data`,
+or `comment`). Omission uses anonymous, synthetic, networkless, navigate-only
+defaults. The gateway removes authorization, cookies, and forwarded identity,
+applies a restrictive CSP, and permits mutating test requests only when both
+the manifest and a `test` invitation allow them. Invitation roles cannot read
+code, open a workspace, inspect environment configuration, deploy, or reach
+production/private services; the web surface states that effective boundary.

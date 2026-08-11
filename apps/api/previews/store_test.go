@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAttemptRetainsImmutableAttestationAndLifecycle(t *testing.T) {
@@ -29,5 +30,26 @@ func TestAttemptRetainsImmutableAttestationAndLifecycle(t *testing.T) {
 	raw, _ := json.Marshal(got)
 	if !json.Valid(raw) || strings.Contains(string(raw), "secret-review-value") {
 		t.Fatal("configuration value leaked into durable/public preview")
+	}
+}
+
+func TestInvitationExpiresRevokesAndAuditsWithoutAuthority(t *testing.T) {
+	store, _ := New(t.TempDir())
+	store.now = func() time.Time { return time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC) }
+	item, _ := store.Create(Preview{RepositoryID: "repo", PullRequestID: "pull", Definition: Definition{Resources: Resources{LifetimeMinutes: 60}}})
+	invited, err := store.Invite("repo", "pull", item.ID, "owner", Invitation{UserID: "customer", Role: "test", SourceKind: "issue", SourceID: "issue-1", ExpiresAt: store.now().Add(30 * time.Minute)})
+	if err != nil || len(invited.Invitations) != 1 || len(invited.AccessEvents) != 1 {
+		t.Fatalf("invite = %#v, %v", invited, err)
+	}
+	_, grant, err := store.Authorize("repo", "pull", item.ID, "customer")
+	if err != nil || grant.Role != "test" {
+		t.Fatalf("authorize = %#v, %v", grant, err)
+	}
+	revoked, err := store.Revoke("repo", "pull", item.ID, grant.ID, "owner")
+	if err != nil || revoked.Invitations[0].RevokedAt == nil || len(revoked.AccessEvents) != 3 {
+		t.Fatalf("revoke = %#v, %v", revoked, err)
+	}
+	if _, _, err = store.Authorize("repo", "pull", item.ID, "customer"); err == nil {
+		t.Fatal("revoked invitation authorized")
 	}
 }
