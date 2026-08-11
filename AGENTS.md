@@ -1,5 +1,20 @@
 # AGENTS.md
 
+## Delivery team operating contracts
+
+Delivery teams are pre-execution contracts beneath `$DELIVERY_TEAM_ROOT`
+(default `apps/api/data/delivery-teams`). A repository collaborator forms one
+around a proposal, initiative, decision, incident follow-up, or other planned
+outcome. Immutable charter versions retain measures, principles, total budget,
+deadline, escalation, author, and change reason. Human and organization-approved
+agent invitations retain complementary roles, rationale, responsibilities,
+individual budgets, deadlines, escalation, acceptance, replacement, and removal.
+Effective-access previews derive only from existing repository roles or current
+organization agent grants and are intersected with the organizer's own authority;
+teams never issue credentials or grant authority. Mutations use optimistic
+concurrency and append attributable events. The shareable repository surface is
+`view=teams&team={id}`; execution planning is a later transition.
+
 Guidance for coding agents working in this repository.
 
 ## What this is
