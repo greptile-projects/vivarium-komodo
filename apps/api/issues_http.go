@@ -11,6 +11,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/issues"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
 
 type issueStore interface {
@@ -19,12 +20,23 @@ type issueStore interface {
 	List(string) ([]issues.Issue, error)
 	AddComment(string, string, string, string) (issues.Issue, error)
 	SetStatus(string, string, string, string) (issues.Issue, error)
+	CreateReproduction(issues.Issue, string, string, string, string, string, issues.ReproductionDefinition, string, issues.ReproductionCommand, []issues.ReproductionInput) (issues.ReproductionAttempt, error)
+	GetReproduction(string, string, string) (issues.ReproductionAttempt, error)
+	ListReproductions(string, string) ([]issues.ReproductionAttempt, error)
 }
 type issueReleaseStore interface {
 	Get(string, string) (releases.Release, error)
 }
+type issueRepositoryStore interface {
+	proposalRepositoryStore
+	Open(storage.ID) (*storage.Repository, error)
+}
 
-func registerIssuesHTTP(mux *http.ServeMux, store issueStore, releaseStore issueReleaseStore, repositories proposalRepositoryStore, credentials authStore) {
+func registerIssuesHTTP(mux *http.ServeMux, store issueStore, releaseStore issueReleaseStore, repositories issueRepositoryStore, credentials authStore, reproduction ...*issues.ReproductionRunner) {
+	var runner *issues.ReproductionRunner
+	if len(reproduction) > 0 {
+		runner = reproduction[0]
+	}
 	mux.HandleFunc("GET /repositories/{repository}/issue-templates", listIssueTemplates(repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/issues/suggestions", suggestIssues(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/issues", createIssue(store, releaseStore, repositories, credentials))
@@ -32,6 +44,12 @@ func registerIssuesHTTP(mux *http.ServeMux, store issueStore, releaseStore issue
 	mux.HandleFunc("GET /repositories/{repository}/issues/{issue}", getIssue(store, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/issues/{issue}/comments", commentIssue(store, repositories, credentials))
 	mux.HandleFunc("PATCH /repositories/{repository}/issues/{issue}", updateIssue(store, repositories, credentials))
+	if runner != nil {
+		mux.HandleFunc("POST /repositories/{repository}/issues/{issue}/reproductions", createIssueReproduction(store, releaseStore, repositories, credentials, runner))
+		mux.HandleFunc("GET /repositories/{repository}/issues/{issue}/reproductions", listIssueReproductions(store, repositories, credentials))
+		mux.HandleFunc("GET /repositories/{repository}/issues/{issue}/reproductions/{attempt}", getIssueReproduction(store, repositories, credentials))
+		mux.HandleFunc("POST /repositories/{repository}/issues/{issue}/reproductions/{attempt}/reruns", rerunIssueReproduction(store, repositories, credentials, runner))
+	}
 }
 func listIssueTemplates(repositories proposalRepositoryStore, credentials authStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -42,7 +60,7 @@ func listIssueTemplates(repositories proposalRepositoryStore, credentials authSt
 	}
 }
 
-func createIssue(store issueStore, releaseStore issueReleaseStore, repositories proposalRepositoryStore, credentials authStore) http.HandlerFunc {
+func createIssue(store issueStore, releaseStore issueReleaseStore, repositories issueRepositoryStore, credentials authStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repo, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, true)
 		if !ok {
@@ -56,13 +74,14 @@ func createIssue(store issueStore, releaseStore issueReleaseStore, repositories 
 			Environment string              `json:"environment"`
 			Steps       []string            `json:"reproduction_steps"`
 			ReleaseID   string              `json:"affected_release_id"`
+			CommitID    string              `json:"affected_commit_id"`
 			Visibility  string              `json:"visibility"`
 			Attachments []issues.Attachment `json:"attachments"`
 		}
 		if !readJSON(w, r, &in, 6<<20) {
 			return
 		}
-		version := ""
+		version, commitID := "", strings.TrimSpace(in.CommitID)
 		if in.ReleaseID != "" {
 			rel, err := releaseStore.Get(string(repo.ID), in.ReleaseID)
 			if err != nil {
@@ -70,8 +89,19 @@ func createIssue(store issueStore, releaseStore issueReleaseStore, repositories 
 				return
 			}
 			version = rel.Version
+			commitID = rel.CommitID
+		} else if commitID != "" {
+			opened, err := repositories.Open(repo.ID)
+			if err != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_affected_commit"})
+				return
+			}
+			if _, err = opened.ReadCommit(storage.ObjectID(commitID)); err != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_affected_commit"})
+				return
+			}
 		}
-		item, err := store.Create(issues.CreateInput{RepositoryID: string(repo.ID), ReporterID: actor.UserID, Title: in.Title, ExpectedBehavior: in.Expected, ObservedBehavior: in.Observed, Severity: in.Severity, Environment: in.Environment, ReproductionSteps: in.Steps, AffectedReleaseID: in.ReleaseID, AffectedVersion: version, Visibility: in.Visibility, Attachments: in.Attachments})
+		item, err := store.Create(issues.CreateInput{RepositoryID: string(repo.ID), ReporterID: actor.UserID, Title: in.Title, ExpectedBehavior: in.Expected, ObservedBehavior: in.Observed, Severity: in.Severity, Environment: in.Environment, ReproductionSteps: in.Steps, AffectedReleaseID: in.ReleaseID, AffectedVersion: version, AffectedCommitID: commitID, Visibility: in.Visibility, Attachments: in.Attachments})
 		if errors.Is(err, issues.ErrInvalid) {
 			writeJSON(w, 422, map[string]string{"error": "invalid_issue"})
 			return
@@ -245,4 +275,130 @@ func words(s string) map[string]bool {
 		}
 	}
 	return out
+}
+
+func reproductionIssue(w http.ResponseWriter, r *http.Request, store issueStore, repositoryStore issueRepositoryStore, credentials authStore) (repositories.Repository, auth.Grant, issues.Issue, bool) {
+	repo, actor, ok := proposalRepositoryAccess(w, r, repositoryStore, credentials, auth.RepositoryRead, true)
+	if !ok {
+		return repositories.Repository{}, auth.Grant{}, issues.Issue{}, false
+	}
+	item, err := store.Get(string(repo.ID), r.PathValue("issue"))
+	if err != nil || !issueVisible(repositoryStore, repo, item, actor.UserID) {
+		writeJSON(w, 404, map[string]string{"error": "not_found"})
+		return repositories.Repository{}, auth.Grant{}, issues.Issue{}, false
+	}
+	return repo, actor, item, true
+}
+
+func createIssueReproduction(store issueStore, releases issueReleaseStore, repositories issueRepositoryStore, credentials authStore, runner *issues.ReproductionRunner) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, item, ok := reproductionIssue(w, r, store, repositories, credentials)
+		if !ok {
+			return
+		}
+		if actor.UserID != item.ReporterID && actor.UserID != repo.OwnerID {
+			writeJSON(w, 403, map[string]string{"error": "forbidden"})
+			return
+		}
+		var input struct {
+			Name   string                     `json:"name"`
+			Inputs []issues.ReproductionInput `json:"inputs"`
+		}
+		if !readJSON(w, r, &input, 6<<20) {
+			return
+		}
+		revision, releaseID, releaseVersion := item.AffectedCommitID, item.AffectedReleaseID, item.AffectedVersion
+		if releaseID != "" {
+			release, err := releases.Get(string(repo.ID), releaseID)
+			if err != nil || release.CommitID != revision {
+				writeJSON(w, 409, map[string]string{"error": "affected_release_unavailable"})
+				return
+			}
+			releaseVersion = release.Version
+		}
+		if revision == "" {
+			writeJSON(w, 422, map[string]string{"error": "issue_has_no_affected_revision"})
+			return
+		}
+		definition, digest, err := runner.Definition(string(repo.ID), revision)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_reproduction_definition"})
+			return
+		}
+		var command *issues.ReproductionCommand
+		for i := range definition.Reproductions {
+			if definition.Reproductions[i].Name == input.Name {
+				command = &definition.Reproductions[i]
+				break
+			}
+		}
+		if command == nil {
+			writeJSON(w, 422, map[string]string{"error": "unknown_reproduction_command"})
+			return
+		}
+		attempt, err := store.CreateReproduction(item, revision, releaseID, releaseVersion, actor.UserID, "", definition, digest, *command, input.Inputs)
+		if errors.Is(err, issues.ErrInvalid) {
+			writeJSON(w, 422, map[string]string{"error": "unsafe_reproduction_input"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		runner.Start(attempt)
+		writeJSON(w, 202, attempt)
+	}
+}
+
+func listIssueReproductions(store issueStore, repositories issueRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, _, item, ok := reproductionIssue(w, r, store, repositories, credentials)
+		if !ok {
+			return
+		}
+		attempts, err := store.ListReproductions(string(repo.ID), item.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"items": attempts, "total_count": len(attempts)})
+	}
+}
+func getIssueReproduction(store issueStore, repositories issueRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, _, item, ok := reproductionIssue(w, r, store, repositories, credentials)
+		if !ok {
+			return
+		}
+		attempt, err := store.GetReproduction(string(repo.ID), item.ID, r.PathValue("attempt"))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		writeJSON(w, 200, attempt)
+	}
+}
+func rerunIssueReproduction(store issueStore, repositories issueRepositoryStore, credentials authStore, runner *issues.ReproductionRunner) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, item, ok := reproductionIssue(w, r, store, repositories, credentials)
+		if !ok {
+			return
+		}
+		previous, err := store.GetReproduction(string(repo.ID), item.ID, r.PathValue("attempt"))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if previous.State == "queued" || previous.State == "running" {
+			writeJSON(w, 409, map[string]string{"error": "attempt_not_terminal"})
+			return
+		}
+		attempt, err := store.CreateReproduction(item, previous.Revision, previous.ReleaseID, previous.ReleaseVersion, actor.UserID, previous.ID, previous.Definition, previous.DefinitionDigest, previous.Command, previous.Inputs)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		runner.Start(attempt)
+		writeJSON(w, 202, attempt)
+	}
 }

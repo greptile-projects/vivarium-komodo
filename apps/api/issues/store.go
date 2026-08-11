@@ -53,6 +53,7 @@ type Issue struct {
 	ReproductionSteps []string     `json:"reproduction_steps"`
 	AffectedReleaseID string       `json:"affected_release_id,omitempty"`
 	AffectedVersion   string       `json:"affected_version,omitempty"`
+	AffectedCommitID  string       `json:"affected_commit_id,omitempty"`
 	Visibility        string       `json:"visibility"`
 	Status            string       `json:"status"`
 	Attachments       []Attachment `json:"attachments"`
@@ -62,9 +63,9 @@ type Issue struct {
 	UpdatedAt         time.Time    `json:"updated_at"`
 }
 type CreateInput struct {
-	RepositoryID, ReporterID, Title, ExpectedBehavior, ObservedBehavior, Severity, Environment, AffectedReleaseID, AffectedVersion, Visibility string
-	ReproductionSteps                                                                                                                          []string
-	Attachments                                                                                                                                []Attachment
+	RepositoryID, ReporterID, Title, ExpectedBehavior, ObservedBehavior, Severity, Environment, AffectedReleaseID, AffectedVersion, AffectedCommitID, Visibility string
+	ReproductionSteps                                                                                                                                            []string
+	Attachments                                                                                                                                                  []Attachment
 }
 type Store struct {
 	root string
@@ -127,7 +128,7 @@ func (s *Store) Create(in CreateInput) (Issue, error) {
 	for i := range in.Attachments {
 		in.Attachments[i].ID, _ = newID()
 	}
-	item := Issue{ID: id, RepositoryID: in.RepositoryID, ReporterID: in.ReporterID, Title: strings.TrimSpace(in.Title), ExpectedBehavior: strings.TrimSpace(in.ExpectedBehavior), ObservedBehavior: strings.TrimSpace(in.ObservedBehavior), Severity: in.Severity, Environment: strings.TrimSpace(in.Environment), ReproductionSteps: in.ReproductionSteps, AffectedReleaseID: in.AffectedReleaseID, AffectedVersion: in.AffectedVersion, Visibility: in.Visibility, Status: "open", Attachments: in.Attachments, Comments: []Comment{}, History: []Event{{Sequence: 1, Type: "issue.opened", ActorID: in.ReporterID, CreatedAt: now}}, CreatedAt: now, UpdatedAt: now}
+	item := Issue{ID: id, RepositoryID: in.RepositoryID, ReporterID: in.ReporterID, Title: strings.TrimSpace(in.Title), ExpectedBehavior: strings.TrimSpace(in.ExpectedBehavior), ObservedBehavior: strings.TrimSpace(in.ObservedBehavior), Severity: in.Severity, Environment: strings.TrimSpace(in.Environment), ReproductionSteps: in.ReproductionSteps, AffectedReleaseID: in.AffectedReleaseID, AffectedVersion: in.AffectedVersion, AffectedCommitID: in.AffectedCommitID, Visibility: in.Visibility, Status: "open", Attachments: in.Attachments, Comments: []Comment{}, History: []Event{{Sequence: 1, Type: "issue.opened", ActorID: in.ReporterID, CreatedAt: now}}, CreatedAt: now, UpdatedAt: now}
 	return item, s.write(item)
 }
 func (s *Store) Get(repo, id string) (Issue, error) {

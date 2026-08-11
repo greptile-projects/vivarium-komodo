@@ -156,6 +156,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	issueReproductionRunner := issues.NewReproductionRunner(issueStore, repositoryCatalog)
 	changeSessionRoot := os.Getenv("CHANGE_SESSION_ROOT")
 	if changeSessionRoot == "" {
 		changeSessionRoot = "data/change-sessions"
@@ -276,7 +277,7 @@ func main() {
 	registerReasoningWorkHTTP(mux, investigationStore, impactStore, proposalStore, repositoryCatalog, credentials)
 	registerCollaboratorsHTTP(mux, repositoryCatalog, userStore, credentials, activityStore)
 	registerProposalsHTTP(mux, proposalStore, repositoryCatalog, credentials, activityStore)
-	registerIssuesHTTP(mux, issueStore, releaseStore, repositoryCatalog, credentials)
+	registerIssuesHTTP(mux, issueStore, releaseStore, repositoryCatalog, credentials, issueReproductionRunner)
 	registerProposalTaskSessionsHTTP(mux, proposalStore, changeSessionStore, repositoryCatalog, credentials, activityStore, pullRequestStore, checkRunner)
 	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore)
 	registerReleasesHTTP(mux, releaseStore, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials)
