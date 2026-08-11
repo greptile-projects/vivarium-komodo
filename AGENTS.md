@@ -82,6 +82,19 @@ failure reason, and artifacts. Repository participants may inspect failed
 attempts and create attributable reruns from the exact retained definition and
 inputs. Reject credential-like inputs and artifacts and redact credential-like
 log output rather than retaining secrets or inaccessible machine state.
+Repository owners triage that same issue through its concurrency-checked
+`/triage` resource with an explicit classification, priority, participant
+assignees, labels, and visible duplicate target. Typed `/relationships` retain
+attribution and exact code revisions while connecting dependencies, releases,
+deployments, incidents, proposals, pull requests, decisions, and existing
+investigations. Participants open an `/investigations` record only from an
+existing reproduction attempt. Hypotheses, findings, evidence requests,
+conclusions, and challenges are append-only and cite exact attempt events or
+artifacts, code revisions, or issue relationships; challenges visibly dispute
+their target and a newer-revision investigation marks older entries stale.
+Owners may issue a 24-hour agent credential for only the selected issue and
+reproduction. Its global context and entry endpoints grant no repository read,
+Git, or write authority and accept only cited public investigation entries.
 
 ## What this is
 
