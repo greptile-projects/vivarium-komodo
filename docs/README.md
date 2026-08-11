@@ -125,6 +125,16 @@ review, owner approval, required-check, protected-queue, release, and repository
 permission rules remain authoritative: team membership grants no credential or
 merge authority.
 
+`delivery_team_workflow_test.go` composes the complete capability through the
+public team, pull-request, check, review, merge, and release APIs plus stock Git.
+It begins at an accepted decision, coordinates a developer and three approved
+agents, retains a challenged finding and its resolution, redirects a failed
+stream within accepted authority, verifies an agent-to-human handoff, publishes
+ordered contributions, and releases the merged result. Removing the completed
+specialist then causes further team publication on that participant identity to
+fail while the charter, plan, evidence, costs, controls, handoff verification,
+review links, and release record remain intact.
+
 ## Evidence-driven technical decisions
 
 Repository participants open consequential choices at `POST
