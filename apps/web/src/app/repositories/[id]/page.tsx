@@ -11,6 +11,7 @@ import { TechnicalDecisions } from "@/components/technical-decisions";
 import { DeliveryTeams } from "@/components/delivery-teams";
 import { Issues } from "@/components/issues";
 import { ContributorPathway } from "@/components/contributor-pathway";
+import { ContributionOpportunities } from "@/components/contribution-opportunities";
 import {
   Book,
   Branch,
@@ -1623,7 +1624,7 @@ export default function RepositoryPage({
       {view === "issues" ? (
         <Issues repository={repository.id} actor={actor} owner={repository.owner_id} selected={query.issue} />
       ) : view === "contribute" ? (
-        <ContributorPathway repository={repository.id} actor={actor} owner={repository.owner_id} revision={ref} />
+        <><ContributorPathway repository={repository.id} actor={actor} owner={repository.owner_id} revision={ref} /><ContributionOpportunities repository={repository.id} actor={actor} owner={repository.owner_id} /></>
       ) : view === "proposals" ? (
         <ProposalWorkspace
           repository={repository}

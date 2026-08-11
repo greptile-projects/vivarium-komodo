@@ -5,6 +5,34 @@ written down here as they're decided, not before.
 
 ## Contributor pathways
 
+### Ready contribution opportunities
+
+The contribution pathway’s `view=contribute` workspace also presents work
+derived from already-governed project resources. Owners publish through `POST
+/repositories/{repository}/contribution-opportunities`, identifying a triaged
+issue, open proposal, ready unassigned plan task, or current organization
+stewardship finding. The API resolves the source before accepting it and pins
+the resulting opportunity to the source or current repository revision. Each
+entry describes required skills, interests, expected outcome, bounded paths or
+areas, dependencies, risk, available mentors, and whether human or agent help
+is available. The same source cannot be exposed twice.
+
+An authenticated repository reader records interests, skills, available hours,
+maximum risk, and preferred assistance at the singular
+`/contribution-opportunity-profile` resource. The `/contribution-opportunity-matches`
+read ranks every visible entry with inspectable positive reasons and gaps;
+missing skills are shown as learning needs instead of silently hiding useful
+work. Matching is advisory and deterministic.
+
+Readers reserve one ready entry at its `/claims` collection for one hour to
+fourteen days. A live claim blocks duplicates, retains claimant, note, and
+expiry, and can be released early only by that claimant. Expired claims stop
+blocking automatically while remaining attributable history. These APIs use
+repository-read authentication and every response makes the authority boundary
+explicit: a profile, suggestion, or reservation grants no repository write,
+Git, agent, review, or merge access. Data is stored beneath
+`$CONTRIBUTION_OPPORTUNITY_ROOT`.
+
 Repository owners publish the project participation contract at `POST
 /repositories/{repository}/contributor-pathway/versions`. Each immutable
 version gathers project goals, prerequisites, conduct and private-security
