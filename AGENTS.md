@@ -21,6 +21,19 @@ accept again. Shared repository scopes at incompatible commits are blockers as
 well. Mutations use optimistic concurrency and append attributable
 events. The shareable repository surface is `view=teams&team={id}`; plans remain
 pre-execution contracts and do not start work or issue credentials.
+Accepted work-stream owners may attach an existing change session,
+investigation, decision experiment, or shared workspace only at a repository
+revision already accepted in that stream's scope. Resolve the named resource
+through its established store and reject missing or revision-mismatched
+contexts. Their team timeline accepts
+cited findings, questions, checkpoints, artifacts, decisions, and residual
+uncertainty; every citation must stay within the stream's exact repository,
+commit, and path scope and within the team repository's read-policy boundary.
+Structured handoffs retain immutable timeline input
+IDs, their exact revisions, context, stream revision, author, recipient,
+acceptance criteria, declared uncertainty, and the recipient's attributable
+verification. Never infer or copy private terminal input, credentials, hidden
+prompts, raw execution logs, or evidence outside the accepted scope.
 
 Guidance for coding agents working in this repository.
 

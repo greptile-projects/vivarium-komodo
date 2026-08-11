@@ -8,9 +8,13 @@ import (
 	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/decisions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deliveryteams"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/investigations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
 )
 
 type deliveryTeamStore interface {
@@ -24,12 +28,31 @@ type deliveryTeamStore interface {
 	Replace(string, string, string, string, int64, deliveryteams.ParticipantInput) (deliveryteams.Team, error)
 	ProposePlan(string, string, string, string, int64, deliveryteams.PlanInput) (deliveryteams.Team, error)
 	AcceptPlan(string, string, string, string, int64, int64) (deliveryteams.Team, error)
+	AttachExecution(string, string, string, string, int64, deliveryteams.ExecutionContext, string) (deliveryteams.Team, error)
+	PublishTimeline(string, string, string, string, int64, deliveryteams.TimelineInput) (deliveryteams.Team, error)
+	RequestHandoff(string, string, string, string, int64, deliveryteams.HandoffInput) (deliveryteams.Team, error)
+	AcceptHandoff(string, string, string, string, string, string, int64) (deliveryteams.Team, error)
 }
 type deliveryOrganizationStore interface {
 	Get(string) (organizations.Organization, error)
 }
 
-func registerDeliveryTeamsHTTP(mux *http.ServeMux, teams deliveryTeamStore, repos proposalRepositoryStore, credentials authStore, orgs deliveryOrganizationStore) {
+type deliveryExecutionStores struct {
+	changes interface {
+		Get(string, string, string) (changesessions.Session, error)
+	}
+	investigations interface {
+		Get(string, string) (investigations.Investigation, error)
+	}
+	decisions interface {
+		Get(string, string) (decisions.Decision, error)
+	}
+	workspaces interface {
+		Get(string, string) (workspaces.Workspace, error)
+	}
+}
+
+func registerDeliveryTeamsHTTP(mux *http.ServeMux, teams deliveryTeamStore, repos proposalRepositoryStore, credentials authStore, orgs deliveryOrganizationStore, execution deliveryExecutionStores) {
 	base := "/repositories/{repository}/delivery-teams"
 	mux.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
 		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
@@ -238,6 +261,155 @@ func registerDeliveryTeamsHTTP(mux *http.ServeMux, teams deliveryTeamStore, repo
 		}
 		writeDeliveryTeamResult(w, v, e, 201)
 	})
+	mux.HandleFunc("POST "+base+"/{team}/streams/{stream}/contexts", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := deliveryRepositoryWriteAccess(w, r, repos, credentials)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64                          `json:"expected_version"`
+			ParticipantID   string                         `json:"participant_id"`
+			Context         deliveryteams.ExecutionContext `json:"context"`
+		}
+		if !readJSON(w, r, &in, 16<<10) {
+			return
+		}
+		if !deliveryContextExists(in.Context, execution) {
+			writeDeliveryTeamResult(w, deliveryteams.Team{}, deliveryteams.ErrInvalid, 422)
+			return
+		}
+		current, e := teams.Get(string(repo.ID), r.PathValue("team"))
+		if e == nil {
+			e = authorizeDeliveryParticipant(repo, current, in.ParticipantID, a.UserID, orgs)
+		}
+		var v deliveryteams.Team
+		if e == nil {
+			v, e = teams.AttachExecution(string(repo.ID), r.PathValue("team"), a.UserID, in.ParticipantID, in.ExpectedVersion, in.Context, r.PathValue("stream"))
+		}
+		writeDeliveryTeamResult(w, v, e, 201)
+	})
+	mux.HandleFunc("POST "+base+"/{team}/timeline", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := deliveryRepositoryWriteAccess(w, r, repos, credentials)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64  `json:"expected_version"`
+			ParticipantID   string `json:"participant_id"`
+			deliveryteams.TimelineInput
+		}
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		current, e := teams.Get(string(repo.ID), r.PathValue("team"))
+		if e == nil {
+			e = authorizeDeliveryParticipant(repo, current, in.ParticipantID, a.UserID, orgs)
+		}
+		var v deliveryteams.Team
+		if e == nil {
+			v, e = teams.PublishTimeline(string(repo.ID), r.PathValue("team"), a.UserID, in.ParticipantID, in.ExpectedVersion, in.TimelineInput)
+		}
+		writeDeliveryTeamResult(w, v, e, 201)
+	})
+	mux.HandleFunc("POST "+base+"/{team}/handoffs", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := deliveryRepositoryWriteAccess(w, r, repos, credentials)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64  `json:"expected_version"`
+			ParticipantID   string `json:"participant_id"`
+			deliveryteams.HandoffInput
+		}
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		current, e := teams.Get(string(repo.ID), r.PathValue("team"))
+		if e == nil {
+			e = authorizeDeliveryParticipant(repo, current, in.ParticipantID, a.UserID, orgs)
+		}
+		var v deliveryteams.Team
+		if e == nil {
+			v, e = teams.RequestHandoff(string(repo.ID), r.PathValue("team"), a.UserID, in.ParticipantID, in.ExpectedVersion, in.HandoffInput)
+		}
+		writeDeliveryTeamResult(w, v, e, 201)
+	})
+	mux.HandleFunc("POST "+base+"/{team}/handoffs/{handoff}/acceptance", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := deliveryRepositoryWriteAccess(w, r, repos, credentials)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64  `json:"expected_version"`
+			ParticipantID   string `json:"participant_id"`
+			Note            string `json:"note"`
+		}
+		if !readJSON(w, r, &in, 16<<10) {
+			return
+		}
+		current, e := teams.Get(string(repo.ID), r.PathValue("team"))
+		if e == nil {
+			e = authorizeDeliveryParticipant(repo, current, in.ParticipantID, a.UserID, orgs)
+		}
+		var v deliveryteams.Team
+		if e == nil {
+			v, e = teams.AcceptHandoff(string(repo.ID), r.PathValue("team"), r.PathValue("handoff"), a.UserID, in.ParticipantID, in.Note, in.ExpectedVersion)
+		}
+		writeDeliveryTeamResult(w, v, e, 200)
+	})
+}
+
+func deliveryContextExists(context deliveryteams.ExecutionContext, stores deliveryExecutionStores) bool {
+	switch context.Kind {
+	case "change_session":
+		if stores.changes == nil || context.ParentID == "" {
+			return false
+		}
+		item, err := stores.changes.Get(context.RepositoryID, context.ParentID, context.ID)
+		return err == nil && item.SourceCommitID == context.Revision
+	case "investigation":
+		if stores.investigations == nil {
+			return false
+		}
+		item, err := stores.investigations.Get(context.RepositoryID, context.ID)
+		return err == nil && item.CommitID == context.Revision
+	case "experiment":
+		if stores.decisions == nil || context.ParentID == "" {
+			return false
+		}
+		item, err := stores.decisions.Get(context.RepositoryID, context.ParentID)
+		if err != nil {
+			return false
+		}
+		for _, alternative := range item.Alternatives {
+			for _, experiment := range alternative.Experiments {
+				if experiment.ID == context.ID && experiment.Revision == context.Revision {
+					return true
+				}
+			}
+		}
+		return false
+	case "workspace":
+		if stores.workspaces == nil {
+			return false
+		}
+		item, err := stores.workspaces.Get(context.RepositoryID, context.ID)
+		return err == nil && item.Revision == context.Revision
+	default:
+		return false
+	}
+}
+
+func authorizeDeliveryParticipant(repo repositories.Repository, team deliveryteams.Team, participantID, actor string, orgs deliveryOrganizationStore) error {
+	for _, p := range team.Participants {
+		if p.ID != participantID || p.State != "accepted" {
+			continue
+		}
+		if (p.Kind == "human" && p.PrincipalID == actor) || (p.Kind == "agent" && agentOperated(repo, p, actor, orgs)) {
+			return nil
+		}
+	}
+	return deliveryteams.ErrForbidden
 }
 
 func deliveryRepositoryWriteAccess(w http.ResponseWriter, r *http.Request, repos proposalRepositoryStore, credentials authStore) (repositories.Repository, auth.Grant, bool) {

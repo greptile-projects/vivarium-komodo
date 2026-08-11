@@ -55,6 +55,35 @@ accepted plan visibly `blocked`. Plan history remains immutable, and neither an
 accepted plan nor a repository scope issues a credential, starts a run, or
 grants access.
 
+An accepted work-stream owner links an already established execution surface at
+`POST .../streams/{stream}/contexts`. The context must be a change session,
+investigation, decision experiment, or shared workspace pinned to an exact
+repository commit already accepted in that stream's scope. This records where
+work occurs without starting the resource, issuing a credential, or importing
+its private runtime state. Attachment resolves the named resource through its
+established store and rejects a missing resource or mismatched captured commit;
+change sessions additionally name their pull request and experiments name their
+decision so the lookup is unambiguous.
+
+Owners publish findings, questions, checkpoints, artifacts, decisions, and
+residual uncertainty at the team's `/timeline`. Every entry retains the plan's
+stream revision, acting participant and stable actor, execution context, and at
+least one citation. Citations fail closed unless their repository, exact commit,
+and optional path fall within the stream's accepted scope. Repository policy
+protects the team read itself; evidence from another scoped repository stays
+there rather than leaking through the home team's read boundary. The timeline is an explicit projection of
+inspectable evidence—not a copy of hidden prompts, terminal input, credentials,
+raw logs, or inaccessible output.
+
+A handoff request at the team's `/handoffs` collection names one accepted
+recipient, immutable timeline entry IDs, their derived exact revisions, the
+source context, acceptance criteria, and residual uncertainty. Only that
+recipient (or an approved agent's current operator) accepts through the
+handoff's `/acceptance` resource. Acceptance retains the verifying actor, note,
+and time; neither request nor acceptance expands authority. The Teams web
+workspace presents scoped contexts, cited records, pending criteria and
+uncertainty, and recipient verification together.
+
 ## Evidence-driven technical decisions
 
 Repository participants open consequential choices at `POST
