@@ -85,24 +85,113 @@ type FindingEvent struct {
 	Value     string    `json:"value,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
-type Finding struct {
-	ID                string           `json:"id"`
-	AuthorID          string           `json:"author_id"`
-	Route             string           `json:"route"`
-	Revision          string           `json:"revision"`
-	Title             string           `json:"title"`
-	Description       string           `json:"description"`
-	ReproductionSteps []string         `json:"reproduction_steps"`
-	Classification    string           `json:"classification"`
-	Status            string           `json:"status"`
-	DuplicateOf       string           `json:"duplicate_of,omitempty"`
-	RelatedFindingIDs []string         `json:"related_finding_ids,omitempty"`
-	Evidence          []Evidence       `json:"evidence"`
-	Comments          []FindingComment `json:"comments"`
-	History           []FindingEvent   `json:"history"`
-	CreatedAt         time.Time        `json:"created_at"`
-	UpdatedAt         time.Time        `json:"updated_at"`
+type FindingWork struct {
+	Kind               string    `json:"kind"`
+	ProposalID         string    `json:"proposal_id,omitempty"`
+	TaskID             string    `json:"task_id,omitempty"`
+	ChangeSessionID    string    `json:"change_session_id,omitempty"`
+	WorkspaceID        string    `json:"workspace_id,omitempty"`
+	OwnerKind          string    `json:"owner_kind"`
+	OwnerID            string    `json:"owner_id"`
+	AcceptanceCriteria []string  `json:"acceptance_criteria"`
+	EvidenceIDs        []string  `json:"evidence_ids"`
+	CreatedByID        string    `json:"created_by_id"`
+	CreatedAt          time.Time `json:"created_at"`
 }
+type RepairPublication struct {
+	Revision        string    `json:"revision"`
+	CommitIDs       []string  `json:"commit_ids"`
+	Commands        []string  `json:"commands,omitempty"`
+	Checks          []string  `json:"checks,omitempty"`
+	AuthorIDs       []string  `json:"author_ids"`
+	ChangeSessionID string    `json:"change_session_id,omitempty"`
+	WorkspaceID     string    `json:"workspace_id,omitempty"`
+	PreviewID       string    `json:"preview_id"`
+	PublishedByID   string    `json:"published_by_id"`
+	PublishedAt     time.Time `json:"published_at"`
+}
+type Finding struct {
+	ID                string              `json:"id"`
+	AuthorID          string              `json:"author_id"`
+	Route             string              `json:"route"`
+	Revision          string              `json:"revision"`
+	Title             string              `json:"title"`
+	Description       string              `json:"description"`
+	ReproductionSteps []string            `json:"reproduction_steps"`
+	Classification    string              `json:"classification"`
+	Status            string              `json:"status"`
+	DuplicateOf       string              `json:"duplicate_of,omitempty"`
+	RelatedFindingIDs []string            `json:"related_finding_ids,omitempty"`
+	Evidence          []Evidence          `json:"evidence"`
+	Comments          []FindingComment    `json:"comments"`
+	History           []FindingEvent      `json:"history"`
+	Work              *FindingWork        `json:"work,omitempty"`
+	Repairs           []RepairPublication `json:"repairs,omitempty"`
+	CreatedAt         time.Time           `json:"created_at"`
+	UpdatedAt         time.Time           `json:"updated_at"`
+}
+
+func (s *Store) LinkFindingWork(repo, pull, preview, finding, actor string, work FindingWork) (Finding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.read(preview)
+	if err != nil || p.RepositoryID != repo || p.PullRequestID != pull {
+		return Finding{}, ErrNotFound
+	}
+	if work.Kind != "task" && work.Kind != "change_session" && work.Kind != "workspace" {
+		return Finding{}, errors.New("invalid work")
+	}
+	for i := range p.Findings {
+		f := &p.Findings[i]
+		if f.ID != finding {
+			continue
+		}
+		if f.Work != nil || len(work.AcceptanceCriteria) == 0 || work.OwnerID == "" {
+			return Finding{}, errors.New("invalid work")
+		}
+		known := map[string]bool{}
+		for _, e := range f.Evidence {
+			known[e.ID] = true
+		}
+		for _, id := range work.EvidenceIDs {
+			if !known[id] {
+				return Finding{}, errors.New("invalid evidence")
+			}
+		}
+		now := s.now().UTC()
+		work.CreatedByID, work.CreatedAt = actor, now
+		f.Work, f.UpdatedAt = &work, now
+		f.History = append(f.History, FindingEvent{Sequence: int64(len(f.History) + 1), Type: "finding.work_linked", ActorID: actor, Value: work.Kind, CreatedAt: now})
+		return *f, s.write(p)
+	}
+	return Finding{}, ErrNotFound
+}
+
+func (s *Store) RecordRepair(repo, pull, preview, finding, actor string, publication RepairPublication) (Finding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.read(preview)
+	if err != nil || p.RepositoryID != repo || p.PullRequestID != pull {
+		return Finding{}, ErrNotFound
+	}
+	for i := range p.Findings {
+		f := &p.Findings[i]
+		if f.ID != finding {
+			continue
+		}
+		if f.Work == nil || publication.Revision == "" || publication.PreviewID == "" || len(publication.CommitIDs) == 0 {
+			return Finding{}, errors.New("invalid repair")
+		}
+		now := s.now().UTC()
+		publication.PublishedByID, publication.PublishedAt = actor, now
+		f.Repairs = append(f.Repairs, publication)
+		f.Status, f.UpdatedAt = "resolved", now
+		f.History = append(f.History, FindingEvent{Sequence: int64(len(f.History) + 1), Type: "finding.repair_published", ActorID: actor, Value: publication.PreviewID, CreatedAt: now})
+		return *f, s.write(p)
+	}
+	return Finding{}, ErrNotFound
+}
+
 type Attestation struct {
 	CommitID            string `json:"commit_id"`
 	DefinitionDigest    string `json:"definition_digest"`

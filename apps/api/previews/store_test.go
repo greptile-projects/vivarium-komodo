@@ -60,6 +60,24 @@ func TestFindingRetainsExactContextRedactsEvidenceAndLinksDuplicate(t *testing.T
 	}
 }
 
+func TestFindingLinksScopedWorkAndRepairProvenance(t *testing.T) {
+	store, _ := New(t.TempDir())
+	item, _ := store.Create(Preview{RepositoryID: "repo", PullRequestID: "pull", Revision: "observed", Definition: Definition{Resources: Resources{LifetimeMinutes: 60}}})
+	created, _ := store.AddFinding("repo", "pull", item.ID, "reporter", Finding{Route: "/", Title: "Broken", Description: "Observed failure", ReproductionSteps: []string{"Submit"}, Evidence: []Evidence{{Kind: "console", Name: "console.txt", MediaType: "text/plain", Content: base64.StdEncoding.EncodeToString([]byte("failed"))}}})
+	f := created.Findings[0]
+	linked, err := store.LinkFindingWork("repo", "pull", item.ID, f.ID, "maintainer", FindingWork{Kind: "workspace", ProposalID: "proposal", TaskID: "task", WorkspaceID: "workspace", OwnerKind: "human", OwnerID: "developer", AcceptanceCriteria: []string{"Submission succeeds"}, EvidenceIDs: []string{f.Evidence[0].ID}})
+	if err != nil || linked.Work == nil || linked.Work.WorkspaceID != "workspace" || linked.Work.CreatedByID != "maintainer" {
+		t.Fatalf("linked work = %#v, %v", linked.Work, err)
+	}
+	if _, err = store.LinkFindingWork("repo", "pull", item.ID, f.ID, "maintainer", FindingWork{Kind: "task", OwnerID: "developer", AcceptanceCriteria: []string{"again"}}); err == nil {
+		t.Fatal("finding accepted replacement work")
+	}
+	repaired, err := store.RecordRepair("repo", "pull", item.ID, f.ID, "developer", RepairPublication{Revision: "fixed", CommitIDs: []string{"fixed"}, Commands: []string{"bun test"}, Checks: []string{"web"}, AuthorIDs: []string{"developer"}, WorkspaceID: "workspace", PreviewID: "next-preview"})
+	if err != nil || repaired.Status != "resolved" || len(repaired.Repairs) != 1 || repaired.Repairs[0].PublishedByID != "developer" || repaired.History[len(repaired.History)-1].Type != "finding.repair_published" {
+		t.Fatalf("repair = %#v, %v", repaired, err)
+	}
+}
+
 func TestInvitationExpiresRevokesAndAuditsWithoutAuthority(t *testing.T) {
 	store, _ := New(t.TempDir())
 	store.now = func() time.Time { return time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC) }
