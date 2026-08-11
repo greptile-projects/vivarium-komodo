@@ -27,10 +27,18 @@ type issueStore interface {
 	StartAgentRun(string, string, string, string, string) (issues.Issue, string, error)
 	RevokeAgentRun(string, string, string, string, string) (issues.Issue, error)
 	AgentContext(string) (issues.Issue, issues.Investigation, issues.AgentRun, error)
+	CreateRepair(string, string, string, issues.Repair) (issues.Issue, issues.Repair, error)
+	LinkRepairPullRequest(string, string, string, string, string) (issues.Issue, issues.Repair, error)
 	CreateReproduction(issues.Issue, string, string, string, string, string, issues.ReproductionDefinition, string, issues.ReproductionCommand, []issues.ReproductionInput) (issues.ReproductionAttempt, error)
 	GetReproduction(string, string, string) (issues.ReproductionAttempt, error)
 	ListReproductions(string, string) ([]issues.ReproductionAttempt, error)
 }
+
+func registerIssueRepairsHTTP(mux *http.ServeMux, store issueStore, plans proposalStore, pulls pullRequestStore, repositories issueRepositoryStore, credentials authStore) {
+	mux.HandleFunc("POST /repositories/{repository}/issues/{issue}/repairs", createIssueRepair(store, plans, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/issues/{issue}/repairs/{repair}/pull-request", linkIssueRepairPullRequest(store, plans, pulls, repositories, credentials))
+}
+
 type issueReleaseStore interface {
 	Get(string, string) (releases.Release, error)
 }

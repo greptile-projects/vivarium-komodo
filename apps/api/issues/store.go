@@ -63,6 +63,7 @@ type Issue struct {
 	Triage            Triage          `json:"triage"`
 	Relationships     []Relationship  `json:"relationships"`
 	Investigations    []Investigation `json:"investigations"`
+	Repairs           []Repair        `json:"repairs"`
 	Version           int64           `json:"version"`
 	CreatedAt         time.Time       `json:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at"`
@@ -133,7 +134,7 @@ func (s *Store) Create(in CreateInput) (Issue, error) {
 	for i := range in.Attachments {
 		in.Attachments[i].ID, _ = newID()
 	}
-	item := Issue{ID: id, RepositoryID: in.RepositoryID, ReporterID: in.ReporterID, Title: strings.TrimSpace(in.Title), ExpectedBehavior: strings.TrimSpace(in.ExpectedBehavior), ObservedBehavior: strings.TrimSpace(in.ObservedBehavior), Severity: in.Severity, Environment: strings.TrimSpace(in.Environment), ReproductionSteps: in.ReproductionSteps, AffectedReleaseID: in.AffectedReleaseID, AffectedVersion: in.AffectedVersion, AffectedCommitID: in.AffectedCommitID, Visibility: in.Visibility, Status: "open", Attachments: in.Attachments, Comments: []Comment{}, History: []Event{{Sequence: 1, Type: "issue.opened", ActorID: in.ReporterID, CreatedAt: now}}, Relationships: []Relationship{}, Investigations: []Investigation{}, Version: 1, CreatedAt: now, UpdatedAt: now}
+	item := Issue{ID: id, RepositoryID: in.RepositoryID, ReporterID: in.ReporterID, Title: strings.TrimSpace(in.Title), ExpectedBehavior: strings.TrimSpace(in.ExpectedBehavior), ObservedBehavior: strings.TrimSpace(in.ObservedBehavior), Severity: in.Severity, Environment: strings.TrimSpace(in.Environment), ReproductionSteps: in.ReproductionSteps, AffectedReleaseID: in.AffectedReleaseID, AffectedVersion: in.AffectedVersion, AffectedCommitID: in.AffectedCommitID, Visibility: in.Visibility, Status: "open", Attachments: in.Attachments, Comments: []Comment{}, History: []Event{{Sequence: 1, Type: "issue.opened", ActorID: in.ReporterID, CreatedAt: now}}, Relationships: []Relationship{}, Investigations: []Investigation{}, Repairs: []Repair{}, Version: 1, CreatedAt: now, UpdatedAt: now}
 	return item, s.write(item)
 }
 func (s *Store) Get(repo, id string) (Issue, error) {

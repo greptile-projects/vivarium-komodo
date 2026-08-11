@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-11T08:34:10Z: Connected confirmed issue failures to ordinary human/Codex proposal-task assignments with immutable reproduction, diagnosis, revision, and acceptance context. Only the resulting task pull request can report progress back to the issue, while existing credentials, repository permissions, checks, review, and merge controls remain authoritative.
+
 2026-08-11T07:48:44Z: Added concurrency-safe owner issue triage, typed affected-resource and existing-work relationships, and exact-reproduction collaborative investigations with cited hypotheses, findings, evidence requests, challenges, suspected revisions/owners, stale evidence, and explicit duplicates. Read-only 24-hour revocable agent runs can inspect only the selected public context and publish attributable cited entries without Git or repository authority.
 
 2026-08-10T20:44:54Z: Added owner-governed technical decision commitments with targeted acknowledgements and policy approvals, immutable rationale/evidence/approval versions, explicit alternative selection and rejection, public blockers and conflicts, material-change reopening, and attributable time-bounded downstream exceptions. The Decisions workspace exposes the complete lifecycle without granting implicit repository authority.

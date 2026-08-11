@@ -96,6 +96,17 @@ Owners may issue a 24-hour agent credential for only the selected issue and
 reproduction. Its global context and entry endpoints grant no repository read,
 Git, or write authority and accept only cited public investigation entries.
 
+Confirmed repairs extend the same issue at `/repairs`. Creation requires owner
+triage, a completed reproduction that observed the failure, a current
+undisputed conclusion at that exact revision, explicit acceptance criteria, and
+a human repository participant or the `codex` agent. The API creates an
+ordinary proposal task and assignment whose immutable reasoning context retains
+the issue, reproduction, diagnosis, revision, and criteria; assignment issues
+no credential. Work continues through established task change sessions or
+shared workspaces. Only a pull request published from that exact task may be
+linked at `/repairs/{repair}/pull-request`; the issue grants no Git,
+repository-write, review, or merge authority.
+
 ## What this is
 
 A Bun workspace monorepo with two apps:
