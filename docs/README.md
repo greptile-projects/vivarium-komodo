@@ -1056,6 +1056,29 @@ repository catalog and storage boundaries. Public repository browsing is
 anonymous. Private browsing requires owner or contributor membership and a
 `repository:read` grant, matching metadata and Git transport policy.
 
+## Actionable issue reports
+
+The repository Issues tab is the public entry point for unexpected behavior.
+An authenticated reader records expected and observed behavior, severity,
+environment, ordered reproduction steps, an optional affected release, and
+either public or repository-participant visibility. The API validates a named
+release in that repository and snapshots its version into the issue.
+
+Evidence accepts only declared logs, screenshots, traces, or sample inputs,
+bounded to ten files, one MiB each and five MiB total. Collection responses omit
+attachment bodies. Duplicate suggestions search only reports already visible to
+the caller, so private evidence cannot be inferred from public search.
+Discussion and status changes remain ordered, actor-attributed history, and
+public issue links use `view=issues&issue={id}`.
+
+The resources are `GET/POST /repositories/{id}/issues`, `GET/PATCH
+/repositories/{id}/issues/{issue}`, `POST
+/repositories/{id}/issues/{issue}/comments`, `GET
+/repositories/{id}/issues/suggestions?q=...`, and `GET
+/repositories/{id}/issue-templates`. Opening and commenting require an
+authenticated repository-read grant; only the reporter or repository owner may
+change status.
+
 ## Web proposal workflow
 
 The repository Proposals tab brings decision context into the same browser as

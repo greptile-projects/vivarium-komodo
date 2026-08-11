@@ -9,6 +9,7 @@ import { CollaborativeInvestigations } from "@/components/collaborative-investig
 import { ImpactAssessments } from "@/components/impact-assessments";
 import { TechnicalDecisions } from "@/components/technical-decisions";
 import { DeliveryTeams } from "@/components/delivery-teams";
+import { Issues } from "@/components/issues";
 import {
   Book,
   Branch,
@@ -1181,6 +1182,7 @@ export default function RepositoryPage({
     assessment?: string;
     decision?: string;
     team?: string;
+    issue?: string;
   }>;
 }) {
   const { id } = use(params);
@@ -1215,6 +1217,8 @@ export default function RepositoryPage({
                             ? "decisions"
                             : query.view === "teams"
                               ? "teams"
+                              : query.view === "issues"
+                                ? "issues"
                       : query.view === "people"
                         ? "people"
                         : "code";
@@ -1270,6 +1274,7 @@ export default function RepositoryPage({
         view === "investigations" ||
         view === "decisions" ||
         view === "teams" ||
+        view === "issues" ||
         view === "people" ||
         repo.empty ||
         !selected
@@ -1336,6 +1341,7 @@ export default function RepositoryPage({
       nextView !== "releases" &&
       nextView !== "workspaces" &&
       nextView !== "teams" &&
+      nextView !== "issues" &&
       nextView !== "people"
     ) {
       const nextRef = next.ref ?? ref;
@@ -1488,6 +1494,13 @@ export default function RepositoryPage({
       )}
       <nav className="repository-tabs" aria-label="Repository">
         <button
+          className={view === "issues" ? "active" : ""}
+          onClick={() => navigate({ view: "issues", path: "" })}
+        >
+          <MessageCircle size={15} />
+          Issues
+        </button>
+        <button
           className={view === "teams" ? "active" : ""}
           onClick={() => navigate({ view: "teams", path: "" })}
         >
@@ -1597,7 +1610,9 @@ export default function RepositoryPage({
           </button>
         )}
       </nav>
-      {view === "proposals" ? (
+      {view === "issues" ? (
+        <Issues repository={repository.id} actor={actor} owner={repository.owner_id} selected={query.issue} />
+      ) : view === "proposals" ? (
         <ProposalWorkspace
           repository={repository}
           branches={branches.items}
