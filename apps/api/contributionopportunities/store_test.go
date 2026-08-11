@@ -51,3 +51,26 @@ func TestSourceCannotBePublishedTwice(t *testing.T) {
 		t.Fatalf("duplicate source: %v", e)
 	}
 }
+
+func TestOpportunityRetainsBootstrapContractAndReportsFriction(t *testing.T) {
+	s, _ := New(t.TempDir())
+	in := Input{Source: Source{Kind: "issue", ResourceID: "i"}, RequiredSkills: []string{"Go"}, Interests: []string{"API"}, ExpectedOutcome: "Repair setup", AcceptanceCriteria: []string{"setup check passes"}, SampleData: []string{"testdata/public.json"}, Scope: []string{"apps/api"}, Risk: "low", Assistance: "agent"}
+	o, err := s.Publish("r", "owner", "Repair setup", "0123456789012345678901234567890123456789", "triaged", true, in)
+	if err != nil || len(o.AcceptanceCriteria) != 1 || len(o.SampleData) != 1 {
+		t.Fatalf("bootstrap contract: %#v %v", o, err)
+	}
+	report, err := s.Report("r", o.ID, "newcomer", "workspace-1", "obsolete_instructions", "setup names a removed tool")
+	if err != nil || report.ActorID != "newcomer" {
+		t.Fatalf("friction report: %#v %v", report, err)
+	}
+	data, _ := s.List("r")
+	if len(data.Reports) != 1 || data.Reports[0].OpportunityID != o.ID {
+		t.Fatalf("report was not retained: %#v", data.Reports)
+	}
+	if _, err = s.Report("r", o.ID, "newcomer", "workspace-1", "secret_dump", "no"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unsafe report kind accepted: %v", err)
+	}
+	if _, err = s.Report("r", o.ID, "newcomer", "workspace-1", "missing_access", "Authorization: Bearer secret"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("credential-like report accepted: %v", err)
+	}
+}

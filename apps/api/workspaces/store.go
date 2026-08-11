@@ -60,9 +60,15 @@ type NamedCommand struct {
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 type SourceContext struct {
-	Type     string `json:"type"`
-	ID       string `json:"id,omitempty"`
-	ParentID string `json:"parent_id,omitempty"`
+	Type                 string   `json:"type"`
+	ID                   string   `json:"id,omitempty"`
+	ParentID             string   `json:"parent_id,omitempty"`
+	UpstreamRepositoryID string   `json:"upstream_repository_id,omitempty"`
+	GuidanceVersion      int64    `json:"guidance_version,omitempty"`
+	Guidance             []string `json:"guidance,omitempty"`
+	Evidence             []string `json:"evidence,omitempty"`
+	AcceptanceCriteria   []string `json:"acceptance_criteria,omitempty"`
+	SampleData           []string `json:"sample_data,omitempty"`
 }
 type Access struct {
 	RepositoryID string `json:"repository_id"`

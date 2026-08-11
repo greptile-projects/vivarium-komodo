@@ -57,6 +57,20 @@ team publication without erasing accepted progress.
 
 Guidance for coding agents working in this repository.
 
+Opportunity onboarding composes existing resources rather than granting new
+authority. An active claimant starts through
+`/repositories/{repository}/contribution-opportunities/{opportunity}/start`;
+the API creates a private contributor-owned fork and an exact-revision shared
+workspace whose source context retains the upstream opportunity, current
+pathway prerequisites/setup guidance, issue or proposal evidence, acceptance
+criteria, and validated repository sample-data paths. Repository-defined setup
+commands remain the reproducibility boundary. Grounded questions use the
+workspace context at that revision. Contributors can append typed
+`missing_access`, `obsolete_instructions`, or
+`non_reproducible_prerequisite` reports to the opportunity; reports must never
+contain credentials or raw private execution state. Neither a claim nor a
+start grants upstream write authority.
+
 Contributor participation guidance lives beneath `$CONTRIBUTOR_PATHWAY_ROOT`
 (default `apps/api/data/contributor-pathways`). A repository owner publishes
 immutable, concurrency-checked pathway versions containing goals,

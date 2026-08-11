@@ -29,36 +29,40 @@ type Source struct {
 	OrganizationID string `json:"organization_id,omitempty"`
 }
 type Opportunity struct {
-	ID              string    `json:"id"`
-	RepositoryID    string    `json:"repository_id"`
-	Source          Source    `json:"source"`
-	Title           string    `json:"title"`
-	RequiredSkills  []string  `json:"required_skills"`
-	Interests       []string  `json:"interests"`
-	ExpectedOutcome string    `json:"expected_outcome"`
-	Scope           []string  `json:"scope"`
-	Dependencies    []string  `json:"dependencies"`
-	Risk            string    `json:"risk"`
-	MentorIDs       []string  `json:"mentor_ids"`
-	Assistance      string    `json:"assistance"`
-	Revision        string    `json:"revision"`
-	Ready           bool      `json:"ready"`
-	SourceState     string    `json:"source_state"`
-	PublishedByID   string    `json:"published_by_id"`
-	Version         int64     `json:"version"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID                 string    `json:"id"`
+	RepositoryID       string    `json:"repository_id"`
+	Source             Source    `json:"source"`
+	Title              string    `json:"title"`
+	RequiredSkills     []string  `json:"required_skills"`
+	Interests          []string  `json:"interests"`
+	ExpectedOutcome    string    `json:"expected_outcome"`
+	AcceptanceCriteria []string  `json:"acceptance_criteria"`
+	SampleData         []string  `json:"sample_data,omitempty"`
+	Scope              []string  `json:"scope"`
+	Dependencies       []string  `json:"dependencies"`
+	Risk               string    `json:"risk"`
+	MentorIDs          []string  `json:"mentor_ids"`
+	Assistance         string    `json:"assistance"`
+	Revision           string    `json:"revision"`
+	Ready              bool      `json:"ready"`
+	SourceState        string    `json:"source_state"`
+	PublishedByID      string    `json:"published_by_id"`
+	Version            int64     `json:"version"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 type Input struct {
-	Source          Source   `json:"source"`
-	RequiredSkills  []string `json:"required_skills"`
-	Interests       []string `json:"interests"`
-	ExpectedOutcome string   `json:"expected_outcome"`
-	Scope           []string `json:"scope"`
-	Dependencies    []string `json:"dependencies"`
-	Risk            string   `json:"risk"`
-	MentorIDs       []string `json:"mentor_ids"`
-	Assistance      string   `json:"assistance"`
+	Source             Source   `json:"source"`
+	RequiredSkills     []string `json:"required_skills"`
+	Interests          []string `json:"interests"`
+	ExpectedOutcome    string   `json:"expected_outcome"`
+	AcceptanceCriteria []string `json:"acceptance_criteria"`
+	SampleData         []string `json:"sample_data,omitempty"`
+	Scope              []string `json:"scope"`
+	Dependencies       []string `json:"dependencies"`
+	Risk               string   `json:"risk"`
+	MentorIDs          []string `json:"mentor_ids"`
+	Assistance         string   `json:"assistance"`
 }
 type Profile struct {
 	ActorID        string    `json:"actor_id"`
@@ -83,6 +87,16 @@ type Data struct {
 	Opportunities []Opportunity `json:"opportunities"`
 	Profiles      []Profile     `json:"profiles"`
 	Claims        []Claim       `json:"claims"`
+	Reports       []Report      `json:"reports"`
+}
+type Report struct {
+	ID            string    `json:"id"`
+	OpportunityID string    `json:"opportunity_id"`
+	ActorID       string    `json:"actor_id"`
+	WorkspaceID   string    `json:"workspace_id"`
+	Kind          string    `json:"kind"`
+	Detail        string    `json:"detail"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 type Match struct {
 	Opportunity       Opportunity `json:"opportunity"`
@@ -125,7 +139,7 @@ func valid(in Input) bool {
 	kinds := map[string]bool{"issue": true, "proposal": true, "proposal_task": true, "stewardship": true}
 	risks := map[string]bool{"low": true, "medium": true, "high": true}
 	assist := map[string]bool{"human": true, "agent": true, "human_or_agent": true, "none": true}
-	return kinds[in.Source.Kind] && in.Source.ResourceID != "" && clean(in.RequiredSkills, true) && clean(in.Interests, true) && clean(in.Scope, true) && clean(in.Dependencies, false) && clean(in.MentorIDs, false) && strings.TrimSpace(in.ExpectedOutcome) != "" && risks[in.Risk] && assist[in.Assistance]
+	return kinds[in.Source.Kind] && in.Source.ResourceID != "" && clean(in.RequiredSkills, true) && clean(in.Interests, true) && clean(in.Scope, true) && clean(in.Dependencies, false) && clean(in.MentorIDs, false) && clean(in.AcceptanceCriteria, false) && clean(in.SampleData, false) && strings.TrimSpace(in.ExpectedOutcome) != "" && risks[in.Risk] && assist[in.Assistance]
 }
 func id() string { b := make([]byte, 16); _, _ = rand.Read(b); return hex.EncodeToString(b) }
 func (s *Store) Publish(repo, actor, title, revision, state string, ready bool, in Input) (Opportunity, error) {
@@ -144,9 +158,57 @@ func (s *Store) Publish(repo, actor, title, revision, state string, ready bool, 
 		}
 	}
 	now := s.now().UTC()
-	o := Opportunity{ID: id(), RepositoryID: repo, Source: in.Source, Title: title, RequiredSkills: in.RequiredSkills, Interests: in.Interests, ExpectedOutcome: strings.TrimSpace(in.ExpectedOutcome), Scope: in.Scope, Dependencies: in.Dependencies, Risk: in.Risk, MentorIDs: in.MentorIDs, Assistance: in.Assistance, Revision: revision, Ready: ready, SourceState: state, PublishedByID: actor, Version: 1, CreatedAt: now, UpdatedAt: now}
+	criteria := in.AcceptanceCriteria
+	if len(criteria) == 0 {
+		criteria = []string{strings.TrimSpace(in.ExpectedOutcome)}
+	}
+	o := Opportunity{ID: id(), RepositoryID: repo, Source: in.Source, Title: title, RequiredSkills: in.RequiredSkills, Interests: in.Interests, ExpectedOutcome: strings.TrimSpace(in.ExpectedOutcome), AcceptanceCriteria: criteria, SampleData: in.SampleData, Scope: in.Scope, Dependencies: in.Dependencies, Risk: in.Risk, MentorIDs: in.MentorIDs, Assistance: in.Assistance, Revision: revision, Ready: ready, SourceState: state, PublishedByID: actor, Version: 1, CreatedAt: now, UpdatedAt: now}
 	d.Opportunities = append(d.Opportunities, o)
 	return o, s.write(repo, d)
+}
+func (s *Store) Get(repo, opportunity string) (Opportunity, error) {
+	d, err := s.List(repo)
+	if err != nil {
+		return Opportunity{}, err
+	}
+	for _, o := range d.Opportunities {
+		if o.ID == opportunity {
+			return o, nil
+		}
+	}
+	return Opportunity{}, ErrNotFound
+}
+func (s *Store) Report(repo, opportunity, actor, workspace, kind, detail string) (Report, error) {
+	allowed := map[string]bool{"missing_access": true, "obsolete_instructions": true, "non_reproducible_prerequisite": true}
+	lower := strings.ToLower(detail)
+	credentialLike := []string{"-----begin private key", "authorization: bearer", "github_pat_", "ghp_", "aws_secret_access_key", "sk-"}
+	unsafe := false
+	for _, marker := range credentialLike {
+		if strings.Contains(lower, marker) {
+			unsafe = true
+		}
+	}
+	if actor == "" || workspace == "" || !allowed[kind] || strings.TrimSpace(detail) == "" || unsafe {
+		return Report{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, err := s.read(repo)
+	if err != nil {
+		return Report{}, err
+	}
+	found := false
+	for _, o := range d.Opportunities {
+		if o.ID == opportunity {
+			found = true
+		}
+	}
+	if !found {
+		return Report{}, ErrNotFound
+	}
+	r := Report{ID: id(), OpportunityID: opportunity, ActorID: actor, WorkspaceID: workspace, Kind: kind, Detail: strings.TrimSpace(detail), CreatedAt: s.now().UTC()}
+	d.Reports = append(d.Reports, r)
+	return r, s.write(repo, d)
 }
 func (s *Store) List(repo string) (Data, error) {
 	s.mu.Lock()
@@ -302,7 +364,7 @@ func riskRank(x string) int { return map[string]int{"low": 1, "medium": 2, "high
 func (s *Store) read(repo string) (Data, error) {
 	b, e := os.ReadFile(filepath.Join(s.root, repo+".json"))
 	if errors.Is(e, fs.ErrNotExist) {
-		return Data{Opportunities: []Opportunity{}, Profiles: []Profile{}, Claims: []Claim{}}, nil
+		return Data{Opportunities: []Opportunity{}, Profiles: []Profile{}, Claims: []Claim{}, Reports: []Report{}}, nil
 	}
 	var d Data
 	if e == nil {

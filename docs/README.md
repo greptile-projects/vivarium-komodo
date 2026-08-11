@@ -33,6 +33,21 @@ explicit: a profile, suggestion, or reservation grants no repository write,
 Git, agent, review, or merge access. Data is stored beneath
 `$CONTRIBUTION_OPPORTUNITY_ROOT`.
 
+An active claimant can turn the match into a reproducible starting point at
+the opportunity's `/start` action. The API creates a private contributor-owned
+fork and launches `.komodo/workspaces.json` at the recorded commit. The shared
+workspace retains the current pathway prerequisites and supported setup,
+source issue or proposal evidence, explicit acceptance criteria, and only
+sample-data paths that the maintainer allowed and that exist at that commit.
+Setup commands run in the existing credential-free, networkless sandbox;
+workspace-grounded questions provide revision-specific explanations.
+
+Contributors append `missing_access`, `obsolete_instructions`, or
+`non_reproducible_prerequisite` reports to the original opportunity when the
+starting point fails. Reports are attributable and repository-visible and must
+not copy secrets, private terminal history, or inaccessible evidence. The fork
+and workspace provide no upstream write authority.
+
 Repository owners publish the project participation contract at `POST
 /repositories/{repository}/contributor-pathway/versions`. Each immutable
 version gathers project goals, prerequisites, conduct and private-security
