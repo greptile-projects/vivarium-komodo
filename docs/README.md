@@ -1079,6 +1079,35 @@ The resources are `GET/POST /repositories/{id}/issues`, `GET/PATCH
 authenticated repository-read grant; only the reporter or repository owner may
 change status.
 
+### Executable issue reproductions
+
+An issue pinned to `affected_commit_id` or `affected_release_id` can become
+shared executable evidence. The reporter or repository owner launches a named
+command from the exact revision's `.komodo/reproductions.json` with `POST
+/repositories/{repository}/issues/{issue}/reproductions`. Schema version `1`
+declares the environment, tools, optional setup, CPU/memory/disk limits, and
+named reproduction commands with timeouts, expected exit codes, and bounded
+artifact paths. A release-backed issue always runs its attested immutable commit;
+branch names and caller-selected commands are not accepted.
+
+Each launch materializes only the captured Git tree, writes explicit sanitized
+fixtures beneath `.komodo-inputs`, and runs in Bubblewrap without network,
+credentials, repository metadata, or host filesystem access. Input names and
+content that resemble credentials are rejected. Logs are bounded and redact
+credential-shaped output; declared artifacts are regular files limited to one
+MiB each and five MiB total and fail closed when credential-shaped. The durable
+attempt retains the environment definition and SHA-256 digest, exact commit and
+release identity, initiator, input checksums, ordered commands/logs/outcomes,
+observed result, failure reason, and checksum-addressed artifact bytes. Failed
+setup, command, or artifact collection remains inspectable.
+
+Visible authorized collaborators inspect attempts with `GET .../reproductions`
+and `GET .../reproductions/{attempt}`. Any authenticated repository participant
+can `POST .../reproductions/{attempt}/reruns` after it becomes terminal; the new
+attributed attempt copies the prior immutable definition, revision, command, and
+sanitized inputs instead of reading a moved manifest. This makes environment or
+fixture differences explicit while preserving every prior failure.
+
 ## Web proposal workflow
 
 The repository Proposals tab brings decision context into the same browser as

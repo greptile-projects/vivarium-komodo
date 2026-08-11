@@ -70,6 +70,18 @@ changes append attributable history, and only the reporter or repository owner
 may close or reopen a report. The shareable web surface is
 `view=issues&issue={id}`; later reproduction and resolution workflows should
 extend these issue resources rather than copying evidence into another store.
+Issue reproduction attempts extend that same resource beneath
+`/issues/{issue}/reproductions`. Reports may pin an exact visible source commit
+or an attested release commit. The reporter or repository owner launches one
+repository-declared `.komodo/reproductions.json` command with explicit sanitized
+inputs; execution materializes only that commit and runs in credential-free,
+networkless Bubblewrap with bounded CPU, memory, disk, time, logs, and artifacts.
+Attempts immutably retain the environment definition and digest, revision,
+release, initiator, inputs and checksums, command outcomes, observed result,
+failure reason, and artifacts. Repository participants may inspect failed
+attempts and create attributable reruns from the exact retained definition and
+inputs. Reject credential-like inputs and artifacts and redact credential-like
+log output rather than retaining secrets or inaccessible machine state.
 
 ## What this is
 
