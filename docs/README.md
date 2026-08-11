@@ -98,6 +98,15 @@ reviews, reproductions, required checks, owner acknowledgement, protected
 integration queues, and merge permissions continue through the established
 pull-request workflow.
 
+Once the guided pull request is merged and a release includes its exact merge,
+the repository owner completes the opportunity at `POST
+/repositories/{repository}/contribution-opportunities/{opportunity}/outcome`.
+The API verifies both links before retaining immutable contributor credit,
+maintainer feedback, support hours, `ready`, `ready_with_support`, or
+`needs_guidance` readiness, and an optional suggested next opportunity. These
+trust outcomes are public alongside the opportunity on the Contribute surface
+and explicitly grant no repository membership or future authority.
+
 Repository owners publish the project participation contract at `POST
 /repositories/{repository}/contributor-pathway/versions`. Each immutable
 version gathers project goals, prerequisites, conduct and private-security

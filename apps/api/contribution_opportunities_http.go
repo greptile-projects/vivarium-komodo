@@ -12,6 +12,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
@@ -27,16 +28,22 @@ type opportunityRunner interface {
 	WriteFile(workspaces.Workspace, string, string, []byte, bool, *string) (workspaces.Workspace, error)
 	Publish(workspaces.Workspace, string, string, workspaces.PublishRequest) (storage.ObjectID, []string, error)
 }
+type opportunityReleaseStore interface {
+	Get(string, string) (releases.Release, error)
+}
 
 func registerContributionOpportunitiesHTTP(mux *http.ServeMux, store *contributionopportunities.Store, repos opportunityRepositories, credentials authStore, issueStore *issues.Store, proposalStore *proposals.Store, organizationStore *organizations.Store, pathways contributorPathwayStore, workspaceStore workspaceStore, runner opportunityRunner, extras ...any) {
 	var pulls pullRequestStore
 	var checks checkRunStarter
+	var releaseStore opportunityReleaseStore
 	for _, extra := range extras {
 		switch value := extra.(type) {
 		case pullRequestStore:
 			pulls = value
 		case checkRunStarter:
 			checks = value
+		case opportunityReleaseStore:
+			releaseStore = value
 		}
 	}
 	access := func(w http.ResponseWriter, r *http.Request, write bool) (string, bool) {
@@ -58,7 +65,7 @@ func registerContributionOpportunitiesHTTP(mux *http.ServeMux, store *contributi
 				active[c.OpportunityID] = c
 			}
 		}
-		writeJSON(w, 200, map[string]any{"items": d.Opportunities, "active_claims": active, "reports": d.Reports, "grants_write_access": false})
+		writeJSON(w, 200, map[string]any{"items": d.Opportunities, "active_claims": active, "reports": d.Reports, "outcomes": d.Outcomes, "grants_write_access": false})
 	})
 	mux.HandleFunc("POST /repositories/{repository}/contribution-opportunities", func(w http.ResponseWriter, r *http.Request) {
 		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
@@ -414,6 +421,51 @@ func registerContributionOpportunitiesHTTP(mux *http.ServeMux, store *contributi
 			_ = checks.Start(string(upstream.ID), string(fork.ID), created.ID, string(commit))
 		}
 		writeJSON(w, 201, map[string]any{"preflight": preflight, "pull_request": created, "ordinary_governance": true})
+	})
+	mux.HandleFunc("POST /repositories/{repository}/contribution-opportunities/{opportunity}/outcome", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if actor.UserID != repo.OwnerID {
+			writeJSON(w, 403, map[string]string{"error": "forbidden"})
+			return
+		}
+		var in struct {
+			PullRequestID   string  `json:"pull_request_id"`
+			ReleaseID       string  `json:"release_id"`
+			Credit          string  `json:"credit"`
+			Feedback        string  `json:"feedback"`
+			SupportHours    float64 `json:"support_hours"`
+			Readiness       string  `json:"readiness"`
+			NextOpportunity string  `json:"next_opportunity,omitempty"`
+		}
+		if !readJSON(w, r, &in, 16<<10) {
+			return
+		}
+		if pulls == nil || releaseStore == nil {
+			writeJSON(w, 500, map[string]string{"error": "outcome_unavailable"})
+			return
+		}
+		pr, err := pulls.Get(string(repo.ID), in.PullRequestID)
+		if err != nil || pr.Status != pullrequests.Merged || pr.ContributionContext == nil || pr.ContributionContext.OpportunityID != r.PathValue("opportunity") {
+			writeJSON(w, 422, map[string]string{"error": "delivered_contribution_required"})
+			return
+		}
+		release, err := releaseStore.Get(string(repo.ID), in.ReleaseID)
+		included := false
+		for _, link := range release.PullRequests {
+			included = included || link.ID == pr.ID && link.MergeCommitID == pr.MergeCommitID
+		}
+		if err != nil || !included {
+			writeJSON(w, 422, map[string]string{"error": "including_release_required"})
+			return
+		}
+		out, err := store.Complete(string(repo.ID), r.PathValue("opportunity"), pr.AuthorID, pr.ID, release.ID, in.Credit, in.Feedback, in.SupportHours, in.Readiness, in.NextOpportunity, actor.UserID)
+		if opportunityError(w, err) {
+			return
+		}
+		writeJSON(w, 201, map[string]any{"outcome": out, "grants_authority": false})
 	})
 	role := func(repo repositories.Repository, o contributionopportunities.Opportunity, c contributionopportunities.Collaboration, actor string) string {
 		if actor == c.ContributorID {

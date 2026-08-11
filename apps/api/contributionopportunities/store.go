@@ -89,6 +89,24 @@ type Data struct {
 	Claims         []Claim         `json:"claims"`
 	Reports        []Report        `json:"reports"`
 	Collaborations []Collaboration `json:"collaborations"`
+	Outcomes       []Outcome       `json:"outcomes"`
+}
+
+// Outcome is the immutable maintainer assessment of one delivered guided
+// contribution. Delivery evidence is resolved by the HTTP boundary before it
+// reaches the store; the record itself grants no future authority.
+type Outcome struct {
+	OpportunityID   string    `json:"opportunity_id"`
+	ContributorID   string    `json:"contributor_id"`
+	PullRequestID   string    `json:"pull_request_id"`
+	ReleaseID       string    `json:"release_id"`
+	Credit          string    `json:"credit"`
+	Feedback        string    `json:"feedback"`
+	SupportHours    float64   `json:"support_hours"`
+	Readiness       string    `json:"readiness"`
+	NextOpportunity string    `json:"next_opportunity,omitempty"`
+	RecordedByID    string    `json:"recorded_by_id"`
+	RecordedAt      time.Time `json:"recorded_at"`
 }
 
 type Collaboration struct {
@@ -447,6 +465,33 @@ func (s *Store) Report(repo, opportunity, actor, workspace, kind, detail string)
 	r := Report{ID: id(), OpportunityID: opportunity, ActorID: actor, WorkspaceID: workspace, Kind: kind, Detail: strings.TrimSpace(detail), CreatedAt: s.now().UTC()}
 	d.Reports = append(d.Reports, r)
 	return r, s.write(repo, d)
+}
+func (s *Store) Complete(repo, opportunity, contributor, pull, release, credit, feedback string, supportHours float64, readiness, next, actor string) (Outcome, error) {
+	credit, feedback, next = strings.TrimSpace(credit), strings.TrimSpace(feedback), strings.TrimSpace(next)
+	if contributor == "" || pull == "" || release == "" || actor == "" || credit == "" || feedback == "" || len(credit) > 2000 || len(feedback) > 4000 || supportHours < 0 || supportHours > 1000 || !map[string]bool{"ready": true, "ready_with_support": true, "needs_guidance": true}[readiness] {
+		return Outcome{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, err := s.read(repo)
+	if err != nil {
+		return Outcome{}, err
+	}
+	found := false
+	for _, o := range d.Opportunities {
+		found = found || o.ID == opportunity
+	}
+	if !found {
+		return Outcome{}, ErrNotFound
+	}
+	for _, o := range d.Outcomes {
+		if o.OpportunityID == opportunity {
+			return Outcome{}, ErrConflict
+		}
+	}
+	out := Outcome{OpportunityID: opportunity, ContributorID: contributor, PullRequestID: pull, ReleaseID: release, Credit: credit, Feedback: feedback, SupportHours: supportHours, Readiness: readiness, NextOpportunity: next, RecordedByID: actor, RecordedAt: s.now().UTC()}
+	d.Outcomes = append(d.Outcomes, out)
+	return out, s.write(repo, d)
 }
 func (s *Store) List(repo string) (Data, error) {
 	s.mu.Lock()
