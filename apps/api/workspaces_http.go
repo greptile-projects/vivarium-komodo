@@ -703,6 +703,8 @@ func workspaceContextMatches(repositoryID, revision string, c workspaces.SourceC
 	switch c.Type {
 	case "repository":
 		return c.ID == "" && c.ParentID == ""
+	case "contribution_opportunity":
+		return c.ID != "" && c.UpstreamRepositoryID != "" && len(c.AcceptanceCriteria) > 0
 	case "decision":
 		return c.ID != "" && c.ParentID != ""
 	case "proposal_task":
