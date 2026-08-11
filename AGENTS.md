@@ -118,6 +118,18 @@ append-only. Owner overrides require a reason and preserve reporter dissent.
 Safe previews remain retained reproduction evidence under the issue read policy
 and grant no execution or repository access.
 
+After a confirmed candidate is merged, a reporter or owner may run the same
+named reproduction and sanitized inputs against a newer release by supplying
+its `release_id`. The release is eligible only when its server-derived pull
+request inclusions contain the linked repair and the exact candidate has a
+reporter confirmation or reasoned owner override. Retain this delivered-release
+attempt separately; it never rewrites the affected-release failure or candidate
+verification. Link the resulting release and deployment through ordinary issue
+relationships before reporter-or-owner closure. `issue_resolution_workflow_test.go`
+is the black-box regression boundary for the complete released-report,
+request-and-retry, agent diagnosis/repair, review, merge, release, deployment,
+fixed-release retest, and reporter-resolution loop.
+
 ## What this is
 
 A Bun workspace monorepo with two apps:

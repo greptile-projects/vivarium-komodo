@@ -2445,3 +2445,29 @@ Only the reporter appends `confirmed` or `rejected` decisions. Confirmation
 requires that the retained failure no longer reproduces and all required checks
 succeed. The owner may append a reasoned `override` under the same conditions;
 it never replaces reporter dissent.
+
+### Delivered resolution
+
+Candidate confirmation does not claim that a fix has reached users. Once the
+linked pull request is merged and included in a newer release, the reporter or
+owner can submit that release's `release_id` to the ordinary reproduction
+collection. Eligibility is derived from the release's server-recorded pull
+request inclusions and an exact-revision reporter confirmation or reasoned owner
+override. The runner then reads the newer release manifest and replays the same
+named case with explicit sanitized inputs in the existing credential-free,
+networkless boundary.
+
+The delivered attempt is retained alongside the original affected-release
+failure and candidate attempt. Maintainers link the real release and deployment
+resources to the issue; reporter-or-owner status control remains separate, so a
+non-reproducible attempt, passing general check, merge, or deployment cannot
+silently close the report. The repository issue page presents triage, all safe
+attempts and retries, cited human/agent diagnosis, acceptance criteria,
+commit-bound decisions, the linked pull request, and delivered release and
+deployment evidence as one permission-aware resolution trail.
+
+`issue_resolution_workflow_test.go` proves the public-HTTP and stock-Git loop,
+including an initial missing-fixture failure, an explicit cited evidence request
+and sanitized retry, read-only agent diagnosis, branch-only agent authorship,
+ordinary checks/review/merge, corrected release and deployment, unchanged-case
+success against that release, and final reporter closure.
