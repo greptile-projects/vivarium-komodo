@@ -70,6 +70,21 @@ anonymous-readable, acknowledgements are attributable and version-bound, and
 the shareable web surface is `view=contribute&ref={revision}`. A pathway grants
 no repository, Git, agent, review, or merge authority.
 
+Ready newcomer work lives beneath `$CONTRIBUTION_OPPORTUNITY_ROOT` (default
+`apps/api/data/contribution-opportunities`). Repository owners expose an
+opportunity only by naming an existing triaged issue, open proposal, ready
+unassigned proposal task, or current stewardship finding; the API derives its
+title, readiness state, and exact revision from that source. The owner adds
+required skills, interests, expected outcome, bounded scope, dependencies,
+risk, mentors, and available human or agent assistance. Authenticated readers
+save interests, skills, time/risk constraints, and assistance preferences, then
+inspect deterministic match scores with both reasons and gaps. Claims are
+exclusive, attributable, and expire after at most fourteen days; only the
+claimant may release one early. Profiles, matches, and claims require read
+access only and explicitly grant no repository, Git, agent, review, or merge
+authority. The shareable discovery surface remains
+`view=contribute&ref={revision}` alongside the contributor pathway.
+
 Ordinary unexpected-behavior reports live beneath `$ISSUE_ROOT` (default
 `apps/api/data/issues`) and are owned by the `issues.Store` boundary. An
 authenticated repository reader may open one against the repository or an
