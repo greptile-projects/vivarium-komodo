@@ -1,6 +1,7 @@
 package previews
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -30,6 +31,32 @@ func TestAttemptRetainsImmutableAttestationAndLifecycle(t *testing.T) {
 	raw, _ := json.Marshal(got)
 	if !json.Valid(raw) || strings.Contains(string(raw), "secret-review-value") {
 		t.Fatal("configuration value leaked into durable/public preview")
+	}
+}
+
+func TestFindingRetainsExactContextRedactsEvidenceAndLinksDuplicate(t *testing.T) {
+	store, _ := New(t.TempDir())
+	item, _ := store.Create(Preview{RepositoryID: "repo", PullRequestID: "pull", Revision: "candidate-one", Definition: Definition{Resources: Resources{LifetimeMinutes: 60}}})
+	input := Finding{Route: "/checkout?tab=payment&token=private", Title: "Card form fails", Description: "Submitting the form did not advance.", ReproductionSteps: []string{"Open checkout", "Submit the form"}, Evidence: []Evidence{{Kind: "console", Name: "console.txt", MediaType: "text/plain", Content: base64.StdEncoding.EncodeToString([]byte("ready\nAuthorization: Bearer private\nfailed"))}}}
+	created, err := store.AddFinding("repo", "pull", item.ID, "stakeholder", input)
+	if err != nil || len(created.Findings) != 1 {
+		t.Fatalf("finding = %#v, %v", created, err)
+	}
+	finding := created.Findings[0]
+	if finding.Revision != "candidate-one" || finding.Route != "/checkout?tab=payment&token=%5Bredacted%5D" || !finding.Evidence[0].Redacted || finding.Evidence[0].Content != "" {
+		t.Fatalf("retained context = %#v", finding)
+	}
+	_, body, err := store.ReadEvidence("repo", "pull", item.ID, finding.ID, finding.Evidence[0].ID)
+	if err != nil || strings.Contains(string(body), "private") || !strings.Contains(string(body), "[redacted sensitive field]") {
+		t.Fatalf("redacted body = %q, %v", body, err)
+	}
+	duplicate, err := store.AddFinding("repo", "pull", item.ID, "reviewer", Finding{Route: "/checkout?token=other&tab=payment", Title: "card form fails", Description: "Still fails.", ReproductionSteps: []string{"Submit"}})
+	if err != nil || duplicate.Findings[1].DuplicateOf != finding.ID {
+		t.Fatalf("duplicate = %#v, %v", duplicate.Findings, err)
+	}
+	updated, err := store.UpdateFinding("repo", "pull", item.ID, finding.ID, "maintainer", "bug", "resolved", "", []string{duplicate.Findings[1].ID})
+	if err != nil || updated.Findings[0].Status != "resolved" || updated.Findings[0].Classification != "bug" || len(updated.Findings[0].RelatedFindingIDs) != 1 {
+		t.Fatalf("updated finding = %#v, %v", updated.Findings[0], err)
 	}
 }
 

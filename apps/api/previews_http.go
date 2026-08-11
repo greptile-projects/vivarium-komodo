@@ -55,10 +55,151 @@ func registerPreviewsHTTP(mux *http.ServeMux, store *previews.Store, runner prev
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/previews", listPreviews(store, pulls, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}", getPreview(store, pulls, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/audience", previewAudience(store, pulls, credentials))
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/findings", listPreviewFindings(store, pulls, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/findings", createPreviewFinding(store, pulls, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/findings/{finding}/comments", commentPreviewFinding(store, pulls, repositories, credentials))
+	mux.HandleFunc("PATCH /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/findings/{finding}", updatePreviewFinding(store, pulls, repositories, credentials))
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/findings/{finding}/evidence/{evidence}", getPreviewEvidence(store, pulls, repositories, credentials))
 	mux.HandleFunc("/repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/proxy/{path...}", proxyPreview(store, pulls, repositories, credentials))
 	if len(sources) > 0 {
 		mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/invitations", invitePreview(store, pulls, repositories, credentials, sources[0]))
 		mux.HandleFunc("DELETE /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/invitations/{invitation}", revokePreviewInvitation(store, pulls, repositories, credentials))
+	}
+}
+
+func previewFindingAccess(w http.ResponseWriter, r *http.Request, store *previews.Store, pulls previewPullStore, repos pullRequestRepositoryStore, c authStore) (pullrequests.PullRequest, string, previews.Invitation, bool, bool) {
+	grant, ok := authenticateRequest(w, r, c, auth.ProfileRead)
+	if !ok {
+		return pullrequests.PullRequest{}, "", previews.Invitation{}, false, false
+	}
+	pull, e := pulls.Get(r.PathValue("repository"), r.PathValue("pull_request"))
+	if e != nil {
+		writeJSON(w, 404, map[string]string{"error": "not_found"})
+		return pull, "", previews.Invitation{}, false, false
+	}
+	repo, e := repos.Inspect(storage.ID(pull.RepositoryID))
+	if e != nil {
+		writeJSON(w, 404, map[string]string{"error": "not_found"})
+		return pull, "", previews.Invitation{}, false, false
+	}
+	participant := grant.UserID == repo.OwnerID
+	if !participant {
+		participant, _ = repos.IsCollaborator(repo.ID, grant.UserID)
+	}
+	if participant {
+		return pull, grant.UserID, previews.Invitation{}, true, true
+	}
+	_, inv, e := store.Authorize(pull.RepositoryID, pull.ID, r.PathValue("preview"), grant.UserID)
+	if e != nil {
+		writeJSON(w, 404, map[string]string{"error": "not_found"})
+		return pull, "", previews.Invitation{}, false, false
+	}
+	return pull, grant.UserID, inv, false, true
+}
+func listPreviewFindings(store *previews.Store, pulls previewPullStore, repos pullRequestRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pull, _, _, _, ok := previewFindingAccess(w, r, store, pulls, repos, c)
+		if !ok {
+			return
+		}
+		p, e := store.Get(pull.RepositoryID, pull.ID, r.PathValue("preview"))
+		if e != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"items": p.Findings, "revision": p.Revision})
+	}
+}
+func createPreviewFinding(store *previews.Store, pulls previewPullStore, repos pullRequestRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pull, actor, inv, participant, ok := previewFindingAccess(w, r, store, pulls, repos, c)
+		if !ok {
+			return
+		}
+		if !participant && inv.Role != "feedback" && !store.HasRole(pull.RepositoryID, pull.ID, r.PathValue("preview"), actor, "feedback") {
+			writeJSON(w, 403, map[string]string{"error": "feedback_role_required"})
+			return
+		}
+		var in previews.Finding
+		if !readJSON(w, r, &in, 8<<20) {
+			return
+		}
+		p, e := store.AddFinding(pull.RepositoryID, pull.ID, r.PathValue("preview"), actor, in)
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_finding"})
+			return
+		}
+		writeJSON(w, 201, p.Findings[len(p.Findings)-1])
+	}
+}
+func commentPreviewFinding(store *previews.Store, pulls previewPullStore, repos pullRequestRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pull, actor, _, _, ok := previewFindingAccess(w, r, store, pulls, repos, c)
+		if !ok {
+			return
+		}
+		var in struct {
+			Body string `json:"body"`
+		}
+		if !readJSON(w, r, &in, 16<<10) {
+			return
+		}
+		p, e := store.CommentFinding(pull.RepositoryID, pull.ID, r.PathValue("preview"), r.PathValue("finding"), actor, in.Body)
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_comment"})
+			return
+		}
+		writeJSON(w, 201, p)
+	}
+}
+func updatePreviewFinding(store *previews.Store, pulls previewPullStore, repos pullRequestRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pull, actor, _, participant, ok := previewFindingAccess(w, r, store, pulls, repos, c)
+		if !ok {
+			return
+		}
+		if !participant {
+			writeJSON(w, 403, map[string]string{"error": "repository_participant_required"})
+			return
+		}
+		var in struct {
+			Classification string   `json:"classification"`
+			Status         string   `json:"status"`
+			DuplicateOf    string   `json:"duplicate_of"`
+			Related        []string `json:"related_finding_ids"`
+		}
+		if !readJSON(w, r, &in, 16<<10) {
+			return
+		}
+		p, e := store.UpdateFinding(pull.RepositoryID, pull.ID, r.PathValue("preview"), r.PathValue("finding"), actor, in.Classification, in.Status, in.DuplicateOf, in.Related)
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_finding_update"})
+			return
+		}
+		writeJSON(w, 200, p)
+	}
+}
+func getPreviewEvidence(store *previews.Store, pulls previewPullStore, repos pullRequestRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pull, _, _, _, ok := previewFindingAccess(w, r, store, pulls, repos, c)
+		if !ok {
+			return
+		}
+		item, e := store.Get(pull.RepositoryID, pull.ID, r.PathValue("preview"))
+		if e != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		a, b, e := store.ReadEvidence(pull.RepositoryID, pull.ID, item.ID, r.PathValue("finding"), r.PathValue("evidence"))
+		if e != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		w.Header().Set("Content-Type", a.MediaType)
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", a.Name))
+		w.Header().Set("X-Komodo-Evidence-Revision", item.Revision)
+		w.WriteHeader(200)
+		_, _ = w.Write(b)
 	}
 }
 

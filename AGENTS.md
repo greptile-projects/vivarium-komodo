@@ -322,6 +322,15 @@ whenever dependencies change or the web job fails before it starts.
 	and action policy, and audits invitations, entry, and revocation. Keep the
 	effective audience and restrictions visible without exposing configuration
 	values or private services.
+	Feedback-role invitees and repository participants attach findings to the
+	exact preview attempt rather than detached pull-request comments. Findings
+	server-capture the candidate revision and submitted route, ordered reproduction
+	steps, classification, lifecycle, duplicate and related-finding links, and
+	attributable discussion/history. Bounded screenshot, recording, console, trace,
+	or annotation evidence remains in an `exact_preview` audience behind a dedicated
+	access check; ordinary preview and pull-request JSON exposes metadata only.
+	Redact credential-like textual fields and sensitive route parameters before
+	persistence, and never widen evidence merely because its finding is discussed.
   Change sessions retain their initiating user, captured pull request source
   commit, current state, and ordered public timeline; keep later worker
   execution details behind this application-facing contract.

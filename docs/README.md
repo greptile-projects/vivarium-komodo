@@ -2635,3 +2635,24 @@ applies a restrictive CSP, and permits mutating test requests only when both
 the manifest and a `test` invitation allow them. Invitation roles cannot read
 code, open a workspace, inspect environment configuration, deploy, or reach
 production/private services; the web surface states that effective boundary.
+
+### Preview findings
+
+`POST .../previews/{preview}/findings` turns hands-on evaluation into a durable
+finding on that exact attempt. A current feedback invitation (or an existing
+repository participant) supplies a route, title, description, ordered
+reproduction steps, and up to ten permitted screenshots, recordings, console
+captures, traces, or annotations. The server binds the finding to the attempt's
+immutable source revision, redacts credential-like textual fields and sensitive
+route parameters, and automatically links an open finding with the same title
+and route as a duplicate.
+
+Finding discussion is attributable and available to the exact-preview audience.
+Repository participants classify findings as bugs, usability, accessibility,
+content, performance, or questions; relate or explicitly deduplicate them; and
+resolve or reopen them without losing history. Evidence metadata is safe to show
+beside the pull request, but bytes remain separately stored with an
+`exact_preview` audience and require the caller to pass the preview invitation
+or repository-participant check again. Thus a finding can coordinate review on
+the pull request without copying inaccessible evidence into a broader comment
+audience.
