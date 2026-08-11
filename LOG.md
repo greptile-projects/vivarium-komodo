@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-11T11:08:52Z: Added immutable repository contributor pathways covering goals, prerequisites, conduct/security/setup/communication/review guidance and human/agent work categories. Exact documentation/workspace revisions and linked ownership, release, issue, and proposal resources now report live current/stale/inaccessible health; the Contribute workspace retains attributed versions and acknowledgements without granting authority.
+
 2026-08-11T08:34:10Z: Connected confirmed issue failures to ordinary human/Codex proposal-task assignments with immutable reproduction, diagnosis, revision, and acceptance context. Only the resulting task pull request can report progress back to the issue, while existing credentials, repository permissions, checks, review, and merge controls remain authoritative.
 
 2026-08-11T07:48:44Z: Added concurrency-safe owner issue triage, typed affected-resource and existing-work relationships, and exact-reproduction collaborative investigations with cited hypotheses, findings, evidence requests, challenges, suspected revisions/owners, stale evidence, and explicit duplicates. Read-only 24-hour revocable agent runs can inspect only the selected public context and publish attributable cited entries without Git or repository authority.

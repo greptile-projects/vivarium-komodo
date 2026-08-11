@@ -10,6 +10,7 @@ import { ImpactAssessments } from "@/components/impact-assessments";
 import { TechnicalDecisions } from "@/components/technical-decisions";
 import { DeliveryTeams } from "@/components/delivery-teams";
 import { Issues } from "@/components/issues";
+import { ContributorPathway } from "@/components/contributor-pathway";
 import {
   Book,
   Branch,
@@ -1215,8 +1216,10 @@ export default function RepositoryPage({
                           ? "impact"
                           : query.view === "decisions"
                             ? "decisions"
-                            : query.view === "teams"
-                              ? "teams"
+                          : query.view === "teams"
+                            ? "teams"
+                            : query.view === "contribute"
+                              ? "contribute"
                               : query.view === "issues"
                                 ? "issues"
                       : query.view === "people"
@@ -1494,6 +1497,13 @@ export default function RepositoryPage({
       )}
       <nav className="repository-tabs" aria-label="Repository">
         <button
+          className={view === "contribute" ? "active" : ""}
+          onClick={() => navigate({ view: "contribute", ref, path: "" })}
+        >
+          <Book size={15} />
+          Contribute
+        </button>
+        <button
           className={view === "issues" ? "active" : ""}
           onClick={() => navigate({ view: "issues", path: "" })}
         >
@@ -1612,6 +1622,8 @@ export default function RepositoryPage({
       </nav>
       {view === "issues" ? (
         <Issues repository={repository.id} actor={actor} owner={repository.owner_id} selected={query.issue} />
+      ) : view === "contribute" ? (
+        <ContributorPathway repository={repository.id} actor={actor} owner={repository.owner_id} revision={ref} />
       ) : view === "proposals" ? (
         <ProposalWorkspace
           repository={repository}
