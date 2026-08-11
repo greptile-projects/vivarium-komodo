@@ -3,6 +3,28 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Contributor pathways
+
+Repository owners publish the project participation contract at `POST
+/repositories/{repository}/contributor-pathway/versions`. Each immutable
+version gathers project goals, prerequisites, conduct and private-security
+guidance, supported setup steps, communication expectations, review policy,
+and categories of work suitable for outside humans, agents, or either. An
+`expected_version` prevents concurrent maintainers from replacing intervening
+guidance, and every version retains its author, reason, and publication time.
+
+References link the contract to exact-revision documentation and workspace
+definitions, current repository owners, and existing releases, issues, and
+proposals. The API checks those resources on every read and marks them
+`current`, `stale`, or `inaccessible`; a default-branch move therefore makes
+old setup guidance visibly stale without rewriting its historical version.
+Public project guidance is anonymously readable at `GET
+/repositories/{repository}/contributor-pathway`. Authenticated developers can
+append one acknowledgement per version before investing effort, retaining
+their actor and note. The repository web surface is the shareable
+`view=contribute&ref={revision}` tab. Publishing or acknowledging guidance
+does not grant Git, repository, agent, review, or merge authority.
+
 ## Pre-execution delivery teams
 
 Repository collaborators form a temporary delivery team at `POST

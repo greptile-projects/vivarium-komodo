@@ -10,6 +10,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/contributorpathways"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/decisions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deliveryteams"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/dependencyinventory"
@@ -258,6 +259,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	contributorPathwayRoot := os.Getenv("CONTRIBUTOR_PATHWAY_ROOT")
+	if contributorPathwayRoot == "" {
+		contributorPathwayRoot = "data/contributor-pathways"
+	}
+	contributorPathwayStore, err := contributorpathways.New(contributorPathwayRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -278,6 +287,7 @@ func main() {
 	registerCollaboratorsHTTP(mux, repositoryCatalog, userStore, credentials, activityStore)
 	registerProposalsHTTP(mux, proposalStore, repositoryCatalog, credentials, activityStore)
 	registerIssuesHTTP(mux, issueStore, releaseStore, repositoryCatalog, credentials, issueReproductionRunner)
+	registerContributorPathwaysHTTP(mux, contributorPathwayStore, repositoryCatalog, credentials, releaseStore, issueStore, proposalStore)
 	registerIssueRepairsHTTP(mux, issueStore, proposalStore, pullRequestStore, repositoryCatalog, credentials, issueReproductionRunner, checkRunStore)
 	registerProposalTaskSessionsHTTP(mux, proposalStore, changeSessionStore, repositoryCatalog, credentials, activityStore, pullRequestStore, checkRunner)
 	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore)

@@ -57,6 +57,19 @@ team publication without erasing accepted progress.
 
 Guidance for coding agents working in this repository.
 
+Contributor participation guidance lives beneath `$CONTRIBUTOR_PATHWAY_ROOT`
+(default `apps/api/data/contributor-pathways`). A repository owner publishes
+immutable, concurrency-checked pathway versions containing goals,
+prerequisites, conduct and security guidance, supported setup, communication
+and review expectations, and outside work categories explicitly suitable for
+humans, agents, or both. Typed references connect documentation, current
+ownership, releases, issues, proposals, and workspace definitions; reads
+derive current, stale, or inaccessible health from repository state rather
+than trusting the publication snapshot. Public repository pathways are
+anonymous-readable, acknowledgements are attributable and version-bound, and
+the shareable web surface is `view=contribute&ref={revision}`. A pathway grants
+no repository, Git, agent, review, or merge authority.
+
 Ordinary unexpected-behavior reports live beneath `$ISSUE_ROOT` (default
 `apps/api/data/issues`) and are owned by the `issues.Store` boundary. An
 authenticated repository reader may open one against the repository or an
