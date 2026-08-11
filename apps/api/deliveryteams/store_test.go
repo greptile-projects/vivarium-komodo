@@ -151,3 +151,86 @@ func TestGovernedTimelineAndVerifiableHandoff(t *testing.T) {
 		t.Fatalf("inaccessible evidence should fail closed, got %v", err)
 	}
 }
+
+func TestRunningTeamSurfacesInterventionAndBoundedRecovery(t *testing.T) {
+	s, _ := New(t.TempDir())
+	v, err := s.Create("repo", "Running team", "lead", Outcome{Kind: "planned_outcome", Title: "Recover safely"}, CharterInput{Outcome: "Ship", SuccessMeasures: []string{"verified"}, OperatingPrinciples: []string{"bounded recovery"}, TotalBudget: Budget{Hours: 10, AgentRuns: 2}, DefaultEscalation: "lead"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, principal := range []string{"agent-one", "backup"} {
+		kind := "human"
+		if principal == "agent-one" {
+			kind = "agent"
+		}
+		v, err = s.Invite("repo", v.ID, "lead", v.Version, ParticipantInput{Kind: kind, PrincipalID: principal, Role: principal, Why: "operate stream", Responsibilities: []string{"deliver"}, Budget: Budget{Hours: 8, AgentRuns: 2}, RequestedActions: []string{"contents:read"}, Access: AccessPreview{Actions: []string{"contents:read"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		v, err = s.Respond("repo", v.ID, v.Participants[len(v.Participants)-1].ID, "lead", "accepted", v.Version)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	revision := "1111111111111111111111111111111111111111"
+	work := WorkStream{ID: "api", Title: "API", OwnerParticipantID: v.Participants[0].ID, Inputs: []string{"contract"}, ExpectedArtifacts: []string{"patch"}, AcceptanceCriteria: []string{"tests"}, RepositoryScope: []RepositoryScope{{RepositoryID: "repo", CommitID: revision, Paths: []string{"apps/api"}, RequiredActions: []string{"contents:read"}}}, IntegrationOrder: 1, Budget: Budget{Hours: 4, AgentRuns: 1}}
+	v, err = s.ProposePlan("repo", v.ID, "lead", "", v.Version, PlanInput{Streams: []WorkStream{work}, ChangeReason: "execute"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err = s.AcceptPlan("repo", v.ID, v.Participants[0].ID, "operator", v.Version, v.Plan.Current.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err = s.ReportStream("repo", v.ID, "api", "operator", v.Participants[0].ID, v.Version, StreamStatusInput{ReportedRevision: revision, Status: "failed", ActiveAction: "run checks", Question: "Is the contract still current?", PredictedNextAction: "retry checks", ResourceUse: ResourceUse{Hours: 2, AgentRuns: 1}, AccessState: "active", OutputState: "clean"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Runtime.Status != "attention_required" {
+		t.Fatalf("runtime response = %#v", v.Runtime)
+	}
+	v, err = s.Get("repo", v.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Runtime.Status != "attention_required" || v.Runtime.Blockers[0].Kind != "failed_run" || v.Runtime.Blockers[0].Escalates {
+		t.Fatalf("runtime = %#v", v.Runtime)
+	}
+	v, err = s.Control("repo", v.ID, "lead", v.Version, ControlInput{StreamID: "api", Action: "resume", Instruction: "Use the one bounded recovery attempt."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err = s.ReportStream("repo", v.ID, "api", "operator", v.Participants[0].ID, v.Version, StreamStatusInput{ReportedRevision: revision, Status: "failed", ActiveAction: "rerun checks", ResourceUse: ResourceUse{Hours: 5, AgentRuns: 2}, AccessState: "revoked", OutputState: "conflicting"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, _ = s.Get("repo", v.ID)
+	kinds := map[string]bool{}
+	for _, b := range v.Runtime.Blockers {
+		kinds[b.Kind] = true
+	}
+	for _, kind := range []string{"recovery_exhausted", "budget_exhausted", "access_revoked", "conflicting_output"} {
+		if !kinds[kind] {
+			t.Fatalf("missing %s in %#v", kind, v.Runtime.Blockers)
+		}
+	}
+	beforeOwner := v.Plan.Current.Streams[0].OwnerParticipantID
+	v, err = s.Control("repo", v.ID, "lead", v.Version, ControlInput{StreamID: "api", Action: "reassign", Instruction: "Preserve accepted output and continue within existing read scope.", TargetParticipantID: v.Participants[1].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Plan.Current.Streams[0].OwnerParticipantID != beforeOwner || v.StreamRuns[0].OperationalOwnerID != v.Participants[1].ID || v.Controls[len(v.Controls)-1].ExpandsAuthority {
+		t.Fatalf("reassignment rewrote authority: %#v", v)
+	}
+	v, err = s.ReportStream("repo", v.ID, "api", "backup", v.Participants[1].ID, v.Version, StreamStatusInput{ReportedRevision: revision, Status: "running", ActiveAction: "preserve and reconcile accepted output", ResourceUse: ResourceUse{Hours: 3, AgentRuns: 1}, AccessState: "active", OutputState: "clean"})
+	if err != nil || v.StreamRuns[0].OperationalOwnerID != v.Participants[1].ID {
+		t.Fatalf("operational reassignee could not report safely: %v %#v", err, v.StreamRuns)
+	}
+	v, err = s.Control("repo", v.ID, "lead", v.Version, ControlInput{Action: "pause", Instruction: "Pause the whole effort at a safe checkpoint."})
+	if err != nil || v.StreamRuns[0].Status != "paused" {
+		t.Fatalf("whole-team pause = %v %#v", err, v.StreamRuns)
+	}
+	if _, err = s.Control("repo", v.ID, "lead", v.Version, ControlInput{StreamID: "api", Action: "narrow", Instruction: "Limit recovery", NarrowedPaths: []string{"outside"}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("out-of-scope narrowing = %v", err)
+	}
+}

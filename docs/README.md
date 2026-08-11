@@ -84,6 +84,30 @@ and time; neither request nor acceptance expands authority. The Teams web
 workspace presents scoped contexts, cited records, pending criteria and
 uncertainty, and recipient verification together.
 
+Once execution is attached, accepted owners publish safe stream checkpoints at
+`POST .../streams/{stream}/status`. A checkpoint reports the captured revision,
+queued/running/paused/failed/completed/canceled state, current action, open
+question, predicted next action, cumulative hours/cost/run use, and coarse
+access and output health. It contains no credential, prompt, terminal input, or
+raw log. The team read derives one clock-sensitive `runtime` view across all
+streams: dependency waits, stale revisions, expired or revoked access,
+conflicting output, exhausted accepted budgets, failed executions, disconnected
+participants, open questions, active controls, and bounded recovery or explicit
+escalation. A running or queued stream becomes disconnected after fifteen
+minutes without a checkpoint. One resume is the maximum recovery recommendation
+for a failed stream; another failure is an escalation.
+
+Repository-authorized collaborators intervene through the team's `/controls`
+collection. The organizer may guide, pause, resume, or cancel one stream or the
+whole effort, and may reassign operational follow-up or narrow a stream.
+Accepted human stream owners may control their own stream. Reassignment requires
+an already accepted participant whose independently effective actions cover the
+stream; narrowing must be a subset of its accepted paths. Controls are immutable
+and attributable, preserve accepted artifacts, do not rewrite the plan's owner,
+and always report `expands_authority: false`. They coordinate the public team
+contract but do not impersonate or directly mutate an attached execution
+resource; its established control and credential boundaries remain authoritative.
+
 ## Evidence-driven technical decisions
 
 Repository participants open consequential choices at `POST
