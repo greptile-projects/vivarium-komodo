@@ -49,7 +49,11 @@ reconciliations bind accepted streams, exact Git tips, conflict results, cited
 evidence, handoffs, criteria, and risks in integration order. Only ready
 reconciliations publish ordinary pull requests and checks; review, queues,
 release policy, repository permissions, and owner-only merge authority remain
-unchanged.
+unchanged. `delivery_team_workflow_test.go` is the black-box regression boundary
+for the accepted-decision-to-release loop. It retains challenged and resolved
+evidence, redirected agent work, a verified agent-to-human handoff, costs,
+controls, review links, and release inclusion, and proves removal blocks further
+team publication without erasing accepted progress.
 
 Guidance for coding agents working in this repository.
 
