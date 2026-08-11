@@ -302,6 +302,17 @@ whenever dependencies change or the web job fails before it starts.
   source identity. Merge commits retain source repository, branch, and commit
   trailers so provenance survives later fork or branch deletion.
   Agent collaboration begins in the pull request's `section=sessions` view.
+	Pull request previews begin in `section=previews`. A writable repository
+	participant launches the exact snapshotted source commit through the
+	version-1 `.komodo/previews.json` definition. Retain the definition and
+	configuration digests, declared CPU/memory/disk/build-time/lifetime limits,
+	creator, logs, URL, and terminal failure on each immutable attempt beneath
+	`$PREVIEW_ROOT` (default `apps/api/data/previews`). Configuration names must
+	be declared by that revision; inject their launch values into only the
+	isolate and never persist or return the values. Serve ready applications
+	through the authenticated pull-request preview proxy. Pull request source
+	synchronization makes older attempts stale on read and must never rewrite or
+	restart the environment participants already evaluated.
   Change sessions retain their initiating user, captured pull request source
   commit, current state, and ordered public timeline; keep later worker
   execution details behind this application-facing contract.

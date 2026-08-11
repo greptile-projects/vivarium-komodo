@@ -2595,3 +2595,23 @@ including an initial missing-fixture failure, an explicit cited evidence request
 and sanitized retry, read-only agent diagnosis, branch-only agent authorship,
 ordinary checks/review/merge, corrected release and deployment, unchanged-case
 success against that release, and final reporter closure.
+
+## Revision-exact pull request previews
+
+A source repository opts into collaborative previews with a version-1
+`.komodo/previews.json` file at the pull request's snapshotted commit. The file
+declares build commands, a long-running start command, a service port, permitted
+configuration names, and CPU, memory, disk, build-time, and lifetime bounds.
+`POST /repositories/{repository}/pull-requests/{pull}/previews` resolves that
+file from the pull request's source repository and exact source commit, accepts
+only declared configuration, and records definition and configuration digests
+before starting work.
+
+Each attempt materializes only that Git tree, captures build and service logs,
+and retains its creator, revision, setup lifecycle, authenticated same-origin
+URL, expiry, and failure. Configuration values exist only in the launched
+isolate; the durable/public record contains the declared names and an
+attestation digest. Repository read policy also guards the preview gateway.
+When pull request synchronization records a newer source commit, earlier
+attempts remain intact and derive `stale: true` instead of being replaced. The
+shareable web surface is `view=pulls&pull={id}&section=previews`.

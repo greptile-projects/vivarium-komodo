@@ -504,6 +504,21 @@ type CheckRun = {
   events: CheckEvent[];
 };
 type CheckRunList = { items: CheckRun[]; total_count: number };
+type Preview = {
+  id: string;
+  revision: string;
+  creator_id: string;
+  state: "setting_up" | "ready" | "failed" | "stopped" | "expired";
+  url?: string;
+  stale: boolean;
+  failure?: string;
+  created_at: string;
+  expires_at: string;
+  build_attestation: { definition_digest: string; configuration_digest: string };
+  definition: { version: number; configuration?: string[]; resources: { cpu_seconds: number; memory_mb: number; disk_mb: number; lifetime_minutes: number } };
+  events: Array<{ sequence: number; type: string; state?: string; stream?: string; message?: string; command?: string; exit_code?: number }>;
+};
+type PreviewList = { items: Preview[] };
 type ReadinessBranch = {
   name: string;
   exists: boolean;
@@ -9242,6 +9257,8 @@ function PullRequestDetail({
             ? "sessions"
             : section === "checks"
               ? "checks"
+              : section === "previews"
+                ? "previews"
               : "overview";
   const [item, setItem] = useState<PullRequest>();
   const [commits, setCommits] = useState<PullRequestCommit[]>([]);
@@ -9250,6 +9267,7 @@ function PullRequestDetail({
   const [reviews, setReviews] = useState<PullRequestReview[]>([]);
   const [sessions, setSessions] = useState<ChangeSession[]>([]);
   const [checks, setChecks] = useState<CheckRun[]>([]);
+  const [previews, setPreviews] = useState<Preview[]>([]);
   const [readiness, setReadiness] = useState<PullRequestReadiness>();
   const [queuePolicy, setQueuePolicy] = useState<IntegrationQueuePolicy>();
   const [queueEntries, setQueueEntries] = useState<IntegrationQueueEntry[]>([]);
@@ -9270,6 +9288,7 @@ function PullRequestDetail({
         reviewData,
         sessionData,
         checkData,
+        previewData,
         readyData,
         linked,
         policy,
@@ -9293,6 +9312,9 @@ function PullRequestDetail({
         get<CheckRunList>(
           `/repositories/${repository}/pull-requests/${id}/check-runs?per_page=100`,
         ),
+        get<PreviewList>(
+          `/repositories/${repository}/pull-requests/${id}/previews`,
+        ),
         get<PullRequestReadiness>(
           `/repositories/${repository}/pull-requests/${id}/readiness`,
         ),
@@ -9315,6 +9337,7 @@ function PullRequestDetail({
       setReviews(reviewData.items);
       setSessions(sessionData.items);
       setChecks(checkData.items);
+      setPreviews(previewData.items);
       setReadiness(readyData);
       setProposal(linked);
       setQueuePolicy(policy);
@@ -9442,6 +9465,12 @@ function PullRequestDetail({
       )}
       <nav className="pull-sections" aria-label="Pull request">
         <button
+          className={active === "previews" ? "active" : ""}
+          onClick={() => onSection("previews")}
+        >
+          Previews <span>{previews.length}</span>
+        </button>
+        <button
           className={active === "overview" ? "active" : ""}
           onClick={() => onSection("overview")}
         >
@@ -9515,6 +9544,14 @@ function PullRequestDetail({
             onSection("sessions");
           }}
         />
+      ) : active === "previews" ? (
+        <PullPreviews
+          repository={repository}
+          pull={item}
+          actor={actor}
+          previews={previews}
+          onChanged={() => void load()}
+        />
       ) : (
         <PullDiscussion
           repository={repository}
@@ -9526,6 +9563,48 @@ function PullRequestDetail({
       )}
     </section>
   );
+}
+
+function PullPreviews({ repository, pull, actor, previews, onChanged }: { repository: string; pull: PullRequest; actor: string; previews: Preview[]; onChanged: () => void }) {
+  const [configuration, setConfiguration] = useState("{}");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const active = previews.some((preview) => preview.state === "setting_up");
+  useEffect(() => {
+    if (!active) return;
+    const timer = window.setInterval(onChanged, 2000);
+    return () => window.clearInterval(timer);
+  }, [active, onChanged]);
+  const launch = async () => {
+    setBusy(true); setError("");
+    try {
+      const values = JSON.parse(configuration) as Record<string, string>;
+      await send(`/repositories/${repository}/pull-requests/${pull.id}/previews`, "POST", { configuration: values });
+      onChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Preview could not be launched.");
+    } finally { setBusy(false); }
+  };
+  return <section className="checks-workspace">
+    <aside className="check-attempts panel">
+      <header><div><h3>Preview attempts</h3><p>Immutable environments for exact review revisions.</p></div><Badge>{previews.length}</Badge></header>
+      {previews.length ? previews.map((preview) => <article key={preview.id} className="card">
+        <p><Badge>{preview.stale ? "stale" : preview.state}</Badge> <code>{short(preview.revision)}</code></p>
+        <p>Created by <Actor id={preview.creator_id} /> · {new Date(preview.created_at).toLocaleString()}</p>
+        {preview.url && preview.state === "ready" && <p><a href={preview.url} target="_blank" rel="noreferrer">Open exact preview ↗</a></p>}
+        {preview.failure && <p className="form-error">{preview.failure}</p>}
+        <small>Definition {short(preview.build_attestation.definition_digest)} · expires {new Date(preview.expires_at).toLocaleString()}</small>
+        {preview.events.some((event) => event.type === "log") && <pre className="check-log">{preview.events.filter((event) => event.type === "log").map((event) => `[${event.stream}] ${event.message}`).join("\n")}</pre>}
+      </article>) : <p>No candidate preview has been launched.</p>}
+    </aside>
+    <div className="panel form-stack">
+      <p className="eyebrow">Revision-exact experience</p><h3>Launch this candidate</h3>
+      <p>The repository-defined <code>.komodo/previews.json</code> build runs with bounded CPU, memory, disk, and lifetime. Updating the source branch leaves this attempt intact and marks it stale.</p>
+      <label>Scoped configuration (JSON object)<textarea value={configuration} onChange={(event) => setConfiguration(event.target.value)} spellCheck={false} /><small>Only names declared by this revision are accepted. Values are attested with a digest.</small></label>
+      {error && <p className="form-error">{error}</p>}
+      <Button disabled={!actor || pull.status !== "open" || busy} onClick={() => void launch()}>{busy ? "Launching…" : "Launch preview"}</Button>
+    </div>
+  </section>;
 }
 
 function PullChecks({
