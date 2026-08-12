@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { GovernanceCharter } from "@/components/governance-charter";
 import { Badge, Button } from "@/components/ui";
 
 type Member = { user_id: string; role: string; accepted_at?: string };
@@ -432,6 +433,7 @@ export default function OrganizationsPage() {
                   </span>
                 </div>
               </section>
+              <GovernanceCharter scope="organizations" id={selected.id} canManage={selected.members.some((member) => member.user_id === userID && member.role === "owner" && member.accepted_at)} />
               <section className="panel">
                 <h2>Portfolio</h2>
                 <div className="repo-list">

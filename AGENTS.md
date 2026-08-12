@@ -171,6 +171,20 @@ team publication without erasing accepted progress.
 
 Guidance for coding agents working in this repository.
 
+Project governance charters live beneath `$GOVERNANCE_ROOT` (default
+`apps/api/data/governance`). Repository owners and organization owners publish
+immutable revisions defining roles and eligibility, decision classes,
+participation/quorum/threshold rules, protected resources, terms, removal,
+succession, vacancy, and amendment policy. Draft publication derives a live
+preview against current ownership, membership, teams, branch/integration,
+release, environment, security, and approved-agent boundaries. Unsupported
+resources, impossible role minimums, and impossible quorum block activation;
+activation also requires an attributable approval and always re-previews live
+state. Charters grant no operational authority. Approvals and time-bounded
+exceptions remain version-bound, while later revisions preserve completed
+active versions. The repository surface is `view=governance`; organizations
+present the same charter in their workspace.
+
 External integration identities live beneath `$EXTENSION_ROOT` (default
 `apps/api/data/extensions`). An authenticated developer registers an extension
 with its human owner, operator email, declared capabilities, HTTPS callback and
