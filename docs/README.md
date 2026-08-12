@@ -2656,3 +2656,19 @@ beside the pull request, but bytes remain separately stored with an
 or repository-participant check again. Thus a finding can coordinate review on
 the pull request without copying inaccessible evidence into a broader comment
 audience.
+### Preview finding repairs
+
+Validated preview feedback can move into delivery without copying its context.
+A repository participant can turn a finding into acceptance criteria and an
+assigned human- or agent-owned proposal task at the exact observed source
+revision. The participant may also prepare a pull-request change session or a
+shared workspace; those resources receive only the selected evidence IDs, while
+the evidence bodies stay behind the preview's dedicated access check.
+
+After ordinary branch publication and pull-request synchronization, the repair
+action requires that exact current source revision, validates every cited commit,
+and retains the commands, checks, authors, session, and workspace that connect the
+observation to the fix. It then starts a new normal preview attempt and resolves
+the finding with that link. The action neither pushes nor synchronizes a branch,
+issues no credential, and cannot bypass task, workspace, agent, review, or merge
+permissions.

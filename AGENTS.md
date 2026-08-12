@@ -331,6 +331,14 @@ whenever dependencies change or the web job fails before it starts.
 	access check; ordinary preview and pull-request JSON exposes metadata only.
 	Redact credential-like textual fields and sensitive route parameters before
 	persistence, and never widen evidence merely because its finding is discussed.
+	Repository participants convert one exact-preview finding into immutable
+	acceptance criteria and an assigned human/Codex proposal task at the observed
+	revision, optionally preloading a pull-request change session or shared
+	workspace with selected evidence IDs. Evidence bodies retain exact-preview
+	access. Repair publication accepts only the pull request's already-current
+	source revision, validates cited commits, retains commands, checks, sessions,
+	workspaces, and authors, and launches a new ordinary preview attempt; it grants
+	no credential and does not synchronize or otherwise mutate the source branch.
   Change sessions retain their initiating user, captured pull request source
   commit, current state, and ordered public timeline; keep later worker
   execution details behind this application-facing contract.
