@@ -44,6 +44,7 @@ type Repository = {
 };
 type Session = { user: UserRecord; access: Grant };
 type Envelope<T> = { items: T[]; total_count: number };
+type ExtensionRecord = { id:string; name:string; description:string; owner_id:string; operator_contact:string; capabilities:string[]; callback:{url:string;verified_at?:string}; actions:{url:string;verified_at?:string}; requested_permissions:string[]; event_types:string[]; rotation_policy:{interval_days:number;overlap_hours:number;contact_on_failure:boolean}; status:string };
 type InboxItem = {
   id: string;
   classification: "review" | "response" | "awareness";
@@ -1626,6 +1627,9 @@ function Access({
 }) {
   const [showCreate, setShowCreate] = useState(false);
   const [token, setToken] = useState("");
+  const [extensions, setExtensions] = useState<ExtensionRecord[]>([]);
+  const [extensionError, setExtensionError] = useState("");
+  useEffect(() => { void api<Envelope<ExtensionRecord>>("/extensions").then(value => setExtensions(value.items)); }, []);
   const active = grants.filter(
     (grant) => !grant.revoked_at && new Date(grant.expires_at) > new Date(),
   );
@@ -1716,6 +1720,17 @@ function Access({
             )}
           </div>
         ))}
+      </section>
+      <section className="panel access-list" aria-labelledby="extensions-heading">
+        <div className="panel-title"><span id="extensions-heading">Extensions</span><Badge tone="accent">{extensions.filter(item => item.status === "verified").length} verified</Badge></div>
+        <p>External collaborators use their own attributable identity. Registration never lets one act as you, another user, or an agent.</p>
+        {extensions.map(item => <div className="grant-row" key={item.id}><span className="grant-icon"><Sparkles size={17}/></span><div><strong>{item.name}</strong><p>{item.operator_contact} · {item.status.replaceAll("_", " ")}</p><small>{item.requested_permissions.join(" · ")} · rotates every {item.rotation_policy.interval_days} days</small></div><Badge tone={item.status === "verified" ? "accent" : "neutral"}>{item.status}</Badge></div>)}
+        <form className="repository-form compact" onSubmit={async event => { event.preventDefault(); const form=event.currentTarget;const data=new FormData(form);setExtensionError("");try{await api("/extensions",{method:"POST",body:JSON.stringify({name:data.get("name"),description:data.get("description"),operator_contact:data.get("contact"),capabilities:String(data.get("capabilities")).split(",").map(x=>x.trim()).filter(Boolean),callback_url:data.get("callback"),action_url:data.get("actions"),requested_permissions:data.getAll("permissions"),event_types:data.getAll("events"),rotation_policy:{interval_days:Number(data.get("interval")),overlap_hours:24,contact_on_failure:true}})});const value=await api<Envelope<ExtensionRecord>>("/extensions");setExtensions(value.items);form.reset()}catch(cause){setExtensionError(cause instanceof Error?cause.message:"Could not register extension.")}}}>
+          <label>Name<input name="name" required maxLength={100} placeholder="Build observer"/></label><label>Operator contact<input name="contact" type="email" required placeholder="integrations@example.com"/></label><label className="wide">Description<textarea name="description" rows={2}/></label><label>Callback endpoint<input name="callback" type="url" pattern="https://.*" required placeholder="https://example.com/events"/></label><label>Action endpoint<input name="actions" type="url" pattern="https://.*" required placeholder="https://example.com/actions"/></label><label>Capabilities<input name="capabilities" required placeholder="Report checks, annotate changes"/></label><label>Rotation interval (days)<input name="interval" type="number" min="1" max="365" defaultValue="30" required/></label>
+          <fieldset><legend>Requested permissions</legend>{["metadata:read","contents:read","issues:read","issues:write","pull_requests:read","pull_requests:write","checks:write"].map(x=><label key={x}><input type="checkbox" name="permissions" value={x}/>{x}</label>)}</fieldset>
+          <fieldset><legend>Supported events</legend>{["repository.created","push","issue.opened","issue.updated","pull_request.opened","pull_request.updated","check.requested"].map(x=><label key={x}><input type="checkbox" name="events" value={x}/>{x}</label>)}</fieldset>
+          {extensionError&&<p className="form-error wide">{extensionError}</p>}<div className="form-actions wide"><Button type="submit">Register extension</Button></div>
+        </form>
       </section>
     </>
   );

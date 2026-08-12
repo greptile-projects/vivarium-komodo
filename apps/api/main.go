@@ -18,6 +18,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/dependencyupdates"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/docscollections"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/extensions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/impactassessments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/inbox"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/incidents"
@@ -295,6 +296,14 @@ func main() {
 		log.Fatal(err)
 	}
 	previewRunner := previews.NewRunner(previewStore, repositoryCatalog)
+	extensionRoot := os.Getenv("EXTENSION_ROOT")
+	if extensionRoot == "" {
+		extensionRoot = "data/extensions"
+	}
+	extensionStore, err := extensions.New(extensionRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -339,6 +348,7 @@ func main() {
 	registerActivitiesHTTP(mux, activityStore, repositoryCatalog, credentials)
 	registerInboxHTTP(mux, activityStore, inboxStore, repositoryCatalog, proposalStore, pullRequestStore, userStore, credentials)
 	registerUsersHTTP(mux, userStore, credentials)
+	registerExtensionsHTTP(mux, extensionStore, repositoryCatalog, credentials)
 	registerAuthHTTP(mux, credentials, userStore)
 
 	port := os.Getenv("PORT")
