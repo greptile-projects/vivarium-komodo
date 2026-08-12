@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -78,9 +79,57 @@ type Link struct {
 	Symbol     string `json:"symbol,omitempty"`
 }
 type Policy struct {
-	Navigation  string `json:"navigation"`
-	Renderer    string `json:"renderer"`
-	Publication string `json:"publication"`
+	Navigation  string            `json:"navigation"`
+	Renderer    string            `json:"renderer"`
+	Publication string            `json:"publication"`
+	Visibility  string            `json:"visibility,omitempty"`
+	Redirects   map[string]string `json:"redirects,omitempty"`
+}
+
+// Publication is an immutable reader-facing edition. Aliases are resolved at
+// read time; publishing a replacement archives this record instead of editing
+// its pages or provenance.
+type Publication struct {
+	ID                string            `json:"id"`
+	RepositoryID      string            `json:"repository_id"`
+	CollectionID      string            `json:"collection_id"`
+	CollectionVersion int64             `json:"collection_version"`
+	PullRequestID     string            `json:"pull_request_id"`
+	PreviewID         string            `json:"preview_id"`
+	SourceRevision    string            `json:"source_revision"`
+	MergeRevision     string            `json:"merge_revision"`
+	Pages             []ReviewPage      `json:"pages"`
+	Versions          []VersionMapping  `json:"versions"`
+	Audiences         []string          `json:"audiences"`
+	Redirects         map[string]string `json:"redirects,omitempty"`
+	PublishedByID     string            `json:"published_by_id"`
+	PublishedAt       time.Time         `json:"published_at"`
+}
+type FeedbackEvidence struct {
+	Kind    string `json:"kind"`
+	Name    string `json:"name"`
+	Content string `json:"content"`
+}
+type FeedbackTriage struct {
+	Kind       string    `json:"kind"`
+	ResourceID string    `json:"resource_id"`
+	ActorID    string    `json:"actor_id"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+type Feedback struct {
+	ID              string             `json:"id"`
+	RepositoryID    string             `json:"repository_id"`
+	PublicationID   string             `json:"publication_id"`
+	CollectionID    string             `json:"collection_id"`
+	PagePath        string             `json:"page_path,omitempty"`
+	Kind            string             `json:"kind"`
+	Body            string             `json:"body"`
+	Query           string             `json:"query,omitempty"`
+	ExpectedVersion string             `json:"expected_version,omitempty"`
+	Evidence        []FeedbackEvidence `json:"evidence,omitempty"`
+	ReporterID      string             `json:"reporter_id"`
+	CreatedAt       time.Time          `json:"created_at"`
+	Triage          *FeedbackTriage    `json:"triage,omitempty"`
 }
 type Version struct {
 	Number       int64            `json:"number"`
@@ -358,6 +407,14 @@ func valid(in Input) bool {
 	if in.Policy.Publication != "maintainer_reviewed" && in.Policy.Publication != "owner_reviewed" {
 		return false
 	}
+	if in.Policy.Visibility != "" && in.Policy.Visibility != "public" && in.Policy.Visibility != "repository" {
+		return false
+	}
+	for from, to := range in.Policy.Redirects {
+		if !validPath(from) || !validPath(to) {
+			return false
+		}
+	}
 	for _, p := range in.EntryPaths {
 		if !validPath(p) {
 			return false
@@ -369,6 +426,201 @@ func valid(in Input) bool {
 		}
 	}
 	return true
+}
+
+func (s *Store) Publish(p Publication) (Publication, error) {
+	if p.RepositoryID == "" || p.CollectionID == "" || p.PullRequestID == "" || p.PreviewID == "" || len(p.SourceRevision) != 40 || len(p.MergeRevision) != 40 || len(p.Pages) == 0 || p.PublishedByID == "" {
+		return p, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items, err := s.listPublications(p.RepositoryID, p.CollectionID)
+	if err != nil {
+		return p, err
+	}
+	for _, x := range items {
+		if x.PullRequestID == p.PullRequestID && x.PreviewID == p.PreviewID {
+			return x, nil
+		}
+	}
+	p.ID = id()
+	p.PublishedAt = s.now().UTC()
+	d := filepath.Join(s.root, p.RepositoryID, "publications")
+	if err = os.MkdirAll(d, 0750); err != nil {
+		return p, err
+	}
+	err = writeJSONFile(filepath.Join(d, p.ID+".json"), p)
+	return p, err
+}
+func (s *Store) ListPublications(repo, collection string) ([]Publication, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listPublications(repo, collection)
+}
+func (s *Store) listPublications(repo, collection string) ([]Publication, error) {
+	d := filepath.Join(s.root, repo, "publications")
+	es, e := os.ReadDir(d)
+	if errors.Is(e, fs.ErrNotExist) {
+		return []Publication{}, nil
+	}
+	if e != nil {
+		return nil, e
+	}
+	out := []Publication{}
+	for _, x := range es {
+		if filepath.Ext(x.Name()) != ".json" {
+			continue
+		}
+		var p Publication
+		b, e := os.ReadFile(filepath.Join(d, x.Name()))
+		if e == nil {
+			e = json.Unmarshal(b, &p)
+		}
+		if e != nil {
+			return nil, e
+		}
+		if collection == "" || p.CollectionID == collection {
+			out = append(out, p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].PublishedAt.Before(out[j].PublishedAt) })
+	return out, nil
+}
+func (s *Store) GetPublication(repo, id string) (Publication, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var p Publication
+	b, e := os.ReadFile(filepath.Join(s.root, repo, "publications", id+".json"))
+	if errors.Is(e, fs.ErrNotExist) {
+		return p, ErrNotFound
+	}
+	if e == nil {
+		e = json.Unmarshal(b, &p)
+	}
+	return p, e
+}
+func (s *Store) CreateFeedback(f Feedback) (Feedback, error) {
+	if f.RepositoryID == "" || f.PublicationID == "" || f.ReporterID == "" || strings.TrimSpace(f.Body) == "" || len(f.Body) > 10000 {
+		return f, ErrInvalid
+	}
+	allowed := map[string]bool{"page_feedback": true, "failed_example": true, "search_miss": true, "version_mismatch": true}
+	if !allowed[f.Kind] || f.Kind != "search_miss" && !validPath(f.PagePath) || f.Kind == "search_miss" && strings.TrimSpace(f.Query) == "" || len(f.Evidence) > 3 {
+		return f, ErrInvalid
+	}
+	total := 0
+	for i := range f.Evidence {
+		e := &f.Evidence[i]
+		if e.Kind != "log" && e.Kind != "screenshot" && e.Kind != "sample_input" || e.Name == "" {
+			return f, ErrInvalid
+		}
+		total += len(e.Content)
+		if len(e.Content) > 256<<10 {
+			return f, ErrInvalid
+		}
+		e.Content = redactEvidence(e.Content)
+	}
+	if total > 512<<10 {
+		return f, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f.ID = id()
+	f.CreatedAt = s.now().UTC()
+	d := filepath.Join(s.root, f.RepositoryID, "feedback")
+	if e := os.MkdirAll(d, 0750); e != nil {
+		return f, e
+	}
+	return f, writeJSONFile(filepath.Join(d, f.ID+".json"), f)
+}
+func (s *Store) ListFeedback(repo, collection string) ([]Feedback, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d := filepath.Join(s.root, repo, "feedback")
+	es, e := os.ReadDir(d)
+	if errors.Is(e, fs.ErrNotExist) {
+		return []Feedback{}, nil
+	}
+	if e != nil {
+		return nil, e
+	}
+	out := []Feedback{}
+	for _, x := range es {
+		if filepath.Ext(x.Name()) != ".json" {
+			continue
+		}
+		var f Feedback
+		b, e := os.ReadFile(filepath.Join(d, x.Name()))
+		if e == nil {
+			e = json.Unmarshal(b, &f)
+		}
+		if e != nil {
+			return nil, e
+		}
+		if collection == "" || f.CollectionID == collection {
+			out = append(out, f)
+		}
+	}
+	return out, nil
+}
+func (s *Store) TriageFeedback(repo, fid, actor, kind, resource string) (Feedback, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := filepath.Join(s.root, repo, "feedback", fid+".json")
+	var f Feedback
+	b, e := os.ReadFile(p)
+	if errors.Is(e, fs.ErrNotExist) {
+		return f, ErrNotFound
+	}
+	if e == nil {
+		e = json.Unmarshal(b, &f)
+	}
+	if e != nil {
+		return f, e
+	}
+	if f.Triage != nil || actor == "" || resource == "" || (kind != "issue" && kind != "proposal" && kind != "documentation_task") {
+		return f, ErrInvalid
+	}
+	f.Triage = &FeedbackTriage{Kind: kind, ResourceID: resource, ActorID: actor, CreatedAt: s.now().UTC()}
+	return f, writeJSONFile(p, f)
+}
+func writeJSONFile(name string, v any) error {
+	d := filepath.Dir(name)
+	b, e := json.MarshalIndent(v, "", "  ")
+	if e != nil {
+		return e
+	}
+	tmp, e := os.CreateTemp(d, ".atomic-")
+	if e != nil {
+		return e
+	}
+	n := tmp.Name()
+	defer os.Remove(n)
+	if _, e = tmp.Write(b); e == nil {
+		e = tmp.Sync()
+	}
+	if ce := tmp.Close(); e == nil {
+		e = ce
+	}
+	if e == nil {
+		e = os.Rename(n, name)
+	}
+	return e
+}
+func redactEvidence(v string) string {
+	for _, marker := range []string{"password=", "token=", "authorization:"} {
+		lower := strings.ToLower(v)
+		i := strings.Index(lower, marker)
+		if i < 0 {
+			continue
+		}
+		start := i + len(marker)
+		end := strings.IndexAny(v[start:], " \r\n&")
+		if end < 0 {
+			end = len(v) - start
+		}
+		v = v[:start] + "[REDACTED]" + v[start+end:]
+	}
+	return v
 }
 func id() string { b := make([]byte, 16); _, _ = rand.Read(b); return hex.EncodeToString(b) }
 func (s *Store) Create(repo, actor string, in Input) (Collection, error) {

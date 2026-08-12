@@ -53,6 +53,19 @@ compare only those page blobs with the new source revision and report the exact
 stale paths; unrelated code changes therefore do not silently carry forward or
 needlessly discard documentation acceptance.
 
+After the exact reviewed pull-request revision merges, an owner publishes its
+approved preview at `/documentation-publications`. This snapshots rendered
+pages, source and merge provenance, audiences, redirects, and version/release
+mappings as an immutable edition. `GET /repositories/{repository}/documentation`
+selects by `version`, `release`, `path`, or full-text `q`, returns stable web
+links, and marks superseded editions as archived.
+
+Authenticated readers report `page_feedback`, `failed_example`, `search_miss`,
+or `version_mismatch` beneath an exact edition. Page reports name a page in the
+snapshot; bounded log, screenshot, or sample-input evidence is redacted before
+persistence. Maintainers link each outcome once to an existing issue, proposal,
+or documentation task with reporter and triage attribution intact.
+
 ## Preview acceptance
 
 Repository owners publish preview acceptance requirements with `PUT
