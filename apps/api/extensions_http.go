@@ -318,7 +318,12 @@ func registerExtensionsHTTP(mux *http.ServeMux, s *extensions.Store, repos owned
 			writeExtensionError(w, err)
 			return
 		}
-		writeJSON(w, 201, map[string]any{"installation": installation, "token": token, "warning": "This scoped installation credential is shown once."})
+		_, _, signingSecret, err := s.DeliveryContext(string(repo.ID), installation.ID)
+		if err != nil {
+			writeExtensionError(w, err)
+			return
+		}
+		writeJSON(w, 201, map[string]any{"installation": installation, "token": token, "signing_secret": signingSecret, "warning": "The scoped installation credential and callback signing secret are shown once."})
 	})
 	mux.HandleFunc("POST /repositories/{repository}/extension-contributions", func(w http.ResponseWriter, r *http.Request) {
 		installation, token, ok := extensionCredential(w, r, s, r.PathValue("repository"))
