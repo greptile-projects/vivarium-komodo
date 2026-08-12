@@ -27,14 +27,38 @@ const (
 var ErrInvalidTransition = errors.New("invalid check run transition")
 
 type Definition struct {
-	Name             string            `json:"name"`
-	Kind             string            `json:"kind,omitempty"`
-	Command          string            `json:"command"`
-	WorkingDirectory string            `json:"working_directory,omitempty"`
-	TimeoutSeconds   int               `json:"timeout_seconds"`
-	Environment      map[string]string `json:"environment,omitempty"`
-	Artifacts        []string          `json:"artifacts,omitempty"`
-	Dependencies     []string          `json:"dependencies,omitempty"`
+	Name             string             `json:"name"`
+	Kind             string             `json:"kind,omitempty"`
+	Command          string             `json:"command"`
+	WorkingDirectory string             `json:"working_directory,omitempty"`
+	TimeoutSeconds   int                `json:"timeout_seconds"`
+	Environment      map[string]string  `json:"environment,omitempty"`
+	Artifacts        []string           `json:"artifacts,omitempty"`
+	Dependencies     []string           `json:"dependencies,omitempty"`
+	Documentation    *DocumentationSpec `json:"documentation,omitempty"`
+}
+
+// DocumentationSpec makes the evidence behind a documentation check
+// inspectable without requiring reviewers to interpret its command or logs.
+type DocumentationSpec struct {
+	Kind            string                 `json:"kind"`
+	CollectionID    string                 `json:"collection_id"`
+	Inputs          []string               `json:"inputs"`
+	Pages           []string               `json:"pages"`
+	Symbols         []string               `json:"symbols,omitempty"`
+	Links           []string               `json:"links,omitempty"`
+	Versions        []DocumentationVersion `json:"versions"`
+	ExpectedOutput  string                 `json:"expected_output,omitempty"`
+	Coverage        map[string]int         `json:"coverage,omitempty"`
+	InputDigest     string                 `json:"input_digest,omitempty"`
+	ReusedFromRunID string                 `json:"reused_from_run_id,omitempty"`
+}
+
+type DocumentationVersion struct {
+	Label        string `json:"label"`
+	SourceCommit string `json:"source_commit,omitempty"`
+	Package      string `json:"package,omitempty"`
+	ReleaseID    string `json:"release_id,omitempty"`
 }
 
 type Revision struct {

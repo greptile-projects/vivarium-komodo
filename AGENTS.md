@@ -20,6 +20,19 @@ discussion, and suggestions. Code references are server-resolved to exact blobs
 and bounded line excerpts; suggestions require citations and retain declared
 uncertainty. Workspace edits continue through the workspace's own access and
 agent-control boundary, and task publication grants no additional authority.
+Repository documentation verification is declared at the exact pull-request
+source revision in version-1 `.komodo/documentation-checks.json`. Each named
+check identifies its collection, kind (`links`, `symbols`, `build`, `sample`,
+`command`, or `tutorial`), bounded command, declared documentation/code inputs,
+pages, exact source/package/release version matrix, optional link and symbol
+coverage, expected output, and retained artifacts. It executes through the
+ordinary credential-free, networkless check sandbox and appears beneath public
+pull-request check-run resources with logs, build products, and output diffs.
+Successful evidence is content-addressed by only the declared input blobs:
+unrelated commits may reuse it with explicit prior-run provenance, while any
+affected input queues a fresh attempt. Branch protection can require these
+ordinary named checks, so documentation evidence participates in existing
+readiness and stale-commit rules without a separate merge authority.
 
 Delivery teams are pre-execution contracts beneath `$DELIVERY_TEAM_ROOT`
 (default `apps/api/data/delivery-teams`). A repository collaborator forms one

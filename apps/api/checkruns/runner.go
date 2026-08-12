@@ -2,6 +2,7 @@ package checkruns
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 const ManifestPath = ".komodo/checks.json"
 const ReleaseManifestPath = ".komodo/releases.json"
 const EvolutionManifestPath = ".komodo/evolution-checks.json"
+const DocumentationManifestPath = ".komodo/documentation-checks.json"
 
 type repositoryOpener interface {
 	Open(storage.ID) (*storage.Repository, error)
@@ -93,7 +95,128 @@ func (r *Runner) Start(repositoryID, sourceRepositoryID, pullRequestID, commitID
 		}
 		go r.execute(run.ID)
 	}
+	documentation, err := readDocumentationManifest(repository, storage.ObjectID(commitID))
+	if err != nil {
+		return err
+	}
+	previous, _ := r.store.List(repositoryID, pullRequestID)
+	for _, definition := range documentation {
+		digest, digestErr := documentationInputDigest(repository, storage.ObjectID(commitID), definition.Documentation.Inputs)
+		if digestErr != nil {
+			return digestErr
+		}
+		definition.Documentation.InputDigest = digest
+		var reused *Run
+		for i := len(previous) - 1; i >= 0; i-- {
+			candidate := &previous[i]
+			if candidate.State == Succeeded && candidate.Definition.Name == definition.Name && candidate.Definition.Documentation != nil && candidate.Definition.Documentation.InputDigest == digest {
+				reused = candidate
+				break
+			}
+		}
+		run, createErr := r.store.CreateForSource(repositoryID, sourceRepositoryID, pullRequestID, commitID, definition)
+		if createErr != nil {
+			return createErr
+		}
+		if reused != nil {
+			run.Definition.Documentation.ReusedFromRunID = reused.ID
+			_ = r.store.write(run)
+			started, _ := r.store.Start(run.ID)
+			_ = r.store.AppendLog(started.ID, "stdout", "Documentation evidence remains valid: declared inputs are unchanged; reused "+reused.ID+".\n")
+			completed, _ := r.store.Complete(started.ID, 0, false, "unaffected documentation evidence reused")
+			if r.onComplete != nil {
+				r.onComplete(completed)
+			}
+		} else {
+			go r.execute(run.ID)
+		}
+	}
 	return nil
+}
+
+func readDocumentationManifest(repository *storage.Repository, commitID storage.ObjectID) ([]Definition, error) {
+	commit, err := repository.ReadCommit(commitID)
+	if err != nil {
+		return nil, err
+	}
+	entry, found, err := findEntry(repository, commit.Tree, strings.Split(DocumentationManifestPath, "/"))
+	if err != nil || !found {
+		return nil, err
+	}
+	object, err := repository.ReadObject(entry.ObjectID)
+	if err != nil {
+		return nil, err
+	}
+	var raw struct {
+		Version int          `json:"version"`
+		Checks  []Definition `json:"checks"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(object.Content)))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&raw) != nil || raw.Version != 1 || len(raw.Checks) == 0 || len(raw.Checks) > 20 {
+		return nil, errors.New("invalid documentation check manifest")
+	}
+	names := map[string]bool{}
+	for i := range raw.Checks {
+		d := &raw.Checks[i]
+		d.Name, d.Command, d.WorkingDirectory = strings.TrimSpace(d.Name), strings.TrimSpace(d.Command), strings.TrimSpace(d.WorkingDirectory)
+		if d.TimeoutSeconds == 0 {
+			d.TimeoutSeconds = 600
+		}
+		if d.Documentation == nil || d.Name == "" || names[d.Name] || d.Command == "" || d.TimeoutSeconds < 1 || d.TimeoutSeconds > 1800 || !safeRelative(d.WorkingDirectory) {
+			return nil, errors.New("invalid documentation check manifest")
+		}
+		if len(d.Environment) > 50 || len(d.Artifacts) > 20 || len(d.Dependencies) != 0 {
+			return nil, errors.New("invalid documentation check manifest")
+		}
+		seenArtifacts := map[string]bool{}
+		for j, artifact := range d.Artifacts {
+			artifact = strings.TrimSpace(artifact)
+			if artifact == "" || !safeRelative(artifact) || seenArtifacts[artifact] {
+				return nil, errors.New("invalid documentation check manifest")
+			}
+			d.Artifacts[j], seenArtifacts[artifact] = artifact, true
+		}
+		for key, value := range d.Environment {
+			if key == "" || strings.ContainsAny(key, "=\x00") || len(key) > 100 || len(value) > 4000 {
+				return nil, errors.New("invalid documentation check manifest")
+			}
+		}
+		s := d.Documentation
+		s.Kind = strings.TrimSpace(s.Kind)
+		if !map[string]bool{"links": true, "symbols": true, "build": true, "sample": true, "command": true, "tutorial": true}[s.Kind] || s.CollectionID == "" || len(s.Inputs) == 0 || len(s.Inputs) > 100 || len(s.Pages) == 0 || len(s.Versions) == 0 || len(s.Versions) > 30 {
+			return nil, errors.New("invalid documentation check manifest")
+		}
+		for _, p := range append(append([]string{}, s.Inputs...), s.Pages...) {
+			if !safeRelative(p) || p == "" {
+				return nil, errors.New("invalid documentation check manifest")
+			}
+		}
+		for _, v := range s.Versions {
+			if strings.TrimSpace(v.Label) == "" || (v.SourceCommit == "" && v.Package == "" && v.ReleaseID == "") {
+				return nil, errors.New("invalid documentation check manifest")
+			}
+		}
+		d.Kind = "documentation"
+		names[d.Name] = true
+	}
+	return raw.Checks, nil
+}
+
+func documentationInputDigest(repository *storage.Repository, commitID storage.ObjectID, paths []string) (string, error) {
+	h := sha256.New()
+	commit, err := repository.ReadCommit(commitID)
+	if err != nil {
+		return "", err
+	}
+	for _, p := range paths {
+		entry, found, e := findEntry(repository, commit.Tree, strings.Split(strings.Trim(p, "/"), "/"))
+		if e != nil || !found {
+			return "", errors.New("documentation check input is missing")
+		}
+		_, _ = io.WriteString(h, p+"\x00"+string(entry.ObjectID)+"\x00")
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 // StartRelease queues the repository-defined release build steps captured at
