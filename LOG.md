@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-12T17:46:06Z: Added home-governed federated pull-request agent sessions with exact allowlisted remote context, approved-agent delegation, local branch-only credentials and revocation, and signed attributed publication of derived commits plus bounded summaries, commands, evidence, costs, and concerns. Remote repositories, secrets, checks, review, merge, and local guidance remain outside the delegated and exchanged authority.
+
 2026-08-12T16:53:30Z: Added signed idempotent federated pull-request event exchange for discussion, review, requested changes, revisions, checks, previews, and closure, with peer verification, local visibility/embargo enforcement, explicit retry/conflict states, and derived staleness. The pull-request web conversation preserves remote subject, origin, verification, audience, and evidence without turning imported claims into local policy authority.
 
 2026-08-12T15:07:30Z: Added trusted federated repository discovery with signed bounded public snapshots, stable remote references, revision-addressed local follow caches, and explicit capability, outage, staleness, and visibility-withdrawal state. The web Access and shareable federated reader surfaces expose remote metadata, branches, releases, contributor guidance, public issues/opportunities, and attributable activity without local authority or inaccessible evidence.

@@ -26,6 +26,24 @@ authority grants, and discovery exposes no membership beyond the instance's
 deliberately public actor catalog. The Access workspace presents this trust
 record. Durable state is rooted beneath `$FEDERATION_ROOT`.
 
+### Federated agent collaboration
+
+Agents improve a federated contribution on the source community, never on the
+remote target. A local participant delegates an approved agent against the
+exact source revision and branch with an explicit path/evidence context. The
+API issues a 24-hour Git credential limited to that local branch and records
+worker events, guidance, and revocation only beneath
+`$FEDERATED_AGENT_SESSION_ROOT`. It does not preload secrets, remote repository
+contents, checks, or private pull-request evidence.
+
+On publication, the API derives the new commits and changed files from local
+Git, revokes the credential, and sends a signed, idempotent `agent_session`
+pull-request event to the trusted target. Only the declared summary, commands,
+evidence, costs, and residual concerns cross the boundary. The remote pull
+therefore shows `agent:{id}@{home instance}` and its authorizing user as
+verified observations, while all review, check, merge, and repository authority
+remains remote and unchanged.
+
 ### Federated repositories
 
 Trusted peers advertising `repository.discovery` expose a bounded signed public

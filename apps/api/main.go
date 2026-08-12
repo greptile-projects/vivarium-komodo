@@ -19,6 +19,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/docscollections"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/extensions"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/federatedagents"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/federation"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/impactassessments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/inbox"
@@ -317,6 +318,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	federatedAgentRoot := os.Getenv("FEDERATED_AGENT_SESSION_ROOT")
+	if federatedAgentRoot == "" {
+		federatedAgentRoot = "data/federated-agent-sessions"
+	}
+	federatedAgentStore, err := federatedagents.New(federatedAgentRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -364,6 +373,7 @@ func main() {
 	registerExtensionsHTTP(mux, extensionStore, repositoryCatalog, organizationStore, credentials, activityStore, pullRequestStore)
 	registerFederationHTTP(mux, federationStore, credentials)
 	registerFederatedRepositoriesHTTP(mux, federationStore, repositoryCatalog, pullRequestStore, releaseStore, contributorPathwayStore, issueStore, contributionOpportunityStore, activityStore, credentials)
+	registerFederatedAgentSessionsHTTP(mux, federatedAgentStore, federationStore, repositoryCatalog, credentials)
 	registerAuthHTTP(mux, credentials, userStore)
 
 	port := os.Getenv("PORT")
