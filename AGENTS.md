@@ -2,6 +2,15 @@
 
 ## Delivery team operating contracts
 
+Repository documentation collections live beneath `$DOCUMENTATION_ROOT`
+(default `apps/api/data/documentation`). Owner-published immutable versions bind
+ordered pages beneath one repository path to exact source commits, supported
+version labels and optional releases, participant owners, audiences, navigation,
+rendering, publication policy, links, author, and change reason. Reads resolve
+page blobs and commit authorship only from that reviewed revision and explicitly
+report missing ownership, broken sources, rendering mismatches, and stale release
+mappings. The shareable web surface is `view=documentation&ref={revision}`.
+
 Delivery teams are pre-execution contracts beneath `$DELIVERY_TEAM_ROOT`
 (default `apps/api/data/delivery-teams`). A repository collaborator forms one
 around a proposal, initiative, decision, incident follow-up, or other planned
