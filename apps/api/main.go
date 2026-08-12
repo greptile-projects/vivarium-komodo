@@ -19,6 +19,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/docscollections"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/extensions"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/federation"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/impactassessments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/inbox"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/incidents"
@@ -304,6 +305,18 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	federationRoot := os.Getenv("FEDERATION_ROOT")
+	if federationRoot == "" {
+		federationRoot = "data/federation"
+	}
+	instanceOrigin := os.Getenv("INSTANCE_ORIGIN")
+	if instanceOrigin == "" {
+		instanceOrigin = "https://localhost:8080"
+	}
+	federationStore, err := federation.New(federationRoot, federation.Config{Instance: instanceOrigin, Operators: []federation.Operator{{Name: "Komodo operator", Contact: "mailto:operator@localhost"}}, Capabilities: []string{"identity.discovery", "actor.lookup", "key.rotation"}, Endpoints: federation.Endpoints{Discovery: instanceOrigin + "/.well-known/komodo-federation", Actors: instanceOrigin + "/federation/actors/{kind}/{id}"}})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -349,6 +362,7 @@ func main() {
 	registerInboxHTTP(mux, activityStore, inboxStore, repositoryCatalog, proposalStore, pullRequestStore, userStore, credentials)
 	registerUsersHTTP(mux, userStore, credentials)
 	registerExtensionsHTTP(mux, extensionStore, repositoryCatalog, organizationStore, credentials, activityStore, pullRequestStore)
+	registerFederationHTTP(mux, federationStore, credentials)
 	registerAuthHTTP(mux, credentials, userStore)
 
 	port := os.Getenv("PORT")

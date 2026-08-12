@@ -2,6 +2,20 @@
 
 ## Delivery team operating contracts
 
+Federation identity state lives beneath `$FEDERATION_ROOT` (default
+`apps/api/data/federation`). Each instance publishes schema-version `1` discovery
+at `/.well-known/komodo-federation`: an Ed25519-signed immutable version names
+the canonical HTTPS instance, public endpoints, capabilities, operators, active
+and retired keys, the prior document digest, and only actors deliberately made
+public. Stable remote subjects are `user:{id}@{instance}`,
+`agent:{id}@{instance}`, or `installation:{id}@{instance}`; they remain remote
+identifiers and must never resolve as local users, grants, or credentials.
+Authenticated operators discover peers and make local trust or revocation
+decisions beneath `/federation`; unreachable state, signature failures,
+unchained identity changes, rotation, and revoked trust remain explicit without
+erasing the last verified document. Discovery grants no authority and private
+membership is never part of the published catalog.
+
 Repository documentation collections live beneath `$DOCUMENTATION_ROOT`
 (default `apps/api/data/documentation`). Owner-published immutable versions bind
 ordered pages beneath one repository path to exact source commits, supported

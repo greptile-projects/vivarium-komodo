@@ -2,6 +2,10 @@
 
 Monorepo.
 
+Instances can federate signed public collaborator identities without sharing
+accounts or credentials; see `docs/README.md` for the discovery and trust
+contract.
+
 ```
 apps/web    Next.js frontend (TypeScript, Tailwind)
 apps/api    Go HTTP API
