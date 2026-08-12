@@ -31,6 +31,14 @@ empties effective authority. Organization installs require an explicit set of
 repositories, all validated before creation. Ownership transfer does not alter
 installation attribution, and no lifecycle action issues a human credential.
 
+Extension callbacks are durable deliveries derived from the repository activity
+ledger. Installations filter that ledger by event and resource grants, retain a
+schema-version `1` redacted payload with stable source and ordering IDs, and
+sign the exact body with an installation-only HMAC key. Repository readers can
+inspect payloads, attempts, retry timing, and dead letters, while owners trigger
+delivery and replay. Duplicate source events remain one delivery and inactive
+installations cannot send retained work.
+
 ## Repository documentation collections
 
 Repository owners create documentation contracts at `POST

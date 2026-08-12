@@ -1,9 +1,64 @@
 package extensions
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
+)
 
 func input() Input {
 	return Input{Name: "Build observer", Description: "Reports checks", OperatorContact: "ops@example.com", Capabilities: []string{"annotate checks"}, CallbackURL: "https://example.com/events", ActionURL: "https://example.com/actions", RequestedPermissions: []string{"metadata:read", "checks:write"}, EventTypes: []string{"push", "check.requested"}, RotationPolicy: RotationPolicy{IntervalDays: 30, OverlapHours: 24, ContactOnFailure: true}}
+}
+
+func TestDeliveryContractIsOrderedScopedRedactedAndRecoverable(t *testing.T) {
+	s, _ := New(t.TempDir())
+	in := input()
+	in.EventTypes = []string{"pull_request.created", "issue.opened"}
+	x, _ := s.Create("publisher", in)
+	x, _ = s.Verify(x.ID, "publisher", "callback", x.Callback.VerificationToken)
+	x, _ = s.Verify(x.ID, "publisher", "actions", x.Actions.VerificationToken)
+	grant := GrantInput{Permissions: []string{"metadata:read"}, EventTypes: in.EventTypes, ResourceTypes: []string{"pull_requests"}, CapabilityDecisions: []CapabilityDecision{{Capability: "annotate checks", Decision: "denied"}}}
+	i, err := s.InstallGrant(x.ID, "repo", "owner", grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	source := []activities.Event{
+		{ID: "later", RepositoryID: "repo", ActorID: "dev", Type: "pull_request.created", Resource: activities.Resource{Type: "pull_request", ID: "pr-2"}, Metadata: map[string]string{"commit_id": "def"}, CreatedAt: now.Add(time.Minute)},
+		{ID: "hidden", RepositoryID: "repo", ActorID: "dev", Type: "issue.opened", Resource: activities.Resource{Type: "issue", ID: "issue-1"}, CreatedAt: now},
+		{ID: "first", RepositoryID: "repo", ActorID: "dev", Type: "pull_request.created", Resource: activities.Resource{Type: "pull_request", ID: "pr-1"}, Metadata: map[string]string{"credential": "must not leak", "commit_id": "abc"}, CreatedAt: now},
+	}
+	deliveries, err := s.Reconcile("repo", i.ID, source)
+	if err != nil || len(deliveries) != 2 || deliveries[0].EventID != "first" || deliveries[0].OrderingID != 1 || deliveries[1].OrderingID != 2 {
+		t.Fatalf("deliveries: %#v %v", deliveries, err)
+	}
+	var envelope Envelope
+	if json.Unmarshal(deliveries[0].Payload, &envelope) != nil || envelope.Changes["credential"] != "[REDACTED]" || envelope.SchemaVersion != 1 {
+		t.Fatalf("unsafe envelope: %s", deliveries[0].Payload)
+	}
+	again, _ := s.Reconcile("repo", i.ID, source)
+	if len(again) != 2 {
+		t.Fatalf("duplicate deliveries: %#v", again)
+	}
+	for n := 0; n < 5; n++ {
+		updated, e := s.RecordAttempt("repo", i.ID, deliveries[0].ID, "failed", 503, "unavailable", n > 0)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if n == 4 && updated.Status != "dead_letter" {
+			t.Fatalf("not dead-lettered: %#v", updated)
+		}
+	}
+	updated, err := s.RecordAttempt("repo", i.ID, deliveries[0].ID, "delivered", 204, "", true)
+	if err != nil || updated.Status != "delivered" || len(updated.Attempts) != 6 {
+		t.Fatalf("replay: %#v %v", updated, err)
+	}
+	i, _ = s.Update("repo", i.ID, "owner", "remove", "revoked", i.Version, nil)
+	if _, err = s.RecordAttempt("repo", i.ID, deliveries[1].ID, "delivered", 204, "", false); err != ErrForbidden {
+		t.Fatalf("revoked delivery allowed: %v", err)
+	}
 }
 func TestRegistrationVerificationAndAuthority(t *testing.T) {
 	s, _ := New(t.TempDir())

@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/extensions"
@@ -11,7 +15,7 @@ import (
 
 type extensionOrganizations interface{ IsOwner(string, string) bool }
 
-func registerExtensionsHTTP(mux *http.ServeMux, s *extensions.Store, repos ownedRepositoryStore, orgs extensionOrganizations, credentials authStore) {
+func registerExtensionsHTTP(mux *http.ServeMux, s *extensions.Store, repos ownedRepositoryStore, orgs extensionOrganizations, credentials authStore, activity activityStore) {
 	mux.HandleFunc("POST /extensions", func(w http.ResponseWriter, r *http.Request) {
 		a, ok := authenticateRequest(w, r, credentials, auth.ProfileWrite)
 		if !ok {
@@ -223,6 +227,102 @@ func registerExtensionsHTTP(mux *http.ServeMux, s *extensions.Store, repos owned
 			return
 		}
 		writeJSON(w, 200, map[string]any{"items": xs, "total_count": len(xs)})
+	})
+	mux.HandleFunc("GET /repositories/{repository}/extension-installations/{installation}/deliveries", func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		items, err := activity.List(string(repo.ID))
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		deliveries, err := s.Reconcile(string(repo.ID), r.PathValue("installation"), items)
+		if err != nil {
+			writeExtensionError(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"items": deliveries, "total_count": len(deliveries), "schema_version": extensions.DeliverySchemaVersion})
+	})
+	mux.HandleFunc("POST /repositories/{repository}/extension-installations/{installation}/deliveries/{delivery}/attempts", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if repo.OwnerID != a.UserID {
+			writeJSON(w, 403, map[string]string{"error": "owner_required"})
+			return
+		}
+		var in struct {
+			Replay bool `json:"replay"`
+		}
+		if !readJSON(w, r, &in, 4096) {
+			return
+		}
+		events, err := activity.List(string(repo.ID))
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		deliveries, err := s.Reconcile(string(repo.ID), r.PathValue("installation"), events)
+		if err != nil {
+			writeExtensionError(w, err)
+			return
+		}
+		var selected *extensions.Delivery
+		for n := range deliveries {
+			if deliveries[n].ID == r.PathValue("delivery") {
+				selected = &deliveries[n]
+			}
+		}
+		if selected == nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		installation, extension, key, err := s.DeliveryContext(string(repo.ID), r.PathValue("installation"))
+		if err != nil {
+			writeExtensionError(w, err)
+			return
+		}
+		if installation.Status != "active" {
+			writeJSON(w, 403, map[string]string{"error": "installation_inactive"})
+			return
+		}
+		now := time.Now().UTC()
+		req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, extension.Callback.URL, bytes.NewReader(selected.Payload))
+		if err == nil {
+			req.Header.Set("Content-Type", "application/vnd.komodo.extension-event+json; version=1")
+			req.Header.Set("X-Komodo-Delivery", selected.ID)
+			req.Header.Set("X-Komodo-Event", selected.EventType)
+			req.Header.Set("X-Komodo-Ordering-ID", strconv.FormatInt(selected.OrderingID, 10))
+			req.Header.Set("X-Komodo-Timestamp", strconv.FormatInt(now.Unix(), 10))
+			req.Header.Set("X-Komodo-Signature-256", extensions.Sign(key, now, selected.Payload))
+		}
+		outcome, message, code := "failed", "", 0
+		if err == nil {
+			client := &http.Client{Timeout: 10 * time.Second}
+			resp, e := client.Do(req)
+			if e != nil {
+				message = e.Error()
+			} else {
+				code = resp.StatusCode
+				_ = resp.Body.Close()
+				if code >= 200 && code < 300 {
+					outcome = "delivered"
+				} else {
+					message = fmt.Sprintf("callback returned HTTP %d", code)
+				}
+			}
+		} else {
+			message = err.Error()
+		}
+		updated, err := s.RecordAttempt(string(repo.ID), installation.ID, selected.ID, outcome, code, message, in.Replay)
+		if err != nil {
+			writeExtensionError(w, err)
+			return
+		}
+		writeJSON(w, 200, updated)
 	})
 	mux.HandleFunc("DELETE /repositories/{repository}/extension-installations/{installation}", func(w http.ResponseWriter, r *http.Request) {
 		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
