@@ -37,7 +37,9 @@ schema-version `1` redacted payload with stable source and ordering IDs, and
 sign the exact body with an installation-only HMAC key. Repository readers can
 inspect payloads, attempts, retry timing, and dead letters, while owners trigger
 delivery and replay. Duplicate source events remain one delivery and inactive
-installations cannot send retained work.
+installations cannot send retained work. The owner receives the callback signing
+secret once alongside the installation credential and provisions it to the
+extension operator; neither secret is returned by later installation reads.
 
 Repository participants inspect continuous health at the installation's
 `/operations` resource: attributed requests, delivery outcomes, dead letters,
@@ -53,6 +55,18 @@ Quarantine empties effective authority while preserving prior evidence. Pause,
 resume, narrowing upgrades, removal, rotation, tests, and health are composed in
 the repository Extensions surface. New capabilities or permissions still
 require another owner-approved grant.
+
+The complete contract is composed in `extension_workflow_test.go` using only
+public HTTP and stock Git. A developer registers and verifies a sample
+extension, an owner grants it one repository, and a contributor opens a pull
+request whose signed delivery first fails and then succeeds on explicit replay.
+The extension publishes an exact-revision check with an annotation and artifact
+and declares a repair action that the contributor invokes. That advisory check
+does not replace the repository's required check or owner review. A capability
+upgrade succeeds only from the owner at the current installation version, and
+removal invalidates the installation credential while retaining deliveries,
+attempts, contributions, actions, invocations, configuration history, and
+extension authorship.
 
 ## Repository documentation collections
 

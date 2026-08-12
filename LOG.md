@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-12T13:03:32Z: Completed the extension install-to-governed-collaboration proof through public HTTP and stock Git, covering verified developer registration, repository-only owner consent, signed pull-request event replay, revision-bound annotated artifact evidence, a collaborator-invoked repair action, ordinary checks/review/merge, fresh capability consent, and removal that revokes credentials without erasing attribution.
+
 2026-08-12T12:02:34Z: Added continuous extension operations with attributed delivery/action/contribution health, latency and consumption, permission/configuration history, contract-v1 endpoint probes, actionable credential/endpoint/anomaly notices, enforced 90-day credential rotation, and quarantine that withdraws authority without erasing evidence. Repository Extensions now exposes the operational record and owner lifecycle controls.
 
 2026-08-12T08:35:37Z: Added owner-operated external extension identities with declared HTTPS endpoints, capabilities, events, resource permissions, rotation contracts, endpoint-control challenges, narrowed repository authority previews, owner installation/revocation, and explicit non-impersonation. The Access workspace now registers and inspects these principals; durable state is beneath `$EXTENSION_ROOT`.

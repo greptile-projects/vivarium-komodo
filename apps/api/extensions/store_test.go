@@ -202,3 +202,18 @@ func TestScopedCredentialPublishesRevisionBoundEvidenceAndActions(t *testing.T) 
 		t.Fatalf("suspended credential accepted: %v", err)
 	}
 }
+
+func TestSigningSecretIsInstallationScoped(t *testing.T) {
+	s, _ := New(t.TempDir())
+	x, _ := s.Create("publisher", input())
+	x, _ = s.Verify(x.ID, "publisher", "callback", x.Callback.VerificationToken)
+	x, _ = s.Verify(x.ID, "publisher", "actions", x.Actions.VerificationToken)
+	grant := GrantInput{Permissions: []string{"metadata:read"}, EventTypes: []string{"push"}, ResourceTypes: []string{"repository"}, CapabilityDecisions: []CapabilityDecision{{Capability: "annotate checks", Decision: "approved"}}}
+	first, _ := s.InstallGrant(x.ID, "repo", "owner", grant)
+	second, _ := s.InstallGrant(x.ID, "repo", "owner", grant)
+	_, _, firstSecret, firstErr := s.DeliveryContext("repo", first.ID)
+	_, _, secondSecret, secondErr := s.DeliveryContext("repo", second.ID)
+	if firstErr != nil || secondErr != nil || firstSecret == "" || secondSecret == "" || firstSecret == secondSecret {
+		t.Fatalf("signing secrets are not distinct installation credentials: %q %q %v %v", firstSecret, secondSecret, firstErr, secondErr)
+	}
+}

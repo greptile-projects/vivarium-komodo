@@ -155,6 +155,12 @@ expiring credentials, dead letters, and anomalous consumption emit actionable
 notices. Contract probes grant no authority; quarantine, pause, narrowing, and
 removal withdraw future authority while retaining prior evidence. Newly
 requested capabilities or permissions always require renewed owner consent.
+`extension_workflow_test.go` is the black-box regression boundary for the
+complete developer-registration-to-governed-merge loop. It retains repository-
+only owner consent, signed pull-request delivery and replay, revision-bound
+annotations and artifact evidence, collaborator repair invocation, ordinary
+checks and review, renewed capability consent, and post-removal attribution
+while proving that the installation credential no longer works.
 
 Opportunity onboarding composes existing resources rather than granting new
 authority. An active claimant starts through
