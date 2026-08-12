@@ -105,6 +105,19 @@ team publication without erasing accepted progress.
 
 Guidance for coding agents working in this repository.
 
+External integration identities live beneath `$EXTENSION_ROOT` (default
+`apps/api/data/extensions`). An authenticated developer registers an extension
+with its human owner, operator email, declared capabilities, HTTPS callback and
+action endpoints, requested repository permissions, supported events, and
+credential-rotation policy. Registration creates a distinct `ext_` principal;
+one-time endpoint challenges must verify both declared endpoints before a
+repository owner can install it. Authority previews and installations may only
+narrow the registered declaration, retain the exact repository, events,
+permissions, installer, and extension actor, and explicitly report that no user
+or agent impersonation and no credential issuance occurred. Repository owners
+alone install and revoke; revocation empties effective authority while retaining
+the attributable record. The Access web surface owns extension registration.
+
 Opportunity onboarding composes existing resources rather than granting new
 authority. An active claimant starts through
 `/repositories/{repository}/contribution-opportunities/{opportunity}/start`;

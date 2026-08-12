@@ -3,6 +3,26 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## External extensions
+
+Extensions are platform principals, not user API tokens. Their owners register
+them at `POST /extensions` with an operator contact, capabilities, HTTPS
+callback and action endpoints, requested resource permissions, event types, and
+credential rotation policy. The response returns separate endpoint challenges;
+the owner proves control through `POST /extensions/{extension}/endpoint-verifications`.
+Both endpoints must be verified before installation.
+
+A repository owner examines a narrowed grant at `POST
+/repositories/{repository}/extension-authority-previews`, then installs that
+exact permission and event subset at the corresponding
+`/extension-installations` collection. The preview names the extension's own
+`ext_` actor, declares `can_impersonate: false` and `credential_issued: false`,
+and warns while endpoint ownership is unverified. Listing retains installer and
+repository attribution. `DELETE .../extension-installations/{installation}`
+revokes the grant and removes all effective permissions and events without
+erasing history. Registration and inspection are available in the web Access
+workspace; data is rooted beneath `$EXTENSION_ROOT`.
+
 ## Repository documentation collections
 
 Repository owners create documentation contracts at `POST

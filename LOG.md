@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-12T08:35:37Z: Added owner-operated external extension identities with declared HTTPS endpoints, capabilities, events, resource permissions, rotation contracts, endpoint-control challenges, narrowed repository authority previews, owner installation/revocation, and explicit non-impersonation. The Access workspace now registers and inspects these principals; durable state is beneath `$EXTENSION_ROOT`.
+
 2026-08-11T17:33:03Z: Added revision-exact pull request previews from versioned `.komodo/previews.json` definitions with attested non-persisted configuration, bounded isolated build/runtime lifecycles, authenticated URLs, logs/failures, and derived staleness after source synchronization. The pull request `section=previews` surface launches and follows immutable attempts without confusing them with mutable deployments.
 
 2026-08-11T16:09:12Z: Completed guided contribution trust outcomes: owners can immutably record server-verified merged/released contributor credit, feedback, support effort, readiness, and a next opportunity, and the Contribute surface exposes that record without granting authority. Existing claim release and safe setup-friction reporting provide abandoned-work and broken-onboarding recovery.
