@@ -73,6 +73,7 @@ type Installation struct {
 	CreatedAt           time.Time            `json:"created_at"`
 	RevokedAt           *time.Time           `json:"revoked_at,omitempty"`
 	Authority           Authority            `json:"authority"`
+	Deliveries          []Delivery           `json:"deliveries,omitempty"`
 }
 type CapabilityDecision struct {
 	Capability string `json:"capability"`
@@ -103,8 +104,9 @@ type Authority struct {
 	Warnings         []string `json:"warnings"`
 }
 type fileData struct {
-	Extensions    []Extension    `json:"extensions"`
-	Installations []Installation `json:"installations"`
+	Extensions    []Extension       `json:"extensions"`
+	Installations []Installation    `json:"installations"`
+	SigningKeys   map[string]string `json:"signing_keys,omitempty"`
 }
 type Store struct {
 	root string
@@ -146,8 +148,16 @@ func listOK(xs []string, allowed map[string]bool) bool {
 }
 
 var permissions = map[string]bool{"metadata:read": true, "contents:read": true, "issues:read": true, "issues:write": true, "pull_requests:read": true, "pull_requests:write": true, "checks:write": true}
-var events = map[string]bool{"repository.created": true, "push": true, "issue.opened": true, "issue.updated": true, "pull_request.opened": true, "pull_request.updated": true, "check.requested": true}
-var resourceTypes = map[string]bool{"metadata": true, "contents": true, "issues": true, "pull_requests": true, "checks": true}
+var events = map[string]bool{
+	"repository.created": true, "repository.updated": true, "push": true, "pull_request.opened": true,
+	"pull_request.created": true, "pull_request.updated": true, "pull_request.synchronized": true, "pull_request.merged": true, "pull_request.closed": true,
+	"check.requested": true, "check.completed": true, "release.created": true, "release.published": true,
+	"deployment.created": true, "deployment.updated": true, "deployment.completed": true, "deployment.failed": true,
+	"incident.created": true, "incident.updated": true, "incident.resolved": true,
+	"issue.opened": true, "issue.updated": true, "issue.closed": true,
+	"proposal.task.created": true, "proposal.task.updated": true, "proposal.task.assigned": true, "proposal.task.started": true, "proposal.task.contribution_published": true,
+}
+var resourceTypes = map[string]bool{"metadata": true, "contents": true, "repository": true, "issues": true, "pull_requests": true, "checks": true, "releases": true, "deployments": true, "incidents": true, "tasks": true}
 
 func valid(in Input) bool {
 	mail, mailErr := url.Parse("mailto:" + in.OperatorContact)
@@ -376,6 +386,10 @@ func (s *Store) InstallGrant(ext, repo, installer string, in GrantInput) (Instal
 	now := s.now().UTC()
 	i := Installation{ID: id("ins"), ExtensionID: ext, RepositoryID: repo, InstallerID: installer, Permissions: in.Permissions, EventTypes: in.EventTypes, ResourceTypes: in.ResourceTypes, CapabilityDecisions: in.CapabilityDecisions, Settings: in.Settings, Version: 1, Events: []InstallationEvent{{Sequence: 1, Type: "installed", ActorID: installer, CreatedAt: now}}, Status: "active", CreatedAt: now, Authority: a}
 	d.Installations = append(d.Installations, i)
+	if d.SigningKeys == nil {
+		d.SigningKeys = map[string]string{}
+	}
+	d.SigningKeys[i.ID] = id("whsec")
 	return i, s.save(d)
 }
 func (s *Store) Update(repo, installation, actor, action, reason string, expected int64, grant *GrantInput) (Installation, error) {

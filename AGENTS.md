@@ -125,6 +125,19 @@ or attributed evidence. Organization owners must explicitly select repositories
 owned by that organization, all validated before creation. These contracts
 issue no reusable human credential.
 
+Active extension installations consume only matching repository activity and
+materialize immutable schema-version `1` deliveries beneath `$EXTENSION_ROOT`.
+Each delivery carries a stable source event ID, per-installation ordering ID,
+resource identity, bounded redacted changes, and a payload digest. Callback
+requests use `application/vnd.komodo.extension-event+json; version=1` and an
+HMAC-SHA256 `X-Komodo-Signature-256` over `{unix_timestamp}.{exact_body}` with
+the accompanying timestamp, delivery, event, and ordering headers. Repository
+readers can inspect retained payloads and attempts; repository owners trigger
+delivery or replay. Non-2xx attempts use bounded exponential retry state and
+become dead letters after five failures. Reconciliation deduplicates source
+events and silently excludes unsubscribed resource types; suspended, removed,
+and revoked installations cannot send or replay retained deliveries.
+
 Opportunity onboarding composes existing resources rather than granting new
 authority. An active claimant starts through
 `/repositories/{repository}/contribution-opportunities/{opportunity}/start`;
