@@ -38,6 +38,12 @@ unrelated commits may reuse it with explicit prior-run provenance, while any
 affected input queues a fresh attempt. Branch protection can require these
 ordinary named checks, so documentation evidence participates in existing
 readiness and stale-commit rules without a separate merge authority.
+Merged exact-revision previews publish immutable reader editions beneath the
+collection store. Editions retain pull request, preview, source and merge
+revisions, rendered blobs, version/release mappings, audiences, redirects, and
+publisher. Readers get stable links, search, redirects, release selection,
+visibility, and explicit archives; their bounded redacted feedback is triaged
+once into a linked issue, proposal, or documentation task.
 
 Delivery teams are pre-execution contracts beneath `$DELIVERY_TEAM_ROOT`
 (default `apps/api/data/delivery-teams`). A repository collaborator forms one

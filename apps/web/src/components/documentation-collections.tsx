@@ -62,6 +62,13 @@ type DocumentationTask = {
     }>;
   }>;
 };
+type Edition = {
+  id: string; collection_id: string; collection_version: number; source_revision: string;
+  merge_revision: string; archived: boolean; stable_url: string; published_at: string;
+  versions: Array<{label:string;release_id?:string}>; audiences:string[];
+  pages: Array<{path:string;blob_id:string;rendered:string}>;
+};
+type ReaderFeedback = { id:string; collection_id:string; page_path?:string; kind:string; body:string; reporter_id:string; triage?:{kind:string;resource_id:string} };
 async function json<T>(url: string, init?: RequestInit) {
   const response = await fetch(`/api${url}`, init);
   const body = await response.json();
@@ -90,6 +97,9 @@ export function DocumentationCollections({
   const [error, setError] = useState("");
   const [tasks, setTasks] = useState<DocumentationTask[]>([]);
   const [taskID, setTaskID] = useState("");
+  const [editions,setEditions]=useState<Edition[]>([]);
+  const [feedback,setFeedback]=useState<ReaderFeedback[]>([]);
+  const [search,setSearch]=useState("");
   useEffect(() => {
     json<{ items: Collection[] }>(
       `/repositories/${repository}/documentation-collections`,
@@ -97,6 +107,8 @@ export function DocumentationCollections({
       .then((x) => setItems(x.items))
       .catch((e) => setError(e.message));
   }, [repository]);
+  useEffect(()=>{json<{items:Edition[]}>(`/repositories/${repository}/documentation`).then(x=>setEditions(x.items)).catch(()=>{});},[repository]);
+  useEffect(()=>{if(actor)json<{items:ReaderFeedback[]}>(`/repositories/${repository}/documentation-feedback`).then(x=>setFeedback(x.items)).catch(()=>{});},[repository,actor]);
   useEffect(() => {
     json<{ items: DocumentationTask[] }>(
       `/repositories/${repository}/documentation-tasks`,
@@ -216,6 +228,9 @@ export function DocumentationCollections({
     }
   }
   const activeTask = tasks.find((x) => x.id === taskID);
+  const visibleEditions=editions.filter(x=>x.collection_id===active?.id&&(!search||x.pages.some(p=>(p.path+" "+p.rendered).toLowerCase().includes(search.toLowerCase()))));
+  async function report(event:FormEvent<HTMLFormElement>){event.preventDefault();const f=new FormData(event.currentTarget),edition=visibleEditions[0];if(!edition)return;try{const value=await json<ReaderFeedback>(`/repositories/${repository}/documentation/${edition.id}/feedback`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind:f.get("kind"),page_path:f.get("page_path"),query:f.get("query"),expected_version:f.get("expected_version"),body:f.get("body"),evidence:[]})});setFeedback(x=>[...x,value]);event.currentTarget.reset()}catch(e){setError(e instanceof Error?e.message:"Could not send feedback")}}
+  async function triage(item:ReaderFeedback,event:FormEvent<HTMLFormElement>){event.preventDefault();const f=new FormData(event.currentTarget);try{const value=await json<ReaderFeedback>(`/repositories/${repository}/documentation-feedback/${item.id}/triage`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind:f.get("kind"),resource_id:f.get("resource_id")})});setFeedback(x=>x.map(y=>y.id===value.id?value:y))}catch(e){setError(e instanceof Error?e.message:"Could not triage")}}
   return (
     <section className="content-stack">
       <header className="section-heading">
@@ -375,6 +390,9 @@ export function DocumentationCollections({
           )}
         </article>
       )}
+      {active&&<section className="card content-stack"><header><p className="eyebrow">Published guidance</p><h3>Reader editions</h3><p>Stable editions preserve the exact reviewed pages and clearly mark versions replaced by a later publication.</p></header><label>Search this collection<input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search paths and guidance" /></label>{visibleEditions.length===0?<p>No published edition matches this version or search.</p>:visibleEditions.map(edition=><article className="card" key={edition.id}><Badge tone={edition.archived?"neutral":"accent"}>{edition.archived?"archived edition":"current edition"}</Badge><h3>{edition.versions.map(v=>v.label).join(", ")}</h3><p>For {edition.audiences.join(", ")} · source <code>{edition.source_revision}</code> · merged as <code>{edition.merge_revision}</code></p><a href={edition.stable_url}>Stable link</a>{edition.pages.map(page=><section key={page.path}><h4>{page.path}</h4><div dangerouslySetInnerHTML={{__html:page.rendered}} /></section>)}</article>)}</section>}
+      {active&&actor&&visibleEditions[0]&&<section className="card content-stack"><h3>Report a documentation outcome</h3><p>Your report stays attached to this exact edition and page.</p><form className="form-stack" onSubmit={report}><label>Outcome<select name="kind"><option value="page_feedback">Page feedback</option><option value="failed_example">Failed example</option><option value="search_miss">Search miss</option><option value="version_mismatch">Version mismatch</option></select></label><label>Page path<input name="page_path" placeholder={visibleEditions[0].pages[0]?.path} /></label><label>Search query (for a miss)<input name="query" /></label><label>Expected project version<input name="expected_version" /></label><label>What happened<textarea name="body" required /></label><Button type="submit">Send to maintainers</Button></form></section>}
+      {active&&actor===owner&&feedback.filter(x=>x.collection_id===active.id).length>0&&<section className="card content-stack"><h3>Reader outcomes</h3>{feedback.filter(x=>x.collection_id===active.id).map(item=><article className="card" key={item.id}><Badge>{item.kind.replaceAll("_"," ")}</Badge><p>{item.body}</p><small>{item.page_path||"Search surface"} · {item.reporter_id}</small>{item.triage?<p>Linked {item.triage.kind.replaceAll("_"," ")} <code>{item.triage.resource_id}</code></p>:<form className="form-stack" onSubmit={e=>triage(item,e)}><label>Accountable workflow<select name="kind"><option value="documentation_task">Documentation task</option><option value="issue">Issue</option><option value="proposal">Proposal</option></select></label><label>Existing resource ID<input name="resource_id" required /></label><Button type="submit">Link and triage</Button></form>}</article>)}</section>}
       {active && actor && (
         <section className="card content-stack">
           <h3>Grounded documentation tasks</h3>

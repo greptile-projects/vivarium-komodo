@@ -32,6 +32,12 @@ type docscollectionsStore interface {
 	InviteReview(string, string, string, string, string, string) (docscollections.ReviewPreview, error)
 	AddReviewComment(string, string, string, string, docscollections.ReviewComment) (docscollections.ReviewPreview, error)
 	PutAreaDecision(string, string, string, string, docscollections.AreaDecision) (docscollections.ReviewPreview, error)
+	Publish(docscollections.Publication) (docscollections.Publication, error)
+	ListPublications(string, string) ([]docscollections.Publication, error)
+	GetPublication(string, string) (docscollections.Publication, error)
+	CreateFeedback(docscollections.Feedback) (docscollections.Feedback, error)
+	ListFeedback(string, string) ([]docscollections.Feedback, error)
+	TriageFeedback(string, string, string, string, string) (docscollections.Feedback, error)
 }
 type documentationPullStore interface {
 	Get(string, string) (pullrequests.PullRequest, error)
@@ -265,6 +271,185 @@ func registerDocumentationHTTP(mux *http.ServeMux, s docscollectionsStore, repos
 		writeJSON(w, 201, t)
 	})
 	registerDocumentationReviewHTTP(mux, s, repos, credentials, pulls)
+	registerPublishedDocumentationHTTP(mux, s, repos, credentials, pulls)
+}
+
+type publishedDocumentationResponse struct {
+	docscollections.Publication
+	Archived  bool   `json:"archived"`
+	StableURL string `json:"stable_url"`
+}
+
+func registerPublishedDocumentationHTTP(mux *http.ServeMux, s docscollectionsStore, repos contributorPathwayRepositories, credentials authStore, pulls documentationPullStore) {
+	visible := func(p docscollections.Publication, c docscollections.Collection, authenticated bool) bool {
+		v := c.History[p.CollectionVersion-1]
+		return v.Policy.Visibility != "repository" || authenticated
+	}
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull}/documentation-publications", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if a.UserID != repo.OwnerID {
+			writeJSON(w, 403, map[string]string{"error": "forbidden"})
+			return
+		}
+		var in struct {
+			PreviewID string `json:"preview_id"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		pr, e := pulls.Get(string(repo.ID), r.PathValue("pull"))
+		if e != nil || pr.Status != pullrequests.Merged {
+			writeJSON(w, 409, map[string]string{"error": "merged_pull_request_required"})
+			return
+		}
+		preview, e := s.GetReviewPreview(string(repo.ID), pr.ID, in.PreviewID)
+		if e != nil || preview.Revision != pr.SourceCommitID {
+			writeJSON(w, 409, map[string]string{"error": "current_reviewed_preview_required"})
+			return
+		}
+		c, e := s.Get(string(repo.ID), preview.CollectionID)
+		if documentationError(w, e) {
+			return
+		}
+		if preview.CollectionVersion < 1 || preview.CollectionVersion > int64(len(c.History)) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_documentation_collection"})
+			return
+		}
+		v := c.History[preview.CollectionVersion-1]
+		required := v.Policy.Publication == "owner_reviewed"
+		approved := false
+		for _, d := range preview.Decisions {
+			if d.Decision == "request_changes" {
+				writeJSON(w, 409, map[string]string{"error": "documentation_review_required"})
+				return
+			}
+			if d.Decision == "approve" && (d.ActorID == repo.OwnerID || !required) {
+				approved = true
+			}
+		}
+		if !approved {
+			writeJSON(w, 409, map[string]string{"error": "documentation_review_required"})
+			return
+		}
+		p, e := s.Publish(docscollections.Publication{RepositoryID: string(repo.ID), CollectionID: c.ID, CollectionVersion: v.Number, PullRequestID: pr.ID, PreviewID: preview.ID, SourceRevision: preview.Revision, MergeRevision: pr.MergeCommitID, Pages: preview.Pages, Versions: v.Versions, Audiences: v.Audiences, Redirects: v.Policy.Redirects, PublishedByID: a.UserID})
+		if documentationError(w, e) {
+			return
+		}
+		writeJSON(w, 201, p)
+	})
+	mux.HandleFunc("GET /repositories/{repository}/documentation", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		items, e := s.ListPublications(string(repo.ID), r.URL.Query().Get("collection"))
+		if documentationError(w, e) {
+			return
+		}
+		q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+		version := r.URL.Query().Get("version")
+		release := r.URL.Query().Get("release")
+		pathQuery := strings.Trim(r.URL.Query().Get("path"), "/")
+		out := []publishedDocumentationResponse{}
+		latest := map[string]string{}
+		for _, p := range items {
+			latest[p.CollectionID] = p.ID
+		}
+		for _, p := range items {
+			c, e := s.Get(string(repo.ID), p.CollectionID)
+			if e != nil || !visible(p, c, a.UserID != "") {
+				continue
+			}
+			matches := version == "" && release == ""
+			for _, v := range p.Versions {
+				matches = matches || version == v.Label || release != "" && release == v.ReleaseID
+			}
+			if !matches {
+				continue
+			}
+			pages := []docscollections.ReviewPage{}
+			for _, pg := range p.Pages {
+				requested := pathQuery
+				if to, ok := p.Redirects[requested]; ok {
+					requested = to
+					w.Header().Set("X-Documentation-Redirect", to)
+				}
+				if requested != "" && strings.Trim(pg.Path, "/") != requested {
+					continue
+				}
+				if q != "" && !strings.Contains(strings.ToLower(pg.Path+" "+pg.Rendered), q) {
+					continue
+				}
+				pages = append(pages, pg)
+			}
+			if q != "" && len(pages) == 0 {
+				continue
+			}
+			p.Pages = pages
+			out = append(out, publishedDocumentationResponse{Publication: p, Archived: latest[p.CollectionID] != p.ID, StableURL: "/repositories/" + string(repo.ID) + "?view=documentation&edition=" + p.ID})
+		}
+		writeJSON(w, 200, map[string]any{"items": out, "query": q})
+	})
+	mux.HandleFunc("POST /repositories/{repository}/documentation/{publication}/feedback", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		p, e := s.GetPublication(string(repo.ID), r.PathValue("publication"))
+		if documentationError(w, e) {
+			return
+		}
+		var in docscollections.Feedback
+		if !readJSON(w, r, &in, 768<<10) {
+			return
+		}
+		in.RepositoryID = string(repo.ID)
+		in.PublicationID = p.ID
+		in.CollectionID = p.CollectionID
+		in.ReporterID = a.UserID
+		found := in.Kind == "search_miss"
+		for _, pg := range p.Pages {
+			found = found || pg.Path == in.PagePath
+		}
+		if !found {
+			writeJSON(w, 422, map[string]string{"error": "invalid_documentation_page"})
+			return
+		}
+		f, e := s.CreateFeedback(in)
+		if documentationError(w, e) {
+			return
+		}
+		writeJSON(w, 201, f)
+	})
+	mux.HandleFunc("GET /repositories/{repository}/documentation-feedback", func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		items, e := s.ListFeedback(string(repo.ID), r.URL.Query().Get("collection"))
+		if documentationError(w, e) {
+			return
+		}
+		writeJSON(w, 200, map[string]any{"items": items})
+	})
+	mux.HandleFunc("POST /repositories/{repository}/documentation-feedback/{feedback}/triage", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct{ Kind, ResourceID string }
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		f, e := s.TriageFeedback(string(repo.ID), r.PathValue("feedback"), a.UserID, in.Kind, in.ResourceID)
+		if documentationError(w, e) {
+			return
+		}
+		writeJSON(w, 200, f)
+	})
 }
 
 type documentationReviewResponse struct {

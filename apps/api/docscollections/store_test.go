@@ -2,11 +2,43 @@ package docscollections
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
 func input(revision string) Input {
 	return Input{Name: "Guide", RootPath: "docs", EntryPaths: []string{"README.md"}, Versions: []VersionMapping{{Label: "v1", SourceRevision: revision}}, OwnerIDs: []string{"owner"}, Audiences: []string{"developers"}, Policy: Policy{Navigation: "path", Renderer: "markdown", Publication: "maintainer_reviewed"}, ChangeReason: "initial review"}
+}
+
+func TestPublishedEditionsArchiveAndFeedbackRetainsSafeAccountability(t *testing.T) {
+	s, _ := New(t.TempDir())
+	base := Publication{RepositoryID: "repo", CollectionID: "guide", CollectionVersion: 1, PullRequestID: "pull-1", PreviewID: "preview-1", SourceRevision: strings.Repeat("a", 40), MergeRevision: strings.Repeat("b", 40), Pages: []ReviewPage{{Path: "docs/start.md", BlobID: "blob-1", Rendered: "Install v1"}}, Versions: []VersionMapping{{Label: "v1", SourceRevision: strings.Repeat("a", 40), ReleaseID: "release-1"}}, PublishedByID: "owner"}
+	first, err := s.Publish(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base.PullRequestID = "pull-2"
+	base.PreviewID = "preview-2"
+	base.SourceRevision = strings.Repeat("c", 40)
+	base.MergeRevision = strings.Repeat("d", 40)
+	base.Pages[0].Rendered = "Install v2"
+	base.Versions[0].Label = "v2"
+	second, err := s.Publish(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := s.ListPublications("repo", "guide")
+	if err != nil || len(items) != 2 || items[0].ID != first.ID || items[1].ID != second.ID || items[0].Pages[0].Rendered != "Install v1" {
+		t.Fatalf("editions %#v %v", items, err)
+	}
+	f, err := s.CreateFeedback(Feedback{RepositoryID: "repo", PublicationID: first.ID, CollectionID: "guide", PagePath: "docs/start.md", Kind: "failed_example", Body: "The command fails", ReporterID: "reader", Evidence: []FeedbackEvidence{{Kind: "log", Name: "output.txt", Content: "token=secret failure"}}})
+	if err != nil || strings.Contains(f.Evidence[0].Content, "secret") {
+		t.Fatalf("feedback %#v %v", f, err)
+	}
+	f, err = s.TriageFeedback("repo", f.ID, "owner", "documentation_task", "task-1")
+	if err != nil || f.Triage.ResourceID != "task-1" {
+		t.Fatalf("triage %#v %v", f, err)
+	}
 }
 func TestCollectionVersionsAreImmutableAndConcurrencyChecked(t *testing.T) {
 	s, e := New(t.TempDir())
