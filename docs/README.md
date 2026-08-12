@@ -3,6 +3,23 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Project governance
+
+Repository and organization owners publish governance charter drafts through
+their scoped `/governance-charter` API. Each immutable revision records roles,
+eligibility, decision classes, participation and quorum, protected resources,
+terms, removal and succession procedures, amendment rules, author, reason, and
+the live authority preview used at publication. An owner must add a
+version-bound approval before activation; activation regenerates that preview
+and rejects unsupported resources or membership/quorum requirements the
+current project cannot satisfy. Existing ownership, teams, branch protections,
+integration queues, releases, environments, security controls, and agent grants
+remain authoritative: a charter documents legitimacy and grants no operational
+access. Later revisions, approvals, and expiring exceptions append history
+without changing completed decisions. Durable state is beneath
+`$GOVERNANCE_ROOT`; the web surfaces are repository `view=governance` and the
+selected organization workspace.
+
 ## External extensions
 
 ## Federation identity

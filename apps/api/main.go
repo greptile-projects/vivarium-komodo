@@ -21,6 +21,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/extensions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/federatedagents"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/federation"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/governance"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/impactassessments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/inbox"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/incidents"
@@ -216,6 +217,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	governanceRoot := os.Getenv("GOVERNANCE_ROOT")
+	if governanceRoot == "" {
+		governanceRoot = "data/governance"
+	}
+	governanceStore, err := governance.New(governanceRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	workspaceRoot := os.Getenv("WORKSPACE_ROOT")
 	if workspaceRoot == "" {
 		workspaceRoot = "data/workspaces"
@@ -335,6 +344,7 @@ func main() {
 	registerGitHTTP(mux, repositoryCatalog, credentials)
 	registerRepositoriesHTTP(mux, repositoryCatalog, credentials)
 	registerOrganizationsHTTP(mux, organizationStore, repositoryCatalog, userStore, packageStore, releaseStore, pullRequestStore, incidentStore, proposalStore, relationshipStore, securityReportStore, credentials, activityStore)
+	registerGovernanceHTTP(mux, governanceStore, repositoryCatalog, organizationStore, credentials)
 	registerRepositoryBrowserHTTP(mux, repositoryCatalog, credentials)
 	registerCodeIntelligenceHTTP(mux, repositoryCatalog, credentials, relationshipStore)
 	registerQuestionsHTTP(mux, questionStore, repositoryCatalog, credentials, relationshipStore, checkRunStore)

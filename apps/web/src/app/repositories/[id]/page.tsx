@@ -14,6 +14,7 @@ import { ContributorPathway } from "@/components/contributor-pathway";
 import { ContributionOpportunities } from "@/components/contribution-opportunities";
 import { DocumentationCollections } from "@/components/documentation-collections";
 import { Extensions } from "@/components/extensions";
+import { GovernanceCharter } from "@/components/governance-charter";
 import {
   Book,
   Branch,
@@ -1246,6 +1247,8 @@ export default function RepositoryPage({
                               ? "contribute"
                               : query.view === "documentation"
                                 ? "documentation"
+                              : query.view === "governance"
+                                ? "governance"
                               : query.view === "extensions"
                                 ? "extensions"
                               : query.view === "issues"
@@ -1526,6 +1529,13 @@ export default function RepositoryPage({
       )}
       <nav className="repository-tabs" aria-label="Repository">
         <button
+          className={view === "governance" ? "active" : ""}
+          onClick={() => navigate({ view: "governance", path: "" })}
+        >
+          <User size={15} />
+          Governance
+        </button>
+        <button
           className={view === "extensions" ? "active" : ""}
           onClick={() => navigate({ view: "extensions", path: "" })}
         >
@@ -1663,7 +1673,9 @@ export default function RepositoryPage({
           </button>
         )}
       </nav>
-      {view === "extensions" ? (
+      {view === "governance" ? (
+        <GovernanceCharter scope="repositories" id={repository.id} canManage={actor===repository.owner_id} />
+      ) : view === "extensions" ? (
         <Extensions repository={repository.id} />
       ) : view === "issues" ? (
         <Issues repository={repository.id} actor={actor} owner={repository.owner_id} selected={query.issue} />
