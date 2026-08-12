@@ -5,6 +5,27 @@ written down here as they're decided, not before.
 
 ## External extensions
 
+## Federation identity
+
+An instance publishes its version-1 signed identity at
+`GET /.well-known/komodo-federation`. The document identifies the canonical
+HTTPS instance, discovery and actor endpoints, capabilities, operator contacts,
+Ed25519 public keys, a digest link to the preceding version, and only public
+users, approved agents, or installations selected for federation. Individual
+public identities resolve at `/federation/actors/{kind}/{id}` and use stable
+instance-qualified subjects such as `agent:reviewer@https://community.example`.
+
+Local operators discover a peer through `POST /federation/peers/discoveries`,
+inspect retained observations at `GET /federation/peers`, and explicitly trust
+or revoke it through its `/trust` action. Signatures are checked before a peer
+document is accepted. Key rotation publishes a new signed version while
+retaining the retired key and prior digest; unreachable peers preserve their
+last verified identity, and an unchained identity change blocks trust. Remote
+subjects never become local principals, credentials, repository members, or
+authority grants, and discovery exposes no membership beyond the instance's
+deliberately public actor catalog. The Access workspace presents this trust
+record. Durable state is rooted beneath `$FEDERATION_ROOT`.
+
 Extensions are platform principals, not user API tokens. Their owners register
 them at `POST /extensions` with an operator contact, capabilities, HTTPS
 callback and action endpoints, requested resource permissions, event types, and
