@@ -17,6 +17,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/dependencyinventory"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/dependencyupdates"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/docscollections"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/impactassessments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/inbox"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/incidents"
@@ -269,6 +270,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	documentationRoot := os.Getenv("DOCUMENTATION_ROOT")
+	if documentationRoot == "" {
+		documentationRoot = "data/documentation"
+	}
+	documentationStore, err := docscollections.New(documentationRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	contributionOpportunityRoot := os.Getenv("CONTRIBUTION_OPPORTUNITY_ROOT")
 	if contributionOpportunityRoot == "" {
 		contributionOpportunityRoot = "data/contribution-opportunities"
@@ -307,6 +316,7 @@ func main() {
 	registerProposalsHTTP(mux, proposalStore, repositoryCatalog, credentials, activityStore)
 	registerIssuesHTTP(mux, issueStore, releaseStore, repositoryCatalog, credentials, issueReproductionRunner)
 	registerContributorPathwaysHTTP(mux, contributorPathwayStore, repositoryCatalog, credentials, releaseStore, issueStore, proposalStore)
+	registerDocumentationHTTP(mux, documentationStore, repositoryCatalog, credentials, releaseStore)
 	registerContributionOpportunitiesHTTP(mux, contributionOpportunityStore, repositoryCatalog, credentials, issueStore, proposalStore, organizationStore, contributorPathwayStore, workspaceStore, workspaceRunner, pullRequestStore, checkRunner, releaseStore)
 	registerIssueRepairsHTTP(mux, issueStore, proposalStore, pullRequestStore, repositoryCatalog, credentials, issueReproductionRunner, checkRunStore)
 	registerProposalTaskSessionsHTTP(mux, proposalStore, changeSessionStore, repositoryCatalog, credentials, activityStore, pullRequestStore, checkRunner)

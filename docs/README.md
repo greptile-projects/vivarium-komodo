@@ -3,6 +3,24 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Repository documentation collections
+
+Repository owners create documentation contracts at `POST
+/repositories/{repository}/documentation-collections` and revise them through
+the collection's `/versions` action with optimistic concurrency. Each immutable
+version declares a repository root and ordered page paths, exact source commits
+for supported project versions, optional release mappings, participant owners,
+audiences, navigation and rendering behavior, publication review policy, typed
+links, attributable author, and change reason. Data is rooted beneath
+`$DOCUMENTATION_ROOT`.
+
+Collection reads resolve configured page blobs and Git commit authorship from the
+reviewed commit rather than the moving branch. They return explicit
+`missing_ownership`, `broken_source`, `rendering_mismatch`, and
+`stale_version_mapping` findings. The repository's shareable
+`view=documentation&ref={revision}` tab makes the explained version, maintainers,
+reviewed source, history, policy, and page content visible together.
+
 ## Preview acceptance
 
 Repository owners publish preview acceptance requirements with `PUT
