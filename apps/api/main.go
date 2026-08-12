@@ -348,7 +348,7 @@ func main() {
 	registerActivitiesHTTP(mux, activityStore, repositoryCatalog, credentials)
 	registerInboxHTTP(mux, activityStore, inboxStore, repositoryCatalog, proposalStore, pullRequestStore, userStore, credentials)
 	registerUsersHTTP(mux, userStore, credentials)
-	registerExtensionsHTTP(mux, extensionStore, repositoryCatalog, organizationStore, credentials, activityStore)
+	registerExtensionsHTTP(mux, extensionStore, repositoryCatalog, organizationStore, credentials, activityStore, pullRequestStore)
 	registerAuthHTTP(mux, credentials, userStore)
 
 	port := os.Getenv("PORT")

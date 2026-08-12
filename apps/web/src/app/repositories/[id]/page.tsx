@@ -13,6 +13,7 @@ import { Issues } from "@/components/issues";
 import { ContributorPathway } from "@/components/contributor-pathway";
 import { ContributionOpportunities } from "@/components/contribution-opportunities";
 import { DocumentationCollections } from "@/components/documentation-collections";
+import { Extensions } from "@/components/extensions";
 import {
   Book,
   Branch,
@@ -1243,6 +1244,8 @@ export default function RepositoryPage({
                               ? "contribute"
                               : query.view === "documentation"
                                 ? "documentation"
+                              : query.view === "extensions"
+                                ? "extensions"
                               : query.view === "issues"
                                 ? "issues"
                       : query.view === "people"
@@ -1521,6 +1524,13 @@ export default function RepositoryPage({
       )}
       <nav className="repository-tabs" aria-label="Repository">
         <button
+          className={view === "extensions" ? "active" : ""}
+          onClick={() => navigate({ view: "extensions", path: "" })}
+        >
+          <Sparkles size={15} />
+          Extensions
+        </button>
+        <button
           className={view === "documentation" ? "active" : ""}
           onClick={() => navigate({ view: "documentation", ref, path: "" })}
         >
@@ -1651,7 +1661,9 @@ export default function RepositoryPage({
           </button>
         )}
       </nav>
-      {view === "issues" ? (
+      {view === "extensions" ? (
+        <Extensions repository={repository.id} />
+      ) : view === "issues" ? (
         <Issues repository={repository.id} actor={actor} owner={repository.owner_id} selected={query.issue} />
       ) : view === "documentation" ? (
         <DocumentationCollections repository={repository.id} actor={actor} owner={repository.owner_id} revision={ref} />

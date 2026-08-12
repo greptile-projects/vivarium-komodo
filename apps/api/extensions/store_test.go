@@ -142,3 +142,39 @@ func TestInstallationGovernance(t *testing.T) {
 		t.Fatal("disturbed unrelated installation")
 	}
 }
+
+func TestScopedCredentialPublishesRevisionBoundEvidenceAndActions(t *testing.T) {
+	s, _ := New(t.TempDir())
+	x, _ := s.Create("publisher", input())
+	x, _ = s.Verify(x.ID, "publisher", "callback", x.Callback.VerificationToken)
+	x, _ = s.Verify(x.ID, "publisher", "actions", x.Actions.VerificationToken)
+	i, _ := s.InstallGrant(x.ID, "repo", "owner", GrantInput{Permissions: []string{"metadata:read", "checks:write"}, EventTypes: []string{"push"}, ResourceTypes: []string{"pull_requests"}, CapabilityDecisions: []CapabilityDecision{{Capability: "annotate checks", Decision: "approved"}}})
+	i, token, err := s.IssueCredential("repo", i.ID, "owner")
+	if err != nil || token == "" {
+		t.Fatalf("credential: %#v %v", i, err)
+	}
+	resource := Resource{Type: "pull_request", ID: "pr", Revision: "commit"}
+	out, err := s.Publish(token, ContributionInput{IdempotencyKey: "check-1", Resource: resource, Kind: "check", State: "passed", Title: "Specialized analysis passed"}, "commit")
+	if err != nil || out.ExtensionID != x.ID || out.ActorType != "extension" || out.Trusted || out.PolicyEffect != "advisory_only" {
+		t.Fatalf("output: %#v %v", out, err)
+	}
+	again, _ := s.Publish(token, ContributionInput{IdempotencyKey: "check-1", Resource: resource, Kind: "check", Title: "different"}, "commit")
+	if again.ID != out.ID {
+		t.Fatal("idempotency did not return original output")
+	}
+	if _, err = s.Publish(token, ContributionInput{IdempotencyKey: "stale", Resource: resource, Kind: "status", Title: "stale"}, "new-commit"); err != ErrInvalid {
+		t.Fatalf("stale evidence accepted: %v", err)
+	}
+	action, err := s.DeclareAction(token, ActionInput{IdempotencyKey: "explain-1", Resource: resource, Name: "explain", Label: "Explain finding", Inputs: []ActionInputField{{Name: "focus", Label: "Focus", Type: "text", Required: true}}, Effects: []ActionEffect{{Kind: "extension_request", Description: "Ask the extension to publish an explanation"}}}, "commit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation, err := s.Invoke("repo", i.ID, action.ID, "collaborator", "commit", map[string]string{"focus": "security"})
+	if err != nil || invocation.ActorID != "collaborator" || invocation.Status != "requested" {
+		t.Fatalf("invocation: %#v %v", invocation, err)
+	}
+	i, _ = s.Update("repo", i.ID, "owner", "suspend", "maintenance", i.Version, nil)
+	if _, err = s.Publish(token, ContributionInput{IdempotencyKey: "blocked", Resource: resource, Kind: "status", Title: "blocked"}, "commit"); err != ErrForbidden {
+		t.Fatalf("suspended credential accepted: %v", err)
+	}
+}
