@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 )
 
 func TestAttemptRetainsImmutableAttestationAndLifecycle(t *testing.T) {
@@ -31,6 +33,42 @@ func TestAttemptRetainsImmutableAttestationAndLifecycle(t *testing.T) {
 	raw, _ := json.Marshal(got)
 	if !json.Valid(raw) || strings.Contains(string(raw), "secret-review-value") {
 		t.Fatal("configuration value leaked into durable/public preview")
+	}
+}
+
+func TestAcceptanceIsRevisionBoundBlocksFindingsAndRetainsOverride(t *testing.T) {
+	store, _ := New(t.TempDir())
+	p1, _ := store.Create(Preview{RepositoryID: "repo", PullRequestID: "pull", Revision: "one", Definition: Definition{Resources: Resources{LifetimeMinutes: 60}}})
+	reqs := []repositories.PreviewAcceptanceRequirement{{ID: "checkout", TargetBranches: []string{"main"}, Paths: []string{"web/**"}, RiskClasses: []string{"customer-facing"}, Scenarios: []repositories.PreviewAcceptanceScenario{{ID: "purchase", Description: "customer completes purchase", RequiredRoles: []string{"test"}}}}}
+	a, err := store.Acknowledge("repo", "pull", p1.ID, "checkout", "purchase", "customer", "test", "rejected", "Payment failed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.Assess("repo", "pull", "one", "main", []string{"web/cart.tsx"}, reqs)
+	if got.Satisfied || !got.Scenarios[0].Rejected {
+		t.Fatalf("rejection did not block: %#v", got)
+	}
+	if err = store.Override("repo", "pull", a.ID, "owner", "Known sandbox limitation; separately reproduced successfully"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = store.Assess("repo", "pull", "one", "main", []string{"web/cart.tsx"}, reqs)
+	if !got.Satisfied || got.Scenarios[0].Rejected || len(got.Overrides) != 1 {
+		t.Fatalf("justified override should satisfy while remaining visible: %#v", got)
+	}
+	_, _ = store.Acknowledge("repo", "pull", p1.ID, "checkout", "purchase", "customer", "test", "accepted", "Retested")
+	got, _ = store.Assess("repo", "pull", "one", "main", []string{"web/cart.tsx"}, reqs)
+	if !got.Satisfied {
+		t.Fatalf("current acceptance should satisfy: %#v", got)
+	}
+	created, _ := store.AddFinding("repo", "pull", p1.ID, "customer", Finding{Route: "/cart", Title: "Cannot submit", Description: "Submit is disabled", ReproductionSteps: []string{"Open cart"}, Blocking: true})
+	got, _ = store.Assess("repo", "pull", "one", "main", []string{"web/cart.tsx"}, reqs)
+	if got.Satisfied || len(got.Findings) != 1 {
+		t.Fatalf("blocking finding omitted: %#v", got)
+	}
+	_, _ = store.UpdateFinding("repo", "pull", p1.ID, created.Findings[0].ID, "maintainer", "bug", "resolved", "", nil)
+	got, _ = store.Assess("repo", "pull", "two", "main", []string{"web/cart.tsx"}, reqs)
+	if got.Satisfied || len(got.Scenarios[0].StaleAcknowledgements) != 2 {
+		t.Fatalf("revision change did not stale evidence: %#v", got)
 	}
 }
 

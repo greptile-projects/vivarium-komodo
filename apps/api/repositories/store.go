@@ -37,19 +37,82 @@ const (
 )
 
 type Repository struct {
-	ID               storage.ID                        `json:"id"`
-	OwnerID          string                            `json:"owner_id"`
-	OrganizationID   string                            `json:"organization_id,omitempty"`
-	Name             string                            `json:"name"`
-	Description      string                            `json:"description"`
-	Visibility       Visibility                        `json:"visibility"`
-	Empty            bool                              `json:"empty"`
-	CreatedAt        time.Time                         `json:"created_at"`
-	UpdatedAt        time.Time                         `json:"updated_at"`
-	CollaboratorIDs  []string                          `json:"collaborator_ids,omitempty"`
-	RequiredChecks   map[string][]string               `json:"required_checks,omitempty"`
-	IntegrationQueue map[string]IntegrationQueuePolicy `json:"integration_queue,omitempty"`
-	UpstreamID       storage.ID                        `json:"upstream_repository_id,omitempty"`
+	ID                storage.ID                        `json:"id"`
+	OwnerID           string                            `json:"owner_id"`
+	OrganizationID    string                            `json:"organization_id,omitempty"`
+	Name              string                            `json:"name"`
+	Description       string                            `json:"description"`
+	Visibility        Visibility                        `json:"visibility"`
+	Empty             bool                              `json:"empty"`
+	CreatedAt         time.Time                         `json:"created_at"`
+	UpdatedAt         time.Time                         `json:"updated_at"`
+	CollaboratorIDs   []string                          `json:"collaborator_ids,omitempty"`
+	RequiredChecks    map[string][]string               `json:"required_checks,omitempty"`
+	PreviewAcceptance []PreviewAcceptanceRequirement    `json:"preview_acceptance_requirements,omitempty"`
+	IntegrationQueue  map[string]IntegrationQueuePolicy `json:"integration_queue,omitempty"`
+	UpstreamID        storage.ID                        `json:"upstream_repository_id,omitempty"`
+}
+
+type PreviewAcceptanceScenario struct {
+	ID            string   `json:"id"`
+	Description   string   `json:"description"`
+	RequiredRoles []string `json:"required_roles"`
+}
+type PreviewAcceptanceRequirement struct {
+	ID             string                      `json:"id"`
+	TargetBranches []string                    `json:"target_branches"`
+	Paths          []string                    `json:"paths,omitempty"`
+	RiskClasses    []string                    `json:"risk_classes,omitempty"`
+	Scenarios      []PreviewAcceptanceScenario `json:"scenarios"`
+}
+
+func (s *Store) SetPreviewAcceptance(ownerID string, id storage.ID, requirements []PreviewAcceptanceRequirement) (Repository, error) {
+	if len(requirements) > 20 {
+		return Repository{}, ErrInvalidRepository
+	}
+	seen := map[string]bool{}
+	roles := map[string]bool{"owner": true, "repository_participant": true, "test": true, "feedback": true}
+	for i := range requirements {
+		r := &requirements[i]
+		r.ID = strings.TrimSpace(r.ID)
+		if r.ID == "" || len(r.ID) > 100 || seen[r.ID] || len(r.TargetBranches) == 0 || len(r.Scenarios) == 0 || len(r.Scenarios) > 20 || len(r.Paths) > 50 || len(r.RiskClasses) > 20 {
+			return Repository{}, ErrInvalidRepository
+		}
+		seen[r.ID] = true
+		values := append(append(append([]string{}, r.TargetBranches...), r.Paths...), r.RiskClasses...)
+		for _, v := range values {
+			if strings.TrimSpace(v) == "" || len(v) > 300 {
+				return Repository{}, ErrInvalidRepository
+			}
+		}
+		scenarios := map[string]bool{}
+		for j := range r.Scenarios {
+			sc := &r.Scenarios[j]
+			sc.ID = strings.TrimSpace(sc.ID)
+			sc.Description = strings.TrimSpace(sc.Description)
+			if sc.ID == "" || sc.Description == "" || len(sc.Description) > 1000 || scenarios[sc.ID] || len(sc.RequiredRoles) == 0 {
+				return Repository{}, ErrInvalidRepository
+			}
+			scenarios[sc.ID] = true
+			for _, role := range sc.RequiredRoles {
+				if !roles[role] {
+					return Repository{}, ErrInvalidRepository
+				}
+			}
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(id)
+	if err != nil || item.OwnerID != ownerID {
+		return Repository{}, ErrNotFound
+	}
+	item.PreviewAcceptance = requirements
+	item.UpdatedAt = s.now().UTC()
+	if err = s.write(item); err != nil {
+		return Repository{}, err
+	}
+	return item, nil
 }
 
 // TransferOwner changes only the catalog's ownership pointer. The storage ID,

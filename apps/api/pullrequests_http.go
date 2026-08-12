@@ -21,6 +21,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/integrationqueue"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/previews"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -68,6 +69,7 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	var checks checkRunStarter
 	var checkResults readinessCheckStore
 	var queue integrationQueueStore
+	var previewAcceptance *previews.Store
 	for _, extra := range extras {
 		switch value := extra.(type) {
 		case activityStore:
@@ -78,6 +80,8 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 			checkResults = value
 		case integrationQueueStore:
 			queue = value
+		case *previews.Store:
+			previewAcceptance = value
 		}
 	}
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests", createPullRequest(store, proposalStore, repositories, credentials, activity, checks))
@@ -92,8 +96,8 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/reviews/me", putPullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("DELETE /repositories/{repository}/pull-requests/{pull_request}/reviews/me", deletePullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
-	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults))
-	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequest(store, proposalStore, repositories, credentials, activity, checkResults))
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults, previewAcceptance))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequest(store, proposalStore, repositories, credentials, activity, checkResults, previewAcceptance))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/queue", enqueuePullRequest(store, repositories, credentials, activity, checkResults, checks, queue))
 	mux.HandleFunc("GET /repositories/{repository}/integration-queue/entries", listIntegrationQueueEntries(repositories, credentials, checkResults, queue))
 	mux.HandleFunc("PATCH /repositories/{repository}/integration-queue/entries/{entry}", operateIntegrationQueueEntry(repositories, credentials, activity, checks, queue))
@@ -568,14 +572,15 @@ type readinessBlocker struct {
 }
 
 type readinessResponse struct {
-	Ready        bool               `json:"ready"`
-	CanMerge     bool               `json:"can_merge"`
-	HasConflicts *bool              `json:"has_conflicts"`
-	SourceBranch readinessBranch    `json:"source_branch"`
-	TargetBranch readinessBranch    `json:"target_branch"`
-	Reviews      readinessReviews   `json:"reviews"`
-	Checks       readinessChecks    `json:"checks"`
-	Blockers     []readinessBlocker `json:"blockers"`
+	Ready        bool                           `json:"ready"`
+	CanMerge     bool                           `json:"can_merge"`
+	HasConflicts *bool                          `json:"has_conflicts"`
+	SourceBranch readinessBranch                `json:"source_branch"`
+	TargetBranch readinessBranch                `json:"target_branch"`
+	Reviews      readinessReviews               `json:"reviews"`
+	Checks       readinessChecks                `json:"checks"`
+	Acceptance   *previews.AcceptanceAssessment `json:"preview_acceptance,omitempty"`
+	Blockers     []readinessBlocker             `json:"blockers"`
 }
 
 type readinessCheck struct {
@@ -591,7 +596,7 @@ type readinessChecks struct {
 	Satisfied    bool             `json:"satisfied"`
 }
 
-func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, checkStore readinessCheckStore) http.HandlerFunc {
+func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, checkStore readinessCheckStore, acceptanceStores ...*previews.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
 		if !ok {
@@ -676,6 +681,26 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 		for _, requirement := range response.Checks.Requirements {
 			if requirement.Status != "succeeded" {
 				addBlocker("required_check_"+requirement.Status, "Required check ‘"+requirement.Name+"’ is "+requirement.Status+" for revision "+item.SourceCommitID+".")
+			}
+		}
+		if len(acceptanceStores) > 0 && acceptanceStores[0] != nil {
+			changes, err := filesBetweenRepositories(sourceOpened, targetOpened, storage.ObjectID(item.SourceCommitID), storage.ObjectID(item.TargetCommitID))
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			paths := make([]string, len(changes))
+			for i := range changes {
+				paths[i] = changes[i].Path
+			}
+			assessment, err := acceptanceStores[0].Assess(item.RepositoryID, item.ID, item.SourceCommitID, item.TargetBranch, paths, repository.PreviewAcceptance)
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			response.Acceptance = &assessment
+			if !assessment.Satisfied {
+				addBlocker("preview_acceptance_required", "Current preview acceptance is missing, rejected, or has unresolved blocking findings.")
 			}
 		}
 
@@ -763,7 +788,7 @@ func inspectReadinessBranch(repository *storage.Repository, name, snapshotCommit
 	return branch
 }
 
-func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, checkStore readinessCheckStore) http.HandlerFunc {
+func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, checkStore readinessCheckStore, acceptanceStores ...*previews.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -838,6 +863,22 @@ func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repos
 				return
 			}
 			if !evaluateRequiredChecks(required, item.SourceCommitID, runs).Satisfied {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "pull_request_not_ready"})
+				return
+			}
+		}
+		if len(acceptanceStores) > 0 && acceptanceStores[0] != nil {
+			changes, err := filesBetweenRepositories(sourceOpened, opened, source, target)
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			paths := make([]string, len(changes))
+			for i := range changes {
+				paths[i] = changes[i].Path
+			}
+			assessment, err := acceptanceStores[0].Assess(item.RepositoryID, item.ID, item.SourceCommitID, item.TargetBranch, paths, repository.PreviewAcceptance)
+			if err != nil || !assessment.Satisfied {
 				writeJSON(w, http.StatusConflict, map[string]string{"error": "pull_request_not_ready"})
 				return
 			}

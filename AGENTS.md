@@ -339,6 +339,14 @@ whenever dependencies change or the web job fails before it starts.
 	source revision, validates cited commits, retains commands, checks, sessions,
 	workspaces, and authors, and launches a new ordinary preview attempt; it grants
 	no credential and does not synchronize or otherwise mutate the source branch.
+	Repository owners define preview acceptance requirements through
+	`/repositories/{repository}/preview-acceptance-requirements`, selecting target
+	branches and optional path globs, labeling risk classes, and naming scenarios
+	with required owner, repository-participant, test, or feedback roles. Scenario
+	acknowledgements and rejections bind to the exact preview revision; later pull
+	request revisions expose them as stale. Owner overrides require a retained
+	reason. Pull-request readiness and merge enforce applicable current scenarios
+	and unresolved current blocking findings alongside ordinary reviews and checks.
   Change sessions retain their initiating user, captured pull request source
   commit, current state, and ordered public timeline; keep later worker
   execution details behind this application-facing contract.

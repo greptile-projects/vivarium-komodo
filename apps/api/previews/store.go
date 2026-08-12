@@ -11,11 +11,14 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 )
 
 const ManifestPath = ".komodo/previews.json"
@@ -120,6 +123,7 @@ type Finding struct {
 	ReproductionSteps []string            `json:"reproduction_steps"`
 	Classification    string              `json:"classification"`
 	Status            string              `json:"status"`
+	Blocking          bool                `json:"blocking"`
 	DuplicateOf       string              `json:"duplicate_of,omitempty"`
 	RelatedFindingIDs []string            `json:"related_finding_ids,omitempty"`
 	Evidence          []Evidence          `json:"evidence"`
@@ -129,6 +133,215 @@ type Finding struct {
 	Repairs           []RepairPublication `json:"repairs,omitempty"`
 	CreatedAt         time.Time           `json:"created_at"`
 	UpdatedAt         time.Time           `json:"updated_at"`
+}
+
+type Acknowledgement struct {
+	ID            string    `json:"id"`
+	RepositoryID  string    `json:"repository_id"`
+	PullRequestID string    `json:"pull_request_id"`
+	PreviewID     string    `json:"preview_id"`
+	Revision      string    `json:"revision"`
+	RequirementID string    `json:"requirement_id"`
+	ScenarioID    string    `json:"scenario_id"`
+	ActorID       string    `json:"actor_id"`
+	Role          string    `json:"role"`
+	Decision      string    `json:"decision"`
+	Note          string    `json:"note,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+type AcceptanceOverride struct {
+	AcknowledgementID string    `json:"acknowledgement_id"`
+	ActorID           string    `json:"actor_id"`
+	Reason            string    `json:"reason"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+type AcceptanceLedger struct {
+	Acknowledgements []Acknowledgement    `json:"acknowledgements"`
+	Overrides        []AcceptanceOverride `json:"overrides"`
+}
+type ScenarioAssessment struct {
+	RequirementID           string            `json:"requirement_id"`
+	ScenarioID              string            `json:"scenario_id"`
+	Description             string            `json:"description"`
+	RequiredRoles           []string          `json:"required_roles"`
+	CurrentAcknowledgements []Acknowledgement `json:"current_acknowledgements"`
+	StaleAcknowledgements   []Acknowledgement `json:"stale_acknowledgements"`
+	MissingRoles            []string          `json:"missing_roles"`
+	Rejected                bool              `json:"rejected"`
+	Satisfied               bool              `json:"satisfied"`
+}
+type FindingAssessment struct {
+	PreviewID string `json:"preview_id"`
+	FindingID string `json:"finding_id"`
+	Revision  string `json:"revision"`
+	Title     string `json:"title"`
+	Status    string `json:"status"`
+	Current   bool   `json:"current"`
+}
+type AcceptanceAssessment struct {
+	Revision            string               `json:"revision"`
+	AppliedRequirements []string             `json:"applied_requirements"`
+	RiskClasses         []string             `json:"risk_classes"`
+	Scenarios           []ScenarioAssessment `json:"scenarios"`
+	Findings            []FindingAssessment  `json:"blocking_findings"`
+	Overrides           []AcceptanceOverride `json:"overrides"`
+	Satisfied           bool                 `json:"satisfied"`
+}
+
+func (s *Store) ledgerPath(repo, pull string) string {
+	sum := sha256.Sum256([]byte(repo + "\x00" + pull))
+	return filepath.Join(s.root, "acceptance", hex.EncodeToString(sum[:])+".json")
+}
+func (s *Store) readLedger(repo, pull string) AcceptanceLedger {
+	var v AcceptanceLedger
+	b, _ := os.ReadFile(s.ledgerPath(repo, pull))
+	_ = json.Unmarshal(b, &v)
+	if v.Acknowledgements == nil {
+		v.Acknowledgements = []Acknowledgement{}
+	}
+	if v.Overrides == nil {
+		v.Overrides = []AcceptanceOverride{}
+	}
+	return v
+}
+func (s *Store) writeLedger(repo, pull string, v AcceptanceLedger) error {
+	if err := os.MkdirAll(filepath.Dir(s.ledgerPath(repo, pull)), 0750); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.ledgerPath(repo, pull), b, 0640)
+}
+func (s *Store) Acknowledge(repo, pull, preview, requirement, scenario, actor, role, decision, note string) (Acknowledgement, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, e := s.read(preview)
+	note = strings.TrimSpace(note)
+	if e != nil || p.RepositoryID != repo || p.PullRequestID != pull || requirement == "" || scenario == "" || actor == "" || (decision != "accepted" && decision != "rejected") || (decision == "rejected" && note == "") || len(note) > 2000 {
+		return Acknowledgement{}, errors.New("invalid acknowledgement")
+	}
+	id, e := randomID(12)
+	if e != nil {
+		return Acknowledgement{}, e
+	}
+	a := Acknowledgement{ID: id, RepositoryID: repo, PullRequestID: pull, PreviewID: preview, Revision: p.Revision, RequirementID: requirement, ScenarioID: scenario, ActorID: actor, Role: role, Decision: decision, Note: note, CreatedAt: s.now().UTC()}
+	v := s.readLedger(repo, pull)
+	v.Acknowledgements = append(v.Acknowledgements, a)
+	return a, s.writeLedger(repo, pull, v)
+}
+func (s *Store) Override(repo, pull, ack, actor, reason string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	reason = strings.TrimSpace(reason)
+	v := s.readLedger(repo, pull)
+	found := false
+	for _, a := range v.Acknowledgements {
+		found = found || (a.ID == ack && a.Decision == "rejected")
+	}
+	if !found || reason == "" || len(reason) > 2000 {
+		return errors.New("invalid override")
+	}
+	v.Overrides = append(v.Overrides, AcceptanceOverride{AcknowledgementID: ack, ActorID: actor, Reason: reason, CreatedAt: s.now().UTC()})
+	return s.writeLedger(repo, pull, v)
+}
+func (s *Store) Assess(repo, pull, revision, target string, changedPaths []string, requirements []repositories.PreviewAcceptanceRequirement) (AcceptanceAssessment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := AcceptanceAssessment{Revision: revision, AppliedRequirements: []string{}, RiskClasses: []string{}, Scenarios: []ScenarioAssessment{}, Findings: []FindingAssessment{}, Overrides: []AcceptanceOverride{}, Satisfied: true}
+	ledger := s.readLedger(repo, pull)
+	over := map[string]bool{}
+	for _, o := range ledger.Overrides {
+		over[o.AcknowledgementID] = true
+		out.Overrides = append(out.Overrides, o)
+	}
+	uniqRisk := map[string]bool{}
+	for _, req := range requirements {
+		branch := false
+		for _, b := range req.TargetBranches {
+			branch = branch || b == target
+		}
+		if !branch {
+			continue
+		}
+		matches := len(req.Paths) == 0
+		for _, pattern := range req.Paths {
+			for _, p := range changedPaths {
+				ok, _ := path.Match(pattern, p)
+				matches = matches || ok || strings.HasSuffix(pattern, "/**") && strings.HasPrefix(p, strings.TrimSuffix(pattern, "**"))
+			}
+		}
+		if !matches {
+			continue
+		}
+		out.AppliedRequirements = append(out.AppliedRequirements, req.ID)
+		for _, r := range req.RiskClasses {
+			uniqRisk[r] = true
+		}
+		for _, sc := range req.Scenarios {
+			sa := ScenarioAssessment{RequirementID: req.ID, ScenarioID: sc.ID, Description: sc.Description, RequiredRoles: sc.RequiredRoles, CurrentAcknowledgements: []Acknowledgement{}, StaleAcknowledgements: []Acknowledgement{}, MissingRoles: []string{}}
+			accepted := map[string]bool{}
+			for _, a := range ledger.Acknowledgements {
+				if a.RequirementID != req.ID || a.ScenarioID != sc.ID {
+					continue
+				}
+				if a.Revision != revision {
+					sa.StaleAcknowledgements = append(sa.StaleAcknowledgements, a)
+					continue
+				}
+				sa.CurrentAcknowledgements = append(sa.CurrentAcknowledgements, a)
+				if a.Decision == "rejected" && !over[a.ID] {
+					sa.Rejected = true
+				}
+				if a.Decision == "rejected" && over[a.ID] {
+					accepted[a.Role] = true
+				}
+				if a.Decision == "accepted" {
+					accepted[a.Role] = true
+				}
+			}
+			for _, role := range sc.RequiredRoles {
+				if !accepted[role] {
+					sa.MissingRoles = append(sa.MissingRoles, role)
+				}
+			}
+			sa.Satisfied = !sa.Rejected && len(sa.MissingRoles) == 0
+			if !sa.Satisfied {
+				out.Satisfied = false
+			}
+			out.Scenarios = append(out.Scenarios, sa)
+		}
+	}
+	for _, p := range s.listUnlocked(repo, pull) {
+		for _, f := range p.Findings {
+			if f.Blocking && f.Status == "open" && f.DuplicateOf == "" {
+				fa := FindingAssessment{PreviewID: p.ID, FindingID: f.ID, Revision: f.Revision, Title: f.Title, Status: f.Status, Current: f.Revision == revision}
+				out.Findings = append(out.Findings, fa)
+				if fa.Current {
+					out.Satisfied = false
+				}
+			}
+		}
+	}
+	for r := range uniqRisk {
+		out.RiskClasses = append(out.RiskClasses, r)
+	}
+	sort.Strings(out.RiskClasses)
+	return out, nil
+}
+func (s *Store) listUnlocked(repo, pull string) []Preview {
+	entries, _ := os.ReadDir(s.root)
+	out := []Preview{}
+	for _, v := range entries {
+		if filepath.Ext(v.Name()) == ".json" {
+			p, e := s.read(strings.TrimSuffix(v.Name(), ".json"))
+			if e == nil && p.RepositoryID == repo && p.PullRequestID == pull {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
 }
 
 func (s *Store) LinkFindingWork(repo, pull, preview, finding, actor string, work FindingWork) (Finding, error) {
