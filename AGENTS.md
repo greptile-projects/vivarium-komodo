@@ -40,6 +40,7 @@ source snapshot for an ordinary pull request. Negotiation, staleness,
 signature, transfer, and divergence failures stay explicit. Remote subjects
 never become local accounts, grants, credentials, or implicit cross-instance
 repository authority.
+Accepted federated contributions merge only from the upstream's immutable private source snapshot through ordinary local ownership, review, check, preview, and integration policy. Before target publication the complete Git object set is linked into upstream storage; the pull retains signed proposal provenance, and a signed idempotent merge receipt binds both pull references, source and merge commits, remote author, maintainer, and review/check evidence digests. Receipt failure is retryable and never rolls back local history. Retained receipts distinguish historical verification from current peer trust, so deletion, outage, or revocation cannot erase accepted work or imply continuing trust.
 Federated contribution review uses the separate `pull_request.exchange`
 capability and signed version-1 pull-request events. Discussion, reviews,
 requested changes, exact revision updates, checks, previews, and closure bind
