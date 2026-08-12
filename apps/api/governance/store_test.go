@@ -47,3 +47,28 @@ func TestCharterVersionsActivationAndHistoricalExceptions(t *testing.T) {
 		t.Fatalf("history %#v %v", v, e)
 	}
 }
+
+func TestStandingIsEvidenceBoundedTermedAndCarriesNoAuthority(t *testing.T) {
+	s, _ := New(t.TempDir())
+	now := time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	v, _ := s.Publish("repository", "repo", "owner", 0, validInput(), Preview{})
+	v, _ = s.Approve("repository", "repo", "owner", "", 1)
+	v, _ = s.Activate("repository", "repo", "owner", 1, Preview{})
+	v, e := s.Invite("repository", "repo", "owner", 1, StandingInput{PrincipalID: "contributor", Role: "maintainer", Evidence: []Evidence{{Kind: "review", Reference: "pull:42", Summary: "reviewed three releases"}}, Nominations: []string{"steward"}, Appeals: []string{"owner review"}, ConflictDisclosure: "employed by a vendor"})
+	if e != nil || len(v.Standings) != 1 || v.Standings[0].State != "invited" || len(v.Standings[0].OperationalAuthority) != 0 {
+		t.Fatalf("invite %#v %v", v, e)
+	}
+	v, e = s.Transition("repository", "repo", v.Standings[0].ID, "contributor", "accept", "")
+	if e != nil || v.Standings[0].State != "active" || v.Standings[0].TermEndsAt == nil {
+		t.Fatalf("accept %#v %v", v, e)
+	}
+	v, e = s.Transition("repository", "repo", v.Standings[0].ID, "contributor", "recuse", "")
+	if e != nil || v.Standings[0].State != "recused" {
+		t.Fatalf("recuse %#v %v", v, e)
+	}
+	v, e = s.Transition("repository", "repo", v.Standings[0].ID, "owner", "suspend", "undisclosed conflict")
+	if e != nil || v.Standings[0].State != "suspended" || len(v.Standings[0].Events) != 4 {
+		t.Fatalf("suspend %#v %v", v, e)
+	}
+}

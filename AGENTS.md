@@ -184,6 +184,13 @@ state. Charters grant no operational authority. Approvals and time-bounded
 exceptions remain version-bound, while later revisions preserve completed
 active versions. The repository surface is `view=governance`; organizations
 present the same charter in their workspace.
+Active charters admit time-bounded participant standing from cited contribution,
+review, support, ownership, or membership evidence. Invitations, acceptance,
+recusal, resumption, suspension, expiry, conflict disclosure, identity
+revocation, and federation-trust revocation remain attributable. Public reads
+show eligibility, role, responsibilities, term, nominations, appeals, and an
+explicitly empty operational-authority boundary; governance voice never grants
+code, secret, merge, deployment, membership, or credential access.
 
 External integration identities live beneath `$EXTENSION_ROOT` (default
 `apps/api/data/extensions`). An authenticated developer registers an extension
