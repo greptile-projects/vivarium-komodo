@@ -43,6 +43,16 @@ resolutions, and dissent without granting implementation authority. Participatio
 or a later vote does not grant code, secret, merge, deployment, membership, or
 credential access.
 
+An approved tally creates an immutable `decision_receipt` binding the charter
+version, tally digest, winner, scope, affected resources, and exact effects. Its
+implementation view begins `awaiting_owner_approval`, grants no operational
+authority, and names the ordinary policy revision, initiative, task plan, role
+transition, or access request required. Resource owners link those artifacts
+through the proposal's `/implementation` action; target resources continue to
+enforce their own review, integration, release, environment, extension, and
+agent controls. Missing artifacts remain blockers, while changed scope, cost,
+assumptions, or protected effects require a new or amended decision.
+
 ## External extensions
 
 ## Federation identity

@@ -56,3 +56,31 @@ func TestGovernedProposalEligibilitySecretBallotsAndDeterministicTally(t *testin
 		t.Fatalf("contest %#v %v", p, e)
 	}
 }
+
+func TestApprovedDecisionReceiptRoutesWithoutGrantingAuthority(t *testing.T) {
+	s, _ := New(t.TempDir())
+	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	v, _ := s.Publish("repository", "repo", "owner", 0, validInput(), Preview{})
+	v, _ = s.Approve("repository", "repo", "owner", "", 1)
+	v, _ = s.Activate("repository", "repo", "owner", 1, Preview{})
+	v, _ = s.Invite("repository", "repo", "owner", 1, StandingInput{PrincipalID: "alice", Role: "maintainer", Evidence: []Evidence{{Kind: "review", Reference: "pull:1", Summary: "reviewed"}}})
+	_, _ = s.Transition("repository", "repo", v.Standings[0].ID, "alice", "accept", "")
+	p, _ := s.OpenProposal("repository", "repo", "alice", ProposalInput{Kind: "technical_decision", Title: "Adopt cache", Summary: "Use a bounded cache", Scope: "runtime", DecisionClass: "policy", Alternatives: []ProposalAlternative{{ID: "yes", Title: "Adopt", Description: "Proceed", Effects: []string{"update docs"}}, {ID: "no", Title: "Decline", Description: "Keep current"}}, Evidence: []ProposalEvidence{{Kind: "benchmark", Reference: "commit:abc", Summary: "Measured"}}, AffectedResources: []string{"branches:main"}, ImplementationEffects: []string{"change cache"}, DiscussionHours: 1})
+	_, _ = s.Cast("repository", "repo", p.ID, "alice", "yes", "", false)
+	p, err := s.Finalize("repository", "repo", p.ID, true)
+	if err != nil || p.DecisionReceipt == nil || p.DecisionReceipt.Digest == "" || p.DecisionReceipt.AuthorityGranted || p.Implementation.State != "awaiting_owner_approval" || len(p.Implementation.OperationalAuthority) != 0 {
+		t.Fatalf("receipt %#v implementation %#v err %v", p.DecisionReceipt, p.Implementation, err)
+	}
+	in := ImplementationInput{ExpectedReceiptDigest: p.DecisionReceipt.Digest, ArtifactKind: "task_plan", ResourceRef: "proposal:delivery-plan", Detail: "Owner created the ordinary task plan", Scope: p.DecisionReceipt.Scope, AffectedResources: p.DecisionReceipt.AffectedResources, ImplementationEffects: p.DecisionReceipt.ImplementationEffects}
+	p, err = s.RecordImplementation("repository", "repo", p.ID, "owner", in)
+	if err != nil || p.Implementation.State != "routed" || !p.Implementation.Steps[0].OwnerApproval || p.Implementation.Steps[0].ResourceRef != "proposal:delivery-plan" {
+		t.Fatalf("routed %#v err %v", p.Implementation, err)
+	}
+	in.MaterialChange = true
+	in.Detail = "Cost and protected effects changed"
+	p, err = s.RecordImplementation("repository", "repo", p.ID, "owner", in)
+	if err != nil || !p.Implementation.AmendmentRequired || p.Implementation.Steps[1].Status != "blocked_amendment_required" {
+		t.Fatalf("amendment %#v err %v", p.Implementation, err)
+	}
+}
