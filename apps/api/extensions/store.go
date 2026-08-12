@@ -58,16 +58,39 @@ type Input struct {
 	RotationPolicy       RotationPolicy `json:"rotation_policy"`
 }
 type Installation struct {
-	ID           string     `json:"id"`
-	ExtensionID  string     `json:"extension_id"`
-	RepositoryID string     `json:"repository_id"`
-	InstallerID  string     `json:"installer_id"`
-	Permissions  []string   `json:"permissions"`
-	EventTypes   []string   `json:"event_types"`
-	Status       string     `json:"status"`
-	CreatedAt    time.Time  `json:"created_at"`
-	RevokedAt    *time.Time `json:"revoked_at,omitempty"`
-	Authority    Authority  `json:"authority"`
+	ID                  string               `json:"id"`
+	ExtensionID         string               `json:"extension_id"`
+	RepositoryID        string               `json:"repository_id"`
+	InstallerID         string               `json:"installer_id"`
+	Permissions         []string             `json:"permissions"`
+	EventTypes          []string             `json:"event_types"`
+	ResourceTypes       []string             `json:"resource_types"`
+	CapabilityDecisions []CapabilityDecision `json:"capability_decisions"`
+	Settings            map[string]string    `json:"settings,omitempty"`
+	Version             int64                `json:"version"`
+	Events              []InstallationEvent  `json:"events"`
+	Status              string               `json:"status"`
+	CreatedAt           time.Time            `json:"created_at"`
+	RevokedAt           *time.Time           `json:"revoked_at,omitempty"`
+	Authority           Authority            `json:"authority"`
+}
+type CapabilityDecision struct {
+	Capability string `json:"capability"`
+	Decision   string `json:"decision"`
+}
+type InstallationEvent struct {
+	Sequence  int64     `json:"sequence"`
+	Type      string    `json:"type"`
+	ActorID   string    `json:"actor_id"`
+	Reason    string    `json:"reason,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type GrantInput struct {
+	Permissions         []string             `json:"permissions"`
+	EventTypes          []string             `json:"event_types"`
+	ResourceTypes       []string             `json:"resource_types"`
+	CapabilityDecisions []CapabilityDecision `json:"capability_decisions"`
+	Settings            map[string]string    `json:"settings"`
 }
 type Authority struct {
 	ActorID          string   `json:"actor_id"`
@@ -124,6 +147,7 @@ func listOK(xs []string, allowed map[string]bool) bool {
 
 var permissions = map[string]bool{"metadata:read": true, "contents:read": true, "issues:read": true, "issues:write": true, "pull_requests:read": true, "pull_requests:write": true, "checks:write": true}
 var events = map[string]bool{"repository.created": true, "push": true, "issue.opened": true, "issue.updated": true, "pull_request.opened": true, "pull_request.updated": true, "check.requested": true}
+var resourceTypes = map[string]bool{"metadata": true, "contents": true, "issues": true, "pull_requests": true, "checks": true}
 
 func valid(in Input) bool {
 	mail, mailErr := url.Parse("mailto:" + in.OperatorContact)
@@ -241,6 +265,30 @@ func (s *Store) Verify(ext, owner, endpoint, token string) (Extension, error) {
 	}
 	return Extension{}, ErrNotFound
 }
+func (s *Store) Transfer(ext, owner, next, reason string) (Extension, error) {
+	if next == "" || strings.TrimSpace(reason) == "" {
+		return Extension{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, err := s.load()
+	if err != nil {
+		return Extension{}, err
+	}
+	for n := range d.Extensions {
+		x := &d.Extensions[n]
+		if x.ID != ext {
+			continue
+		}
+		if x.OwnerID != owner {
+			return Extension{}, ErrForbidden
+		}
+		x.OwnerID = next
+		x.UpdatedAt = s.now().UTC()
+		return *x, s.save(d)
+	}
+	return Extension{}, ErrNotFound
+}
 func authority(x Extension, repo string, perms, ev []string) Authority {
 	w := []string{}
 	if x.Status != "verified" {
@@ -260,6 +308,26 @@ func subset(got, want []string) bool {
 	}
 	return true
 }
+func validateGrant(x Extension, in GrantInput) bool {
+	if !listOK(in.Permissions, permissions) || !listOK(in.EventTypes, events) || !listOK(in.ResourceTypes, resourceTypes) || !subset(in.Permissions, x.RequestedPermissions) || !subset(in.EventTypes, x.EventTypes) || len(in.CapabilityDecisions) != len(x.Capabilities) || len(in.Settings) > 20 {
+		return false
+	}
+	decisions := map[string]string{}
+	for _, d := range in.CapabilityDecisions {
+		decisions[d.Capability] = d.Decision
+	}
+	for _, capability := range x.Capabilities {
+		if decisions[capability] != "approved" && decisions[capability] != "denied" {
+			return false
+		}
+	}
+	for key, value := range in.Settings {
+		if strings.TrimSpace(key) == "" || len(key) > 100 || len(value) > 1000 || strings.Contains(strings.ToLower(key), "secret") || strings.Contains(strings.ToLower(key), "token") || strings.Contains(strings.ToLower(key), "password") {
+			return false
+		}
+	}
+	return true
+}
 func (s *Store) Preview(ext, repo string, perms, ev []string) (Authority, error) {
 	x, e := s.Get(ext)
 	if e != nil {
@@ -271,7 +339,28 @@ func (s *Store) Preview(ext, repo string, perms, ev []string) (Authority, error)
 	return authority(x, repo, perms, ev), nil
 }
 func (s *Store) Install(ext, repo, installer string, perms, ev []string) (Installation, error) {
-	a, e := s.Preview(ext, repo, perms, ev)
+	return s.InstallGrant(ext, repo, installer, GrantInput{Permissions: perms, EventTypes: ev, ResourceTypes: []string{"metadata"}, CapabilityDecisions: approvedCapabilities(s, ext)})
+}
+func approvedCapabilities(s *Store, ext string) []CapabilityDecision {
+	x, err := s.Get(ext)
+	if err != nil {
+		return nil
+	}
+	out := make([]CapabilityDecision, 0, len(x.Capabilities))
+	for _, c := range x.Capabilities {
+		out = append(out, CapabilityDecision{Capability: c, Decision: "approved"})
+	}
+	return out
+}
+func (s *Store) InstallGrant(ext, repo, installer string, in GrantInput) (Installation, error) {
+	x, e := s.Get(ext)
+	if e != nil || !validateGrant(x, in) {
+		if e != nil {
+			return Installation{}, e
+		}
+		return Installation{}, ErrInvalid
+	}
+	a, e := s.Preview(ext, repo, in.Permissions, in.EventTypes)
 	if e != nil {
 		return Installation{}, e
 	}
@@ -285,9 +374,74 @@ func (s *Store) Install(ext, repo, installer string, perms, ev []string) (Instal
 		return Installation{}, e
 	}
 	now := s.now().UTC()
-	i := Installation{ID: id("ins"), ExtensionID: ext, RepositoryID: repo, InstallerID: installer, Permissions: perms, EventTypes: ev, Status: "active", CreatedAt: now, Authority: a}
+	i := Installation{ID: id("ins"), ExtensionID: ext, RepositoryID: repo, InstallerID: installer, Permissions: in.Permissions, EventTypes: in.EventTypes, ResourceTypes: in.ResourceTypes, CapabilityDecisions: in.CapabilityDecisions, Settings: in.Settings, Version: 1, Events: []InstallationEvent{{Sequence: 1, Type: "installed", ActorID: installer, CreatedAt: now}}, Status: "active", CreatedAt: now, Authority: a}
 	d.Installations = append(d.Installations, i)
 	return i, s.save(d)
+}
+func (s *Store) Update(repo, installation, actor, action, reason string, expected int64, grant *GrantInput) (Installation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, err := s.load()
+	if err != nil {
+		return Installation{}, err
+	}
+	for n := range d.Installations {
+		i := &d.Installations[n]
+		if i.ID != installation || i.RepositoryID != repo {
+			continue
+		}
+		if expected != i.Version {
+			return Installation{}, ErrInvalid
+		}
+		x := Extension{}
+		for _, candidate := range d.Extensions {
+			if candidate.ID == i.ExtensionID {
+				x = candidate
+			}
+		}
+		now := s.now().UTC()
+		switch action {
+		case "suspend":
+			if i.Status != "active" {
+				return Installation{}, ErrInvalid
+			}
+			i.Status = "suspended"
+			i.Authority.Permissions = []string{}
+			i.Authority.EventTypes = []string{}
+		case "resume":
+			if i.Status != "suspended" {
+				return Installation{}, ErrInvalid
+			}
+			i.Status = "active"
+			i.Authority = authority(x, repo, i.Permissions, i.EventTypes)
+		case "upgrade":
+			if i.Status == "removed" || grant == nil || !validateGrant(x, *grant) {
+				return Installation{}, ErrInvalid
+			}
+			i.Permissions = grant.Permissions
+			i.EventTypes = grant.EventTypes
+			i.ResourceTypes = grant.ResourceTypes
+			i.CapabilityDecisions = grant.CapabilityDecisions
+			i.Settings = grant.Settings
+			if i.Status == "active" {
+				i.Authority = authority(x, repo, i.Permissions, i.EventTypes)
+			}
+		case "remove":
+			if i.Status == "removed" {
+				return Installation{}, ErrInvalid
+			}
+			i.Status = "removed"
+			i.RevokedAt = &now
+			i.Authority.Permissions = []string{}
+			i.Authority.EventTypes = []string{}
+		default:
+			return Installation{}, ErrInvalid
+		}
+		i.Version++
+		i.Events = append(i.Events, InstallationEvent{Sequence: int64(len(i.Events) + 1), Type: action, ActorID: actor, Reason: strings.TrimSpace(reason), CreatedAt: now})
+		return *i, s.save(d)
+	}
+	return Installation{}, ErrNotFound
 }
 func (s *Store) ListInstallations(repo string) ([]Installation, error) {
 	s.mu.Lock()
@@ -302,24 +456,17 @@ func (s *Store) ListInstallations(repo string) ([]Installation, error) {
 	return o, e
 }
 func (s *Store) Revoke(repo, installation, actor string) (Installation, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	d, e := s.load()
-	if e != nil {
-		return Installation{}, e
+	items, err := s.ListInstallations(repo)
+	if err != nil {
+		return Installation{}, err
 	}
-	for n := range d.Installations {
-		i := &d.Installations[n]
-		if i.ID == installation && i.RepositoryID == repo {
-			if i.Status != "active" {
-				return Installation{}, ErrInvalid
+	for _, i := range items {
+		if i.ID == installation {
+			out, e := s.Update(repo, installation, actor, "remove", "", i.Version, nil)
+			if e == nil {
+				out.Status = "revoked"
 			}
-			now := s.now().UTC()
-			i.Status = "revoked"
-			i.RevokedAt = &now
-			i.Authority.Permissions = []string{}
-			i.Authority.EventTypes = []string{}
-			return *i, s.save(d)
+			return out, e
 		}
 	}
 	return Installation{}, ErrNotFound
