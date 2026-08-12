@@ -39,6 +39,21 @@ inspect payloads, attempts, retry timing, and dead letters, while owners trigger
 delivery and replay. Duplicate source events remain one delivery and inactive
 installations cannot send retained work.
 
+Repository participants inspect continuous health at the installation's
+`/operations` resource: attributed requests, delivery outcomes, dead letters,
+latency, invocations, contributions, hourly consumption, observed permission
+use, and configuration history. Actionable notices cover missing or expiring
+credentials, broken callbacks, and anomalous consumption. Installation
+credentials expire after ninety days; rotation replaces the stored digest and
+retains only issuance/expiry metadata and its attributable event.
+
+Owners probe either declared endpoint against schema version 1 through
+`/contract-tests`, retaining outcome, response, latency, error, actor, and time.
+Quarantine empties effective authority while preserving prior evidence. Pause,
+resume, narrowing upgrades, removal, rotation, tests, and health are composed in
+the repository Extensions surface. New capabilities or permissions still
+require another owner-approved grant.
+
 ## Repository documentation collections
 
 Repository owners create documentation contracts at `POST

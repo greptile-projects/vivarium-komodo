@@ -234,6 +234,76 @@ func registerExtensionsHTTP(mux *http.ServeMux, s *extensions.Store, repos owned
 		}
 		writeJSON(w, 200, map[string]any{"items": xs, "total_count": len(xs)})
 	})
+	mux.HandleFunc("GET /repositories/{repository}/extension-installations/{installation}/operations", func(w http.ResponseWriter, r *http.Request) {
+		_, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		out, err := s.Operations(r.PathValue("repository"), r.PathValue("installation"))
+		if err != nil {
+			writeExtensionError(w, err)
+			return
+		}
+		writeJSON(w, 200, out)
+	})
+	mux.HandleFunc("POST /repositories/{repository}/extension-installations/{installation}/contract-tests", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if repo.OwnerID != a.UserID {
+			writeJSON(w, 403, map[string]string{"error": "owner_required"})
+			return
+		}
+		var in struct {
+			Endpoint string `json:"endpoint"`
+		}
+		if !readJSON(w, r, &in, 4096) {
+			return
+		}
+		installation, extension, _, err := s.DeliveryContext(string(repo.ID), r.PathValue("installation"))
+		if err != nil {
+			writeExtensionError(w, err)
+			return
+		}
+		if installation.Status == "removed" {
+			writeJSON(w, 403, map[string]string{"error": "installation_inactive"})
+			return
+		}
+		endpoint := extension.Callback.URL
+		if in.Endpoint == "actions" {
+			endpoint = extension.Actions.URL
+		} else if in.Endpoint != "callback" {
+			writeJSON(w, 422, map[string]string{"error": "invalid_contract_test"})
+			return
+		}
+		body := []byte(`{"schema_version":1,"type":"contract.test"}`)
+		start := time.Now()
+		req, requestErr := http.NewRequestWithContext(r.Context(), http.MethodPost, endpoint, bytes.NewReader(body))
+		if requestErr == nil {
+			req.Header.Set("Content-Type", "application/vnd.komodo.extension-contract-test+json; version=1")
+		}
+		outcome, message, code := "failed", "", 0
+		if requestErr != nil {
+			message = requestErr.Error()
+		} else if response, callErr := (&http.Client{Timeout: 10 * time.Second}).Do(req); callErr != nil {
+			message = callErr.Error()
+		} else {
+			code = response.StatusCode
+			_ = response.Body.Close()
+			if code >= 200 && code < 300 {
+				outcome = "passed"
+			} else {
+				message = fmt.Sprintf("endpoint returned HTTP %d", code)
+			}
+		}
+		out, err := s.RecordContractTest(string(repo.ID), installation.ID, a.UserID, in.Endpoint, outcome, message, code, time.Since(start))
+		if err != nil {
+			writeExtensionError(w, err)
+			return
+		}
+		writeJSON(w, 201, out)
+	})
 	mux.HandleFunc("POST /repositories/{repository}/extension-installations/{installation}/credentials", func(w http.ResponseWriter, r *http.Request) {
 		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -393,6 +463,7 @@ func registerExtensionsHTTP(mux *http.ServeMux, s *extensions.Store, repos owned
 			return
 		}
 		now := time.Now().UTC()
+		started := time.Now()
 		req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, extension.Callback.URL, bytes.NewReader(selected.Payload))
 		if err == nil {
 			req.Header.Set("Content-Type", "application/vnd.komodo.extension-event+json; version=1")
@@ -420,7 +491,7 @@ func registerExtensionsHTTP(mux *http.ServeMux, s *extensions.Store, repos owned
 		} else {
 			message = err.Error()
 		}
-		updated, err := s.RecordAttempt(string(repo.ID), installation.ID, selected.ID, outcome, code, message, in.Replay)
+		updated, err := s.RecordAttempt(string(repo.ID), installation.ID, selected.ID, outcome, code, message, in.Replay, time.Since(started))
 		if err != nil {
 			writeExtensionError(w, err)
 			return

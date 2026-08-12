@@ -77,6 +77,9 @@ type Installation struct {
 	Contributions       []Contribution       `json:"contributions,omitempty"`
 	Actions             []Action             `json:"actions,omitempty"`
 	Usage               Usage                `json:"usage"`
+	CredentialIssuedAt  *time.Time           `json:"credential_issued_at,omitempty"`
+	CredentialExpiresAt *time.Time           `json:"credential_expires_at,omitempty"`
+	ContractTests       []ContractTest       `json:"contract_tests,omitempty"`
 }
 type CapabilityDecision struct {
 	Capability string `json:"capability"`
@@ -422,15 +425,15 @@ func (s *Store) Update(repo, installation, actor, action, reason string, expecte
 		}
 		now := s.now().UTC()
 		switch action {
-		case "suspend":
+		case "suspend", "quarantine":
 			if i.Status != "active" {
 				return Installation{}, ErrInvalid
 			}
-			i.Status = "suspended"
+			i.Status = map[bool]string{true: "quarantined", false: "suspended"}[action == "quarantine"]
 			i.Authority.Permissions = []string{}
 			i.Authority.EventTypes = []string{}
 		case "resume":
-			if i.Status != "suspended" {
+			if i.Status != "suspended" && i.Status != "quarantined" {
 				return Installation{}, ErrInvalid
 			}
 			i.Status = "active"

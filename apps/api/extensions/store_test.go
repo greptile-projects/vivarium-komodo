@@ -143,6 +143,30 @@ func TestInstallationGovernance(t *testing.T) {
 	}
 }
 
+func TestOperationsRetainTrustHistoryAndSurfaceActionableNotices(t *testing.T) {
+	s, _ := New(t.TempDir())
+	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	x, _ := s.Create("publisher", input())
+	x, _ = s.Verify(x.ID, "publisher", "callback", x.Callback.VerificationToken)
+	x, _ = s.Verify(x.ID, "publisher", "actions", x.Actions.VerificationToken)
+	i, _ := s.InstallGrant(x.ID, "repo", "owner", GrantInput{Permissions: []string{"metadata:read"}, EventTypes: []string{"push"}, ResourceTypes: []string{"repository"}, CapabilityDecisions: []CapabilityDecision{{Capability: "annotate checks", Decision: "denied"}}})
+	deliveries, _ := s.Reconcile("repo", i.ID, []activities.Event{{ID: "push-1", RepositoryID: "repo", ActorID: "dev", Type: "push", Resource: activities.Resource{Type: "repository", ID: "repo"}, CreatedAt: now}})
+	for n := 0; n < 5; n++ {
+		_, _ = s.RecordAttempt("repo", i.ID, deliveries[0].ID, "failed", 503, "unavailable", n > 0, 250*time.Millisecond)
+	}
+	_, _ = s.RecordContractTest("repo", i.ID, "owner", "callback", "failed", "unavailable", 503, 300*time.Millisecond)
+	i, _ = s.Update("repo", i.ID, "owner", "quarantine", "unexpected traffic", i.Version, nil)
+	operations, err := s.Operations("repo", i.ID)
+	if err != nil || operations.Status != "quarantined" || operations.Requests != 5 || operations.AverageLatencyMS != 250 || operations.DeadLetters != 1 || len(operations.Notices) < 2 || operations.ConfigurationHistory[len(operations.ConfigurationHistory)-1].ActorID != "owner" {
+		t.Fatalf("operations: %#v %v", operations, err)
+	}
+	listed, _ := s.ListInstallations("repo")
+	if len(listed[0].Deliveries) != 1 || listed[0].Deliveries[0].Status != "dead_letter" {
+		t.Fatal("quarantine erased delivery evidence")
+	}
+}
+
 func TestScopedCredentialPublishesRevisionBoundEvidenceAndActions(t *testing.T) {
 	s, _ := New(t.TempDir())
 	x, _ := s.Create("publisher", input())
