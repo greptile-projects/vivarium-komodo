@@ -6,16 +6,22 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/extensions"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
 
 type extensionOrganizations interface{ IsOwner(string, string) bool }
 
-func registerExtensionsHTTP(mux *http.ServeMux, s *extensions.Store, repos ownedRepositoryStore, orgs extensionOrganizations, credentials authStore, activity activityStore) {
+type extensionPullRequests interface {
+	Get(string, string) (pullrequests.PullRequest, error)
+}
+
+func registerExtensionsHTTP(mux *http.ServeMux, s *extensions.Store, repos ownedRepositoryStore, orgs extensionOrganizations, credentials authStore, activity activityStore, pulls extensionPullRequests) {
 	mux.HandleFunc("POST /extensions", func(w http.ResponseWriter, r *http.Request) {
 		a, ok := authenticateRequest(w, r, credentials, auth.ProfileWrite)
 		if !ok {
@@ -228,6 +234,103 @@ func registerExtensionsHTTP(mux *http.ServeMux, s *extensions.Store, repos owned
 		}
 		writeJSON(w, 200, map[string]any{"items": xs, "total_count": len(xs)})
 	})
+	mux.HandleFunc("POST /repositories/{repository}/extension-installations/{installation}/credentials", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if repo.OwnerID != a.UserID {
+			writeJSON(w, 403, map[string]string{"error": "owner_required"})
+			return
+		}
+		installation, token, err := s.IssueCredential(string(repo.ID), r.PathValue("installation"), a.UserID)
+		if err != nil {
+			writeExtensionError(w, err)
+			return
+		}
+		writeJSON(w, 201, map[string]any{"installation": installation, "token": token, "warning": "This scoped installation credential is shown once."})
+	})
+	mux.HandleFunc("POST /repositories/{repository}/extension-contributions", func(w http.ResponseWriter, r *http.Request) {
+		installation, token, ok := extensionCredential(w, r, s, r.PathValue("repository"))
+		if !ok {
+			return
+		}
+		var in extensions.ContributionInput
+		if !readJSON(w, r, &in, 6<<20) {
+			return
+		}
+		revision, ok := extensionResourceRevision(w, installation.RepositoryID, in.Resource, pulls)
+		if !ok {
+			return
+		}
+		out, err := s.Publish(token, in, revision)
+		if err != nil {
+			writeExtensionError(w, err)
+			return
+		}
+		writeJSON(w, 201, out)
+	})
+	mux.HandleFunc("POST /repositories/{repository}/extension-actions", func(w http.ResponseWriter, r *http.Request) {
+		installation, token, ok := extensionCredential(w, r, s, r.PathValue("repository"))
+		if !ok {
+			return
+		}
+		var in extensions.ActionInput
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		revision, ok := extensionResourceRevision(w, installation.RepositoryID, in.Resource, pulls)
+		if !ok {
+			return
+		}
+		out, err := s.DeclareAction(token, in, revision)
+		if err != nil {
+			writeExtensionError(w, err)
+			return
+		}
+		writeJSON(w, 201, out)
+	})
+	mux.HandleFunc("POST /repositories/{repository}/extension-installations/{installation}/actions/{action}/invocations", func(w http.ResponseWriter, r *http.Request) {
+		_, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		items, err := s.ListInstallations(r.PathValue("repository"))
+		if err != nil {
+			writeExtensionError(w, err)
+			return
+		}
+		var action *extensions.Action
+		for _, i := range items {
+			if i.ID == r.PathValue("installation") {
+				for n := range i.Actions {
+					if i.Actions[n].ID == r.PathValue("action") {
+						action = &i.Actions[n]
+					}
+				}
+			}
+		}
+		if action == nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		revision, ok := extensionResourceRevision(w, r.PathValue("repository"), action.Resource, pulls)
+		if !ok {
+			return
+		}
+		var in struct {
+			Inputs map[string]string `json:"inputs"`
+		}
+		if !readJSON(w, r, &in, 32<<10) {
+			return
+		}
+		out, err := s.Invoke(r.PathValue("repository"), r.PathValue("installation"), r.PathValue("action"), a.UserID, revision, in.Inputs)
+		if err != nil {
+			writeExtensionError(w, err)
+			return
+		}
+		writeJSON(w, 202, out)
+	})
 	mux.HandleFunc("GET /repositories/{repository}/extension-installations/{installation}/deliveries", func(w http.ResponseWriter, r *http.Request) {
 		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
 		if !ok {
@@ -340,6 +443,33 @@ func registerExtensionsHTTP(mux *http.ServeMux, s *extensions.Store, repos owned
 		}
 		writeJSON(w, 200, x)
 	})
+}
+
+func extensionCredential(w http.ResponseWriter, r *http.Request, s *extensions.Store, repository string) (extensions.Installation, string, bool) {
+	h := r.Header.Get("Authorization")
+	if !strings.HasPrefix(h, "Bearer vke_") {
+		writeJSON(w, 401, map[string]string{"error": "extension_credential_required"})
+		return extensions.Installation{}, "", false
+	}
+	token := strings.TrimPrefix(h, "Bearer ")
+	i, err := s.Authenticate(token)
+	if err != nil || i.RepositoryID != repository {
+		writeJSON(w, 403, map[string]string{"error": "invalid_extension_credential"})
+		return extensions.Installation{}, "", false
+	}
+	return i, token, true
+}
+func extensionResourceRevision(w http.ResponseWriter, repository string, r extensions.Resource, pulls extensionPullRequests) (string, bool) {
+	if r.Type == "pull_request" {
+		p, err := pulls.Get(repository, r.ID)
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "resource_not_found"})
+			return "", false
+		}
+		return p.SourceCommitID, true
+	}
+	writeJSON(w, 422, map[string]string{"error": "unsupported_extension_resource"})
+	return "", false
 }
 
 func writeExtensionError(w http.ResponseWriter, err error) {

@@ -74,6 +74,9 @@ type Installation struct {
 	RevokedAt           *time.Time           `json:"revoked_at,omitempty"`
 	Authority           Authority            `json:"authority"`
 	Deliveries          []Delivery           `json:"deliveries,omitempty"`
+	Contributions       []Contribution       `json:"contributions,omitempty"`
+	Actions             []Action             `json:"actions,omitempty"`
+	Usage               Usage                `json:"usage"`
 }
 type CapabilityDecision struct {
 	Capability string `json:"capability"`
@@ -107,6 +110,7 @@ type fileData struct {
 	Extensions    []Extension       `json:"extensions"`
 	Installations []Installation    `json:"installations"`
 	SigningKeys   map[string]string `json:"signing_keys,omitempty"`
+	Credentials   map[string]string `json:"credentials,omitempty"`
 }
 type Store struct {
 	root string
@@ -390,6 +394,9 @@ func (s *Store) InstallGrant(ext, repo, installer string, in GrantInput) (Instal
 		d.SigningKeys = map[string]string{}
 	}
 	d.SigningKeys[i.ID] = id("whsec")
+	if d.Credentials == nil {
+		d.Credentials = map[string]string{}
+	}
 	return i, s.save(d)
 }
 func (s *Store) Update(repo, installation, actor, action, reason string, expected int64, grant *GrantInput) (Installation, error) {

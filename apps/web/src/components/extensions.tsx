@@ -1,0 +1,18 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { Badge, Button } from "@/components/ui";
+
+type Effect={kind:string;description:string};
+type Action={id:string;label:string;description:string;resource:{type:string;id:string;revision:string};inputs:Array<{name:string;label:string;type:string;required:boolean;options?:string[]}>;effects:Effect[];invocations?:Array<{id:string;actor_id:string;status:string;created_at:string}>};
+type Contribution={id:string;extension_id:string;kind:string;state?:string;title:string;body?:string;resource:{type:string;id:string;revision:string};trusted:boolean;policy_effect:string;created_at:string};
+type Installation={id:string;extension_id:string;status:string;permissions:string[];contributions?:Contribution[];actions?:Action[];usage:{operations:number;bytes:number}};
+type Envelope={items:Installation[]};
+async function request<T>(path:string,init?:RequestInit){const response=await fetch(`/api${path}`,{...init,headers:{"Content-Type":"application/json",...(init?.headers??{})}});if(!response.ok)throw new Error((await response.json()).error??"Request failed");return response.json() as Promise<T>}
+
+export function Extensions({repository}:{repository:string}){
+ const [items,setItems]=useState<Installation[]>([]);const [error,setError]=useState("");
+ const load=useCallback(()=>request<Envelope>(`/repositories/${repository}/extension-installations`).then(x=>setItems(x.items)).catch(e=>setError(e.message)),[repository]);useEffect(()=>{void load()},[load]);
+ async function invoke(installation:string,action:Action,event:React.FormEvent<HTMLFormElement>){event.preventDefault();setError("");const data=new FormData(event.currentTarget);const inputs=Object.fromEntries(action.inputs.map(x=>[x.name,String(data.get(x.name)??"")]));try{await request(`/repositories/${repository}/extension-installations/${installation}/actions/${action.id}/invocations`,{method:"POST",body:JSON.stringify({inputs})});await load()}catch(e){setError(e instanceof Error?e.message:"Invocation failed")}}
+ return <section className="panel"><div className="panel-title"><span>Extension collaborators</span><Badge tone="accent">{items.filter(x=>x.status==="active").length} active</Badge></div><p className="panel-copy">Attributed extension evidence is revision-bound and advisory. It never replaces reviews, checks, merge, release, deployment, environment, or embargo policy.</p>{error&&<p className="form-error" role="alert">{error}</p>}{items.map(item=><div className="access-list" key={item.id}><div className="grant-row"><div><strong>{item.extension_id}</strong><p>{item.permissions.join(" · ")} · {item.usage.operations??0} operations this hour</p></div><Badge tone={item.status==="active"?"accent":"neutral"}>{item.status}</Badge></div>{item.contributions?.map(output=><article className="grant-row" key={output.id}><div><strong>{output.title}</strong><p>{output.kind} by {output.extension_id} at <code>{output.resource.revision.slice(0,10)}</code></p>{output.body&&<small>{output.body}</small>}</div><Badge tone="neutral">{output.policy_effect.replaceAll("_"," ")}</Badge></article>)}{item.actions?.map(action=><form className="repository-form compact" key={action.id} onSubmit={event=>void invoke(item.id,action,event)}><div className="wide"><strong>{action.label}</strong><p>{action.description}</p><small>Previewed effects: {action.effects.map(x=>x.description).join(" · ")}</small></div>{action.inputs.map(field=><label key={field.name}>{field.label}<input name={field.name} required={field.required}/></label>)}<div className="form-actions wide"><Button type="submit">Invoke as me</Button></div></form>)}</div>)}</section>
+}

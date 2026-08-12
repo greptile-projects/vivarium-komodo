@@ -137,6 +137,16 @@ delivery or replay. Non-2xx attempts use bounded exponential retry state and
 become dead letters after five failures. Reconciliation deduplicates source
 events and silently excludes unsubscribed resource types; suspended, removed,
 and revoked installations cannot send or replay retained deliveries.
+Active installations may also receive a rotatable one-time `vke_` credential
+scoped to that installation and repository. Through the public extension
+contribution endpoints it can publish idempotent, exact-revision status,
+checks, annotations, artifacts, links, and comments, and declare bounded
+actions with previewable inputs and effects. Contributions always retain the
+`ext_` actor, installation, resource, revision, usage, and an `advisory_only`
+policy effect; they never satisfy or bypass ordinary reviews, required checks,
+merge, release, deployment, environment, or embargo controls. Collaborator
+invocations retain the human actor and create only a requested extension
+action; suspension or removal invalidates the credential immediately.
 
 Opportunity onboarding composes existing resources rather than granting new
 authority. An active claimant starts through
