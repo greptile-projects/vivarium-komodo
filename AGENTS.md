@@ -40,6 +40,17 @@ source snapshot for an ordinary pull request. Negotiation, staleness,
 signature, transfer, and divergence failures stay explicit. Remote subjects
 never become local accounts, grants, credentials, or implicit cross-instance
 repository authority.
+Federated contribution review uses the separate `pull_request.exchange`
+capability and signed version-1 pull-request events. Discussion, reviews,
+requested changes, exact revision updates, checks, previews, and closure bind
+an idempotency key, both stable pull references, remote actor subject, exact
+source revision, audience, and bounded evidence. Receiving instances verify a
+trusted peer key and enforce repository visibility and embargo policy before
+retaining the event. Imported claims remain remote signed observations and
+never become local authors, reviews, required checks, preview access, closure,
+or merge authority. Reads derive currentness from the local pull revision;
+retries reuse the idempotency key, while conflicting payloads and unavailable
+peers remain explicit recoverable states.
 
 Repository documentation collections live beneath `$DOCUMENTATION_ROOT`
 (default `apps/api/data/documentation`). Owner-published immutable versions bind

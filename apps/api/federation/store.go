@@ -33,6 +33,7 @@ type Endpoints struct {
 	Repositories      string `json:"repositories,omitempty"`
 	RepositoryObjects string `json:"repository_objects,omitempty"`
 	Contributions     string `json:"contributions,omitempty"`
+	PullRequestEvents string `json:"pull_request_events,omitempty"`
 }
 type Key struct {
 	ID        string     `json:"id"`

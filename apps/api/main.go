@@ -313,7 +313,7 @@ func main() {
 	if instanceOrigin == "" {
 		instanceOrigin = "https://localhost:8080"
 	}
-	federationStore, err := federation.New(federationRoot, federation.Config{Instance: instanceOrigin, Operators: []federation.Operator{{Name: "Komodo operator", Contact: "mailto:operator@localhost"}}, Capabilities: []string{"identity.discovery", "actor.lookup", "key.rotation", "repository.discovery", "repository.contributions"}, Endpoints: federation.Endpoints{Discovery: instanceOrigin + "/.well-known/komodo-federation", Actors: instanceOrigin + "/federation/actors/{kind}/{id}", Repositories: instanceOrigin + "/federation/repositories/{id}", RepositoryObjects: instanceOrigin + "/federation/repositories/{id}/objects", Contributions: instanceOrigin + "/federation/contributions"}})
+	federationStore, err := federation.New(federationRoot, federation.Config{Instance: instanceOrigin, Operators: []federation.Operator{{Name: "Komodo operator", Contact: "mailto:operator@localhost"}}, Capabilities: []string{"identity.discovery", "actor.lookup", "key.rotation", "repository.discovery", "repository.contributions", "pull_request.exchange"}, Endpoints: federation.Endpoints{Discovery: instanceOrigin + "/.well-known/komodo-federation", Actors: instanceOrigin + "/federation/actors/{kind}/{id}", Repositories: instanceOrigin + "/federation/repositories/{id}", RepositoryObjects: instanceOrigin + "/federation/repositories/{id}/objects", Contributions: instanceOrigin + "/federation/contributions", PullRequestEvents: instanceOrigin + "/federation/pull-request-events"}})
 	if err != nil {
 		log.Fatal(err)
 	}

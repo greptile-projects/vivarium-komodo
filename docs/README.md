@@ -68,6 +68,27 @@ unsupported negotiation, unreachable peers, invalid signatures or objects,
 diverged synchronization, and rejected transfer are returned as explicit safe
 failures rather than patches or partial authority grants.
 
+### Federated pull-request conversation
+
+Peers advertising `pull_request.exchange` expose `POST
+/federation/pull-request-events`. A repository participant publishes through
+the local pull request's `/federated-events` collection, so their home instance
+first enforces ordinary repository write access and the current exact source
+revision. Signed event kinds cover discussion, review, requested changes,
+revision updates, checks, previews, and closure, binding both stable pull
+references, a remote actor subject, audience, bounded evidence, and an
+idempotency key.
+
+The receiver verifies the exact envelope against an explicitly trusted peer key
+and applies its own visibility and embargo rules. Exact replay is harmless;
+changed content under the same key conflicts, while outage responses instruct
+the caller to retry the same key. `GET
+/repositories/{repository}/pull-requests/{pull}/federated-events` and the web
+discussion show origin, verification, audience, and derived revision
+currentness. Synchronization makes old evidence visibly stale without rewriting
+it. Imported claims remain advisory: they create no local identity and satisfy
+no local review, required check, preview access, closure, or merge policy.
+
 Extensions are platform principals, not user API tokens. Their owners register
 them at `POST /extensions` with an operator contact, capabilities, HTTPS
 callback and action endpoints, requested resource permissions, event types, and

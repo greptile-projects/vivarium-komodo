@@ -411,6 +411,8 @@ type PullRequestReviewList = {
   items: PullRequestReview[];
   total_count: number;
 };
+type FederatedPullEvent = { id:string; pull_reference:string; source_instance:string; actor_subject:string; kind:"discussion"|"review"|"revision"|"check"|"preview"|"requested_changes"|"closure"; revision:string; body?:string; state?:string; audience:"public"|"participants"; evidence?:Record<string,string>; occurred_at:string; verification:string; current:boolean };
+type FederatedPullEventList = { items:FederatedPullEvent[]; total_count:number; authoritative_local_revision:string };
 type ChangeSessionEvent = {
   id: string;
   type: string;
@@ -9294,6 +9296,7 @@ function PullRequestDetail({
   const [files, setFiles] = useState<PullRequestFile[]>([]);
   const [comments, setComments] = useState<PullRequestComment[]>([]);
   const [reviews, setReviews] = useState<PullRequestReview[]>([]);
+  const [federatedEvents, setFederatedEvents] = useState<FederatedPullEvent[]>([]);
   const [sessions, setSessions] = useState<ChangeSession[]>([]);
   const [checks, setChecks] = useState<CheckRun[]>([]);
   const [previews, setPreviews] = useState<Preview[]>([]);
@@ -9315,6 +9318,7 @@ function PullRequestDetail({
         fileData,
         commentData,
         reviewData,
+        federatedData,
         sessionData,
         checkData,
         previewData,
@@ -9335,6 +9339,7 @@ function PullRequestDetail({
         get<PullRequestReviewList>(
           `/repositories/${repository}/pull-requests/${id}/reviews?per_page=100`,
         ),
+        get<FederatedPullEventList>(`/repositories/${repository}/pull-requests/${id}/federated-events`).catch(() => ({items:[],total_count:0,authoritative_local_revision:""})),
         get<ChangeSessionList>(
           `/repositories/${repository}/pull-requests/${id}/change-sessions?per_page=100`,
         ),
@@ -9364,6 +9369,7 @@ function PullRequestDetail({
       setFiles(fileData.items);
       setComments(commentData.items);
       setReviews(reviewData.items);
+      setFederatedEvents(federatedData.items);
       setSessions(sessionData.items);
       setChecks(checkData.items);
       setPreviews(previewData.items);
@@ -9586,6 +9592,7 @@ function PullRequestDetail({
           repository={repository}
           pull={item}
           comments={comments}
+          federatedEvents={federatedEvents}
           canDiscuss={Boolean(actor) && item.status === "open"}
           onChanged={() => void load()}
         />
@@ -11249,12 +11256,14 @@ function PullDiscussion({
   repository,
   pull,
   comments,
+  federatedEvents,
   canDiscuss,
   onChanged,
 }: {
   repository: string;
   pull: PullRequest;
   comments: PullRequestComment[];
+  federatedEvents: FederatedPullEvent[];
   canDiscuss: boolean;
   onChanged: () => void;
 }) {
@@ -11264,6 +11273,7 @@ function PullDiscussion({
   return (
     <section className="pull-discussion">
       <div className="proposal-comments">
+        {federatedEvents.map((entry) => <article className="panel" key={entry.id}><div className="proposal-author"><span className="avatar sm"><User size={14}/></span><span><strong>{entry.actor_subject}</strong><small>{new Date(entry.occurred_at).toLocaleString()} · {entry.source_instance}</small></span></div><p><Badge tone={entry.current?"accent":undefined}>{entry.kind}{entry.state?` · ${entry.state}`:""}</Badge> <Badge>{entry.verification}</Badge> <Badge>{entry.audience}</Badge>{!entry.current&&<Badge>stale revision</Badge>}</p>{entry.body&&<p>{entry.body}</p>}{entry.evidence&&Object.entries(entry.evidence).map(([name,value])=><p key={name}><strong>{name}:</strong> <code>{value}</code></p>)}</article>)}
         {comments.map((entry) => (
           <article className="panel" key={entry.id}>
             <div className="proposal-author">
@@ -11280,7 +11290,7 @@ function PullDiscussion({
             <p>{entry.body}</p>
           </article>
         ))}
-        {!comments.length && (
+        {!comments.length && !federatedEvents.length && (
           <p className="no-comments">
             No discussion yet. Ask about intent, implementation tradeoffs, or a
             specific changed file.
