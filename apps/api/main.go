@@ -314,7 +314,7 @@ func main() {
 	if instanceOrigin == "" {
 		instanceOrigin = "https://localhost:8080"
 	}
-	federationStore, err := federation.New(federationRoot, federation.Config{Instance: instanceOrigin, Operators: []federation.Operator{{Name: "Komodo operator", Contact: "mailto:operator@localhost"}}, Capabilities: []string{"identity.discovery", "actor.lookup", "key.rotation", "repository.discovery", "repository.contributions", "pull_request.exchange"}, Endpoints: federation.Endpoints{Discovery: instanceOrigin + "/.well-known/komodo-federation", Actors: instanceOrigin + "/federation/actors/{kind}/{id}", Repositories: instanceOrigin + "/federation/repositories/{id}", RepositoryObjects: instanceOrigin + "/federation/repositories/{id}/objects", Contributions: instanceOrigin + "/federation/contributions", PullRequestEvents: instanceOrigin + "/federation/pull-request-events"}})
+	federationStore, err := federation.New(federationRoot, federation.Config{Instance: instanceOrigin, Operators: []federation.Operator{{Name: "Komodo operator", Contact: "mailto:operator@localhost"}}, Capabilities: []string{"identity.discovery", "actor.lookup", "key.rotation", "repository.discovery", "repository.contributions", "pull_request.exchange", "repository.contribution_receipts"}, Endpoints: federation.Endpoints{Discovery: instanceOrigin + "/.well-known/komodo-federation", Actors: instanceOrigin + "/federation/actors/{kind}/{id}", Repositories: instanceOrigin + "/federation/repositories/{id}", RepositoryObjects: instanceOrigin + "/federation/repositories/{id}/objects", Contributions: instanceOrigin + "/federation/contributions", PullRequestEvents: instanceOrigin + "/federation/pull-request-events", ContributionReceipts: instanceOrigin + "/federation/contribution-receipts"}})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -351,7 +351,7 @@ func main() {
 	registerContributionOpportunitiesHTTP(mux, contributionOpportunityStore, repositoryCatalog, credentials, issueStore, proposalStore, organizationStore, contributorPathwayStore, workspaceStore, workspaceRunner, pullRequestStore, checkRunner, releaseStore)
 	registerIssueRepairsHTTP(mux, issueStore, proposalStore, pullRequestStore, repositoryCatalog, credentials, issueReproductionRunner, checkRunStore)
 	registerProposalTaskSessionsHTTP(mux, proposalStore, changeSessionStore, repositoryCatalog, credentials, activityStore, pullRequestStore, checkRunner)
-	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore, previewStore)
+	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore, previewStore, federationStore)
 	registerPreviewsHTTP(mux, previewStore, previewRunner, pullRequestStore, repositoryCatalog, credentials, previewSources{issues: issueStore, decisions: decisionStore, proposals: proposalStore}, previewRepairStores{plans: proposalStore, sessions: changeSessionStore, workspaces: workspaceStore, workspaceRunner: workspaceRunner})
 	registerReleasesHTTP(mux, releaseStore, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials)
 	registerPackagesHTTP(mux, packageStore, releaseStore, checkRunStore, repositoryCatalog, credentials)

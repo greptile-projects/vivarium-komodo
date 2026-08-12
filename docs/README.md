@@ -107,6 +107,26 @@ currentness. Synchronization makes old evidence visibly stale without rewriting
 it. Imported claims remain advisory: they create no local identity and satisfy
 no local review, required check, preview access, closure, or merge policy.
 
+### Federated contribution acceptance
+
+An upstream owner merges an immutable imported source revision only through the
+ordinary local review, required-check, preview, conflict, and integration policy.
+The complete source object set is linked into upstream storage before its target
+reference advances, while the pull permanently retains signed proposal
+provenance and the merge commit retains source trailers.
+
+After local publication the upstream signs a version-1 merge receipt binding
+both pull references, exact source and merge commits, remote authorship, merging
+maintainer, and digests of retained review and check evidence. `POST
+/federation/contribution-receipts` treats exact retries as the same receipt and
+rejects changed payloads under one idempotency key. Delivery failure is
+retryable and cannot roll back or duplicate local history. Authenticated reads
+at `GET /federation/contribution-receipts` preserve historical verification
+while deriving `current_trust` anew, so source deletion, outage, or later trust
+revocation neither erases accepted work nor falsely implies continuing trust.
+An upstream owner retries the exact retained envelope at the pull request's
+`/federated-merge-receipt/retry` action; retry never re-enters merge execution.
+
 Extensions are platform principals, not user API tokens. Their owners register
 them at `POST /extensions` with an operator contact, capabilities, HTTPS
 callback and action endpoints, requested resource permissions, event types, and

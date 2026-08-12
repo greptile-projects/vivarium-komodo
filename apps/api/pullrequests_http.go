@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"compress/zlib"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +22,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/federation"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/integrationqueue"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/previews"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
@@ -70,6 +73,7 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	var checkResults readinessCheckStore
 	var queue integrationQueueStore
 	var previewAcceptance *previews.Store
+	var federationStore *federation.Store
 	for _, extra := range extras {
 		switch value := extra.(type) {
 		case activityStore:
@@ -82,6 +86,8 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 			queue = value
 		case *previews.Store:
 			previewAcceptance = value
+		case *federation.Store:
+			federationStore = value
 		}
 	}
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests", createPullRequest(store, proposalStore, repositories, credentials, activity, checks))
@@ -97,7 +103,7 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("DELETE /repositories/{repository}/pull-requests/{pull_request}/reviews/me", deletePullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults, previewAcceptance))
-	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequest(store, proposalStore, repositories, credentials, activity, checkResults, previewAcceptance))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequestWithFederation(store, proposalStore, repositories, credentials, activity, checkResults, previewAcceptance, federationStore))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/queue", enqueuePullRequest(store, repositories, credentials, activity, checkResults, checks, queue))
 	mux.HandleFunc("GET /repositories/{repository}/integration-queue/entries", listIntegrationQueueEntries(repositories, credentials, checkResults, queue))
 	mux.HandleFunc("PATCH /repositories/{repository}/integration-queue/entries/{entry}", operateIntegrationQueueEntry(repositories, credentials, activity, checks, queue))
@@ -789,6 +795,18 @@ func inspectReadinessBranch(repository *storage.Repository, name, snapshotCommit
 }
 
 func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, checkStore readinessCheckStore, acceptanceStores ...*previews.Store) http.HandlerFunc {
+	var acceptanceStore *previews.Store
+	var fed *federation.Store
+	for _, value := range acceptanceStores {
+		if value != nil {
+			acceptanceStore = value
+		}
+	}
+	// The federation store is supplied through the package-level merge wrapper.
+	return mergePullRequestWithFederation(store, proposalStore, repositories, credentials, activity, checkStore, acceptanceStore, fed)
+}
+
+func mergePullRequestWithFederation(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, checkStore readinessCheckStore, acceptanceStore *previews.Store, fed *federation.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -867,7 +885,7 @@ func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repos
 				return
 			}
 		}
-		if len(acceptanceStores) > 0 && acceptanceStores[0] != nil {
+		if acceptanceStore != nil {
 			changes, err := filesBetweenRepositories(sourceOpened, opened, source, target)
 			if err != nil {
 				writeJSON(w, 500, map[string]string{"error": "internal_error"})
@@ -877,7 +895,7 @@ func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repos
 			for i := range changes {
 				paths[i] = changes[i].Path
 			}
-			assessment, err := acceptanceStores[0].Assess(item.RepositoryID, item.ID, item.SourceCommitID, item.TargetBranch, paths, repository.PreviewAcceptance)
+			assessment, err := acceptanceStore.Assess(item.RepositoryID, item.ID, item.SourceCommitID, item.TargetBranch, paths, repository.PreviewAcceptance)
 			if err != nil || !assessment.Satisfied {
 				writeJSON(w, http.StatusConflict, map[string]string{"error": "pull_request_not_ready"})
 				return
@@ -967,8 +985,43 @@ func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repos
 				return
 			}
 		}
+		if fed != nil && item.FederatedContext != nil {
+			receipt := federation.MergeReceipt{SchemaVersion: 1, IdempotencyKey: "merge:" + item.RepositoryID + ":" + item.ID, UpstreamInstance: mustFederationInstance(fed), ContributorInstance: item.FederatedContext.SourceInstance, UpstreamPullReference: federatedPullReference(mustFederationInstance(fed), item.RepositoryID, item.ID), SourcePullReference: item.FederatedContext.SourcePullReference, TargetReference: item.FederatedContext.TargetReference, SourceRepositoryID: item.FederatedContext.SourceRepositoryID, SourceBranch: item.SourceBranch, SourceCommitID: item.SourceCommitID, MergeCommitID: merged.MergeCommitID, AuthorSubject: item.AuthorID, MergedBySubject: "user:" + actor.UserID + "@" + mustFederationInstance(fed), ReviewEvidenceDigest: digestEvidence(reviews), MergedAt: *merged.MergedAt}
+			if checkStore != nil {
+				runs, _ := checkStore.List(item.RepositoryID, item.ID)
+				receipt.CheckEvidenceDigest = digestEvidence(runs)
+			} else {
+				receipt.CheckEvidenceDigest = digestEvidence([]string{})
+			}
+			receipt.KeyID, receipt.Signature, _ = fed.Sign(federation.MergeReceiptBytes(receipt))
+			receipt.DeliveryStatus = "pending"
+			peer, peerErr := fed.Peer(receipt.ContributorInstance)
+			if peerErr == nil && peer.LastDocument != nil && peer.LastDocument.Endpoints.ContributionReceipts != "" {
+				body, _ := json.Marshal(receipt)
+				response, postErr := (&http.Client{Timeout: 10 * time.Second}).Post(peer.LastDocument.Endpoints.ContributionReceipts, "application/vnd.komodo.federated-merge-receipt+json; version=1", bytes.NewReader(body))
+				if postErr == nil {
+					response.Body.Close()
+					if response.StatusCode >= 200 && response.StatusCode < 300 {
+						receipt.DeliveryStatus = "delivered"
+					} else {
+						receipt.DeliveryStatus, receipt.DeliveryError = "retryable", response.Status
+					}
+				} else {
+					receipt.DeliveryStatus, receipt.DeliveryError = "retryable", postErr.Error()
+				}
+			} else {
+				receipt.DeliveryStatus, receipt.DeliveryError = "retryable", "receipt endpoint unavailable"
+			}
+			_, _ = fed.PutMergeReceipt(receipt)
+		}
 		writeJSON(w, http.StatusOK, merged)
 	}
+}
+
+func digestEvidence(v any) string {
+	b, _ := json.Marshal(v)
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // materializeMergeTree lets stock Git calculate a recursive merge in a

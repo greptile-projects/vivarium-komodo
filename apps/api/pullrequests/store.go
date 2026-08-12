@@ -81,6 +81,19 @@ type PullRequest struct {
 	ReasoningContext    *reasoning.Context   `json:"reasoning_context,omitempty"`
 	DeliveryEvidence    *DeliveryEvidence    `json:"delivery_evidence,omitempty"`
 	ContributionContext *ContributionContext `json:"contribution_context,omitempty"`
+	FederatedContext    *FederatedContext    `json:"federated_context,omitempty"`
+}
+
+type FederatedContext struct {
+	SourceInstance      string `json:"source_instance"`
+	SourceRepositoryID  string `json:"source_repository_id"`
+	SourceBranch        string `json:"source_branch"`
+	SourceCommitID      string `json:"source_commit_id"`
+	SourcePullReference string `json:"source_pull_reference,omitempty"`
+	TargetReference     string `json:"target_reference"`
+	AuthorSubject       string `json:"author_subject"`
+	ProposalKeyID       string `json:"proposal_key_id"`
+	ProposalSignature   string `json:"proposal_signature"`
 }
 
 // ContributionContext preserves the public, review-safe support and requirement
@@ -135,6 +148,7 @@ type CreateParams struct {
 	ReasoningContext    *reasoning.Context
 	DeliveryEvidence    *DeliveryEvidence
 	ContributionContext *ContributionContext
+	FederatedContext    *FederatedContext
 }
 
 type Comment struct {
@@ -201,7 +215,7 @@ func (s *Store) Create(params CreateParams) (PullRequest, error) {
 	if params.DeliveryEvidence != nil {
 		params.DeliveryEvidence.RecordedByID, params.DeliveryEvidence.RecordedAt = params.AuthorID, now
 	}
-	item := PullRequest{ID: id, RepositoryID: params.RepositoryID, SourceRepositoryID: params.SourceRepositoryID, ProposalID: params.ProposalID, TaskID: params.TaskID, ChangeSessionID: params.ChangeSessionID, OriginPullRequestID: params.OriginPullRequestID, AuthorID: params.AuthorID, Title: params.Title, Body: params.Body, SourceBranch: params.SourceBranch, TargetBranch: params.TargetBranch, SourceCommitID: params.SourceCommitID, TargetCommitID: params.TargetCommitID, Draft: params.Draft, WorkspaceID: params.WorkspaceID, CheckpointID: params.CheckpointID, ContributorIDs: ContributorIDs(strings.Join(params.ContributorIDs, "\x00")), ReasoningContext: params.ReasoningContext, DeliveryEvidence: params.DeliveryEvidence, ContributionContext: params.ContributionContext, Status: Open, CreatedAt: now, UpdatedAt: now}
+	item := PullRequest{ID: id, RepositoryID: params.RepositoryID, SourceRepositoryID: params.SourceRepositoryID, ProposalID: params.ProposalID, TaskID: params.TaskID, ChangeSessionID: params.ChangeSessionID, OriginPullRequestID: params.OriginPullRequestID, AuthorID: params.AuthorID, Title: params.Title, Body: params.Body, SourceBranch: params.SourceBranch, TargetBranch: params.TargetBranch, SourceCommitID: params.SourceCommitID, TargetCommitID: params.TargetCommitID, Draft: params.Draft, WorkspaceID: params.WorkspaceID, CheckpointID: params.CheckpointID, ContributorIDs: ContributorIDs(strings.Join(params.ContributorIDs, "\x00")), ReasoningContext: params.ReasoningContext, DeliveryEvidence: params.DeliveryEvidence, ContributionContext: params.ContributionContext, FederatedContext: params.FederatedContext, Status: Open, CreatedAt: now, UpdatedAt: now}
 	if err := s.write(item); err != nil {
 		return PullRequest{}, err
 	}

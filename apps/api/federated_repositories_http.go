@@ -114,6 +114,45 @@ func fetchObjectBundle(doc *federation.Document, repositoryID, branch string) (f
 func snapshotBytes(snapshot federatedSnapshot) []byte { data, _ := json.Marshal(snapshot); return data }
 
 func registerFederatedRepositoriesHTTP(mux *http.ServeMux, fed *federation.Store, repos ownedRepositoryStore, pulls pullRequestStore, releasesStore releaseStore, pathways contributorPathwayStore, issueStore *issues.Store, opportunities *contributionopportunities.Store, activity activityStore, credentials authStore) {
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/federated-merge-receipt/retry", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if actor.UserID != repo.OwnerID {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		pull, ok := readPullRequest(w, pulls, string(repo.ID), r.PathValue("pull_request"))
+		if !ok {
+			return
+		}
+		if pull.Status != pullrequests.Merged || pull.FederatedContext == nil {
+			writeJSON(w, 409, map[string]string{"error": "federated_merge_receipt_unavailable"})
+			return
+		}
+		receipt, err := fed.MergeReceipt("merge:" + pull.RepositoryID + ":" + pull.ID)
+		if err != nil {
+			writeJSON(w, 409, map[string]string{"error": "federated_merge_receipt_unavailable"})
+			return
+		}
+		peer, err := fed.Peer(receipt.ContributorInstance)
+		if err != nil || peer.LastDocument == nil || peer.LastDocument.Endpoints.ContributionReceipts == "" {
+			writeJSON(w, 202, map[string]string{"status": "peer_unavailable", "recovery": "retry_same_receipt"})
+			return
+		}
+		body, _ := json.Marshal(receipt)
+		response, err := (&http.Client{Timeout: 10 * time.Second}).Post(peer.LastDocument.Endpoints.ContributionReceipts, "application/vnd.komodo.federated-merge-receipt+json; version=1", bytes.NewReader(body))
+		if err != nil {
+			writeJSON(w, 202, map[string]string{"status": "peer_unavailable", "recovery": "retry_same_receipt"})
+			return
+		}
+		defer response.Body.Close()
+		payload, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(response.StatusCode)
+		_, _ = w.Write(payload)
+	})
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/federated-events", func(w http.ResponseWriter, r *http.Request) {
 		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
 		if !ok {
@@ -435,12 +474,53 @@ func registerFederatedRepositoriesHTTP(mux *http.ServeMux, fed *federation.Store
 			writeJSON(w, 422, map[string]string{"error": "object_transfer_rejected"})
 			return
 		}
-		item, err := pulls.Create(pullrequests.CreateParams{RepositoryID: string(target.ID), SourceRepositoryID: string(source.ID), AuthorID: c.AuthorSubject, Title: c.Title, Body: c.Body, SourceBranch: c.SourceBranch, TargetBranch: targetBranch, SourceCommitID: c.SourceCommitID, TargetCommitID: c.TargetCommitID})
+		item, err := pulls.Create(pullrequests.CreateParams{RepositoryID: string(target.ID), SourceRepositoryID: string(source.ID), AuthorID: c.AuthorSubject, Title: c.Title, Body: c.Body, SourceBranch: c.SourceBranch, TargetBranch: targetBranch, SourceCommitID: c.SourceCommitID, TargetCommitID: c.TargetCommitID, FederatedContext: &pullrequests.FederatedContext{SourceInstance: c.SourceInstance, SourceRepositoryID: c.SourceRepositoryID, SourceBranch: c.SourceBranch, SourceCommitID: c.SourceCommitID, SourcePullReference: c.Context["source_pull_reference"], TargetReference: c.TargetReference, AuthorSubject: c.AuthorSubject, ProposalKeyID: c.KeyID, ProposalSignature: c.Signature}})
 		if err != nil {
 			writeJSON(w, 422, map[string]string{"error": "proposal_rejected"})
 			return
 		}
 		writeJSON(w, 201, item)
+	})
+	mux.HandleFunc("POST /federation/contribution-receipts", func(w http.ResponseWriter, r *http.Request) {
+		var receipt federation.MergeReceipt
+		if !readJSON(w, r, &receipt, 128<<10) {
+			return
+		}
+		peer, err := fed.Peer(receipt.UpstreamInstance)
+		if err != nil || peer.Trust != "trusted" || peer.LastDocument == nil || federation.VerifySigned(*peer.LastDocument, receipt.KeyID, receipt.Signature, federation.MergeReceiptBytes(receipt)) != nil {
+			writeJSON(w, 422, map[string]string{"error": "untrusted_or_invalid_receipt"})
+			return
+		}
+		now := time.Now().UTC()
+		receipt.Verification, receipt.VerifiedAt, receipt.CurrentTrust = "verified_peer_signature", &now, peer.Trust
+		retained, err := fed.PutMergeReceipt(receipt)
+		if errors.Is(err, federation.ErrConflict) {
+			writeJSON(w, 409, map[string]string{"error": "idempotency_conflict"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_receipt"})
+			return
+		}
+		writeJSON(w, 201, retained)
+	})
+	mux.HandleFunc("GET /federation/contribution-receipts", func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := authenticateRequest(w, r, credentials, auth.ProfileRead); !ok {
+			return
+		}
+		items, err := fed.MergeReceipts()
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		for i := range items {
+			if peer, e := fed.Peer(items[i].UpstreamInstance); e == nil {
+				items[i].CurrentTrust = peer.Trust
+			} else {
+				items[i].CurrentTrust = "unavailable"
+			}
+		}
+		writeJSON(w, 200, map[string]any{"items": items, "total_count": len(items)})
 	})
 	mux.HandleFunc("GET /federation/repositories/{repository}", func(w http.ResponseWriter, r *http.Request) {
 		repo, err := repos.Inspect(storage.ID(r.PathValue("repository")))
