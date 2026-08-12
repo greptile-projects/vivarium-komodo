@@ -44,6 +44,11 @@ revisions, rendered blobs, version/release mappings, audiences, redirects, and
 publisher. Readers get stable links, search, redirects, release selection,
 visibility, and explicit archives; their bounded redacted feedback is triaged
 once into a linked issue, proposal, or documentation task.
+`documentation_workflow_test.go` is the black-box regression boundary for the
+complete code-to-trusted-guidance loop. It retains proposal and grounded draft
+authorship, documentation check matrices, rendered review, ordinary merge and
+release provenance, archived reader editions, redacted older-version feedback,
+and an agent-authored version-specific repair published through the same policy.
 
 Delivery teams are pre-execution contracts beneath `$DELIVERY_TEAM_ROOT`
 (default `apps/api/data/delivery-teams`). A repository collaborator forms one

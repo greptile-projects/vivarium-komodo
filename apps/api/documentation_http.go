@@ -440,7 +440,10 @@ func registerPublishedDocumentationHTTP(mux *http.ServeMux, s docscollectionsSto
 		if !ok {
 			return
 		}
-		var in struct{ Kind, ResourceID string }
+		var in struct {
+			Kind       string `json:"kind"`
+			ResourceID string `json:"resource_id"`
+		}
 		if !readJSON(w, r, &in, 64<<10) {
 			return
 		}
