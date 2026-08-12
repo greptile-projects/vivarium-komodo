@@ -263,6 +263,53 @@ func registerGovernanceHTTP(mux *http.ServeMux, s *governance.Store, repos owned
 			}
 			writeJSON(w, 200, v)
 		})
+		mux.HandleFunc("GET "+base+"/health", func(w http.ResponseWriter, r *http.Request) {
+			id, _, _, _, ok := access(w, r, false)
+			if !ok {
+				return
+			}
+			v, e := s.Health(scopeType, id)
+			if e != nil {
+				governanceError(w, e)
+				return
+			}
+			writeJSON(w, 200, v)
+		})
+		mux.HandleFunc("POST "+base+"/stewardship", func(w http.ResponseWriter, r *http.Request) {
+			id, a, _, _, ok := access(w, r, true)
+			if !ok {
+				return
+			}
+			var in governance.StewardshipInput
+			if !readJSON(w, r, &in, 64<<10) {
+				return
+			}
+			v, e := s.OpenStewardship(scopeType, id, a.UserID, in)
+			if e != nil {
+				governanceError(w, e)
+				return
+			}
+			writeJSON(w, 201, v)
+		})
+		mux.HandleFunc("POST "+base+"/stewardship/{case}/{action}", func(w http.ResponseWriter, r *http.Request) {
+			id, a, _, _, ok := access(w, r, true)
+			if !ok {
+				return
+			}
+			var in struct {
+				Reason   string `json:"reason"`
+				Resource string `json:"resource"`
+			}
+			if !readJSON(w, r, &in, 16<<10) {
+				return
+			}
+			v, e := s.TransitionStewardship(scopeType, id, r.PathValue("case"), a.UserID, r.PathValue("action"), in.Reason, in.Resource)
+			if e != nil {
+				governanceError(w, e)
+				return
+			}
+			writeJSON(w, 200, v)
+		})
 		mux.HandleFunc("GET "+base+"/proposals", func(w http.ResponseWriter, r *http.Request) {
 			id, _, _, _, ok := access(w, r, false)
 			if !ok {

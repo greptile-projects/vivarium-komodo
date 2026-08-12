@@ -138,16 +138,17 @@ type Revision struct {
 	ActivatedAt   *time.Time `json:"activated_at,omitempty"`
 }
 type Charter struct {
-	ID            string      `json:"id"`
-	ScopeType     string      `json:"scope_type"`
-	ScopeID       string      `json:"scope_id"`
-	ActiveVersion int64       `json:"active_version,omitempty"`
-	Current       Revision    `json:"current"`
-	History       []Revision  `json:"history"`
-	Approvals     []Approval  `json:"approvals"`
-	Exceptions    []Exception `json:"exceptions"`
-	Standings     []Standing  `json:"standings"`
-	UpdatedAt     time.Time   `json:"updated_at"`
+	ID            string            `json:"id"`
+	ScopeType     string            `json:"scope_type"`
+	ScopeID       string            `json:"scope_id"`
+	ActiveVersion int64             `json:"active_version,omitempty"`
+	Current       Revision          `json:"current"`
+	History       []Revision        `json:"history"`
+	Approvals     []Approval        `json:"approvals"`
+	Exceptions    []Exception       `json:"exceptions"`
+	Standings     []Standing        `json:"standings"`
+	Stewardship   []StewardshipCase `json:"stewardship"`
+	UpdatedAt     time.Time         `json:"updated_at"`
 }
 
 var evidenceKinds = map[string]bool{"contribution": true, "review": true, "support": true, "ownership": true, "membership": true}

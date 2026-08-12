@@ -78,7 +78,14 @@ type Charter = {
     actor_id: string;
   }[];
   standings: Standing[];
+  stewardship: {
+    id: string; kind: string; role: string; reason: string; state: string;
+    expires_at?: string; review_due_at?: string; appeal?: string; appeal_state?: string;
+    emergency_scope: string[];
+    resource_handoffs: { resource: string; from_id: string; to_id: string; state: string }[];
+  }[];
 };
+type GovernanceHealth = { vacancies:string[]; expiring_terms:string[]; unresolved_handoffs:string[]; quorum_loss:string[]; deadlocked_cases:string[]; open_appeals:string[]; active_emergency_powers:string[] };
 const lines = (v: FormDataEntryValue | null) =>
   String(v || "")
     .split("\n")
@@ -95,10 +102,11 @@ export function GovernanceCharter({
 }) {
   const base = `/${scope}/${id}/governance-charter`,
     [charter, setCharter] = useState<Charter>(),
+    [health, setHealth] = useState<GovernanceHealth>(),
     [error, setError] = useState("");
   const load = useCallback(async () => {
     const r = await fetch(`/api${base}`);
-    if (r.ok) setCharter(await r.json());
+    if (r.ok) { setCharter(await r.json()); const h=await fetch(`/api${base}/health`); if(h.ok)setHealth(await h.json()); }
     else if (r.status !== 404)
       setError("Governance charter could not be loaded.");
   }, [base]);
@@ -306,6 +314,16 @@ export function GovernanceCharter({
           canManage={canManage}
         />
       )}
+      {charter?.current.state === "active" && <div className="panel stack">
+        <div className="section-heading"><div><h3>Continuity and recovery</h3><p>Governance transfer never changes repository identity or operational access by itself. Resource handoffs still require their owners and established controls.</p></div><Badge>{health?.active_emergency_powers.length || 0} emergency</Badge></div>
+        {health && <div className="content-grid">
+          <p><strong>Vacancies</strong><br/>{health.vacancies.join(" · ") || "None"}</p><p><strong>Expiring terms</strong><br/>{health.expiring_terms.join(" · ") || "None"}</p><p><strong>Quorum loss</strong><br/>{health.quorum_loss.join(" · ") || "None"}</p><p><strong>Unresolved handoffs</strong><br/>{health.unresolved_handoffs.join(" · ") || "None"}</p><p><strong>Deadlocks and appeals</strong><br/>{[...health.deadlocked_cases,...health.open_appeals].join(" · ") || "None"}</p>
+        </div>}
+        {charter.stewardship?.map(c=><div key={c.id}><h4>{c.kind} · {c.role} <Badge>{c.state}</Badge></h4><p>{c.reason}</p>{c.emergency_scope?.length>0&&<p><strong>Narrow emergency scope:</strong> {c.emergency_scope.join(" · ")} · relinquishes {c.expires_at&&new Date(c.expires_at).toLocaleString()} · review {c.review_due_at&&new Date(c.review_due_at).toLocaleString()}</p>}{c.resource_handoffs?.map(h=><p key={h.resource}><strong>{h.resource}</strong>: {h.from_id} → {h.to_id} · {h.state}</p>)}{c.appeal&&<p><strong>Appeal:</strong> {c.appeal} · {c.appeal_state}</p>}</div>)}
+        {canManage&&<details><summary>Open a succession or recovery case</summary><form className="stack" onSubmit={async e=>{e.preventDefault();const f=new FormData(e.currentTarget),kind=String(f.get("kind")),hours=Number(f.get("hours")),expires=kind==="emergency"?new Date(Date.now()+hours*3600000).toISOString():undefined;await mutate("/stewardship",{kind,role:f.get("role"),former_standing_id:f.get("former"),nominee_standing_id:f.get("nominee"),decision_receipt_id:f.get("receipt"),reason:f.get("reason"),emergency_scope:kind==="emergency"?lines(f.get("scope")):[],expires_at:expires,review_due_at:expires});}}>
+          <label>Flow<select name="kind"><option>nomination</option><option>election</option><option>term_expiry</option><option>recall</option><option>succession</option><option>deadlock</option><option>emergency</option></select></label><label>Governance role<input required name="role"/></label><label>Former standing ID<input name="former"/></label><label>Nominee standing ID<input name="nominee"/></label><label>Decision receipt (required to complete election/recall/succession)<input name="receipt"/></label><label>Reason<textarea required name="reason"/></label><label>Emergency scope, one resource/action per line<textarea name="scope"/></label><label>Emergency duration hours (maximum 720)<input name="hours" type="number" min="1" max="720" defaultValue="24"/></label><Button type="submit">Open attributable recovery case</Button>
+        </form></details>}
+      </div>}
       {canManage && (
         <details className="panel">
           <summary>
@@ -549,7 +567,8 @@ export function GovernedProposals({
     if (r.ok) setItems((await r.json()).items);
   }, [base]);
   useEffect(() => {
-    void load();
+    const timer = setTimeout(() => void load(), 0);
+    return () => clearTimeout(timer);
   }, [load]);
   async function post(path: string, body: unknown) {
     setError("");
