@@ -42,6 +42,17 @@ Repositories use the documentation check's ordinary name in branch
 `required_checks`, making the exact current evidence part of standard readiness
 and merge policy.
 
+Pull requests compose code and documentation review through immutable
+`/documentation-previews`. A preview snapshots the collection version, exact
+source revision, rendered page blobs, navigation changes, verified check-run
+examples, affected versions, and declared gaps. Repository participants invite
+technical or audience stakeholders, comment against an exact rendered path,
+blob, and bounded range, and approve or request changes in either required area.
+Decisions retain the reviewed blob set. When a pull request synchronizes, reads
+compare only those page blobs with the new source revision and report the exact
+stale paths; unrelated code changes therefore do not silently carry forward or
+needlessly discard documentation acceptance.
+
 ## Preview acceptance
 
 Repository owners publish preview acceptance requirements with `PUT

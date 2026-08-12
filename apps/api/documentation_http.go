@@ -10,6 +10,7 @@ import (
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/docscollections"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
@@ -25,6 +26,15 @@ type docscollectionsStore interface {
 	GetTask(string, string) (docscollections.Task, error)
 	ListTasks(string, string) ([]docscollections.Task, error)
 	AddTaskEvent(string, string, string, docscollections.TaskEvent) (docscollections.Task, error)
+	CreateReviewPreview(docscollections.ReviewPreview) (docscollections.ReviewPreview, error)
+	GetReviewPreview(string, string, string) (docscollections.ReviewPreview, error)
+	ListReviewPreviews(string, string) ([]docscollections.ReviewPreview, error)
+	InviteReview(string, string, string, string, string, string) (docscollections.ReviewPreview, error)
+	AddReviewComment(string, string, string, string, docscollections.ReviewComment) (docscollections.ReviewPreview, error)
+	PutAreaDecision(string, string, string, string, docscollections.AreaDecision) (docscollections.ReviewPreview, error)
+}
+type documentationPullStore interface {
+	Get(string, string) (pullrequests.PullRequest, error)
 }
 type docscollectionsReleaseStore interface {
 	Get(string, string) (releases.Release, error)
@@ -62,12 +72,16 @@ type documentationWorkspaceRunner interface {
 func registerDocumentationHTTP(mux *http.ServeMux, s docscollectionsStore, repos contributorPathwayRepositories, credentials authStore, rs docscollectionsReleaseStore, extras ...any) {
 	var ws documentationWorkspaceStore
 	var runner documentationWorkspaceRunner
+	var pulls documentationPullStore
 	for _, extra := range extras {
 		if x, ok := extra.(documentationWorkspaceStore); ok {
 			ws = x
 		}
 		if x, ok := extra.(documentationWorkspaceRunner); ok {
 			runner = x
+		}
+		if x, ok := extra.(documentationPullStore); ok {
+			pulls = x
 		}
 	}
 	mux.HandleFunc("GET /repositories/{repository}/documentation-collections", func(w http.ResponseWriter, r *http.Request) {
@@ -250,6 +264,158 @@ func registerDocumentationHTTP(mux *http.ServeMux, s docscollectionsStore, repos
 		}
 		writeJSON(w, 201, t)
 	})
+	registerDocumentationReviewHTTP(mux, s, repos, credentials, pulls)
+}
+
+type documentationReviewResponse struct {
+	docscollections.ReviewPreview
+	Stale      bool     `json:"stale"`
+	StalePaths []string `json:"stale_paths,omitempty"`
+}
+
+func registerDocumentationReviewHTTP(mux *http.ServeMux, s docscollectionsStore, repos contributorPathwayRepositories, credentials authStore, pulls documentationPullStore) {
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull}/documentation-previews", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		pr, e := pulls.Get(string(repo.ID), r.PathValue("pull"))
+		if e != nil {
+			writeJSON(w, 404, map[string]string{"error": "pull_request_not_found"})
+			return
+		}
+		var in struct {
+			CollectionID     string                             `json:"collection_id"`
+			Navigation       []docscollections.NavigationChange `json:"navigation_changes"`
+			Examples         []docscollections.VerifiedExample  `json:"verified_examples"`
+			AffectedVersions []string                           `json:"affected_versions"`
+			Gaps             []docscollections.ReviewGap        `json:"gaps"`
+		}
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		c, e := s.Get(string(repo.ID), in.CollectionID)
+		if e != nil || len(c.History) == 0 {
+			documentationError(w, e)
+			return
+		}
+		cur := c.History[len(c.History)-1]
+		opened, e := repos.Open(storage.ID(pr.SourceRepositoryID))
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "documentation_source_unavailable"})
+			return
+		}
+		pages := []docscollections.ReviewPage{}
+		for _, entry := range cur.EntryPaths {
+			p := path.Join(cur.RootPath, entry)
+			bid, e := documentationBlobAtPath(opened, storage.ObjectID(pr.SourceCommitID), p)
+			if e != nil {
+				continue
+			}
+			obj, e := opened.ReadObject(bid)
+			if e != nil {
+				continue
+			}
+			rendered := string(obj.Content)
+			if cur.Policy.Renderer == "markdown" {
+				rendered = renderDocumentationDraft(rendered)
+			}
+			pages = append(pages, docscollections.ReviewPage{Path: p, BlobID: string(bid), Rendered: rendered})
+		}
+		made, e := s.CreateReviewPreview(docscollections.ReviewPreview{RepositoryID: string(repo.ID), PullRequestID: pr.ID, CollectionID: c.ID, CollectionVersion: c.CurrentVersion, Revision: pr.SourceCommitID, Pages: pages, Navigation: in.Navigation, Examples: in.Examples, AffectedVersions: in.AffectedVersions, Gaps: in.Gaps, CreatedByID: a.UserID})
+		if documentationError(w, e) {
+			return
+		}
+		writeJSON(w, 201, documentationReviewResponse{ReviewPreview: made})
+	})
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull}/documentation-previews", func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		pr, e := pulls.Get(string(repo.ID), r.PathValue("pull"))
+		if e != nil {
+			writeJSON(w, 404, map[string]string{"error": "pull_request_not_found"})
+			return
+		}
+		items, e := s.ListReviewPreviews(string(repo.ID), pr.ID)
+		if documentationError(w, e) {
+			return
+		}
+		out := []documentationReviewResponse{}
+		for _, p := range items {
+			out = append(out, documentationReviewState(p, pr, repos))
+		}
+		writeJSON(w, 200, map[string]any{"items": out})
+	})
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull}/documentation-previews/{preview}/invitations", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			UserID string `json:"user_id"`
+			Role   string `json:"role"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		p, e := s.InviteReview(string(repo.ID), r.PathValue("pull"), r.PathValue("preview"), a.UserID, in.UserID, in.Role)
+		if documentationError(w, e) {
+			return
+		}
+		writeJSON(w, 201, p)
+	})
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull}/documentation-previews/{preview}/comments", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in docscollections.ReviewComment
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		p, e := s.AddReviewComment(string(repo.ID), r.PathValue("pull"), r.PathValue("preview"), a.UserID, in)
+		if documentationError(w, e) {
+			return
+		}
+		writeJSON(w, 201, p)
+	})
+	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull}/documentation-previews/{preview}/decisions/{area}", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in docscollections.AreaDecision
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		in.Area = r.PathValue("area")
+		p, e := s.PutAreaDecision(string(repo.ID), r.PathValue("pull"), r.PathValue("preview"), a.UserID, in)
+		if documentationError(w, e) {
+			return
+		}
+		writeJSON(w, 200, p)
+	})
+}
+func documentationReviewState(p docscollections.ReviewPreview, pr pullrequests.PullRequest, repos contributorPathwayRepositories) documentationReviewResponse {
+	out := documentationReviewResponse{ReviewPreview: p}
+	if p.Revision == pr.SourceCommitID {
+		return out
+	}
+	opened, e := repos.Open(storage.ID(pr.SourceRepositoryID))
+	if e != nil {
+		out.Stale = true
+		return out
+	}
+	for _, pg := range p.Pages {
+		bid, e := documentationBlobAtPath(opened, storage.ObjectID(pr.SourceCommitID), pg.Path)
+		if e != nil || string(bid) != pg.BlobID {
+			out.StalePaths = append(out.StalePaths, pg.Path)
+		}
+	}
+	out.Stale = len(out.StalePaths) > 0
+	return out
 }
 func allowedDocumentationOrigin(k string) bool {
 	return map[string]bool{"proposal": true, "issue": true, "pull_request": true, "release": true, "code_investigation": true, "stewardship_opportunity": true}[k]
