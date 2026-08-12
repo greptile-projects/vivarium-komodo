@@ -114,6 +114,119 @@ func fetchObjectBundle(doc *federation.Document, repositoryID, branch string) (f
 func snapshotBytes(snapshot federatedSnapshot) []byte { data, _ := json.Marshal(snapshot); return data }
 
 func registerFederatedRepositoriesHTTP(mux *http.ServeMux, fed *federation.Store, repos ownedRepositoryStore, pulls pullRequestStore, releasesStore releaseStore, pathways contributorPathwayStore, issueStore *issues.Store, opportunities *contributionopportunities.Store, activity activityStore, credentials authStore) {
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/federated-events", func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		pull, ok := readPullRequest(w, pulls, string(repo.ID), r.PathValue("pull_request"))
+		if !ok {
+			return
+		}
+		ref := federatedPullReference(mustFederationInstance(fed), string(repo.ID), pull.ID)
+		items, err := fed.PullRequestEvents(ref)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		for i := range items {
+			items[i].Current = items[i].Revision == pull.SourceCommitID
+		}
+		writeJSON(w, 200, map[string]any{"items": items, "total_count": len(items), "authoritative_local_revision": pull.SourceCommitID})
+	})
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/federated-events", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		pull, ok := readPullRequest(w, pulls, string(repo.ID), r.PathValue("pull_request"))
+		if !ok {
+			return
+		}
+		var in struct {
+			IdempotencyKey, TargetInstance, TargetReference, Kind, Revision, Body, State, Audience string
+			Evidence                                                                               map[string]string
+			OccurredAt                                                                             time.Time `json:"occurred_at"`
+		}
+		if !readJSON(w, r, &in, 96<<10) {
+			return
+		}
+		if pull.Status != pullrequests.Open || in.Revision != pull.SourceCommitID || strings.HasPrefix(pull.SourceBranch, "embargo/") {
+			writeJSON(w, 409, map[string]string{"error": "federated_event_not_shareable"})
+			return
+		}
+		peer, err := fed.Peer(in.TargetInstance)
+		if err != nil || peer.Trust != "trusted" || peer.LastDocument == nil || !hasCapability(peer.LastDocument.Capabilities, "pull_request.exchange") || peer.LastDocument.Endpoints.PullRequestEvents == "" {
+			writeJSON(w, 409, map[string]string{"error": "peer_exchange_unavailable"})
+			return
+		}
+		if in.OccurredAt.IsZero() {
+			in.OccurredAt = time.Now().UTC()
+		}
+		e := federation.PullRequestEvent{SchemaVersion: 1, IdempotencyKey: in.IdempotencyKey, PullReference: federatedPullReference(mustFederationInstance(fed), string(repo.ID), pull.ID), TargetReference: in.TargetReference, SourceInstance: mustFederationInstance(fed), ActorSubject: "user:" + actor.UserID + "@" + mustFederationInstance(fed), Kind: in.Kind, Revision: in.Revision, Body: in.Body, State: in.State, Audience: in.Audience, Evidence: in.Evidence, OccurredAt: in.OccurredAt}
+		e.KeyID, e.Signature, err = fed.Sign(federation.PullRequestEventBytes(e))
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		body, _ := json.Marshal(e)
+		response, err := (&http.Client{Timeout: 10 * time.Second}).Post(peer.LastDocument.Endpoints.PullRequestEvents, "application/vnd.komodo.federated-pull-event+json; version=1", bytes.NewReader(body))
+		if err != nil {
+			writeJSON(w, 202, map[string]string{"status": "peer_unavailable", "recovery": "retry_with_same_idempotency_key"})
+			return
+		}
+		defer response.Body.Close()
+		payload, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(response.StatusCode)
+		_, _ = w.Write(payload)
+	})
+	mux.HandleFunc("POST /federation/pull-request-events", func(w http.ResponseWriter, r *http.Request) {
+		var event federation.PullRequestEvent
+		if !readJSON(w, r, &event, 96<<10) {
+			return
+		}
+		peer, err := fed.Peer(event.SourceInstance)
+		if err != nil || peer.Trust != "trusted" || peer.LastDocument == nil || !hasCapability(peer.LastDocument.Capabilities, "pull_request.exchange") || federation.VerifySigned(*peer.LastDocument, event.KeyID, event.Signature, federation.PullRequestEventBytes(event)) != nil {
+			writeJSON(w, 422, map[string]string{"error": "untrusted_or_invalid_event"})
+			return
+		}
+		instance, repositoryID, pullID, valid := parseFederatedPullReference(event.TargetReference)
+		if !valid || instance != mustFederationInstance(fed) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_target"})
+			return
+		}
+		repo, err := repos.Inspect(storage.ID(repositoryID))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		pull, err := pulls.Get(repositoryID, pullID)
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if strings.HasPrefix(pull.SourceBranch, "embargo/") || (event.Audience == "public" && repo.Visibility != repositories.Public) {
+			writeJSON(w, 403, map[string]string{"error": "data_sharing_policy_denied"})
+			return
+		}
+		event.Verification = "verified_peer_signature"
+		event.Current = event.Revision == pull.SourceCommitID
+		retained, err := fed.PutPullRequestEvent(event)
+		if errors.Is(err, federation.ErrConflict) {
+			writeJSON(w, 409, map[string]string{"error": "idempotency_conflict", "recovery": "use_original_payload_or_new_key"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_event"})
+			return
+		}
+		status := 201
+		if retained.ImportedAt.Before(time.Now().UTC().Add(-time.Second)) {
+			status = 200
+		}
+		writeJSON(w, status, retained)
+	})
 	mux.HandleFunc("GET /federation/repositories/{repository}/objects", func(w http.ResponseWriter, r *http.Request) {
 		repo, err := repos.Inspect(storage.ID(r.PathValue("repository")))
 		if err != nil || repo.Visibility != repositories.Public {
@@ -509,6 +622,31 @@ func parseFederatedRepositoryReference(ref string) (string, string, bool) {
 	instance := ref[at+1:]
 	parsed, err := url.Parse(instance)
 	return instance, id, err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.Path == "" && id != ""
+}
+
+func federatedPullReference(instance, repositoryID, pullID string) string {
+	return "pull-request:" + pullID + "@" + instance + "#repository=" + repositoryID
+}
+
+func parseFederatedPullReference(ref string) (string, string, string, bool) {
+	const prefix = "pull-request:"
+	if !strings.HasPrefix(ref, prefix) {
+		return "", "", "", false
+	}
+	value := strings.TrimPrefix(ref, prefix)
+	before, repositoryID, ok := strings.Cut(value, "#repository=")
+	if !ok || repositoryID == "" {
+		return "", "", "", false
+	}
+	pullID, instance, ok := strings.Cut(before, "@")
+	if !ok || pullID == "" {
+		return "", "", "", false
+	}
+	u, err := url.Parse(instance)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return "", "", "", false
+	}
+	return strings.TrimSuffix(instance, "/"), repositoryID, pullID, true
 }
 
 var _ = errors.Is

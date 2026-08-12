@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-12T16:53:30Z: Added signed idempotent federated pull-request event exchange for discussion, review, requested changes, revisions, checks, previews, and closure, with peer verification, local visibility/embargo enforcement, explicit retry/conflict states, and derived staleness. The pull-request web conversation preserves remote subject, origin, verification, audience, and evidence without turning imported claims into local policy authority.
+
 2026-08-12T15:07:30Z: Added trusted federated repository discovery with signed bounded public snapshots, stable remote references, revision-addressed local follow caches, and explicit capability, outage, staleness, and visibility-withdrawal state. The web Access and shareable federated reader surfaces expose remote metadata, branches, releases, contributor guidance, public issues/opportunities, and attributable activity without local authority or inaccessible evidence.
 
 2026-08-12T14:05:39Z: Added signed versioned Ed25519 federation discovery with deliberately public instance-qualified user/agent/installation identities, explicit rotation and digest lineage, verified peer observation, local trust/revocation, and retained unreachable or changed-identity state. The Access workspace discovers peers without granting authority or exposing private membership; state lives beneath `$FEDERATION_ROOT`.
