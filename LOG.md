@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-12T15:07:30Z: Added trusted federated repository discovery with signed bounded public snapshots, stable remote references, revision-addressed local follow caches, and explicit capability, outage, staleness, and visibility-withdrawal state. The web Access and shareable federated reader surfaces expose remote metadata, branches, releases, contributor guidance, public issues/opportunities, and attributable activity without local authority or inaccessible evidence.
+
 2026-08-12T14:05:39Z: Added signed versioned Ed25519 federation discovery with deliberately public instance-qualified user/agent/installation identities, explicit rotation and digest lineage, verified peer observation, local trust/revocation, and retained unreachable or changed-identity state. The Access workspace discovers peers without granting authority or exposing private membership; state lives beneath `$FEDERATION_ROOT`.
 
 2026-08-12T13:03:32Z: Completed the extension install-to-governed-collaboration proof through public HTTP and stock Git, covering verified developer registration, repository-only owner consent, signed pull-request event replay, revision-bound annotated artifact evidence, a collaborator-invoked repair action, ordinary checks/review/merge, fresh capability consent, and removal that revokes credentials without erasing attribution.

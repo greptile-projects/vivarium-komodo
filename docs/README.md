@@ -26,6 +26,28 @@ authority grants, and discovery exposes no membership beyond the instance's
 deliberately public actor catalog. The Access workspace presents this trust
 record. Durable state is rooted beneath `$FEDERATION_ROOT`.
 
+### Federated repositories
+
+Trusted peers advertising `repository.discovery` expose a bounded signed public
+snapshot at the discovery document's `repositories` endpoint. References are
+stable `repository:{id}@{canonical HTTPS instance}` subjects. A snapshot binds
+public repository metadata, visible branches and exact tips, releases,
+contributor pathway guidance, public issues, ready contribution opportunities,
+and attributable activity to the publishing instance and an exact repository
+revision. It explicitly reports supported and unsupported capabilities; source
+contents and mutations are not projected.
+
+Authenticated home-instance developers resolve or refresh a reference through
+`POST /federation/repositories/resolutions`, list followed observations at
+`GET /federation/repositories`, and open the shareable web reader at
+`/federation/repositories?ref={reference}`. The home instance verifies the exact
+response with the peer's discovered Ed25519 key and retains its content-addressed
+cache revision, signature, source URL, and check time beneath `$FEDERATION_ROOT`.
+Peer outage or a later private/not-found response preserves the last verified
+snapshot as explicitly stale and marks visibility withdrawal; it never invents
+local access, copies inaccessible evidence, or presents cached context as a
+locally controlled repository.
+
 Extensions are platform principals, not user API tokens. Their owners register
 them at `POST /extensions` with an operator contact, capabilities, HTTPS
 callback and action endpoints, requested resource permissions, event types, and

@@ -46,6 +46,7 @@ type Session = { user: UserRecord; access: Grant };
 type Envelope<T> = { items: T[]; total_count: number };
 type ExtensionRecord = { id:string; name:string; description:string; owner_id:string; operator_contact:string; capabilities:string[]; callback:{url:string;verified_at?:string}; actions:{url:string;verified_at?:string}; requested_permissions:string[]; event_types:string[]; rotation_policy:{interval_days:number;overlap_hours:number;contact_on_failure:boolean}; status:string };
 type FederationPeer = { instance:string; discovery_url:string; status:string; trust:string; identity_changed:boolean; last_error?:string; document?:{version:number;capabilities:string[];operators:{name:string;contact:string}[];keys:{id:string;status:string}[];actors:{subject:string;display_name:string}[]} };
+type FederatedRepository = { reference:string; instance:string; repository_id:string; status:string; followed:boolean; revision?:string; fetched_at?:string; stale:boolean; visibility_changed:boolean; last_error?:string };
 type InboxItem = {
   id: string;
   classification: "review" | "response" | "awareness";
@@ -1631,10 +1632,13 @@ function Access({
   const [extensions, setExtensions] = useState<ExtensionRecord[]>([]);
   const [extensionError, setExtensionError] = useState("");
   const [peers, setPeers] = useState<FederationPeer[]>([]);
+  const [remoteRepositories, setRemoteRepositories] = useState<FederatedRepository[]>([]);
   const [federationError, setFederationError] = useState("");
   useEffect(() => { void api<Envelope<ExtensionRecord>>("/extensions").then(value => setExtensions(value.items)); }, []);
   const loadPeers = () => api<Envelope<FederationPeer>>("/federation/peers").then(value => setPeers(value.items));
+  const loadRemoteRepositories = () => api<Envelope<FederatedRepository>>("/federation/repositories").then(value => setRemoteRepositories(value.items));
   useEffect(() => { void loadPeers(); }, []);
+  useEffect(() => { void loadRemoteRepositories(); }, []);
   const active = grants.filter(
     (grant) => !grant.revoked_at && new Date(grant.expires_at) > new Date(),
   );
@@ -1742,6 +1746,12 @@ function Access({
         <p>Discover signed instance capabilities, operators, keys, and deliberately published collaborators. Trust is local, revocable, and never grants remote administration or reveals private membership.</p>
         {peers.map(peer=><div className="grant-row" key={peer.discovery_url}><span className="grant-icon"><User size={17}/></span><div><strong>{peer.instance||peer.discovery_url}</strong><p>{peer.status} · {peer.trust}{peer.identity_changed?" · unchained identity change":""}</p><small>{peer.last_error||peer.document?.capabilities.join(" · ")||"No verified document"}</small>{peer.document?.actors.map(actor=><div key={actor.subject}><code>{actor.subject}</code> · {actor.display_name}</div>)}</div><div className="form-actions">{peer.status==="reachable"&&peer.trust!=="trusted"&&!peer.identity_changed&&<Button size="sm" variant="secondary" onClick={async()=>{await api("/federation/peer-trust",{method:"POST",body:JSON.stringify({instance:peer.instance,action:"trust"})});await loadPeers()}}>Trust</Button>}{peer.trust==="trusted"&&<Button size="sm" variant="secondary" onClick={async()=>{await api("/federation/peer-trust",{method:"POST",body:JSON.stringify({instance:peer.instance,action:"revoke"})});await loadPeers()}}>Revoke</Button>}</div></div>)}
         <form className="repository-form compact" onSubmit={async event=>{event.preventDefault();const form=event.currentTarget;const data=new FormData(form);setFederationError("");try{await api("/federation/peers/discoveries",{method:"POST",body:JSON.stringify({url:data.get("url")})});await loadPeers();form.reset()}catch(cause){setFederationError(cause instanceof Error?cause.message:"Discovery failed")}}}><label className="wide">Peer discovery URL<input name="url" type="url" required placeholder="https://community.example/.well-known/komodo-federation"/></label>{federationError&&<p className="form-error wide">{federationError}</p>}<div className="form-actions wide"><Button type="submit">Discover instance</Button></div></form>
+      </section>
+      <section className="panel access-list" aria-labelledby="federated-repositories-heading">
+        <div className="panel-title"><span id="federated-repositories-heading">Federated repositories</span><Badge tone="accent">{remoteRepositories.filter(item=>item.followed).length} followed</Badge></div>
+        <p>Resolve a public project through a trusted peer. Cached context remains visibly remote, revision-bound, and read-only.</p>
+        {remoteRepositories.map(item=><div className="grant-row" key={item.reference}><span className="grant-icon"><Book size={17}/></span><div><Link href={`/federation/repositories?ref=${encodeURIComponent(item.reference)}`}><strong>{item.reference}</strong></Link><p>{item.status}{item.stale?" · stale cache":""}{item.visibility_changed?" · visibility changed":""}</p><small>{item.last_error||item.revision||"No verified snapshot"}</small></div>{item.followed&&<Badge tone="accent">Following</Badge>}</div>)}
+        <form className="repository-form compact" onSubmit={async event=>{event.preventDefault();const form=event.currentTarget;const data=new FormData(form);setFederationError("");try{await api("/federation/repositories/resolutions",{method:"POST",body:JSON.stringify({reference:data.get("reference"),follow:data.get("follow")==="on"})});await loadRemoteRepositories();form.reset()}catch(cause){setFederationError(cause instanceof Error?cause.message:"Resolution failed")}}}><label className="wide">Repository reference<input name="reference" required placeholder="repository:repo_id@https://community.example"/></label><label><input name="follow" type="checkbox" defaultChecked/> Follow updates locally</label>{federationError&&<p className="form-error wide">{federationError}</p>}<div className="form-actions wide"><Button type="submit">Resolve repository</Button></div></form>
       </section>
     </>
   );

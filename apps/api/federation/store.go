@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -26,9 +27,10 @@ type Operator struct {
 	Contact string `json:"contact"`
 }
 type Endpoints struct {
-	Discovery string `json:"discovery"`
-	Actors    string `json:"actors"`
-	Events    string `json:"events,omitempty"`
+	Discovery    string `json:"discovery"`
+	Actors       string `json:"actors"`
+	Events       string `json:"events,omitempty"`
+	Repositories string `json:"repositories,omitempty"`
 }
 type Key struct {
 	ID        string     `json:"id"`
@@ -82,17 +84,18 @@ type Config struct {
 	Endpoints    Endpoints  `json:"endpoints"`
 }
 type data struct {
-	Config         Config    `json:"config"`
-	Version        int64     `json:"version"`
-	PreviousDigest string    `json:"previous_digest,omitempty"`
-	PublicKey      string    `json:"public_key"`
-	PrivateKey     string    `json:"private_key"`
-	KeyID          string    `json:"key_id"`
-	KeyCreatedAt   time.Time `json:"key_created_at"`
-	IssuedAt       time.Time `json:"issued_at"`
-	RetiredKeys    []Key     `json:"retired_keys,omitempty"`
-	Actors         []Actor   `json:"actors"`
-	Peers          []Peer    `json:"peers"`
+	Config         Config             `json:"config"`
+	Version        int64              `json:"version"`
+	PreviousDigest string             `json:"previous_digest,omitempty"`
+	PublicKey      string             `json:"public_key"`
+	PrivateKey     string             `json:"private_key"`
+	KeyID          string             `json:"key_id"`
+	KeyCreatedAt   time.Time          `json:"key_created_at"`
+	IssuedAt       time.Time          `json:"issued_at"`
+	RetiredKeys    []Key              `json:"retired_keys,omitempty"`
+	Actors         []Actor            `json:"actors"`
+	Peers          []Peer             `json:"peers"`
+	Repositories   []RemoteRepository `json:"repositories,omitempty"`
 }
 type Store struct {
 	root string
@@ -125,6 +128,16 @@ func New(root string, config Config) (*Store, error) {
 		pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 		now := s.now().UTC()
 		d = data{Config: config, Version: 1, PublicKey: base64.RawURLEncoding.EncodeToString(pub), PrivateKey: base64.RawURLEncoding.EncodeToString(priv), KeyID: keyID(pub), KeyCreatedAt: now, IssuedAt: now, Actors: []Actor{}, Peers: []Peer{}}
+		e = s.save(d)
+	} else if validConfig(config) && !reflect.DeepEqual(d.Config, config) {
+		old, signErr := signed(d, s.now().UTC())
+		if signErr != nil {
+			return nil, signErr
+		}
+		d.PreviousDigest = Digest(old)
+		d.Config = config
+		d.Version++
+		d.IssuedAt = s.now().UTC()
 		e = s.save(d)
 	}
 	return s, e
@@ -347,6 +360,110 @@ func (s *Store) Peers() ([]Peer, error) {
 	defer s.mu.Unlock()
 	d, e := s.load()
 	return d.Peers, e
+}
+
+// RemoteRepository is a locally retained, read-only observation of an
+// authoritative repository snapshot. Snapshot is intentionally opaque to the
+// identity store: the HTTP boundary owns its bounded public schema.
+type RemoteRepository struct {
+	Reference         string          `json:"reference"`
+	Instance          string          `json:"instance"`
+	RepositoryID      string          `json:"repository_id"`
+	SourceURL         string          `json:"source_url"`
+	Status            string          `json:"status"`
+	Followed          bool            `json:"followed"`
+	Snapshot          json.RawMessage `json:"snapshot,omitempty"`
+	Revision          string          `json:"revision,omitempty"`
+	Signature         string          `json:"signature,omitempty"`
+	KeyID             string          `json:"key_id,omitempty"`
+	FetchedAt         *time.Time      `json:"fetched_at,omitempty"`
+	LastCheckedAt     time.Time       `json:"last_checked_at"`
+	LastError         string          `json:"last_error,omitempty"`
+	Stale             bool            `json:"stale"`
+	VisibilityChanged bool            `json:"visibility_changed"`
+}
+
+func (s *Store) Sign(message []byte) (string, string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, err := s.load()
+	if err != nil {
+		return "", "", err
+	}
+	private, err := base64.RawURLEncoding.DecodeString(d.PrivateKey)
+	if err != nil {
+		return "", "", err
+	}
+	return d.KeyID, base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, message)), nil
+}
+
+func VerifySigned(doc Document, keyID, signature string, message []byte) error {
+	for _, key := range doc.Keys {
+		if key.ID != keyID || (key.Status != "active" && key.Status != "retired") {
+			continue
+		}
+		public, err := base64.RawURLEncoding.DecodeString(key.PublicKey)
+		if err != nil {
+			return ErrInvalid
+		}
+		sig, err := base64.RawURLEncoding.DecodeString(signature)
+		if err == nil && ed25519.Verify(public, message, sig) {
+			return nil
+		}
+	}
+	return ErrInvalid
+}
+
+func (s *Store) Peer(instance string) (Peer, error) {
+	peers, err := s.Peers()
+	if err != nil {
+		return Peer{}, err
+	}
+	for _, peer := range peers {
+		if peer.Instance == instance {
+			return peer, nil
+		}
+	}
+	return Peer{}, ErrNotFound
+}
+
+func (s *Store) SaveRemote(item RemoteRepository) (RemoteRepository, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, err := s.load()
+	if err != nil {
+		return item, err
+	}
+	for i := range d.Repositories {
+		if d.Repositories[i].Reference == item.Reference {
+			d.Repositories[i] = item
+			return item, s.save(d)
+		}
+	}
+	d.Repositories = append(d.Repositories, item)
+	return item, s.save(d)
+}
+
+func (s *Store) Remote(reference string) (RemoteRepository, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, err := s.load()
+	if err != nil {
+		return RemoteRepository{}, err
+	}
+	for _, item := range d.Repositories {
+		if item.Reference == reference {
+			return item, nil
+		}
+	}
+	return RemoteRepository{}, ErrNotFound
+}
+
+func (s *Store) Remotes() ([]RemoteRepository, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, err := s.load()
+	return d.Repositories, err
 }
 func oneOf(v string, xs ...string) bool {
 	for _, x := range xs {
