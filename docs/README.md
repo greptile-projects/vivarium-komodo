@@ -28,8 +28,20 @@ suspension, expiry, identity revocation, and federation-trust revocation append
 attributable events instead of erasing eligibility history. Reads expose the
 participant's role, evidence, responsibilities, term, nominations, appeals,
 conflicts, and lifecycle state. Every standing has an explicitly empty
-`operational_authority` list: participation or a later vote does not grant code,
-secret, merge, deployment, membership, or credential access.
+operational-authority boundary.
+
+Governed proposals extend an active charter at `/governance-charter/proposals`.
+They freeze the applicable charter version and declared decision rules while
+showing alternatives, cited evidence, scope, affected resources, disclosures,
+discussion deadline, electorate roles, quorum, threshold, and implementation
+effects. Current active standing controls who may open and cast one human
+ballot; approved agents can contribute only cited analysis. Secret choices and
+rationales stay sealed until closure. Tallying re-evaluates standing, excludes
+recused, expired, suspended, or revoked voters, treats abstentions separately,
+and retains the counts, electorate, exclusions, deterministic digest, contests,
+resolutions, and dissent without granting implementation authority. Participation
+or a later vote does not grant code, secret, merge, deployment, membership, or
+credential access.
 
 ## External extensions
 

@@ -263,6 +263,144 @@ func registerGovernanceHTTP(mux *http.ServeMux, s *governance.Store, repos owned
 			}
 			writeJSON(w, 200, v)
 		})
+		mux.HandleFunc("GET "+base+"/proposals", func(w http.ResponseWriter, r *http.Request) {
+			id, _, _, _, ok := access(w, r, false)
+			if !ok {
+				return
+			}
+			v, e := s.ListProposals(scopeType, id)
+			if e != nil {
+				governanceError(w, e)
+				return
+			}
+			writeJSON(w, 200, map[string]any{"items": v})
+		})
+		mux.HandleFunc("POST "+base+"/proposals", func(w http.ResponseWriter, r *http.Request) {
+			id, a, _, _, ok := access(w, r, false)
+			if !ok {
+				return
+			}
+			var in governance.ProposalInput
+			if !readJSON(w, r, &in, 128<<10) {
+				return
+			}
+			v, e := s.OpenProposal(scopeType, id, a.UserID, in)
+			if e != nil {
+				governanceError(w, e)
+				return
+			}
+			writeJSON(w, 201, v)
+		})
+		mux.HandleFunc("GET "+base+"/proposals/{proposal}", func(w http.ResponseWriter, r *http.Request) {
+			id, _, _, _, ok := access(w, r, false)
+			if !ok {
+				return
+			}
+			v, e := s.GetProposal(scopeType, id, r.PathValue("proposal"))
+			if e != nil {
+				governanceError(w, e)
+				return
+			}
+			writeJSON(w, 200, v)
+		})
+		mux.HandleFunc("POST "+base+"/proposals/{proposal}/discussion", func(w http.ResponseWriter, r *http.Request) {
+			id, a, _, _, ok := access(w, r, false)
+			if !ok {
+				return
+			}
+			var in struct {
+				ActorKind string                        `json:"actor_kind"`
+				Body      string                        `json:"body"`
+				Citations []governance.ProposalEvidence `json:"citations"`
+			}
+			if !readJSON(w, r, &in, 64<<10) {
+				return
+			}
+			if in.ActorKind == "" {
+				in.ActorKind = "human"
+			}
+			v, e := s.Discuss(scopeType, id, r.PathValue("proposal"), a.UserID, in.ActorKind, in.Body, in.Citations)
+			if e != nil {
+				governanceError(w, e)
+				return
+			}
+			writeJSON(w, 201, v)
+		})
+		mux.HandleFunc("POST "+base+"/proposals/{proposal}/ballots", func(w http.ResponseWriter, r *http.Request) {
+			id, a, _, _, ok := access(w, r, false)
+			if !ok {
+				return
+			}
+			var in struct {
+				Choice  string `json:"choice"`
+				Reason  string `json:"reason"`
+				Abstain bool   `json:"abstain"`
+			}
+			if !readJSON(w, r, &in, 16<<10) {
+				return
+			}
+			v, e := s.Cast(scopeType, id, r.PathValue("proposal"), a.UserID, in.Choice, in.Reason, in.Abstain)
+			if e != nil {
+				governanceError(w, e)
+				return
+			}
+			writeJSON(w, 201, v)
+		})
+		mux.HandleFunc("POST "+base+"/proposals/{proposal}/tally", func(w http.ResponseWriter, r *http.Request) {
+			id, _, _, _, ok := access(w, r, true)
+			if !ok {
+				return
+			}
+			var in struct {
+				CloseEarly bool `json:"close_early"`
+			}
+			if !readJSON(w, r, &in, 8<<10) {
+				return
+			}
+			v, e := s.Finalize(scopeType, id, r.PathValue("proposal"), in.CloseEarly)
+			if e != nil {
+				governanceError(w, e)
+				return
+			}
+			writeJSON(w, 200, v)
+		})
+		mux.HandleFunc("POST "+base+"/proposals/{proposal}/contests", func(w http.ResponseWriter, r *http.Request) {
+			id, a, _, _, ok := access(w, r, false)
+			if !ok {
+				return
+			}
+			var in struct {
+				Reason   string                        `json:"reason"`
+				Evidence []governance.ProposalEvidence `json:"evidence"`
+			}
+			if !readJSON(w, r, &in, 32<<10) {
+				return
+			}
+			v, e := s.Contest(scopeType, id, r.PathValue("proposal"), a.UserID, in.Reason, in.Evidence)
+			if e != nil {
+				governanceError(w, e)
+				return
+			}
+			writeJSON(w, 201, v)
+		})
+		mux.HandleFunc("POST "+base+"/proposals/{proposal}/contests/{contest}/resolution", func(w http.ResponseWriter, r *http.Request) {
+			id, a, _, _, ok := access(w, r, true)
+			if !ok {
+				return
+			}
+			var in struct {
+				Resolution string `json:"resolution"`
+			}
+			if !readJSON(w, r, &in, 16<<10) {
+				return
+			}
+			v, e := s.ResolveContest(scopeType, id, r.PathValue("proposal"), r.PathValue("contest"), a.UserID, in.Resolution)
+			if e != nil {
+				governanceError(w, e)
+				return
+			}
+			writeJSON(w, 200, v)
+		})
 	}
 	register("repository", "/repositories/{repository}/governance-charter")
 	register("organization", "/organizations/{organization}/governance-charter")

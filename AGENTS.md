@@ -192,6 +192,18 @@ show eligibility, role, responsibilities, term, nominations, appeals, and an
 explicitly empty operational-authority boundary; governance voice never grants
 code, secret, merge, deployment, membership, or credential access.
 
+Active governance standings also form the live electorate for governed proposals
+beneath each repository or organization governance charter. Eligible participants
+may open technical decisions, initiatives, policy exceptions, funding or resource
+requests, leadership nominations, and charter amendments with frozen charter
+rules, alternatives, citations, affected resources, disclosures, discussion
+deadline, and implementation effects. Human ballots are single-use and may be
+attributable or sealed until tally; agents may add cited analysis but never vote.
+Finalization re-evaluates active, unexpired, unrecused standing, separates
+abstentions, excludes newly ineligible ballots, applies quorum and threshold
+deterministically, and retains a digest, dissent, contests, and resolutions.
+Governance outcomes remain evidence and grant no operational authority.
+
 External integration identities live beneath `$EXTENSION_ROOT` (default
 `apps/api/data/extensions`). An authenticated developer registers an extension
 with its human owner, operator email, declared capabilities, HTTPS callback and
