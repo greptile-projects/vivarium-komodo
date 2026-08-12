@@ -313,7 +313,7 @@ func main() {
 	if instanceOrigin == "" {
 		instanceOrigin = "https://localhost:8080"
 	}
-	federationStore, err := federation.New(federationRoot, federation.Config{Instance: instanceOrigin, Operators: []federation.Operator{{Name: "Komodo operator", Contact: "mailto:operator@localhost"}}, Capabilities: []string{"identity.discovery", "actor.lookup", "key.rotation", "repository.discovery"}, Endpoints: federation.Endpoints{Discovery: instanceOrigin + "/.well-known/komodo-federation", Actors: instanceOrigin + "/federation/actors/{kind}/{id}", Repositories: instanceOrigin + "/federation/repositories/{id}"}})
+	federationStore, err := federation.New(federationRoot, federation.Config{Instance: instanceOrigin, Operators: []federation.Operator{{Name: "Komodo operator", Contact: "mailto:operator@localhost"}}, Capabilities: []string{"identity.discovery", "actor.lookup", "key.rotation", "repository.discovery", "repository.contributions"}, Endpoints: federation.Endpoints{Discovery: instanceOrigin + "/.well-known/komodo-federation", Actors: instanceOrigin + "/federation/actors/{kind}/{id}", Repositories: instanceOrigin + "/federation/repositories/{id}", RepositoryObjects: instanceOrigin + "/federation/repositories/{id}/objects", Contributions: instanceOrigin + "/federation/contributions"}})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -363,7 +363,7 @@ func main() {
 	registerUsersHTTP(mux, userStore, credentials)
 	registerExtensionsHTTP(mux, extensionStore, repositoryCatalog, organizationStore, credentials, activityStore, pullRequestStore)
 	registerFederationHTTP(mux, federationStore, credentials)
-	registerFederatedRepositoriesHTTP(mux, federationStore, repositoryCatalog, releaseStore, contributorPathwayStore, issueStore, contributionOpportunityStore, activityStore, credentials)
+	registerFederatedRepositoriesHTTP(mux, federationStore, repositoryCatalog, pullRequestStore, releaseStore, contributorPathwayStore, issueStore, contributionOpportunityStore, activityStore, credentials)
 	registerAuthHTTP(mux, credentials, userStore)
 
 	port := os.Getenv("PORT")

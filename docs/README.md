@@ -48,6 +48,26 @@ snapshot as explicitly stale and marks visibility withdrawal; it never invents
 local access, copies inaccessible evidence, or presents cached context as a
 locally controlled repository.
 
+Peers may separately advertise `repository.contributions`. This capability
+adds signed, bounded Git object and proposal endpoints; it does not widen the
+read-only discovery snapshot. From a current trusted remote observation, a
+developer creates an independently owned local fork with `POST
+/federation/repositories/forks`, then clones and pushes to that ordinary local
+repository with stock Git. `POST /federation/repositories/{fork}/sync` imports
+one selected upstream branch only when it can fast-forward local history.
+
+`POST /federation/repositories/{fork}/proposals` binds an exact local branch tip
+to an exact target tip from the last verified snapshot. The home instance signs
+the bounded object closure, title/body, remote author subject, and public
+contribution context. The upstream verifies its explicitly trusted peer and
+every content-addressed Git object before creating a private immutable source
+snapshot and ordinary reviewable pull request. Remote subjects remain remote
+identifiers: neither instance receives repository membership, reusable
+credentials, Git write access, or authority over the other. Stale revisions,
+unsupported negotiation, unreachable peers, invalid signatures or objects,
+diverged synchronization, and rejected transfer are returned as explicit safe
+failures rather than patches or partial authority grants.
+
 Extensions are platform principals, not user API tokens. Their owners register
 them at `POST /extensions` with an operator contact, capabilities, HTTPS
 callback and action endpoints, requested resource permissions, event types, and

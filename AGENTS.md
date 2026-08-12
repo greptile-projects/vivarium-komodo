@@ -28,6 +28,18 @@ Cached snapshots remain read-only remote context: exact source and cache
 revisions, signature/key, unsupported capabilities, staleness, outage, and
 visibility withdrawal must remain explicit, and inaccessible remote content is
 never copied.
+Trusted peers may independently advertise `repository.contributions`. A home
+instance creates an independently owned local fork by importing a signed,
+bounded Git object closure from a current public remote observation. Stock Git
+uses only the local repository. Selected upstream branch synchronization is
+explicit and fast-forward-only. A cross-instance proposal signs its exact local
+source revision, exact observed remote target, bounded objects, remote author
+subject, metadata, and public contribution context; the upstream verifies its
+trusted peer and content identities before materializing a private immutable
+source snapshot for an ordinary pull request. Negotiation, staleness,
+signature, transfer, and divergence failures stay explicit. Remote subjects
+never become local accounts, grants, credentials, or implicit cross-instance
+repository authority.
 
 Repository documentation collections live beneath `$DOCUMENTATION_ROOT`
 (default `apps/api/data/documentation`). Owner-published immutable versions bind
