@@ -21,6 +21,27 @@ reviewed commit rather than the moving branch. They return explicit
 `view=documentation&ref={revision}` tab makes the explained version, maintainers,
 reviewed source, history, policy, and page content visible together.
 
+Documentation executability is repository-defined in version-1
+`.komodo/documentation-checks.json`. Each check declares a unique ordinary
+check name, one of the `links`, `symbols`, `build`, `sample`, `command`, or
+`tutorial` verification kinds, its collection and pages, the documentation and
+code paths that affect its result, and an exact matrix of source commits,
+packages, or releases. Optional symbol/link lists and coverage counts make the
+resolved surface inspectable; `expected_output` and ordinary artifact paths
+retain built pages and output differences.
+
+Opening or synchronizing a pull request runs these commands beside
+`.komodo/checks.json` checks in the existing CPU/time-bounded, networkless,
+credential-free Bubblewrap environment. Public check-run JSON and event and
+artifact endpoints expose the structured documentation specification, logs,
+matrix, coverage, outcomes, builds, and diffs. The runner hashes only declared
+input path/object identities. When a new source commit changes none of them it
+creates a current successful run that explicitly points to the prior successful
+run; changing any declared documentation or code input executes the check again.
+Repositories use the documentation check's ordinary name in branch
+`required_checks`, making the exact current evidence part of standard readiness
+and merge policy.
+
 ## Preview acceptance
 
 Repository owners publish preview acceptance requirements with `PUT

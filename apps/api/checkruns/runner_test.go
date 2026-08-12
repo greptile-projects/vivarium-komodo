@@ -115,6 +115,90 @@ func TestRunnerExecutesUpstreamCheckAgainstForkSnapshot(t *testing.T) {
 	t.Fatal("cross-repository check did not complete")
 }
 
+func TestDocumentationChecksRetainMatrixEvidenceAndReuseOnlyUnaffectedInputs(t *testing.T) {
+	gitStore, _ := storage.New(t.TempDir())
+	repository, _ := gitStore.Create()
+	makeCommit := func(guide, code, unrelated string) storage.ObjectID {
+		guideBlob, _ := repository.WriteObject(storage.BlobObject, []byte(guide))
+		codeBlob, _ := repository.WriteObject(storage.BlobObject, []byte(code))
+		otherBlob, _ := repository.WriteObject(storage.BlobObject, []byte(unrelated))
+		checksBlob, _ := repository.WriteObject(storage.BlobObject, []byte(`{"version":1,"checks":[{"name":"unit","command":"true","timeout_seconds":5}]}`))
+		docManifest := `{"version":1,"checks":[{"name":"docs/tutorial","command":"printf 'expected\\n' > expected.txt; printf 'actual\\n' > actual.txt; diff -u expected.txt actual.txt > output.diff || true; printf '<html>built</html>' > built.html","timeout_seconds":5,"artifacts":["built.html","output.diff"],"documentation":{"kind":"tutorial","collection_id":"guide","inputs":["docs/guide.md","src/api.txt"],"pages":["docs/guide.md"],"symbols":["Client.Open"],"links":["/reference/client"],"versions":[{"label":"v1","source_commit":"source-v1"},{"label":"sdk-2","package":"@example/sdk@2"}],"expected_output":"expected","coverage":{"links":1,"symbols":1,"samples":1}}}]}`
+		docsChecksBlob, _ := repository.WriteObject(storage.BlobObject, []byte(docManifest))
+		configTree, _ := repository.WriteObject(storage.TreeObject, tree(t, map[string]treeItem{"checks.json": {checksBlob, 0o100644}, "documentation-checks.json": {docsChecksBlob, 0o100644}}))
+		docsTree, _ := repository.WriteObject(storage.TreeObject, tree(t, map[string]treeItem{"guide.md": {guideBlob, 0o100644}}))
+		srcTree, _ := repository.WriteObject(storage.TreeObject, tree(t, map[string]treeItem{"api.txt": {codeBlob, 0o100644}}))
+		rootTree, _ := repository.WriteObject(storage.TreeObject, tree(t, map[string]treeItem{".komodo": {configTree, 0o40000}, "docs": {docsTree, 0o40000}, "src": {srcTree, 0o40000}, "notes.txt": {otherBlob, 0o100644}}))
+		commit, _ := repository.WriteObject(storage.CommitObject, []byte("tree "+string(rootTree)+"\nauthor A <a@example.com> 1 +0000\ncommitter A <a@example.com> 1 +0000\n\ndocs\n"))
+		return commit
+	}
+	store, _ := New(t.TempDir())
+	runner := NewRunner(store, testRepositories{repository})
+	wait := func(want int) []Run {
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			runs, _ := store.List(string(repository.ID()), "pull-docs")
+			terminal := len(runs) == want
+			for _, run := range runs {
+				terminal = terminal && (run.State == Succeeded || run.State == Failed)
+			}
+			if terminal {
+				return runs
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatal("documentation checks did not complete")
+		return nil
+	}
+	firstCommit := makeCommit("guide", "api", "one")
+	if err := runner.Start(string(repository.ID()), string(repository.ID()), "pull-docs", string(firstCommit)); err != nil {
+		t.Fatal(err)
+	}
+	first := wait(2)
+	var original Run
+	for _, run := range first {
+		if run.Definition.Kind == "documentation" {
+			original = run
+		}
+	}
+	if original.State != Succeeded || original.Definition.Documentation == nil || len(original.Definition.Documentation.Versions) != 2 || original.Definition.Documentation.Coverage["samples"] != 1 {
+		t.Fatalf("documentation evidence = %#v", original)
+	}
+	artifacts := 0
+	for _, event := range original.Events {
+		if event.Artifact != nil {
+			artifacts++
+		}
+	}
+	if artifacts != 2 {
+		t.Fatalf("artifacts = %#v", original.Events)
+	}
+	secondCommit := makeCommit("guide", "api", "unrelated changed")
+	if err := runner.Start(string(repository.ID()), string(repository.ID()), "pull-docs", string(secondCommit)); err != nil {
+		t.Fatal(err)
+	}
+	second := wait(4)
+	var reused Run
+	for _, run := range second {
+		if run.CommitID == string(secondCommit) && run.Definition.Kind == "documentation" {
+			reused = run
+		}
+	}
+	if reused.State != Succeeded || reused.Definition.Documentation.ReusedFromRunID != original.ID || reused.Definition.Documentation.InputDigest != original.Definition.Documentation.InputDigest {
+		t.Fatalf("reused evidence = %#v", reused)
+	}
+	thirdCommit := makeCommit("guide changed", "api", "unrelated changed")
+	if err := runner.Start(string(repository.ID()), string(repository.ID()), "pull-docs", string(thirdCommit)); err != nil {
+		t.Fatal(err)
+	}
+	third := wait(6)
+	for _, run := range third {
+		if run.CommitID == string(thirdCommit) && run.Definition.Kind == "documentation" && run.Definition.Documentation.ReusedFromRunID != "" {
+			t.Fatalf("changed documentation evidence was reused: %#v", run)
+		}
+	}
+}
+
 func TestRunnerRejectsUnsupportedManifestBeforeQueuing(t *testing.T) {
 	gitStore, _ := storage.New(t.TempDir())
 	repository, _ := gitStore.Create()
