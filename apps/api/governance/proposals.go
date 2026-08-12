@@ -95,6 +95,8 @@ type GovernedProposal struct {
 	Ballots                []Ballot              `json:"ballots"`
 	Tally                  *Tally                `json:"tally,omitempty"`
 	Contests               []Contest             `json:"contests"`
+	DecisionReceipt        *DecisionReceipt      `json:"decision_receipt,omitempty"`
+	Implementation         *Implementation       `json:"implementation,omitempty"`
 }
 type ProposalInput struct {
 	Kind                   string                `json:"kind"`
@@ -364,6 +366,10 @@ func (s *Store) Finalize(t, scope, p string, force bool) (GovernedProposal, erro
 	sum := sha256.Sum256(raw)
 	v.Tally = &Tally{Electorate: elect, EligibleCount: len(elect), CountedBallots: counted, Abstentions: abstain, ExcludedBallots: excluded, Counts: counts, QuorumRequired: v.Quorum, QuorumMet: quorumMet, Threshold: v.Threshold, ThresholdMet: thresholdMet, Winner: winner, Outcome: outcome, Digest: hex.EncodeToString(sum[:]), ComputedAt: now}
 	v.State = outcome
+	if outcome == "approved" {
+		v.DecisionReceipt = newDecisionReceipt(v, now)
+		v.Implementation = newImplementation(v, now)
+	}
 	e = s.writeProposal(t, scope, v)
 	return v, e
 }

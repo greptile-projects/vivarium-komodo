@@ -364,6 +364,22 @@ func registerGovernanceHTTP(mux *http.ServeMux, s *governance.Store, repos owned
 			}
 			writeJSON(w, 200, v)
 		})
+		mux.HandleFunc("POST "+base+"/proposals/{proposal}/implementation", func(w http.ResponseWriter, r *http.Request) {
+			id, a, _, _, ok := access(w, r, true)
+			if !ok {
+				return
+			}
+			var in governance.ImplementationInput
+			if !readJSON(w, r, &in, 64<<10) {
+				return
+			}
+			v, e := s.RecordImplementation(scopeType, id, r.PathValue("proposal"), a.UserID, in)
+			if e != nil {
+				governanceError(w, e)
+				return
+			}
+			writeJSON(w, 201, v)
+		})
 		mux.HandleFunc("POST "+base+"/proposals/{proposal}/contests", func(w http.ResponseWriter, r *http.Request) {
 			id, a, _, _, ok := access(w, r, false)
 			if !ok {

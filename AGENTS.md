@@ -204,6 +204,15 @@ abstentions, excludes newly ineligible ballots, applies quorum and threshold
 deterministically, and retains a digest, dissent, contests, and resolutions.
 Governance outcomes remain evidence and grant no operational authority.
 
+Approved governed proposals create an immutable decision receipt binding the
+charter, tally, winner, scope, affected resources, and effects. Their public
+implementation record separates the community mandate from required owner
+approval and links ordinary policy revisions, initiatives, task plans, role
+transitions, or bounded access requests plus blockers back to that receipt.
+Those resources retain existing review, integration, release, environment,
+extension, and agent controls. Material changes require a new or amended
+decision and cannot be appended beneath the prior mandate.
+
 External integration identities live beneath `$EXTENSION_ROOT` (default
 `apps/api/data/extensions`). An authenticated developer registers an extension
 with its human owner, operator email, declared capabilities, HTTPS callback and
