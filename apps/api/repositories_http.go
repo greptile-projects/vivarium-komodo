@@ -14,6 +14,8 @@ type ownedRepositoryStore interface {
 	Create(string, repositories.Metadata) (repositories.Repository, error)
 	Fork(string, storage.ID, repositories.Metadata) (repositories.Repository, error)
 	SyncForkBranch(string, storage.ID, string) (repositories.SyncResult, error)
+	CreateRemoteFork(string, repositories.Metadata, string, string, []storage.Object, storage.ObjectID) (repositories.Repository, error)
+	ImportRemoteBranch(string, storage.ID, string, []storage.Object, storage.ObjectID) (repositories.SyncResult, error)
 	Get(string, storage.ID) (repositories.Repository, error)
 	Inspect(storage.ID) (repositories.Repository, error)
 	List(string) ([]repositories.Repository, error)
@@ -425,6 +427,9 @@ func repositoryResponse(item repositories.Repository) map[string]any {
 	if item.UpstreamID != "" {
 		response["upstream_repository_id"] = item.UpstreamID
 		response["upstream_api_url"] = "/repositories/" + string(item.UpstreamID)
+	}
+	if item.RemoteUpstreamRef != "" {
+		response["remote_upstream_reference"] = item.RemoteUpstreamRef
 	}
 	return response
 }

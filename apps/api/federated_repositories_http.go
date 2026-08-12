@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -18,6 +19,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/contributorpathways"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/federation"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/issues"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -45,9 +47,288 @@ type signedFederatedSnapshot struct {
 	Signature string            `json:"signature"`
 }
 
+type federatedObjectBundle struct {
+	SchemaVersion int              `json:"schema_version"`
+	Instance      string           `json:"instance"`
+	RepositoryID  string           `json:"repository_id"`
+	Branch        string           `json:"branch"`
+	Tip           string           `json:"tip"`
+	Objects       []storage.Object `json:"objects"`
+	KeyID         string           `json:"key_id"`
+	Signature     string           `json:"signature"`
+}
+type federatedContribution struct {
+	SchemaVersion      int               `json:"schema_version"`
+	SourceInstance     string            `json:"source_instance"`
+	SourceRepositoryID string            `json:"source_repository_id"`
+	SourceBranch       string            `json:"source_branch"`
+	SourceCommitID     string            `json:"source_commit_id"`
+	TargetReference    string            `json:"target_reference"`
+	TargetBranch       string            `json:"target_branch"`
+	TargetCommitID     string            `json:"target_commit_id"`
+	AuthorSubject      string            `json:"author_subject"`
+	Title              string            `json:"title"`
+	Body               string            `json:"body"`
+	Objects            []storage.Object  `json:"objects"`
+	Context            map[string]string `json:"context,omitempty"`
+	KeyID              string            `json:"key_id"`
+	Signature          string            `json:"signature"`
+}
+
+func objectBundleBytes(v federatedObjectBundle) []byte {
+	v.Signature = ""
+	v.KeyID = ""
+	b, _ := json.Marshal(v)
+	return b
+}
+func contributionBytes(v federatedContribution) []byte {
+	v.Signature = ""
+	v.KeyID = ""
+	b, _ := json.Marshal(v)
+	return b
+}
+func fetchObjectBundle(doc *federation.Document, repositoryID, branch string) (federatedObjectBundle, error) {
+	var bundle federatedObjectBundle
+	if doc == nil || doc.Endpoints.RepositoryObjects == "" {
+		return bundle, errors.New("object endpoint unavailable")
+	}
+	endpoint := strings.ReplaceAll(doc.Endpoints.RepositoryObjects, "{id}", url.PathEscape(repositoryID)) + "?branch=" + url.QueryEscape(branch)
+	response, err := (&http.Client{Timeout: 10 * time.Second}).Get(endpoint)
+	if err != nil {
+		return bundle, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 {
+		return bundle, fmt.Errorf("object endpoint returned %s", response.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 16<<20))
+	if err != nil || json.Unmarshal(body, &bundle) != nil {
+		return bundle, errors.New("invalid object bundle")
+	}
+	if bundle.SchemaVersion != 1 || bundle.Instance != doc.Instance || bundle.RepositoryID != repositoryID || bundle.Branch != branch || len(bundle.Objects) > 10000 || federation.VerifySigned(*doc, bundle.KeyID, bundle.Signature, objectBundleBytes(bundle)) != nil {
+		return bundle, errors.New("invalid object signature")
+	}
+	return bundle, nil
+}
+
 func snapshotBytes(snapshot federatedSnapshot) []byte { data, _ := json.Marshal(snapshot); return data }
 
-func registerFederatedRepositoriesHTTP(mux *http.ServeMux, fed *federation.Store, repos ownedRepositoryStore, releasesStore releaseStore, pathways contributorPathwayStore, issueStore *issues.Store, opportunities *contributionopportunities.Store, activity activityStore, credentials authStore) {
+func registerFederatedRepositoriesHTTP(mux *http.ServeMux, fed *federation.Store, repos ownedRepositoryStore, pulls pullRequestStore, releasesStore releaseStore, pathways contributorPathwayStore, issueStore *issues.Store, opportunities *contributionopportunities.Store, activity activityStore, credentials authStore) {
+	mux.HandleFunc("GET /federation/repositories/{repository}/objects", func(w http.ResponseWriter, r *http.Request) {
+		repo, err := repos.Inspect(storage.ID(r.PathValue("repository")))
+		if err != nil || repo.Visibility != repositories.Public {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		opened, err := repos.(interface {
+			Open(storage.ID) (*storage.Repository, error)
+		}).Open(repo.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		branch := strings.TrimSpace(r.URL.Query().Get("branch"))
+		tip, _, ok := branchTip(opened, branch)
+		if !ok {
+			writeJSON(w, 422, map[string]string{"error": "invalid_branch"})
+			return
+		}
+		objects, err := opened.ListObjects()
+		if err != nil || len(objects) > 10000 {
+			writeJSON(w, 422, map[string]string{"error": "object_transfer_unavailable"})
+			return
+		}
+		bundle := federatedObjectBundle{SchemaVersion: 1, Instance: mustFederationInstance(fed), RepositoryID: string(repo.ID), Branch: branch, Tip: string(tip), Objects: objects}
+		bundle.KeyID, bundle.Signature, err = fed.Sign(objectBundleBytes(bundle))
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, 200, bundle)
+	})
+	mux.HandleFunc("POST /federation/repositories/forks", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in struct {
+			Reference, Branch, Name, Description string
+			Visibility                           repositories.Visibility
+		}
+		if !readJSON(w, r, &in, 16<<10) {
+			return
+		}
+		remote, err := fed.Remote(in.Reference)
+		if err != nil || remote.Status != "current" || remote.Stale {
+			writeJSON(w, 409, map[string]string{"error": "current_remote_repository_required"})
+			return
+		}
+		peer, err := fed.Peer(remote.Instance)
+		if err != nil || peer.Trust != "trusted" || peer.LastDocument == nil || !hasCapability(peer.LastDocument.Capabilities, "repository.contributions") {
+			writeJSON(w, 409, map[string]string{"error": "remote_contribution_unsupported"})
+			return
+		}
+		bundle, err := fetchObjectBundle(peer.LastDocument, remote.RepositoryID, in.Branch)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "remote_object_transfer_failed"})
+			return
+		}
+		if in.Name == "" {
+			in.Name = remote.RepositoryID + "-fork"
+		}
+		if in.Visibility == "" {
+			in.Visibility = repositories.Private
+		}
+		item, err := repos.CreateRemoteFork(actor.UserID, repositories.Metadata{Name: in.Name, Description: in.Description, Visibility: in.Visibility}, in.Reference, bundle.Branch, bundle.Objects, storage.ObjectID(bundle.Tip))
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "remote_fork_failed"})
+			return
+		}
+		writeJSON(w, 201, repositoryResponse(item))
+	})
+	mux.HandleFunc("POST /federation/repositories/{repository}/sync", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		repo, err := repos.Inspect(storage.ID(r.PathValue("repository")))
+		if err != nil || repo.OwnerID != actor.UserID || repo.RemoteUpstreamRef == "" {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var in struct {
+			Branch string `json:"branch"`
+		}
+		if !readJSON(w, r, &in, 1024) {
+			return
+		}
+		remote, err := fed.Remote(repo.RemoteUpstreamRef)
+		if err != nil || remote.Status != "current" {
+			writeJSON(w, 409, map[string]string{"error": "remote_repository_unavailable"})
+			return
+		}
+		peer, _ := fed.Peer(remote.Instance)
+		bundle, err := fetchObjectBundle(peer.LastDocument, remote.RepositoryID, in.Branch)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "remote_object_transfer_failed"})
+			return
+		}
+		result, err := repos.ImportRemoteBranch(actor.UserID, repo.ID, in.Branch, bundle.Objects, storage.ObjectID(bundle.Tip))
+		if errors.Is(err, repositories.ErrForkConflict) {
+			writeJSON(w, 409, map[string]string{"error": "fork_branch_diverged"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "remote_sync_failed"})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"branch": result.Branch, "before_commit_id": result.Before, "after_commit_id": result.After, "updated": result.Updated})
+	})
+	mux.HandleFunc("POST /federation/repositories/{repository}/proposals", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		repo, err := repos.Inspect(storage.ID(r.PathValue("repository")))
+		if err != nil || repo.OwnerID != actor.UserID || repo.RemoteUpstreamRef == "" {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var in struct {
+			SourceBranch, SourceCommitID, TargetBranch, TargetCommitID, Title, Body string
+			Context                                                                 map[string]string
+		}
+		if !readJSON(w, r, &in, 80<<10) {
+			return
+		}
+		opened, _ := repos.(interface {
+			Open(storage.ID) (*storage.Repository, error)
+		}).Open(repo.ID)
+		tip, branch, valid := branchTip(opened, in.SourceBranch)
+		if !valid || string(tip) != in.SourceCommitID {
+			writeJSON(w, 409, map[string]string{"error": "source_revision_changed"})
+			return
+		}
+		remote, err := fed.Remote(repo.RemoteUpstreamRef)
+		if err != nil || remote.Status != "current" {
+			writeJSON(w, 409, map[string]string{"error": "remote_repository_unavailable"})
+			return
+		}
+		var snap federatedSnapshot
+		if json.Unmarshal(remote.Snapshot, &snap) != nil {
+			writeJSON(w, 409, map[string]string{"error": "invalid_remote_snapshot"})
+			return
+		}
+		targetOK := false
+		for _, b := range snap.Branches {
+			targetOK = targetOK || b.Name == in.TargetBranch && b.CommitID == in.TargetCommitID
+		}
+		if !targetOK {
+			writeJSON(w, 409, map[string]string{"error": "target_revision_changed"})
+			return
+		}
+		objects, _ := opened.ListObjects()
+		subject := "user:" + actor.UserID + "@" + mustFederationInstance(fed)
+		c := federatedContribution{SchemaVersion: 1, SourceInstance: mustFederationInstance(fed), SourceRepositoryID: string(repo.ID), SourceBranch: branch, SourceCommitID: string(tip), TargetReference: repo.RemoteUpstreamRef, TargetBranch: in.TargetBranch, TargetCommitID: in.TargetCommitID, AuthorSubject: subject, Title: in.Title, Body: in.Body, Objects: objects, Context: in.Context}
+		c.KeyID, c.Signature, err = fed.Sign(contributionBytes(c))
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		peer, _ := fed.Peer(remote.Instance)
+		endpoint := peer.LastDocument.Endpoints.Contributions
+		body, _ := json.Marshal(c)
+		response, err := http.Post(endpoint, "application/vnd.komodo.federated-contribution+json; version=1", bytes.NewReader(body))
+		if err != nil {
+			writeJSON(w, 202, map[string]string{"status": "transfer_failed", "error": "remote_unreachable"})
+			return
+		}
+		defer response.Body.Close()
+		payload, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(response.StatusCode)
+		_, _ = w.Write(payload)
+	})
+	mux.HandleFunc("POST /federation/contributions", func(w http.ResponseWriter, r *http.Request) {
+		var c federatedContribution
+		if !readJSON(w, r, &c, 16<<20) {
+			return
+		}
+		peer, err := fed.Peer(c.SourceInstance)
+		if err != nil || peer.Trust != "trusted" || peer.LastDocument == nil || federation.VerifySigned(*peer.LastDocument, c.KeyID, c.Signature, contributionBytes(c)) != nil {
+			writeJSON(w, 422, map[string]string{"error": "untrusted_or_invalid_contribution"})
+			return
+		}
+		instance, targetID, valid := parseFederatedRepositoryReference(c.TargetReference)
+		if !valid || instance != mustFederationInstance(fed) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_target"})
+			return
+		}
+		target, err := repos.Inspect(storage.ID(targetID))
+		if err != nil || target.Visibility != repositories.Public {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		targetOpened, _ := repos.(interface {
+			Open(storage.ID) (*storage.Repository, error)
+		}).Open(target.ID)
+		targetTip, targetBranch, ok := branchTip(targetOpened, c.TargetBranch)
+		if !ok || string(targetTip) != c.TargetCommitID {
+			writeJSON(w, 409, map[string]string{"error": "target_revision_changed"})
+			return
+		}
+		source, err := repos.CreateRemoteFork(target.OwnerID, repositories.Metadata{Name: "federated-" + strings.ReplaceAll(c.SourceRepositoryID, "_", "-"), Description: "Federated contribution snapshot", Visibility: repositories.Private}, "repository:"+c.SourceRepositoryID+"@"+c.SourceInstance, c.SourceBranch, c.Objects, storage.ObjectID(c.SourceCommitID))
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "object_transfer_rejected"})
+			return
+		}
+		item, err := pulls.Create(pullrequests.CreateParams{RepositoryID: string(target.ID), SourceRepositoryID: string(source.ID), AuthorID: c.AuthorSubject, Title: c.Title, Body: c.Body, SourceBranch: c.SourceBranch, TargetBranch: targetBranch, SourceCommitID: c.SourceCommitID, TargetCommitID: c.TargetCommitID})
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "proposal_rejected"})
+			return
+		}
+		writeJSON(w, 201, item)
+	})
 	mux.HandleFunc("GET /federation/repositories/{repository}", func(w http.ResponseWriter, r *http.Request) {
 		repo, err := repos.Inspect(storage.ID(r.PathValue("repository")))
 		if err != nil || repo.Visibility != repositories.Public {

@@ -51,6 +51,100 @@ type Repository struct {
 	PreviewAcceptance []PreviewAcceptanceRequirement    `json:"preview_acceptance_requirements,omitempty"`
 	IntegrationQueue  map[string]IntegrationQueuePolicy `json:"integration_queue,omitempty"`
 	UpstreamID        storage.ID                        `json:"upstream_repository_id,omitempty"`
+	RemoteUpstreamRef string                            `json:"remote_upstream_reference,omitempty"`
+}
+
+// CreateRemoteFork publishes an independently owned repository from a verified
+// federated object closure. Remote lineage is metadata only and grants no authority.
+func (s *Store) CreateRemoteFork(ownerID string, metadata Metadata, upstreamRef, branch string, objects []storage.Object, tip storage.ObjectID) (Repository, error) {
+	metadata, err := validateMetadata(metadata)
+	if err != nil || strings.TrimSpace(upstreamRef) == "" || strings.TrimSpace(branch) == "" || tip == "" {
+		return Repository{}, ErrInvalidRepository
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensureNameAvailable(ownerID, metadata.Name, ""); err != nil {
+		return Repository{}, err
+	}
+	r, err := s.storage.Create()
+	if err != nil {
+		return Repository{}, err
+	}
+	failed := true
+	defer func() {
+		if failed {
+			_ = s.storage.Delete(r.ID())
+		}
+	}()
+	for _, object := range objects {
+		id, e := r.WriteObject(object.Type, object.Content)
+		if e != nil || id != object.ID {
+			return Repository{}, ErrInvalidRepository
+		}
+	}
+	if _, err = r.ReadObject(tip); err != nil {
+		return Repository{}, ErrInvalidRepository
+	}
+	if err = r.CreateReference(storage.Reference{Name: storage.ReferenceName("refs/heads/" + branch), ObjectID: tip}); err != nil {
+		return Repository{}, ErrInvalidRepository
+	}
+	now := s.now().UTC()
+	item := Repository{ID: r.ID(), OwnerID: ownerID, Name: metadata.Name, Description: metadata.Description, Visibility: metadata.Visibility, Empty: false, RemoteUpstreamRef: upstreamRef, CreatedAt: now, UpdatedAt: now}
+	if err = s.write(item); err != nil {
+		return Repository{}, err
+	}
+	failed = false
+	return item, nil
+}
+
+func (s *Store) ImportRemoteBranch(ownerID string, id storage.ID, branch string, objects []storage.Object, tip storage.ObjectID) (SyncResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.read(id)
+	if err != nil || item.OwnerID != ownerID {
+		return SyncResult{}, ErrNotFound
+	}
+	if item.RemoteUpstreamRef == "" {
+		return SyncResult{}, ErrNotFork
+	}
+	r, err := s.storage.Open(id)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	name := storage.ReferenceName("refs/heads/" + branch)
+	for _, o := range objects {
+		got, e := r.WriteObject(o.Type, o.Content)
+		if e != nil || got != o.ID {
+			return SyncResult{}, ErrInvalidRepository
+		}
+	}
+	if _, err = r.ReadObject(tip); err != nil {
+		return SyncResult{}, ErrInvalidRepository
+	}
+	result := SyncResult{Repository: item, Branch: branch, After: tip}
+	old, e := r.ReadReference(name)
+	if errors.Is(e, storage.ErrReferenceNotFound) {
+		e = r.CreateReference(storage.Reference{Name: name, ObjectID: tip})
+		result.Updated = true
+		return result, e
+	}
+	if e != nil {
+		return SyncResult{}, e
+	}
+	result.Before = old.ObjectID
+	if old.ObjectID == tip {
+		return result, nil
+	}
+	ok, e := isAncestor(r, old.ObjectID, tip)
+	if e != nil {
+		return SyncResult{}, e
+	}
+	if !ok {
+		return SyncResult{}, ErrForkConflict
+	}
+	e = r.UpdateReference(storage.Reference{Name: name, ObjectID: tip})
+	result.Updated = e == nil
+	return result, e
 }
 
 type PreviewAcceptanceScenario struct {

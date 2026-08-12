@@ -27,10 +27,12 @@ type Operator struct {
 	Contact string `json:"contact"`
 }
 type Endpoints struct {
-	Discovery    string `json:"discovery"`
-	Actors       string `json:"actors"`
-	Events       string `json:"events,omitempty"`
-	Repositories string `json:"repositories,omitempty"`
+	Discovery         string `json:"discovery"`
+	Actors            string `json:"actors"`
+	Events            string `json:"events,omitempty"`
+	Repositories      string `json:"repositories,omitempty"`
+	RepositoryObjects string `json:"repository_objects,omitempty"`
+	Contributions     string `json:"contributions,omitempty"`
 }
 type Key struct {
 	ID        string     `json:"id"`
