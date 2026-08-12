@@ -32,6 +32,36 @@ type Collection = {
   findings: Array<{ code: string; detail: string; path?: string }>;
   healthy: boolean;
 };
+type DocumentationTask = {
+  id: string;
+  collection_id: string;
+  title: string;
+  path: string;
+  revision: string;
+  mode: string;
+  branch?: string;
+  workspace_id?: string;
+  creator_id: string;
+  origin: { kind: string; resource_id: string };
+  evidence: string[];
+  events: Array<{
+    sequence: number;
+    type: string;
+    actor_id: string;
+    body?: string;
+    draft?: string;
+    rendered?: string;
+    uncertainty?: string;
+    citations?: string[];
+    references?: Array<{
+      path: string;
+      start_line: number;
+      end_line: number;
+      blob_id: string;
+      excerpt: string;
+    }>;
+  }>;
+};
 async function json<T>(url: string, init?: RequestInit) {
   const response = await fetch(`/api${url}`, init);
   const body = await response.json();
@@ -58,12 +88,21 @@ export function DocumentationCollections({
   const [items, setItems] = useState<Collection[]>([]);
   const [selected, setSelected] = useState("");
   const [error, setError] = useState("");
+  const [tasks, setTasks] = useState<DocumentationTask[]>([]);
+  const [taskID, setTaskID] = useState("");
   useEffect(() => {
     json<{ items: Collection[] }>(
       `/repositories/${repository}/documentation-collections`,
     )
       .then((x) => setItems(x.items))
       .catch((e) => setError(e.message));
+  }, [repository]);
+  useEffect(() => {
+    json<{ items: DocumentationTask[] }>(
+      `/repositories/${repository}/documentation-tasks`,
+    )
+      .then((x) => setTasks(x.items))
+      .catch(() => {});
   }, [repository]);
   const active = items.find((x) => x.id === (selected || items[0]?.id));
   const current = active?.history.at(-1);
@@ -108,6 +147,75 @@ export function DocumentationCollections({
       setError(e instanceof Error ? e.message : "Could not publish");
     }
   }
+  async function openTask(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!active) return;
+    const f = new FormData(event.currentTarget);
+    try {
+      const value = await json<DocumentationTask>(
+        `/repositories/${repository}/documentation-collections/${active.id}/tasks`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: f.get("title"),
+            path: f.get("path"),
+            revision,
+            mode: f.get("mode"),
+            branch: f.get("branch"),
+            origin: {
+              kind: f.get("origin_kind"),
+              resource_id: f.get("origin_id"),
+            },
+            evidence: lines(f.get("evidence")),
+          }),
+        },
+      );
+      setTasks((x) => [...x, value]);
+      setTaskID(value.id);
+      event.currentTarget.reset();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not open task");
+    }
+  }
+  async function addEvent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const task = tasks.find((x) => x.id === taskID);
+    if (!task) return;
+    const f = new FormData(event.currentTarget),
+      type = String(f.get("type"));
+    try {
+      const value = await json<DocumentationTask>(
+        `/repositories/${repository}/documentation-tasks/${task.id}/events`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type,
+            body: f.get("body"),
+            draft: type === "draft" ? f.get("body") : "",
+            citations: lines(f.get("citations")),
+            uncertainty: f.get("uncertainty"),
+            references: f.get("reference_path")
+              ? [
+                  {
+                    path: f.get("reference_path"),
+                    start_line: Number(f.get("start_line")),
+                    end_line: Number(f.get("end_line")),
+                    revision: task.revision,
+                  },
+                ]
+              : [],
+          }),
+        },
+      );
+      setTasks((x) => x.map((y) => (y.id === value.id ? value : y)));
+      event.currentTarget.reset();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not collaborate");
+    }
+  }
+  const activeTask = tasks.find((x) => x.id === taskID);
   return (
     <section className="content-stack">
       <header className="section-heading">
@@ -196,7 +304,7 @@ export function DocumentationCollections({
       {active && current && (
         <article className="card content-stack">
           <header>
-          <Badge tone={active.healthy ? "accent" : "neutral"}>
+            <Badge tone={active.healthy ? "accent" : "neutral"}>
               {active.healthy ? "source healthy" : "attention required"}
             </Badge>
             <h2>{current.name}</h2>
@@ -266,6 +374,160 @@ export function DocumentationCollections({
             </details>
           )}
         </article>
+      )}
+      {active && actor && (
+        <section className="card content-stack">
+          <h3>Grounded documentation tasks</h3>
+          <p>
+            Open a revision-pinned draft from current project evidence.
+            Repository permissions govern this surface and any linked workspace.
+          </p>
+          <form className="form-stack" onSubmit={openTask}>
+            <label>
+              Task title
+              <input name="title" required />
+            </label>
+            <label>
+              Page beneath collection root
+              <input name="path" required placeholder="guide.md" />
+            </label>
+            <label>
+              Origin
+              <select name="origin_kind">
+                <option value="proposal">Proposal</option>
+                <option value="issue">Issue</option>
+                <option value="pull_request">Pull request</option>
+                <option value="release">Release</option>
+                <option value="code_investigation">Code investigation</option>
+                <option value="stewardship_opportunity">
+                  Stewardship opportunity
+                </option>
+              </select>
+            </label>
+            <label>
+              Origin ID
+              <input name="origin_id" required />
+            </label>
+            <label>
+              Evidence notes, one per line
+              <textarea name="evidence" />
+            </label>
+            <label>
+              Editing mode
+              <select name="mode">
+                <option value="workspace">Shared workspace</option>
+                <option value="branch">Scoped branch</option>
+              </select>
+            </label>
+            <label>
+              Branch (required for branch mode)
+              <input name="branch" placeholder="docs/update-guide" />
+            </label>
+            <Button type="submit">Open grounded task</Button>
+          </form>
+          {tasks
+            .filter((x) => x.collection_id === active.id)
+            .map((t) => (
+              <button
+                key={t.id}
+                className={taskID === t.id ? "active" : ""}
+                onClick={() => setTaskID(t.id)}
+              >
+                {t.title} · {t.origin.kind.replaceAll("_", " ")} · {t.mode}
+              </button>
+            ))}
+          {activeTask && (
+            <div className="content-stack">
+              <h3>{activeTask.title}</h3>
+              <p>
+                <code>{activeTask.path}</code> at{" "}
+                <code>{activeTask.revision}</code>
+                {activeTask.workspace_id && (
+                  <>
+                    {" "}
+                    · workspace <code>{activeTask.workspace_id}</code>
+                  </>
+                )}
+              </p>
+              {activeTask.events.map((e) => (
+                <article className="card" key={e.sequence}>
+                  <small>
+                    {e.actor_id} · {e.type}
+                  </small>
+                  {e.rendered ? (
+                    <div dangerouslySetInnerHTML={{ __html: e.rendered }} />
+                  ) : (
+                    <p>{e.body}</p>
+                  )}
+                  {e.uncertainty && (
+                    <p>
+                      <strong>Uncertainty:</strong> {e.uncertainty}
+                    </p>
+                  )}
+                  {e.references?.map((r, i) => (
+                    <pre className="code-block" key={i}>
+                      <code>
+                        {r.path}:{r.start_line}-{r.end_line} · {r.blob_id}
+                        {"\n"}
+                        {r.excerpt}
+                      </code>
+                    </pre>
+                  ))}
+                </article>
+              ))}
+              <form className="form-stack" onSubmit={addEvent}>
+                <label>
+                  Contribution
+                  <select name="type">
+                    <option value="draft">Rendered draft</option>
+                    <option value="discussion">Discussion</option>
+                    <option value="suggestion">
+                      Agent or human suggestion
+                    </option>
+                  </select>
+                </label>
+                <label>
+                  Draft, comment, or suggestion
+                  <textarea name="body" required />
+                </label>
+                <label>
+                  Citations, one per line
+                  <textarea
+                    name="citations"
+                    placeholder="Required for suggestions"
+                  />
+                </label>
+                <label>
+                  Uncertainty
+                  <textarea name="uncertainty" />
+                </label>
+                <label>
+                  Code reference path
+                  <input name="reference_path" />
+                </label>
+                <label>
+                  Start line
+                  <input
+                    name="start_line"
+                    type="number"
+                    min="1"
+                    defaultValue="1"
+                  />
+                </label>
+                <label>
+                  End line
+                  <input
+                    name="end_line"
+                    type="number"
+                    min="1"
+                    defaultValue="1"
+                  />
+                </label>
+                <Button type="submit">Add attributable contribution</Button>
+              </form>
+            </div>
+          )}
+        </section>
       )}
     </section>
   );

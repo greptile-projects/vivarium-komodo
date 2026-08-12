@@ -10,6 +10,16 @@ rendering, publication policy, links, author, and change reason. Reads resolve
 page blobs and commit authorship only from that reviewed revision and explicitly
 report missing ownership, broken sources, rendering mismatches, and stale release
 mappings. The shareable web surface is `view=documentation&ref={revision}`.
+Documentation tasks extend a collection through repository-scoped
+`/documentation-tasks` resources. Repository writers open one from a proposal,
+issue, pull request, release, code investigation, or stewardship opportunity at
+an exact visible commit, choosing an explicit scoped branch or an ordinary
+shared workspace. Tasks retain the collection version, origin, revision,
+preloaded evidence, page path, creator, and attributable append-only drafts,
+discussion, and suggestions. Code references are server-resolved to exact blobs
+and bounded line excerpts; suggestions require citations and retain declared
+uncertainty. Workspace edits continue through the workspace's own access and
+agent-control boundary, and task publication grants no additional authority.
 
 Delivery teams are pre-execution contracts beneath `$DELIVERY_TEAM_ROOT`
 (default `apps/api/data/delivery-teams`). A repository collaborator forms one
