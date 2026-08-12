@@ -66,6 +66,18 @@ snapshot; bounded log, screenshot, or sample-input evidence is redacted before
 persistence. Maintainers link each outcome once to an existing issue, proposal,
 or documentation task with reporter and triage attribution intact.
 
+The complete contract is composed in `documentation_workflow_test.go` using
+only public HTTP and stock Git. It changes behavior and guidance together from
+a contributor proposal, records owner discussion and a source-citing Codex
+suggestion, executes the declared documentation matrix, reviews the rendered
+page, and publishes the merged release edition. A reader then reports a failed
+instruction for the older release; the report is redacted and triaged into a
+version-bound documentation task, and an agent-authored repair returns through
+the same checks, pull-request review, release, and publication policy. Version
+selection retains superseded editions as explicit archives while identifying
+the newest corrected guidance, preserving source, reader, reviewer, publisher,
+and repair authorship instead of rewriting the original edition.
+
 ## Preview acceptance
 
 Repository owners publish preview acceptance requirements with `PUT
