@@ -52,6 +52,20 @@ or merge authority. Reads derive currentness from the local pull revision;
 retries reuse the idempotency key, while conflicting payloads and unavailable
 peers remain explicit recoverable states.
 
+Federated pull-request agent collaboration remains home-instance execution.
+An authorized participant delegates an approved local agent beneath
+`/federation/repositories/{source}/agent-sessions`, binding the trusted remote
+pull reference, exact local contribution revision and branch, and an allowlist
+of paths and evidence. The agent receives only a 24-hour credential for that
+local source branch; guidance, controls, credential revocation, and raw runtime
+events stay local. Publication derives commits and changed paths from Git and
+exports a signed `agent_session` pull-request event containing only the declared
+summary, commands, evidence, costs, and residual concerns. It preserves the
+agent subject and authorizing user without granting either remote repository,
+secret, check, review, merge, or operator authority. State lives beneath
+`$FEDERATED_AGENT_SESSION_ROOT` (default
+`apps/api/data/federated-agent-sessions`).
+
 Repository documentation collections live beneath `$DOCUMENTATION_ROOT`
 (default `apps/api/data/documentation`). Owner-published immutable versions bind
 ordered pages beneath one repository path to exact source commits, supported
