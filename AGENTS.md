@@ -147,6 +147,14 @@ policy effect; they never satisfy or bypass ordinary reviews, required checks,
 merge, release, deployment, environment, or embargo controls. Collaborator
 invocations retain the human actor and create only a requested extension
 action; suspension or removal invalidates the credential immediately.
+Repository extension operations derive attributed requests, delivery failures,
+latency, consumption, permission use, configuration, contribution, invocation,
+and contract-test evidence. Installation credentials expire after ninety days;
+rotation retains issuance/expiry metadata without stored secrets. Missing or
+expiring credentials, dead letters, and anomalous consumption emit actionable
+notices. Contract probes grant no authority; quarantine, pause, narrowing, and
+removal withdraw future authority while retaining prior evidence. Newly
+requested capabilities or permissions always require renewed owner consent.
 
 Opportunity onboarding composes existing resources rather than granting new
 authority. An active claimant starts through

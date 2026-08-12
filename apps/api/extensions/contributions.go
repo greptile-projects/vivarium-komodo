@@ -12,6 +12,7 @@ const (
 	MaxHourlyOperations  = 120
 	MaxContributionBytes = 1 << 20
 	MaxArtifactBytes     = 5 << 20
+	CredentialLifetime   = 90 * 24 * time.Hour
 )
 
 type Resource struct {
@@ -137,8 +138,12 @@ func (s *Store) IssueCredential(repo, installation, actor string) (Installation,
 			d.Credentials = map[string]string{}
 		}
 		d.Credentials[i.ID] = digestToken(token)
+		now := s.now().UTC()
+		expires := now.Add(CredentialLifetime)
+		i.CredentialIssuedAt = &now
+		i.CredentialExpiresAt = &expires
 		i.Version++
-		i.Events = append(i.Events, InstallationEvent{Sequence: int64(len(i.Events) + 1), Type: "credential_rotated", ActorID: actor, CreatedAt: s.now().UTC()})
+		i.Events = append(i.Events, InstallationEvent{Sequence: int64(len(i.Events) + 1), Type: "credential_rotated", ActorID: actor, CreatedAt: now})
 		return *i, token, s.save(d)
 	}
 	return Installation{}, "", ErrNotFound
@@ -153,7 +158,7 @@ func (s *Store) Authenticate(token string) (Installation, error) {
 	got := digestToken(token)
 	for _, i := range d.Installations {
 		want := d.Credentials[i.ID]
-		if i.Status == "active" && want != "" && subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1 {
+		if i.Status == "active" && want != "" && i.CredentialExpiresAt != nil && s.now().UTC().Before(*i.CredentialExpiresAt) && subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1 {
 			return i, nil
 		}
 	}

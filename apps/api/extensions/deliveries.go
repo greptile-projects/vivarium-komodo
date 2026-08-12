@@ -38,6 +38,7 @@ type DeliveryAttempt struct {
 	Outcome     string    `json:"outcome"`
 	Error       string    `json:"error,omitempty"`
 	AttemptedAt time.Time `json:"attempted_at"`
+	LatencyMS   int64     `json:"latency_ms"`
 }
 type Envelope struct {
 	SchemaVersion int                 `json:"schema_version"`
@@ -164,7 +165,7 @@ func (s *Store) DeliveryContext(repo, installation string) (Installation, Extens
 	return Installation{}, Extension{}, "", ErrNotFound
 }
 
-func (s *Store) RecordAttempt(repo, installation, delivery, outcome string, code int, message string, retry bool) (Delivery, error) {
+func (s *Store) RecordAttempt(repo, installation, delivery, outcome string, code int, message string, retry bool, latency ...time.Duration) (Delivery, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	d, e := s.load()
@@ -188,7 +189,11 @@ func (s *Store) RecordAttempt(repo, installation, delivery, outcome string, code
 				return *v, nil
 			}
 			now := s.now().UTC()
-			v.Attempts = append(v.Attempts, DeliveryAttempt{Sequence: len(v.Attempts) + 1, StatusCode: code, Outcome: outcome, Error: message, AttemptedAt: now})
+			var latencyMS int64
+			if len(latency) > 0 {
+				latencyMS = latency[0].Milliseconds()
+			}
+			v.Attempts = append(v.Attempts, DeliveryAttempt{Sequence: len(v.Attempts) + 1, StatusCode: code, Outcome: outcome, Error: message, AttemptedAt: now, LatencyMS: latencyMS})
 			if outcome == "delivered" {
 				v.Status = "delivered"
 				v.NextAttemptAt = nil
