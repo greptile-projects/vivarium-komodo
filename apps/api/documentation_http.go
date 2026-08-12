@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"html"
 	"net/http"
 	"path"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/docscollections"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
 )
 
 type docscollectionsStore interface {
@@ -17,6 +20,11 @@ type docscollectionsStore interface {
 	Update(string, string, string, docscollections.Input) (docscollections.Collection, error)
 	Get(string, string) (docscollections.Collection, error)
 	List(string) ([]docscollections.Collection, error)
+	CreateTask(string, string, string, string, string, string, docscollections.TaskOrigin, []string, string, string) (docscollections.Task, error)
+	SetTaskWorkspace(string, string, string) (docscollections.Task, error)
+	GetTask(string, string) (docscollections.Task, error)
+	ListTasks(string, string) ([]docscollections.Task, error)
+	AddTaskEvent(string, string, string, docscollections.TaskEvent) (docscollections.Task, error)
 }
 type docscollectionsReleaseStore interface {
 	Get(string, string) (releases.Release, error)
@@ -43,7 +51,25 @@ type documentationView struct {
 	Healthy  bool                   `json:"healthy"`
 }
 
-func registerDocumentationHTTP(mux *http.ServeMux, s docscollectionsStore, repos contributorPathwayRepositories, credentials authStore, rs docscollectionsReleaseStore) {
+type documentationWorkspaceStore interface {
+	Create(string, string, string, workspaces.SourceContext, workspaces.Access, workspaces.Definition, string) (workspaces.Workspace, error)
+}
+type documentationWorkspaceRunner interface {
+	Definition(string, string) (workspaces.Definition, string, error)
+	Start(workspaces.Workspace)
+}
+
+func registerDocumentationHTTP(mux *http.ServeMux, s docscollectionsStore, repos contributorPathwayRepositories, credentials authStore, rs docscollectionsReleaseStore, extras ...any) {
+	var ws documentationWorkspaceStore
+	var runner documentationWorkspaceRunner
+	for _, extra := range extras {
+		if x, ok := extra.(documentationWorkspaceStore); ok {
+			ws = x
+		}
+		if x, ok := extra.(documentationWorkspaceRunner); ok {
+			runner = x
+		}
+	}
 	mux.HandleFunc("GET /repositories/{repository}/documentation-collections", func(w http.ResponseWriter, r *http.Request) {
 		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
 		if !ok {
@@ -108,6 +134,164 @@ func registerDocumentationHTTP(mux *http.ServeMux, s docscollectionsStore, repos
 		}
 		writeJSON(w, 201, resolveDocumentation(c, repo.OwnerID, repos, rs))
 	})
+	mux.HandleFunc("GET /repositories/{repository}/documentation-tasks", func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		items, e := s.ListTasks(string(repo.ID), r.URL.Query().Get("collection"))
+		if documentationError(w, e) {
+			return
+		}
+		writeJSON(w, 200, map[string]any{"items": items})
+	})
+	mux.HandleFunc("POST /repositories/{repository}/documentation-collections/{collection}/tasks", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Title, Path, Revision, Mode, Branch string
+			Origin                              docscollections.TaskOrigin
+			Evidence                            []string
+		}
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		opened, e := repos.Open(repo.ID)
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_documentation_revision"})
+			return
+		}
+		if _, e = opened.ReadCommit(storage.ObjectID(in.Revision)); e != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_documentation_revision"})
+			return
+		}
+		if !allowedDocumentationOrigin(in.Origin.Kind) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_documentation_origin"})
+			return
+		}
+		evidence := append([]string{fmt.Sprintf("%s:%s@%s", in.Origin.Kind, in.Origin.ResourceID, in.Revision)}, in.Evidence...)
+		t, e := s.CreateTask(string(repo.ID), r.PathValue("collection"), a.UserID, in.Title, in.Path, in.Revision, in.Origin, evidence, in.Mode, in.Branch)
+		if documentationError(w, e) {
+			return
+		}
+		if in.Mode == "workspace" {
+			if ws == nil || runner == nil {
+				writeJSON(w, 500, map[string]string{"error": "workspace_unavailable"})
+				return
+			}
+			def, digest, e := runner.Definition(string(repo.ID), in.Revision)
+			if e != nil {
+				writeJSON(w, 422, map[string]string{"error": "workspace_definition_unavailable"})
+				return
+			}
+			made, e := ws.Create(string(repo.ID), in.Revision, a.UserID, workspaces.SourceContext{Type: "documentation_task", ID: t.ID, ParentID: t.CollectionID, Evidence: evidence, Guidance: []string{"Draft only within " + t.Path, "Cite revision-grounded sources and declare uncertainty."}}, workspaces.Access{RepositoryID: string(repo.ID), ActorID: a.UserID, Permission: "repository:write"}, def, digest)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			runner.Start(made)
+			t, _ = s.SetTaskWorkspace(string(repo.ID), t.ID, made.ID)
+		}
+		writeJSON(w, 201, t)
+	})
+	mux.HandleFunc("GET /repositories/{repository}/documentation-tasks/{task}", func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		t, e := s.GetTask(string(repo.ID), r.PathValue("task"))
+		if documentationError(w, e) {
+			return
+		}
+		writeJSON(w, 200, t)
+	})
+	mux.HandleFunc("POST /repositories/{repository}/documentation-tasks/{task}/events", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in docscollections.TaskEvent
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		task, e := s.GetTask(string(repo.ID), r.PathValue("task"))
+		if documentationError(w, e) {
+			return
+		}
+		for i := range in.References {
+			ref := &in.References[i]
+			if ref.Revision == "" {
+				ref.Revision = task.Revision
+			}
+			if ref.Revision != task.Revision || ref.StartLine < 1 || ref.EndLine < ref.StartLine || ref.EndLine-ref.StartLine > 40 {
+				writeJSON(w, 422, map[string]string{"error": "invalid_code_reference"})
+				return
+			}
+			blob, e := documentationBlobAtPathMust(repos, repo.ID, ref.Revision, ref.Path)
+			if e != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_code_reference"})
+				return
+			}
+			ref.BlobID = blob.id
+			ref.Excerpt = excerptLines(blob.content, ref.StartLine, ref.EndLine)
+			if ref.Excerpt == "" {
+				writeJSON(w, 422, map[string]string{"error": "invalid_code_reference"})
+				return
+			}
+		}
+		if in.Type == "draft" {
+			in.Rendered = renderDocumentationDraft(in.Draft)
+		}
+		t, e := s.AddTaskEvent(string(repo.ID), task.ID, a.UserID, in)
+		if documentationError(w, e) {
+			return
+		}
+		writeJSON(w, 201, t)
+	})
+}
+func allowedDocumentationOrigin(k string) bool {
+	return map[string]bool{"proposal": true, "issue": true, "pull_request": true, "release": true, "code_investigation": true, "stewardship_opportunity": true}[k]
+}
+
+type documentationBlob struct{ id, content string }
+
+func documentationBlobAtPathMust(repos contributorPathwayRepositories, repo storage.ID, revision, p string) (documentationBlob, error) {
+	opened, e := repos.Open(repo)
+	if e != nil {
+		return documentationBlob{}, e
+	}
+	id, e := documentationBlobAtPath(opened, storage.ObjectID(revision), p)
+	if e != nil {
+		return documentationBlob{}, e
+	}
+	obj, e := opened.ReadObject(id)
+	if e != nil || obj.Type != storage.BlobObject {
+		return documentationBlob{}, storage.ErrNotTree
+	}
+	return documentationBlob{string(id), string(obj.Content)}, nil
+}
+func excerptLines(content string, start, end int) string {
+	xs := strings.Split(content, "\n")
+	if start > len(xs) {
+		return ""
+	}
+	if end > len(xs) {
+		end = len(xs)
+	}
+	return strings.Join(xs[start-1:end], "\n")
+}
+func renderDocumentationDraft(v string) string {
+	parts := strings.Split(strings.ReplaceAll(v, "\r\n", "\n"), "\n\n")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, "<p>"+html.EscapeString(p)+"</p>")
+		}
+	}
+	return strings.Join(out, "\n")
 }
 func documentationError(w http.ResponseWriter, e error) bool {
 	if e == nil {

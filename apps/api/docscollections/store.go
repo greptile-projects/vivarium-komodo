@@ -20,6 +20,51 @@ var (
 	ErrConflict = errors.New("documentation collection changed")
 )
 
+type TaskOrigin struct {
+	Kind           string `json:"kind"`
+	ResourceID     string `json:"resource_id"`
+	ParentID       string `json:"parent_id,omitempty"`
+	OrganizationID string `json:"organization_id,omitempty"`
+}
+type CodeReference struct {
+	Path      string `json:"path"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
+	Revision  string `json:"revision"`
+	BlobID    string `json:"blob_id"`
+	Excerpt   string `json:"excerpt"`
+}
+type TaskEvent struct {
+	Sequence    int64           `json:"sequence"`
+	Type        string          `json:"type"`
+	ActorID     string          `json:"actor_id"`
+	Body        string          `json:"body,omitempty"`
+	Draft       string          `json:"draft,omitempty"`
+	Rendered    string          `json:"rendered,omitempty"`
+	References  []CodeReference `json:"references,omitempty"`
+	Citations   []string        `json:"citations,omitempty"`
+	Uncertainty string          `json:"uncertainty,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
+}
+type Task struct {
+	ID                string      `json:"id"`
+	RepositoryID      string      `json:"repository_id"`
+	CollectionID      string      `json:"collection_id"`
+	CollectionVersion int64       `json:"collection_version"`
+	Title             string      `json:"title"`
+	Path              string      `json:"path"`
+	Origin            TaskOrigin  `json:"origin"`
+	Revision          string      `json:"revision"`
+	Evidence          []string    `json:"evidence"`
+	Mode              string      `json:"mode"`
+	Branch            string      `json:"branch,omitempty"`
+	WorkspaceID       string      `json:"workspace_id,omitempty"`
+	CreatorID         string      `json:"creator_id"`
+	Events            []TaskEvent `json:"events"`
+	CreatedAt         time.Time   `json:"created_at"`
+	UpdatedAt         time.Time   `json:"updated_at"`
+}
+
 type VersionMapping struct {
 	Label          string `json:"label"`
 	SourceRevision string `json:"source_revision"`
@@ -174,6 +219,124 @@ func (s *Store) List(repo string) ([]Collection, error) {
 		out = append(out, c)
 	}
 	return out, nil
+}
+func (s *Store) CreateTask(repo, collection, actor, title, page, revision string, origin TaskOrigin, evidence []string, mode, branch string) (Task, error) {
+	if repo == "" || actor == "" || strings.TrimSpace(title) == "" || len(revision) != 40 || (mode != "branch" && mode != "workspace") || !validPath(page) || origin.Kind == "" || origin.ResourceID == "" || mode == "branch" && strings.TrimSpace(branch) == "" {
+		return Task{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := s.read(repo, collection)
+	if err != nil {
+		return Task{}, err
+	}
+	cur := c.History[len(c.History)-1]
+	full := strings.Trim(strings.Trim(cur.RootPath, "/")+"/"+strings.Trim(page, "/"), "/")
+	if !strings.HasPrefix(full+"/", strings.Trim(cur.RootPath, "/")+"/") {
+		return Task{}, ErrInvalid
+	}
+	now := s.now().UTC()
+	t := Task{ID: id(), RepositoryID: repo, CollectionID: collection, CollectionVersion: c.CurrentVersion, Title: strings.TrimSpace(title), Path: full, Origin: origin, Revision: revision, Evidence: evidence, Mode: mode, Branch: strings.TrimSpace(branch), CreatorID: actor, CreatedAt: now, UpdatedAt: now, Events: []TaskEvent{{Sequence: 1, Type: "opened", ActorID: actor, Citations: evidence, CreatedAt: now}}}
+	return t, s.writeTask(t)
+}
+func (s *Store) SetTaskWorkspace(repo, task, workspace string) (Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, e := s.readTask(repo, task)
+	if e != nil {
+		return t, e
+	}
+	t.WorkspaceID = workspace
+	t.UpdatedAt = s.now().UTC()
+	return t, s.writeTask(t)
+}
+func (s *Store) GetTask(repo, task string) (Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.readTask(repo, task)
+}
+func (s *Store) ListTasks(repo, collection string) ([]Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dir := filepath.Join(s.root, repo, "tasks")
+	es, e := os.ReadDir(dir)
+	if errors.Is(e, fs.ErrNotExist) {
+		return []Task{}, nil
+	}
+	if e != nil {
+		return nil, e
+	}
+	out := []Task{}
+	for _, x := range es {
+		if filepath.Ext(x.Name()) != ".json" {
+			continue
+		}
+		t, e := s.readTask(repo, strings.TrimSuffix(x.Name(), ".json"))
+		if e != nil {
+			return nil, e
+		}
+		if collection == "" || t.CollectionID == collection {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+func (s *Store) AddTaskEvent(repo, task, actor string, event TaskEvent) (Task, error) {
+	if actor == "" || (event.Type != "discussion" && event.Type != "suggestion" && event.Type != "draft") || strings.TrimSpace(event.Body) == "" && strings.TrimSpace(event.Draft) == "" {
+		return Task{}, ErrInvalid
+	}
+	if event.Type == "suggestion" && len(event.Citations) == 0 {
+		return Task{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, e := s.readTask(repo, task)
+	if e != nil {
+		return t, e
+	}
+	event.Sequence = int64(len(t.Events) + 1)
+	event.ActorID = actor
+	event.CreatedAt = s.now().UTC()
+	t.Events = append(t.Events, event)
+	t.UpdatedAt = event.CreatedAt
+	return t, s.writeTask(t)
+}
+func (s *Store) readTask(repo, task string) (Task, error) {
+	b, e := os.ReadFile(filepath.Join(s.root, repo, "tasks", task+".json"))
+	if errors.Is(e, fs.ErrNotExist) {
+		return Task{}, ErrNotFound
+	}
+	var t Task
+	if e == nil {
+		e = json.Unmarshal(b, &t)
+	}
+	return t, e
+}
+func (s *Store) writeTask(t Task) error {
+	d := filepath.Join(s.root, t.RepositoryID, "tasks")
+	if e := os.MkdirAll(d, 0750); e != nil {
+		return e
+	}
+	b, e := json.MarshalIndent(t, "", "  ")
+	if e != nil {
+		return e
+	}
+	tmp, e := os.CreateTemp(d, ".task-")
+	if e != nil {
+		return e
+	}
+	n := tmp.Name()
+	defer os.Remove(n)
+	if _, e = tmp.Write(b); e == nil {
+		e = tmp.Sync()
+	}
+	if ce := tmp.Close(); e == nil {
+		e = ce
+	}
+	if e == nil {
+		e = os.Rename(n, filepath.Join(d, t.ID+".json"))
+	}
+	return e
 }
 func (s *Store) read(repo, id string) (Collection, error) {
 	b, e := os.ReadFile(filepath.Join(s.root, repo, id+".json"))
