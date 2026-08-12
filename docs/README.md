@@ -127,6 +127,25 @@ revocation neither erases accepted work nor falsely implies continuing trust.
 An upstream owner retries the exact retained envelope at the pull request's
 `/federated-merge-receipt/retry` action; retry never re-enters merge execution.
 
+### Complete federation workflow proof
+
+`apps/api/federation_workflow_test.go` runs the collaboration contract against
+two independently persisted TLS HTTP applications and their public federation
+APIs. It uses an unmodified Git client to clone the public upstream, create and
+push a home-owned fork branch, and publish locally governed agent commits. The
+test follows the signed remote snapshot, imports an immutable proposal, exchanges
+maintainer and agent observations, applies ordinary upstream review and merge
+policy, and verifies the signed receipt on the contributor instance.
+
+The recovery portion replays the same receipt, follows a chained Ed25519 key
+rotation, retains the last verified peer document through a temporary outage,
+and then revokes current trust. The accepted receipt and its historical
+signature verification remain visible after revocation while future federated
+authority is contained. An agent publication at a newer local revision is
+explicitly non-current at the immutable upstream candidate; it supplies
+attributed evidence but cannot silently revise the pull request or acquire
+remote check, review, or merge authority.
+
 Extensions are platform principals, not user API tokens. Their owners register
 them at `POST /extensions` with an operator contact, capabilities, HTTPS
 callback and action endpoints, requested resource permissions, event types, and
