@@ -23,6 +23,14 @@ revokes the grant and removes all effective permissions and events without
 erasing history. Registration and inspection are available in the web Access
 workspace; data is rooted beneath `$EXTENSION_ROOT`.
 
+Installations also retain approved or denied decisions for every declared
+capability, selected resource types, and bounded non-secret settings. Owners
+use a version-checked patch to upgrade, suspend, resume, or remove one grant;
+each transition appends actor history and suspension or removal immediately
+empties effective authority. Organization installs require an explicit set of
+repositories, all validated before creation. Ownership transfer does not alter
+installation attribution, and no lifecycle action issues a human credential.
+
 ## Repository documentation collections
 
 Repository owners create documentation contracts at `POST

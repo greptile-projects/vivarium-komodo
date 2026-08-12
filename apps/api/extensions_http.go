@@ -6,9 +6,12 @@ import (
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/extensions"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
 
-func registerExtensionsHTTP(mux *http.ServeMux, s *extensions.Store, repos ownedRepositoryStore, credentials authStore) {
+type extensionOrganizations interface{ IsOwner(string, string) bool }
+
+func registerExtensionsHTTP(mux *http.ServeMux, s *extensions.Store, repos ownedRepositoryStore, orgs extensionOrganizations, credentials authStore) {
 	mux.HandleFunc("POST /extensions", func(w http.ResponseWriter, r *http.Request) {
 		a, ok := authenticateRequest(w, r, credentials, auth.ProfileWrite)
 		if !ok {
@@ -43,12 +46,31 @@ func registerExtensionsHTTP(mux *http.ServeMux, s *extensions.Store, repos owned
 			return
 		}
 		x, err := s.Get(r.PathValue("extension"))
-		if errors.Is(err, extensions.ErrNotFound) || err == nil && x.OwnerID != a.UserID {
+		if errors.Is(err, extensions.ErrNotFound) || err == nil && x.OwnerID != a.UserID && x.Status != "verified" {
 			writeJSON(w, 404, map[string]string{"error": "not_found"})
 			return
 		}
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		writeJSON(w, 200, x)
+	})
+	mux.HandleFunc("POST /extensions/{extension}/transfer", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authenticateRequest(w, r, credentials, auth.ProfileWrite)
+		if !ok {
+			return
+		}
+		var in struct {
+			OwnerID string `json:"owner_id"`
+			Reason  string `json:"reason"`
+		}
+		if !readJSON(w, r, &in, 4096) {
+			return
+		}
+		x, err := s.Transfer(r.PathValue("extension"), a.UserID, in.OwnerID, in.Reason)
+		if err != nil {
+			writeExtensionError(w, err)
 			return
 		}
 		writeJSON(w, 200, x)
@@ -96,6 +118,52 @@ func registerExtensionsHTTP(mux *http.ServeMux, s *extensions.Store, repos owned
 		}
 		writeJSON(w, 200, v)
 	})
+	mux.HandleFunc("POST /organizations/{organization}/extension-installations", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		organization := r.PathValue("organization")
+		if !orgs.IsOwner(organization, a.UserID) {
+			writeJSON(w, 403, map[string]string{"error": "owner_required"})
+			return
+		}
+		var in struct {
+			ExtensionID   string   `json:"extension_id"`
+			RepositoryIDs []string `json:"repository_ids"`
+			extensions.GrantInput
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		if len(in.RepositoryIDs) == 0 || len(in.RepositoryIDs) > 100 {
+			writeJSON(w, 422, map[string]string{"error": "invalid_extension_authority"})
+			return
+		}
+		out := make([]extensions.Installation, 0, len(in.RepositoryIDs))
+		seen := map[string]bool{}
+		for _, id := range in.RepositoryIDs {
+			if seen[id] {
+				writeJSON(w, 422, map[string]string{"error": "invalid_extension_authority"})
+				return
+			}
+			seen[id] = true
+			repo, err := repos.Inspect(storage.ID(id))
+			if err != nil || repo.OrganizationID != organization {
+				writeJSON(w, 422, map[string]string{"error": "repository_outside_organization"})
+				return
+			}
+		}
+		for _, id := range in.RepositoryIDs {
+			installed, err := s.InstallGrant(in.ExtensionID, id, a.UserID, in.GrantInput)
+			if err != nil {
+				writeExtensionError(w, err)
+				return
+			}
+			out = append(out, installed)
+		}
+		writeJSON(w, 201, map[string]any{"items": out, "total_count": len(out)})
+	})
 	mux.HandleFunc("POST /repositories/{repository}/extension-installations", func(w http.ResponseWriter, r *http.Request) {
 		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -106,19 +174,43 @@ func registerExtensionsHTTP(mux *http.ServeMux, s *extensions.Store, repos owned
 			return
 		}
 		var in struct {
-			ExtensionID string   `json:"extension_id"`
-			Permissions []string `json:"permissions"`
-			EventTypes  []string `json:"event_types"`
+			ExtensionID string `json:"extension_id"`
+			extensions.GrantInput
 		}
 		if !readJSON(w, r, &in, 16384) {
 			return
 		}
-		v, err := s.Install(in.ExtensionID, string(repo.ID), a.UserID, in.Permissions, in.EventTypes)
+		v, err := s.InstallGrant(in.ExtensionID, string(repo.ID), a.UserID, in.GrantInput)
 		if err != nil {
 			writeExtensionError(w, err)
 			return
 		}
 		writeJSON(w, 201, v)
+	})
+	mux.HandleFunc("PATCH /repositories/{repository}/extension-installations/{installation}", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if repo.OwnerID != a.UserID {
+			writeJSON(w, 403, map[string]string{"error": "owner_required"})
+			return
+		}
+		var in struct {
+			Action          string                 `json:"action"`
+			Reason          string                 `json:"reason"`
+			ExpectedVersion int64                  `json:"expected_version"`
+			Grant           *extensions.GrantInput `json:"grant,omitempty"`
+		}
+		if !readJSON(w, r, &in, 32<<10) {
+			return
+		}
+		x, err := s.Update(string(repo.ID), r.PathValue("installation"), a.UserID, in.Action, in.Reason, in.ExpectedVersion, in.Grant)
+		if err != nil {
+			writeExtensionError(w, err)
+			return
+		}
+		writeJSON(w, 200, x)
 	})
 	mux.HandleFunc("GET /repositories/{repository}/extension-installations", func(w http.ResponseWriter, r *http.Request) {
 		_, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)

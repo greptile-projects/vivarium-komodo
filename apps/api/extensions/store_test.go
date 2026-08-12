@@ -51,3 +51,39 @@ func TestRejectsUnsafeContract(t *testing.T) {
 		t.Fatal("accepted unknown permission")
 	}
 }
+func TestInstallationGovernance(t *testing.T) {
+	s, _ := New(t.TempDir())
+	x, _ := s.Create("publisher", input())
+	x, _ = s.Verify(x.ID, "publisher", "callback", x.Callback.VerificationToken)
+	x, _ = s.Verify(x.ID, "publisher", "actions", x.Actions.VerificationToken)
+	grant := GrantInput{Permissions: []string{"metadata:read"}, EventTypes: []string{"push"}, ResourceTypes: []string{"issues"}, CapabilityDecisions: []CapabilityDecision{{Capability: "annotate checks", Decision: "denied"}}, Settings: map[string]string{"project": "api"}}
+	i, err := s.InstallGrant(x.ID, "repo", "owner", grant)
+	if err != nil || i.Version != 1 || i.Events[0].ActorID != "owner" {
+		t.Fatalf("install: %#v %v", i, err)
+	}
+	i, err = s.Update("repo", i.ID, "owner", "suspend", "maintenance", 1, nil)
+	if err != nil || i.Status != "suspended" || len(i.Authority.Permissions) != 0 {
+		t.Fatalf("suspend: %#v %v", i, err)
+	}
+	if _, err = s.Update("repo", i.ID, "owner", "resume", "", 1, nil); err == nil {
+		t.Fatal("accepted stale version")
+	}
+	i, err = s.Update("repo", i.ID, "owner", "resume", "", 2, nil)
+	if err != nil || i.Status != "active" || len(i.Authority.Permissions) != 1 {
+		t.Fatalf("resume: %#v %v", i, err)
+	}
+	bad := grant
+	bad.Settings = map[string]string{"api_token": "nope"}
+	if _, err = s.Update("repo", i.ID, "owner", "upgrade", "", 3, &bad); err == nil {
+		t.Fatal("accepted secret setting")
+	}
+	other, _ := s.InstallGrant(x.ID, "other", "owner", grant)
+	i, err = s.Update("repo", i.ID, "owner", "remove", "retired", 3, nil)
+	if err != nil || i.Status != "removed" {
+		t.Fatalf("remove: %#v %v", i, err)
+	}
+	listed, _ := s.ListInstallations("other")
+	if len(listed) != 1 || listed[0].ID != other.ID || listed[0].Status != "active" {
+		t.Fatal("disturbed unrelated installation")
+	}
+}

@@ -117,6 +117,13 @@ permissions, installer, and extension actor, and explicitly report that no user
 or agent impersonation and no credential issuance occurred. Repository owners
 alone install and revoke; revocation empties effective authority while retaining
 the attributable record. The Access web surface owns extension registration.
+Installations are versioned grants with explicit resource types, approve-or-deny
+capability decisions, and bounded non-secret settings. Upgrade, suspension,
+resume, removal, and publisher transfer retain actor history; suspension and
+removal immediately empty effective authority without disturbing other grants
+or attributed evidence. Organization owners must explicitly select repositories
+owned by that organization, all validated before creation. These contracts
+issue no reusable human credential.
 
 Opportunity onboarding composes existing resources rather than granting new
 authority. An active claimant starts through
