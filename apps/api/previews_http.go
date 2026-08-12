@@ -74,6 +74,8 @@ func registerPreviewsHTTP(mux *http.ServeMux, store *previews.Store, runner prev
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}", getPreview(store, pulls, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/audience", previewAudience(store, pulls, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/findings", listPreviewFindings(store, pulls, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/acceptance", acknowledgePreview(store, pulls, repositories, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/acceptance/{acknowledgement}/override", overridePreviewRejection(store, pulls, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/findings", createPreviewFinding(store, pulls, repositories, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/findings/{finding}/comments", commentPreviewFinding(store, pulls, repositories, credentials))
 	mux.HandleFunc("PATCH /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/findings/{finding}", updatePreviewFinding(store, pulls, repositories, credentials))
@@ -96,6 +98,82 @@ func registerPreviewsHTTP(mux *http.ServeMux, store *previews.Store, runner prev
 	if sources != nil {
 		mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/invitations", invitePreview(store, pulls, repositories, credentials, sources))
 		mux.HandleFunc("DELETE /repositories/{repository}/pull-requests/{pull_request}/previews/{preview}/invitations/{invitation}", revokePreviewInvitation(store, pulls, repositories, credentials))
+	}
+}
+
+func acknowledgePreview(store *previews.Store, pulls previewPullStore, repos pullRequestRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pull, actor, inv, participant, ok := previewFindingAccess(w, r, store, pulls, repos, c)
+		if !ok {
+			return
+		}
+		repo, err := repos.Inspect(storage.ID(pull.RepositoryID))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		role := inv.Role
+		if participant {
+			role = "repository_participant"
+		}
+		if actor == repo.OwnerID {
+			role = "owner"
+		}
+		var in struct {
+			RequirementID string `json:"requirement_id"`
+			ScenarioID    string `json:"scenario_id"`
+			Decision      string `json:"decision"`
+			Note          string `json:"note"`
+		}
+		if !readJSON(w, r, &in, 16<<10) {
+			return
+		}
+		valid := false
+		for _, req := range repo.PreviewAcceptance {
+			if req.ID == in.RequirementID {
+				for _, sc := range req.Scenarios {
+					if sc.ID == in.ScenarioID {
+						for _, x := range sc.RequiredRoles {
+							valid = valid || x == role
+						}
+					}
+				}
+			}
+		}
+		if !valid {
+			writeJSON(w, 422, map[string]string{"error": "role_not_required_for_scenario"})
+			return
+		}
+		a, err := store.Acknowledge(pull.RepositoryID, pull.ID, r.PathValue("preview"), in.RequirementID, in.ScenarioID, actor, role, in.Decision, in.Note)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_acknowledgement"})
+			return
+		}
+		writeJSON(w, 201, a)
+	}
+}
+func overridePreviewRejection(store *previews.Store, pulls previewPullStore, repos pullRequestRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pull, actor, ok := previewContext(w, r, pulls, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		repo, err := repos.Inspect(storage.ID(pull.RepositoryID))
+		if err != nil || actor != repo.OwnerID {
+			writeJSON(w, 403, map[string]string{"error": "owner_required"})
+			return
+		}
+		var in struct {
+			Reason string `json:"reason"`
+		}
+		if !readJSON(w, r, &in, 8<<10) {
+			return
+		}
+		if store.Override(pull.RepositoryID, pull.ID, r.PathValue("acknowledgement"), actor, in.Reason) != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_override"})
+			return
+		}
+		writeJSON(w, 200, map[string]bool{"overridden": true})
 	}
 }
 

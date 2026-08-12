@@ -3,6 +3,23 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Preview acceptance
+
+Repository owners publish preview acceptance requirements with `PUT
+/repositories/{repository}/preview-acceptance-requirements`. Requirements select
+target branches and optional changed-path globs, identify applicable risk
+classes, and define promised-behavior scenarios plus required participant roles.
+Invited testers or feedback participants and repository participants record an
+attributable acceptance or reasoned rejection on one exact preview. An owner may
+override a rejection only with a durable justification.
+
+Pull-request readiness reports applied policy, risk classes, current and stale
+acknowledgements, missing roles, rejections, overrides, and blocking findings.
+Changing the source revision makes older acknowledgements stale. Current
+unresolved blocking findings or an unsatisfied applicable scenario add the
+`preview_acceptance_required` blocker and prevent merge alongside reviews and
+required checks.
+
 ## Contributor pathways
 
 ### Ready contribution opportunities

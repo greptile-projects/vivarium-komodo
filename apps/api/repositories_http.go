@@ -23,6 +23,7 @@ type ownedRepositoryStore interface {
 	Delete(string, storage.ID) error
 	IsCollaborator(storage.ID, string) (bool, error)
 	SetRequiredChecks(string, storage.ID, string, []string) (repositories.Repository, error)
+	SetPreviewAcceptance(string, storage.ID, []repositories.PreviewAcceptanceRequirement) (repositories.Repository, error)
 	SetIntegrationQueue(string, storage.ID, string, repositories.IntegrationQueuePolicy) (repositories.Repository, error)
 	TransferOwner(storage.ID, string, string, string, string, string) (repositories.Repository, error)
 	ListOrganization(string) ([]repositories.Repository, error)
@@ -39,8 +40,34 @@ func registerRepositoriesHTTP(mux *http.ServeMux, store ownedRepositoryStore, cr
 	mux.HandleFunc("DELETE /repositories/{repository}", deleteRepository(store, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/required-checks", getRequiredChecks(store, credentials))
 	mux.HandleFunc("PUT /repositories/{repository}/required-checks", putRequiredChecks(store, credentials))
+	mux.HandleFunc("PUT /repositories/{repository}/preview-acceptance-requirements", putPreviewAcceptance(store, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/integration-queue", getIntegrationQueue(store, credentials))
 	mux.HandleFunc("PUT /repositories/{repository}/integration-queue", putIntegrationQueue(store, credentials))
+}
+
+func putPreviewAcceptance(store ownedRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, store, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if actor.UserID != repo.OwnerID {
+			writeJSON(w, 403, map[string]string{"error": "owner_required"})
+			return
+		}
+		var in struct {
+			Requirements []repositories.PreviewAcceptanceRequirement `json:"requirements"`
+		}
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		item, err := store.SetPreviewAcceptance(actor.UserID, repo.ID, in.Requirements)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_preview_acceptance_requirements"})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"requirements": item.PreviewAcceptance})
+	}
 }
 
 func integrationPolicyResponse(item repositories.Repository, branch string) map[string]any {

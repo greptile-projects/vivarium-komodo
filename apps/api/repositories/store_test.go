@@ -104,3 +104,30 @@ func TestOwnedRepositoryLifecycle(t *testing.T) {
 		t.Fatalf("deleted catalog error = %v", err)
 	}
 }
+
+func TestPreviewAcceptancePolicyIsOwnerDefinedAndDurable(t *testing.T) {
+	gitStorage, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(t.TempDir(), gitStorage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := store.Create("owner", Metadata{Name: "acceptance", Visibility: Private})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqs := []PreviewAcceptanceRequirement{{ID: "checkout", TargetBranches: []string{"main"}, Paths: []string{"apps/web/**"}, RiskClasses: []string{"customer-facing"}, Scenarios: []PreviewAcceptanceScenario{{ID: "purchase", Description: "A customer completes checkout", RequiredRoles: []string{"test", "owner"}}}}}
+	updated, err := store.SetPreviewAcceptance("owner", item.ID, reqs)
+	if err != nil || len(updated.PreviewAcceptance) != 1 {
+		t.Fatalf("policy = %#v, %v", updated.PreviewAcceptance, err)
+	}
+	if _, err = store.SetPreviewAcceptance("other", item.ID, reqs); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("non-owner update = %v", err)
+	}
+	reopened, err := store.Inspect(item.ID)
+	if err != nil || reopened.PreviewAcceptance[0].Scenarios[0].RequiredRoles[0] != "test" {
+		t.Fatalf("reopened = %#v, %v", reopened.PreviewAcceptance, err)
+	}
+}
