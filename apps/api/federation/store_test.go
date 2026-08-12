@@ -1,9 +1,59 @@
 package federation
 
-import "testing"
+import (
+	"encoding/json"
+	"reflect"
+	"testing"
+)
 
 func config(origin string) Config {
 	return Config{Instance: origin, Operators: []Operator{{Name: "Operator", Contact: "mailto:ops@example.test"}}, Capabilities: []string{"identity.discovery"}, Endpoints: Endpoints{Discovery: origin + "/.well-known/komodo-federation", Actors: origin + "/federation/actors/{kind}/{id}"}}
+}
+
+func TestRepositoryResponsesAndRemoteCacheRemainSignedAndReadOnly(t *testing.T) {
+	s, err := New(t.TempDir(), config("https://one.example"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, _ := s.Document()
+	message := []byte(`{"repository":"public"}`)
+	key, signature, err := s.Sign(message)
+	if err != nil || VerifySigned(doc, key, signature, message) != nil {
+		t.Fatalf("signature %v", err)
+	}
+	if VerifySigned(doc, key, signature, []byte("changed")) == nil {
+		t.Fatal("accepted changed repository response")
+	}
+	now := s.now().UTC()
+	raw := json.RawMessage(`{"revision":"abc"}`)
+	want := RemoteRepository{Reference: "repository:r1@https://remote.example", Instance: "https://remote.example", RepositoryID: "r1", Status: "current", Followed: true, Snapshot: raw, Revision: "sha256:abc", FetchedAt: &now, LastCheckedAt: now}
+	if _, err = s.SaveRemote(want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Remote(want.Reference)
+	var gotSnapshot, wantSnapshot any
+	_ = json.Unmarshal(got.Snapshot, &gotSnapshot)
+	_ = json.Unmarshal(raw, &wantSnapshot)
+	if err != nil || got.Revision != want.Revision || !got.Followed || !reflect.DeepEqual(gotSnapshot, wantSnapshot) {
+		t.Fatalf("remote %#v %v", got, err)
+	}
+}
+
+func TestConfigurationEvolutionIsSignedAndChained(t *testing.T) {
+	root := t.TempDir()
+	first, _ := New(root, config("https://one.example"))
+	before, _ := first.Document()
+	updated := config("https://one.example")
+	updated.Capabilities = append(updated.Capabilities, "repository.discovery")
+	updated.Endpoints.Repositories = updated.Instance + "/federation/repositories/{id}"
+	second, err := New(root, updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, _ := second.Document()
+	if after.Version != before.Version+1 || after.PreviousDigest != Digest(before) || Verify(after) != nil || !oneOf(after.Capabilities[1], "repository.discovery") {
+		t.Fatalf("after %#v", after)
+	}
 }
 
 func TestSignedVersionedIdentityAndRotation(t *testing.T) {

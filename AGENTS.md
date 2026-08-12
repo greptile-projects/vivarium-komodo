@@ -15,6 +15,19 @@ decisions beneath `/federation`; unreachable state, signature failures,
 unchained identity changes, rotation, and revoked trust remain explicit without
 erasing the last verified document. Discovery grants no authority and private
 membership is never part of the published catalog.
+Public federated repository projections use stable references of the form
+`repository:{id}@{canonical HTTPS instance}`. Instances advertising
+`repository.discovery` sign a bounded schema-version `1` snapshot at their
+declared repository endpoint containing only public metadata, visible branches,
+releases, contributor guidance, public issues, contribution opportunities, and
+attributable activity. A home instance resolves only through a trusted peer,
+verifies the response against its discovered active or retained retired key,
+and stores a followed last-verified observation beneath `$FEDERATION_ROOT`.
+The shareable reader surface is `/federation/repositories?ref={reference}`.
+Cached snapshots remain read-only remote context: exact source and cache
+revisions, signature/key, unsupported capabilities, staleness, outage, and
+visibility withdrawal must remain explicit, and inaccessible remote content is
+never copied.
 
 Repository documentation collections live beneath `$DOCUMENTATION_ROOT`
 (default `apps/api/data/documentation`). Owner-published immutable versions bind
