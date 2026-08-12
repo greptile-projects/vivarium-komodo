@@ -20,6 +20,11 @@ discussion, and suggestions. Code references are server-resolved to exact blobs
 and bounded line excerpts; suggestions require citations and retain declared
 uncertainty. Workspace edits continue through the workspace's own access and
 agent-control boundary, and task publication grants no additional authority.
+Pull-request documentation previews snapshot a collection's rendered page blobs,
+navigation differences, verified examples, affected versions, and gaps at the
+exact source revision. Technical and audience invitations, bounded comments,
+and area decisions retain their exact content subject; synchronization derives
+staleness only from changed previewed page blobs and reports affected paths.
 Repository documentation verification is declared at the exact pull-request
 source revision in version-1 `.komodo/documentation-checks.json`. Each named
 check identifies its collection, kind (`links`, `symbols`, `build`, `sample`,

@@ -122,6 +122,215 @@ type Store struct {
 	now  func() time.Time
 }
 
+// ReviewPreview is the durable, revision-exact documentation review contract
+// attached to an ordinary pull request. Rendered pages are snapshots rather
+// than mutable caches so comments and decisions always retain their subject.
+type ReviewPage struct {
+	Path     string `json:"path"`
+	BlobID   string `json:"blob_id"`
+	Rendered string `json:"rendered"`
+}
+type NavigationChange struct {
+	Path   string `json:"path"`
+	Change string `json:"change"`
+}
+type ReviewGap struct {
+	Area   string `json:"area"`
+	Detail string `json:"detail"`
+}
+type VerifiedExample struct {
+	Name       string `json:"name"`
+	CheckRunID string `json:"check_run_id"`
+	Status     string `json:"status"`
+}
+type ReviewInvitation struct {
+	UserID      string    `json:"user_id"`
+	Role        string    `json:"role"`
+	InvitedByID string    `json:"invited_by_id"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+type ReviewComment struct {
+	ID        string    `json:"id"`
+	ActorID   string    `json:"actor_id"`
+	Path      string    `json:"path"`
+	BlobID    string    `json:"blob_id"`
+	Start     int       `json:"start"`
+	End       int       `json:"end"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type AreaDecision struct {
+	ActorID   string    `json:"actor_id"`
+	Area      string    `json:"area"`
+	Decision  string    `json:"decision"`
+	Body      string    `json:"body,omitempty"`
+	BlobIDs   []string  `json:"blob_ids"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type ReviewPreview struct {
+	ID                string             `json:"id"`
+	RepositoryID      string             `json:"repository_id"`
+	PullRequestID     string             `json:"pull_request_id"`
+	CollectionID      string             `json:"collection_id"`
+	CollectionVersion int64              `json:"collection_version"`
+	Revision          string             `json:"revision"`
+	Pages             []ReviewPage       `json:"pages"`
+	Navigation        []NavigationChange `json:"navigation_changes"`
+	Examples          []VerifiedExample  `json:"verified_examples"`
+	AffectedVersions  []string           `json:"affected_versions"`
+	Gaps              []ReviewGap        `json:"gaps"`
+	Invitations       []ReviewInvitation `json:"invitations"`
+	Comments          []ReviewComment    `json:"comments"`
+	Decisions         []AreaDecision     `json:"decisions"`
+	CreatedByID       string             `json:"created_by_id"`
+	CreatedAt         time.Time          `json:"created_at"`
+}
+
+func (s *Store) CreateReviewPreview(p ReviewPreview) (ReviewPreview, error) {
+	if p.RepositoryID == "" || p.PullRequestID == "" || p.CollectionID == "" || len(p.Revision) != 40 || len(p.Pages) == 0 {
+		return p, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p.ID = id()
+	p.CreatedAt = s.now().UTC()
+	return p, s.writeReviewPreview(p)
+}
+func (s *Store) GetReviewPreview(repo, pull, preview string) (ReviewPreview, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.readReviewPreview(repo, pull, preview)
+}
+func (s *Store) ListReviewPreviews(repo, pull string) ([]ReviewPreview, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dir := filepath.Join(s.root, repo, "reviews", pull)
+	es, e := os.ReadDir(dir)
+	if errors.Is(e, fs.ErrNotExist) {
+		return []ReviewPreview{}, nil
+	}
+	if e != nil {
+		return nil, e
+	}
+	out := []ReviewPreview{}
+	for _, x := range es {
+		if filepath.Ext(x.Name()) != ".json" {
+			continue
+		}
+		p, e := s.readReviewPreview(repo, pull, strings.TrimSuffix(x.Name(), ".json"))
+		if e != nil {
+			return nil, e
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+func (s *Store) InviteReview(repo, pull, preview, actor, user, role string) (ReviewPreview, error) {
+	if user == "" || (role != "technical" && role != "audience") {
+		return ReviewPreview{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, e := s.readReviewPreview(repo, pull, preview)
+	if e != nil {
+		return p, e
+	}
+	for _, v := range p.Invitations {
+		if v.UserID == user {
+			return p, ErrConflict
+		}
+	}
+	p.Invitations = append(p.Invitations, ReviewInvitation{UserID: user, Role: role, InvitedByID: actor, CreatedAt: s.now().UTC()})
+	return p, s.writeReviewPreview(p)
+}
+func (s *Store) AddReviewComment(repo, pull, preview, actor string, c ReviewComment) (ReviewPreview, error) {
+	if actor == "" || strings.TrimSpace(c.Body) == "" || c.Start < 0 || c.End < c.Start || len(c.Body) > 10000 {
+		return ReviewPreview{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, e := s.readReviewPreview(repo, pull, preview)
+	if e != nil {
+		return p, e
+	}
+	found := false
+	for _, pg := range p.Pages {
+		if pg.Path == c.Path && pg.BlobID == c.BlobID {
+			found = true
+		}
+	}
+	if !found {
+		return p, ErrInvalid
+	}
+	c.ID = id()
+	c.ActorID = actor
+	c.CreatedAt = s.now().UTC()
+	p.Comments = append(p.Comments, c)
+	return p, s.writeReviewPreview(p)
+}
+func (s *Store) PutAreaDecision(repo, pull, preview, actor string, d AreaDecision) (ReviewPreview, error) {
+	if actor == "" || (d.Area != "technical" && d.Area != "audience") || (d.Decision != "approve" && d.Decision != "request_changes") || (d.Decision == "request_changes" && strings.TrimSpace(d.Body) == "") {
+		return ReviewPreview{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, e := s.readReviewPreview(repo, pull, preview)
+	if e != nil {
+		return p, e
+	}
+	d.ActorID = actor
+	d.CreatedAt = s.now().UTC()
+	d.BlobIDs = nil
+	for _, pg := range p.Pages {
+		d.BlobIDs = append(d.BlobIDs, pg.BlobID)
+	}
+	for i := range p.Decisions {
+		if p.Decisions[i].ActorID == actor && p.Decisions[i].Area == d.Area {
+			p.Decisions[i] = d
+			return p, s.writeReviewPreview(p)
+		}
+	}
+	p.Decisions = append(p.Decisions, d)
+	return p, s.writeReviewPreview(p)
+}
+func (s *Store) readReviewPreview(repo, pull, pid string) (ReviewPreview, error) {
+	b, e := os.ReadFile(filepath.Join(s.root, repo, "reviews", pull, pid+".json"))
+	if errors.Is(e, fs.ErrNotExist) {
+		return ReviewPreview{}, ErrNotFound
+	}
+	var p ReviewPreview
+	if e == nil {
+		e = json.Unmarshal(b, &p)
+	}
+	return p, e
+}
+func (s *Store) writeReviewPreview(p ReviewPreview) error {
+	d := filepath.Join(s.root, p.RepositoryID, "reviews", p.PullRequestID)
+	if e := os.MkdirAll(d, 0750); e != nil {
+		return e
+	}
+	b, e := json.MarshalIndent(p, "", "  ")
+	if e != nil {
+		return e
+	}
+	tmp, e := os.CreateTemp(d, ".review-")
+	if e != nil {
+		return e
+	}
+	n := tmp.Name()
+	defer os.Remove(n)
+	if _, e = tmp.Write(b); e == nil {
+		e = tmp.Sync()
+	}
+	if ce := tmp.Close(); e == nil {
+		e = ce
+	}
+	if e == nil {
+		e = os.Rename(n, filepath.Join(d, p.ID+".json"))
+	}
+	return e
+}
+
 func New(root string) (*Store, error) {
 	if root == "" {
 		return nil, ErrInvalid
