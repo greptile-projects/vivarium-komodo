@@ -347,6 +347,11 @@ whenever dependencies change or the web job fails before it starts.
 	request revisions expose them as stale. Owner overrides require a retained
 	reason. Pull-request readiness and merge enforce applicable current scenarios
 	and unresolved current blocking findings alongside ordinary reviews and checks.
+	Finding evidence accepts base64 content only on creation; redact and store it
+	behind exact-preview access, and clear content before metadata is persisted or
+	returned. `collaborative_preview_workflow_test.go` is the black-box regression
+	boundary for failed-build recovery, expiring outsider access, feedback, agent
+	repair, stale/current acceptance, checks, review, merge, and release.
   Change sessions retain their initiating user, captured pull request source
   commit, current state, and ordered public timeline; keep later worker
   execution details behind this application-facing contract.

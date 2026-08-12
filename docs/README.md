@@ -2689,3 +2689,17 @@ observation to the fix. It then starts a new normal preview attempt and resolves
 the finding with that link. The action neither pushes nor synchronizes a branch,
 issues no credential, and cannot bypass task, workspace, agent, review, or merge
 permissions.
+
+Evidence creation accepts base64 `content` only on the finding-creation request.
+The preview store redacts permitted textual evidence, writes the result behind the
+exact-preview access check, and clears the request body before retaining or
+returning finding metadata. This asymmetric wire contract is intentional: later
+finding, pull-request, and release reads can expose checksums and provenance but
+never replay the submitted evidence body.
+
+`collaborative_preview_workflow_test.go` is the black-box regression boundary for
+the complete proposal-to-release loop. It proves a failed preview build and retry,
+expired and renewed outsider access, revision-grounded redacted feedback, agent
+repair through a branch credential, a new exact preview, stale then renewed
+stakeholder acceptance, required checks and review, merge, release attribution,
+and the absence of repository authority for the invited stakeholder.

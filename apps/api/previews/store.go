@@ -73,7 +73,9 @@ type Evidence struct {
 	SHA256    string `json:"sha256"`
 	Redacted  bool   `json:"redacted"`
 	Audience  string `json:"audience"`
-	Content   string `json:"-"`
+	// Content is accepted only at the finding-creation boundary. AddFinding
+	// clears it before the evidence metadata is persisted or returned.
+	Content string `json:"content,omitempty"`
 }
 type FindingComment struct {
 	ID        string    `json:"id"`
