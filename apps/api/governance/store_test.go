@@ -72,3 +72,41 @@ func TestStandingIsEvidenceBoundedTermedAndCarriesNoAuthority(t *testing.T) {
 		t.Fatalf("suspend %#v %v", v, e)
 	}
 }
+
+func TestStewardshipRecoverySeparatesGovernanceFromResourceAuthority(t *testing.T) {
+	s, _ := New(t.TempDir())
+	now := time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	v, _ := s.Publish("repository", "repo", "owner", 0, validInput(), Preview{})
+	v, _ = s.Approve("repository", "repo", "owner", "", 1)
+	v, _ = s.Activate("repository", "repo", "owner", 1, Preview{})
+	v, _ = s.Invite("repository", "repo", "owner", 1, StandingInput{PrincipalID: "old", Role: "maintainer", Evidence: []Evidence{{Kind: "ownership", Reference: "repository:repo", Summary: "founding steward"}}})
+	old := v.Standings[0].ID
+	v, _ = s.Transition("repository", "repo", old, "old", "accept", "")
+	v, _ = s.Invite("repository", "repo", "owner", 1, StandingInput{PrincipalID: "next", Role: "maintainer", Evidence: []Evidence{{Kind: "review", Reference: "pull:7", Summary: "release reviewer"}}})
+	next := v.Standings[1].ID
+	v, _ = s.Transition("repository", "repo", next, "next", "accept", "")
+	v, e := s.OpenStewardship("repository", "repo", "owner", StewardshipInput{Kind: "succession", Role: "maintainer", FormerStandingID: old, NomineeStandingID: next, DecisionReceiptID: "receipt-1", Reason: "term turnover", ResourceHandoffs: []ResourceHandoff{{Resource: "repository:repo", FromID: "old", ToID: "next"}}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	c := v.Stewardship[0]
+	v, e = s.TransitionStewardship("repository", "repo", c.ID, "owner", "complete", "election certified", "")
+	if e != nil || v.Standings[0].State != "recalled" || len(v.Standings[0].Evidence) == 0 || v.Stewardship[0].Handoffs[0].State != "pending_owner_approval" {
+		t.Fatalf("succession %#v %v", v, e)
+	}
+	v, e = s.TransitionStewardship("repository", "repo", c.ID, "owner", "approve_handoff", "resource owner approved separately", "repository:repo")
+	if e != nil || v.Stewardship[0].Handoffs[0].State != "approved_external_action_required" {
+		t.Fatalf("handoff %#v %v", v, e)
+	}
+	expires := now.Add(2 * time.Hour)
+	review := now.Add(time.Hour)
+	v, e = s.OpenStewardship("repository", "repo", "owner", StewardshipInput{Kind: "emergency", Role: "maintainer", Reason: "quorum unavailable", EmergencyScope: []string{"triage:security"}, ExpiresAt: &expires, ReviewDueAt: &review})
+	if e != nil || v.Stewardship[1].State != "active" {
+		t.Fatalf("emergency %#v %v", v, e)
+	}
+	h, e := s.Health("repository", "repo")
+	if e != nil || len(h.ActiveEmergencyPowers) != 1 || len(h.UnresolvedHandoffs) != 1 {
+		t.Fatalf("health %#v %v", h, e)
+	}
+}

@@ -213,6 +213,15 @@ Those resources retain existing review, integration, release, environment,
 extension, and agent controls. Material changes require a new or amended
 decision and cannot be appended beneath the prior mandate.
 
+Governance continuity cases extend an active charter beneath `/stewardship`.
+Nomination, election, term expiry, recall, succession, deadlock, appeal, and
+emergency events retain standings and decision receipts; removal clears derived
+governance authority without deleting evidence or prior decisions. Resource
+handoffs remain separately owner-approved external actions. Emergency scope is
+allowlisted, reviewed, limited to thirty days, and relinquished explicitly or
+on the next mutation after expiry. `/health` derives vacancies, expiring terms,
+quorum loss, unresolved handoffs, deadlocks, appeals, and emergency powers.
+
 External integration identities live beneath `$EXTENSION_ROOT` (default
 `apps/api/data/extensions`). An authenticated developer registers an extension
 with its human owner, operator email, declared capabilities, HTTPS callback and

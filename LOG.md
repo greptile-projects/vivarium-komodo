@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-12T22:43:22Z: Added charter-bound stewardship nomination, election, expiry, recall, succession, deadlock, appeal, and narrowly time-bounded emergency recovery, with derived continuity health and separately approved resource handoffs. Removal revokes derived governance access while retaining project identity, evidence, work, attribution, and completed decisions.
+
 2026-08-12T19:35:33Z: Added versioned repository and organization governance charters with attributable approvals and exceptions, live ownership/team/policy previews, impossible-rule activation blockers, and shared web publishing/reader surfaces. Charters remain descriptive legitimacy records and never grant or replace operational authority.
 
 2026-08-12T17:46:06Z: Added home-governed federated pull-request agent sessions with exact allowlisted remote context, approved-agent delegation, local branch-only credentials and revocation, and signed attributed publication of derived commits plus bounded summaries, commands, evidence, costs, and concerns. Remote repositories, secrets, checks, review, merge, and local guidance remain outside the delegated and exchanged authority.

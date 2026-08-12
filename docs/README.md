@@ -53,6 +53,15 @@ enforce their own review, integration, release, environment, extension, and
 agent controls. Missing artifacts remain blockers, while changed scope, cost,
 assumptions, or protected effects require a new or amended decision.
 
+Stewardship recovery extends that charter at `/governance-charter/stewardship`.
+Owners retain attributable nomination, election, term-expiry, recall,
+succession, deadlock, and emergency cases bound to affected standings and
+decision receipts. Removal empties governance-derived authority while
+preserving evidence and history. Resource handoffs remain separately approved
+external actions. Emergencies require narrow scope, review, and an expiry of at
+most thirty days. The derived `/health` view exposes vacancies, expiring terms,
+quorum loss, unresolved handoffs, deadlocks, appeals, and emergency powers.
+
 ## External extensions
 
 ## Federation identity
