@@ -87,6 +87,46 @@ type Exception struct {
 	CreatedAt time.Time  `json:"created_at"`
 	RevokedAt *time.Time `json:"revoked_at,omitempty"`
 }
+type Evidence struct {
+	Kind       string `json:"kind"`
+	Reference  string `json:"reference"`
+	Summary    string `json:"summary"`
+	VerifiedBy string `json:"verified_by,omitempty"`
+}
+type StandingEvent struct {
+	Sequence  int64     `json:"sequence"`
+	Type      string    `json:"type"`
+	ActorID   string    `json:"actor_id"`
+	Reason    string    `json:"reason,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type Standing struct {
+	ID                   string          `json:"id"`
+	PrincipalID          string          `json:"principal_id"`
+	Role                 string          `json:"role"`
+	CharterVersion       int64           `json:"charter_version"`
+	State                string          `json:"state"`
+	Responsibilities     []string        `json:"responsibilities"`
+	Evidence             []Evidence      `json:"evidence"`
+	Nominations          []string        `json:"available_nominations"`
+	Appeals              []string        `json:"available_appeals"`
+	ConflictDisclosure   string          `json:"conflict_of_interest,omitempty"`
+	OperationalAuthority []string        `json:"operational_authority"`
+	InvitedByID          string          `json:"invited_by_id"`
+	InvitedAt            time.Time       `json:"invited_at"`
+	AcceptedAt           *time.Time      `json:"accepted_at,omitempty"`
+	TermStartsAt         *time.Time      `json:"term_starts_at,omitempty"`
+	TermEndsAt           *time.Time      `json:"term_ends_at,omitempty"`
+	Events               []StandingEvent `json:"events"`
+}
+type StandingInput struct {
+	PrincipalID        string     `json:"principal_id"`
+	Role               string     `json:"role"`
+	Evidence           []Evidence `json:"evidence"`
+	Nominations        []string   `json:"available_nominations"`
+	Appeals            []string   `json:"available_appeals"`
+	ConflictDisclosure string     `json:"conflict_of_interest,omitempty"`
+}
 type Revision struct {
 	Version int64 `json:"version"`
 	Input
@@ -106,8 +146,120 @@ type Charter struct {
 	History       []Revision  `json:"history"`
 	Approvals     []Approval  `json:"approvals"`
 	Exceptions    []Exception `json:"exceptions"`
+	Standings     []Standing  `json:"standings"`
 	UpdatedAt     time.Time   `json:"updated_at"`
 }
+
+var evidenceKinds = map[string]bool{"contribution": true, "review": true, "support": true, "ownership": true, "membership": true}
+
+func roleFor(v Charter, name string) (Role, bool) {
+	for _, r := range v.Current.Roles {
+		if r.Name == name {
+			return r, true
+		}
+	}
+	return Role{}, false
+}
+
+// Invite records charter-bounded eligibility. Governance standing deliberately
+// carries an empty operational-authority set; repository policy remains separate.
+func (s *Store) Invite(t, scope, actor string, version int64, in StandingInput) (Charter, error) {
+	if !clean(in.PrincipalID) || !clean(in.Role) || len(in.Evidence) == 0 {
+		return Charter{}, ErrInvalid
+	}
+	for _, e := range in.Evidence {
+		if !evidenceKinds[e.Kind] || !clean(e.Reference) || !clean(e.Summary) {
+			return Charter{}, ErrInvalid
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(t, scope)
+	if e != nil {
+		return v, e
+	}
+	role, ok := roleFor(v, in.Role)
+	if !ok || version != v.ActiveVersion || v.Current.State != "active" {
+		return v, ErrConflict
+	}
+	for _, x := range v.Standings {
+		if x.PrincipalID == in.PrincipalID && x.Role == in.Role && x.State != "expired" && x.State != "revoked" {
+			return v, ErrConflict
+		}
+	}
+	now := s.now().UTC()
+	evidence := append([]Evidence(nil), in.Evidence...)
+	for i := range evidence {
+		evidence[i].VerifiedBy = actor
+	}
+	x := Standing{ID: id(), PrincipalID: in.PrincipalID, Role: in.Role, CharterVersion: version, State: "invited", Responsibilities: append([]string(nil), role.Responsibilities...), Evidence: evidence, Nominations: in.Nominations, Appeals: in.Appeals, ConflictDisclosure: strings.TrimSpace(in.ConflictDisclosure), OperationalAuthority: []string{}, InvitedByID: actor, InvitedAt: now}
+	x.Events = append(x.Events, StandingEvent{Sequence: 1, Type: "invited", ActorID: actor, CreatedAt: now})
+	v.Standings = append(v.Standings, x)
+	v.UpdatedAt = now
+	e = s.write(v)
+	return v, e
+}
+
+func (s *Store) Transition(t, scope, standingID, actor, action, reason string) (Charter, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(t, scope)
+	if e != nil {
+		return v, e
+	}
+	for i := range v.Standings {
+		x := &v.Standings[i]
+		if x.ID != standingID {
+			continue
+		}
+		now := s.now().UTC()
+		switch action {
+		case "accept":
+			if actor != x.PrincipalID || x.State != "invited" {
+				return v, ErrConflict
+			}
+			role, ok := roleFor(v, x.Role)
+			if !ok {
+				return v, ErrConflict
+			}
+			x.State = "active"
+			x.AcceptedAt = &now
+			x.TermStartsAt = &now
+			if role.TermDays > 0 {
+				end := now.Add(time.Duration(role.TermDays) * 24 * time.Hour)
+				x.TermEndsAt = &end
+			}
+		case "recuse":
+			if actor != x.PrincipalID || x.State != "active" {
+				return v, ErrConflict
+			}
+			x.State = "recused"
+		case "resume":
+			if actor != x.PrincipalID || x.State != "recused" {
+				return v, ErrConflict
+			}
+			x.State = "active"
+		case "suspend", "revoke_identity", "revoke_federation_trust":
+			if !clean(reason) {
+				return v, ErrInvalid
+			}
+			x.State = map[string]string{"suspend": "suspended", "revoke_identity": "revoked_identity", "revoke_federation_trust": "revoked_federation_trust"}[action]
+		case "expire":
+			if x.TermEndsAt == nil || now.Before(*x.TermEndsAt) {
+				return v, ErrConflict
+			}
+			x.State = "expired"
+		default:
+			return v, ErrInvalid
+		}
+		x.Events = append(x.Events, StandingEvent{Sequence: int64(len(x.Events) + 1), Type: action, ActorID: actor, Reason: strings.TrimSpace(reason), CreatedAt: now})
+		v.UpdatedAt = now
+		e = s.write(v)
+		return v, e
+	}
+	return v, ErrNotFound
+}
+
 type Store struct {
 	root string
 	mu   sync.Mutex

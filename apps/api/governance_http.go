@@ -218,6 +218,51 @@ func registerGovernanceHTTP(mux *http.ServeMux, s *governance.Store, repos owned
 			}
 			writeJSON(w, 201, v)
 		})
+		mux.HandleFunc("POST "+base+"/standings", func(w http.ResponseWriter, r *http.Request) {
+			id, a, _, _, ok := access(w, r, true)
+			if !ok {
+				return
+			}
+			var in struct {
+				Version int64 `json:"version"`
+				governance.StandingInput
+			}
+			if !readJSON(w, r, &in, 32<<10) {
+				return
+			}
+			v, e := s.Invite(scopeType, id, a.UserID, in.Version, in.StandingInput)
+			if e != nil {
+				governanceError(w, e)
+				return
+			}
+			writeJSON(w, 201, v)
+		})
+		mux.HandleFunc("POST "+base+"/standings/{standing}/{action}", func(w http.ResponseWriter, r *http.Request) {
+			id, a, _, _, ok := access(w, r, false)
+			if !ok {
+				return
+			}
+			action := r.PathValue("action")
+			ownerAction := action == "suspend" || action == "expire" || action == "revoke_identity" || action == "revoke_federation_trust"
+			if ownerAction {
+				_, a, _, _, ok = access(w, r, true)
+				if !ok {
+					return
+				}
+			}
+			var in struct {
+				Reason string `json:"reason"`
+			}
+			if !readJSON(w, r, &in, 8<<10) {
+				return
+			}
+			v, e := s.Transition(scopeType, id, r.PathValue("standing"), a.UserID, action, in.Reason)
+			if e != nil {
+				governanceError(w, e)
+				return
+			}
+			writeJSON(w, 200, v)
+		})
 	}
 	register("repository", "/repositories/{repository}/governance-charter")
 	register("organization", "/organizations/{organization}/governance-charter")

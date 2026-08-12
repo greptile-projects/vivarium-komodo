@@ -20,6 +20,17 @@ without changing completed decisions. Durable state is beneath
 `$GOVERNANCE_ROOT`; the web surfaces are repository `view=governance` and the
 selected organization workspace.
 
+Active charters also admit evidence-backed participant standing through
+`/governance-charter/standings`. Owners may cite bounded contribution, review,
+support, ownership, or membership evidence when inviting a principal into a
+declared role; acceptance starts the charter-defined term. Recusal, resume,
+suspension, expiry, identity revocation, and federation-trust revocation append
+attributable events instead of erasing eligibility history. Reads expose the
+participant's role, evidence, responsibilities, term, nominations, appeals,
+conflicts, and lifecycle state. Every standing has an explicitly empty
+`operational_authority` list: participation or a later vote does not grant code,
+secret, merge, deployment, membership, or credential access.
+
 ## External extensions
 
 ## Federation identity
