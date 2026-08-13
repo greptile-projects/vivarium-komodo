@@ -171,6 +171,21 @@ team publication without erasing accepted progress.
 
 Guidance for coding agents working in this repository.
 
+Product feedback lives beneath `$PRODUCT_FEEDBACK_ROOT` (default
+`apps/api/data/product-feedback`). Authenticated project readers submit a need
+against the project, an exact release, a documentation collection journey, or
+an exact preview, with desired outcome, frequency, impact, explicit public,
+repository, or accepted-organization audience, separate identity and evidence
+visibility, contact preference, and research/update consent. Evidence must be
+declared redacted and remains bounded; every read is projected for its viewer,
+so restricted identity, contact details, and evidence content never leak into
+broader list, detail, discussion, or history responses. Organization feedback
+fails closed outside accepted membership. Discussion and validated issue or
+product-experiment links remain attributable, while reporter consent withdrawal
+disables future contact without deleting the need or its history. The repository
+web surface is `view=feedback`; these records grant no repository, research,
+experiment, targeting, or follow-up authority beyond the recorded consent.
+
 Product experiment plans live beneath `$PRODUCT_EXPERIMENT_ROOT` (default
 `apps/api/data/product-experiments`). Repository collaborators register
 versioned product signals with their event, unit, permitted properties and

@@ -3,6 +3,27 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Product feedback
+
+Authenticated repository readers use `POST
+/repositories/{repository}/product-feedback` for product needs broader than a
+reproducible issue. A submission names project, release, documentation journey,
+or preview context and retains the need, desired outcome, frequency, impact,
+audience, provenance, identity visibility, evidence visibility, contact
+preference, and research/update consent. Release, journey, and preview IDs are
+resolved within the repository before acceptance. Private organization feedback
+requires accepted organization membership and is invisible outside that
+membership.
+
+List and detail responses are viewer-specific projections: reporters may hide
+their identity from the general audience, contact values are maintainer-only,
+and maintainer-only redacted evidence exposes metadata but not content to other
+readers. Discussion is attributable, maintainers can add validated issue and
+product-experiment links, and reporters can withdraw consent to clear future
+contact while preserving the historical need. The web application exposes the
+same contract at `view=feedback`. Feedback and consent do not grant operational,
+research, targeting, or repository authority.
+
 ## Project governance
 
 ## Repository performance contracts
