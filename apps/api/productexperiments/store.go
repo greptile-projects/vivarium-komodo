@@ -3,6 +3,7 @@ package productexperiments
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -161,8 +162,192 @@ type Experiment struct {
 	AssumptionChanges []AssumptionChange `json:"assumption_changes"`
 	WorkItems         []WorkItem         `json:"work_items"`
 	Implementations   []Implementation   `json:"implementations"`
+	AudiencePolicies  []AudiencePolicy   `json:"audience_policies"`
 	Blockers          []Blocker          `json:"blockers"`
 	Ready             bool               `json:"ready"`
+}
+
+type Allocation struct {
+	VariantID   string `json:"variant_id"`
+	BasisPoints int    `json:"basis_points"`
+}
+type EligibilityPolicy struct {
+	ConsentClass       string   `json:"consent_class"`
+	Regions            []string `json:"regions"`
+	OrganizationIDs    []string `json:"organization_ids"`
+	RequiredAttributes []string `json:"required_attributes"`
+	ExcludedAttributes []string `json:"excluded_attributes"`
+}
+type CollectionField struct {
+	SignalID      string   `json:"signal_id"`
+	SignalVersion int64    `json:"signal_version"`
+	Properties    []string `json:"properties"`
+}
+type AudiencePolicyInput struct {
+	ExpectedPlanVersion  int64             `json:"expected_plan_version"`
+	ReleaseID            string            `json:"release_id"`
+	VariantIDs           []string          `json:"variant_ids"`
+	MutualExclusionGroup string            `json:"mutual_exclusion_group"`
+	Eligibility          EligibilityPolicy `json:"eligibility"`
+	Allocation           []Allocation      `json:"allocation"`
+	Collection           []CollectionField `json:"collection"`
+	RetentionDays        int               `json:"retention_days"`
+	ApproverIDs          []string          `json:"approver_ids"`
+	ChangeReason         string            `json:"change_reason"`
+}
+type AudiencePolicyApproval struct {
+	ActorID   string    `json:"actor_id"`
+	Decision  string    `json:"decision"`
+	Note      string    `json:"note"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type AssignmentAudit struct {
+	ID            string    `json:"id"`
+	SubjectDigest string    `json:"subject_digest"`
+	VariantID     string    `json:"variant_id,omitempty"`
+	Decision      string    `json:"decision"`
+	Reason        string    `json:"reason"`
+	PolicyVersion int64     `json:"policy_version"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+type AudiencePolicy struct {
+	ID                   string                   `json:"id"`
+	Version              int64                    `json:"version"`
+	PlanVersion          int64                    `json:"plan_version"`
+	ReleaseID            string                   `json:"release_id"`
+	ReleaseCommitID      string                   `json:"release_commit_id"`
+	VariantIDs           []string                 `json:"variant_ids"`
+	MutualExclusionGroup string                   `json:"mutual_exclusion_group"`
+	Eligibility          EligibilityPolicy        `json:"eligibility"`
+	Allocation           []Allocation             `json:"allocation"`
+	Collection           []CollectionField        `json:"collection"`
+	RetentionDays        int                      `json:"retention_days"`
+	ApproverIDs          []string                 `json:"approver_ids"`
+	ChangeReason         string                   `json:"change_reason"`
+	AuthorID             string                   `json:"author_id"`
+	CreatedAt            time.Time                `json:"created_at"`
+	Approvals            []AudiencePolicyApproval `json:"approvals"`
+	Assignments          []AssignmentAudit        `json:"assignment_audits"`
+	Blockers             []Blocker                `json:"blockers"`
+	Ready                bool                     `json:"ready"`
+	AssignmentAuthority  bool                     `json:"assignment_authority"`
+}
+type AssignmentInput struct {
+	Subject        string   `json:"subject"`
+	Region         string   `json:"region"`
+	OrganizationID string   `json:"organization_id"`
+	ConsentClasses []string `json:"consent_classes"`
+	Attributes     []string `json:"attributes"`
+	ExistingGroups []string `json:"existing_groups"`
+}
+
+func validAudiencePolicy(p PlanVersion, in AudiencePolicyInput) bool {
+	if in.ExpectedPlanVersion != p.Number || in.ReleaseID == "" || in.MutualExclusionGroup == "" || in.Eligibility.ConsentClass == "" || in.RetentionDays < 1 || in.RetentionDays > 730 || len(in.ApproverIDs) == 0 || in.ChangeReason == "" || !declaredVariants(p, in.VariantIDs) || len(in.VariantIDs) != len(p.Variants) || len(in.Allocation) != len(in.VariantIDs) || len(in.Collection) == 0 {
+		return false
+	}
+	total, weights := 0, map[string]bool{}
+	for _, a := range in.Allocation {
+		if a.BasisPoints < 0 || weights[a.VariantID] || !contains(in.VariantIDs, a.VariantID) {
+			return false
+		}
+		weights[a.VariantID] = true
+		total += a.BasisPoints
+	}
+	if total != 10000 {
+		return false
+	}
+	for _, c := range in.Collection {
+		if c.SignalID == "" || c.SignalVersion < 1 || len(c.Properties) == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Store) PutAudiencePolicy(repo, eid, actor, release, commit string, in AudiencePolicyInput) (Experiment, error) {
+	return s.mutate(repo, eid, func(v *Experiment) error {
+		p := v.Versions[len(v.Versions)-1]
+		if release == "" || commit == "" || !validAudiencePolicy(p, in) {
+			return ErrInvalid
+		}
+		version := int64(1)
+		if len(v.AudiencePolicies) > 0 {
+			version = v.AudiencePolicies[len(v.AudiencePolicies)-1].Version + 1
+		}
+		v.AudiencePolicies = append(v.AudiencePolicies, AudiencePolicy{ID: id("aud_"), Version: version, PlanVersion: p.Number, ReleaseID: release, ReleaseCommitID: commit, VariantIDs: in.VariantIDs, MutualExclusionGroup: in.MutualExclusionGroup, Eligibility: in.Eligibility, Allocation: in.Allocation, Collection: in.Collection, RetentionDays: in.RetentionDays, ApproverIDs: in.ApproverIDs, ChangeReason: in.ChangeReason, AuthorID: actor, CreatedAt: s.now()})
+		return nil
+	})
+}
+func (s *Store) ApproveAudiencePolicy(repo, eid, actor, decision, note string) (Experiment, error) {
+	return s.mutate(repo, eid, func(v *Experiment) error {
+		if len(v.AudiencePolicies) == 0 || !one(decision, "approved", "changes_requested") {
+			return ErrInvalid
+		}
+		p := &v.AudiencePolicies[len(v.AudiencePolicies)-1]
+		if !contains(p.ApproverIDs, actor) {
+			return ErrInvalid
+		}
+		p.Approvals = append(p.Approvals, AudiencePolicyApproval{ActorID: actor, Decision: decision, Note: note, CreatedAt: s.now()})
+		return nil
+	})
+}
+func (s *Store) Assign(repo, eid, actor string, in AssignmentInput) (Experiment, error) {
+	return s.mutate(repo, eid, func(v *Experiment) error {
+		if len(v.AudiencePolicies) == 0 || in.Subject == "" {
+			return ErrInvalid
+		}
+		p := &v.AudiencePolicies[len(v.AudiencePolicies)-1]
+		resolved := s.resolve(repo, *v)
+		current := resolved.AudiencePolicies[len(resolved.AudiencePolicies)-1]
+		if !current.Ready {
+			return ErrConflict
+		}
+		digest := sha256.Sum256([]byte(repo + ":" + eid + ":" + in.Subject))
+		subject := hex.EncodeToString(digest[:])
+		for _, a := range p.Assignments {
+			if a.SubjectDigest == subject {
+				return nil
+			}
+		}
+		decision, reason, variant := "assigned", "eligible and consented", ""
+		if !contains(in.ConsentClasses, p.Eligibility.ConsentClass) {
+			decision, reason = "excluded", "required consent is absent"
+		}
+		if decision == "assigned" && len(p.Eligibility.Regions) > 0 && !contains(p.Eligibility.Regions, in.Region) {
+			decision, reason = "excluded", "region is not eligible"
+		}
+		if decision == "assigned" && len(p.Eligibility.OrganizationIDs) > 0 && !contains(p.Eligibility.OrganizationIDs, in.OrganizationID) {
+			decision, reason = "excluded", "organization is not eligible"
+		}
+		for _, x := range p.Eligibility.RequiredAttributes {
+			if decision == "assigned" && !contains(in.Attributes, x) {
+				decision, reason = "excluded", "required eligibility attribute is absent"
+			}
+		}
+		for _, x := range p.Eligibility.ExcludedAttributes {
+			if decision == "assigned" && contains(in.Attributes, x) {
+				decision, reason = "excluded", "exclusion applies"
+			}
+		}
+		if decision == "assigned" && contains(in.ExistingGroups, p.MutualExclusionGroup) {
+			decision, reason = "excluded", "mutually exclusive assignment already exists"
+		}
+		if decision == "assigned" {
+			bucket := int(digest[0])<<8 | int(digest[1])
+			point := bucket * 10000 / 65536
+			n := 0
+			for _, a := range p.Allocation {
+				n += a.BasisPoints
+				if point < n {
+					variant = a.VariantID
+					break
+				}
+			}
+		}
+		p.Assignments = append(p.Assignments, AssignmentAudit{ID: id("asn_"), SubjectDigest: subject, VariantID: variant, Decision: decision, Reason: reason, PolicyVersion: p.Version, CreatedAt: s.now()})
+		_ = actor
+		return nil
+	})
 }
 
 func (s *Store) AddWorkItem(repo, eid, actor string, item WorkItem) (Experiment, error) {
@@ -456,6 +641,60 @@ func (s *Store) resolve(repo string, v Experiment) Experiment {
 		return v
 	}
 	p := v.Versions[len(v.Versions)-1]
+	for i := range v.AudiencePolicies {
+		a := &v.AudiencePolicies[i]
+		a.Blockers = nil
+		a.Ready = false
+		a.AssignmentAuthority = false
+		if a.PlanVersion != v.CurrentVersion {
+			a.Blockers = append(a.Blockers, Blocker{Kind: "stale_plan", Detail: "audience policy does not bind the current experiment plan"})
+		}
+		implementation := false
+		for _, x := range v.Implementations {
+			if x.PlanVersion == a.PlanVersion && x.SourceCommitID == a.ReleaseCommitID {
+				implementation = true
+			}
+		}
+		if !implementation {
+			a.Blockers = append(a.Blockers, Blocker{Kind: "stale_release", Detail: "released commit is not a current exact implementation"})
+		}
+		for _, approver := range a.ApproverIDs {
+			decision := ""
+			for j := len(a.Approvals) - 1; j >= 0; j-- {
+				if a.Approvals[j].ActorID == approver {
+					decision = a.Approvals[j].Decision
+					break
+				}
+			}
+			if decision != "approved" {
+				a.Blockers = append(a.Blockers, Blocker{Kind: "missing_audience_approval", Detail: approver + " has not approved this audience policy"})
+			}
+		}
+		for _, c := range a.Collection {
+			found := false
+			for _, sig := range mustSignals(s, repo) {
+				if sig.ID == c.SignalID && c.SignalVersion <= sig.CurrentVersion {
+					sv := sig.Versions[c.SignalVersion-1]
+					found = contains(sv.PermittedAudiences, a.Eligibility.ConsentClass)
+					for _, prop := range c.Properties {
+						if !contains(sv.Properties, prop) {
+							found = false
+						}
+					}
+				}
+			}
+			if !found {
+				a.Blockers = append(a.Blockers, Blocker{Kind: "unauthorized_collection", Detail: "collection exceeds the exact signal consent or property policy", ResourceID: c.SignalID})
+			}
+		}
+		for j := range v.AudiencePolicies {
+			other := v.AudiencePolicies[j]
+			if j != i && other.Version > a.Version && other.MutualExclusionGroup == a.MutualExclusionGroup {
+				a.Blockers = append(a.Blockers, Blocker{Kind: "conflicting_allocation", Detail: "a newer allocation uses the mutually exclusive group", ResourceID: other.ID})
+			}
+		}
+		a.Ready = len(a.Blockers) == 0
+	}
 	for i := range v.Implementations {
 		v.Implementations[i].Current = v.Implementations[i].PlanVersion == v.CurrentVersion
 	}
@@ -511,6 +750,7 @@ func (s *Store) resolve(repo string, v Experiment) Experiment {
 	v.Ready = len(v.Blockers) == 0
 	return v
 }
+func mustSignals(s *Store, repo string) []Signal { v, _ := s.Signals(repo); return v }
 func (s *Store) raw(repo string) ([]Experiment, error) {
 	paths, e := filepath.Glob(filepath.Join(s.root, repo, "experiments", "*.json"))
 	out := []Experiment{}

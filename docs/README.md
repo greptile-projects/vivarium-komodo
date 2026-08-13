@@ -742,6 +742,19 @@ isolation, and fallback behavior. Ordinary pull-request review, checks, branch
 protection, and merge remain authoritative, and a later plan revision marks old
 implementation evidence non-current instead of rewriting it.
 
+Before rollout, the repository owner publishes an audience contract at the
+experiment's `/audience-policies` collection. It binds the complete variant set
+to an exact release and commit, declares deterministic basis-point allocation,
+one mutually exclusive group, consent, regional and organization constraints,
+structured inclusion and exclusion attributes, exact signal properties, data
+retention, and the maintainers or privacy participants who must approve it.
+Reads expose the eligible population and minimal collection policy while
+showing only pseudonymous digests for assignment audits. Missing approval,
+stale plan or release evidence, unauthorized properties, incomplete weights,
+and conflicting groups block assignment. Repeated assignment is consistent and
+does not turn the audience contract into deployment, telemetry, or exposure
+authority.
+
 The accountable owner requests affected-owner acknowledgements or named policy
 approvals through the decision's `/approval-requirements` collection. Only the
 named participant can respond; pending requirements and rejected approvals are
