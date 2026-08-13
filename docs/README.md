@@ -25,6 +25,16 @@ repository `view=performance` surface publishes, revises, and measures these
 contracts; it grants no additional repository or execution authority. Durable
 state is rooted beneath `$PERFORMANCE_GOAL_ROOT`.
 
+Authorized collaborators append reproducible trials at
+`POST /repositories/{repository}/performance-goals/{goal}/trials`. Each trial
+binds the current goal version and an existing exact commit; a supplied release
+must attest that same commit. Retained evidence includes benchmark definition
+and sanitized-input digests, environment, warmups, raw samples, sampling method,
+server-derived mean and sample variance, resource use, bounded traces, logs,
+profiles and artifacts, cost, attribution, and rerun lineage. Credential-like
+evidence is rejected. Repository readers can inspect this on `view=performance`
+without receiving operational access or private production data.
+
 Repository and organization owners publish governance charter drafts through
 their scoped `/governance-charter` API. Each immutable revision records roles,
 eligibility, decision classes, participation and quorum, protected resources,

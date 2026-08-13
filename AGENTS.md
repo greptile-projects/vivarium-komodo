@@ -184,6 +184,13 @@ measurement time. Reads derive missing measurements, incomparable environments,
 stale baselines, and conflicting target ranges explicitly; measurements never
 silently rewrite the agreed contract. The repository web surface is
 `view=performance`.
+Authorized collaborators retain reproducible benchmark trials beneath the same
+goal. Trials bind its current version to an existing exact commit or matching
+attested release and retain definition and sanitized-input digests, environment,
+warmups, raw samples, sampling method, derived mean/variance, resource profile,
+bounded redacted traces/logs/artifacts, cost, attribution, and rerun lineage.
+Repository reads expose the evidence without granting execution or operational
+access; credential-like evidence and unverified releases are rejected.
 
 Project governance charters live beneath `$GOVERNANCE_ROOT` (default
 `apps/api/data/governance`). Repository owners and organization owners publish
