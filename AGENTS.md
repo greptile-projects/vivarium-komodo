@@ -204,6 +204,16 @@ goal versions and selected trial revision, workload, environment, or
 availability. Evidence explicitly scoped to investigation participants cannot
 be cited into repository-audience entries, and investigations containing it
 remain invisible to uninvolved repository readers.
+Supported repository-audience conclusions may create a human- or agent-owned
+performance change as an ordinary proposal task, retaining the exact goal
+version, workload evidence, baseline trial, diagnosis, constraints, ownership,
+and base revision. Candidate comparisons bind an ordinary pull request's exact
+source commit to an isolated candidate trial and a valid baseline with the same
+definition, workload source, environment, and sampling method. Public goal and
+pull-request-linked evidence derives the mean and percentage change, 95%
+confidence interval, CPU, memory and cost deltas, correctness checks, affected
+scenarios, reproducible commands, attribution, and residual risks. These
+records grant no Git, execution, review, check, or merge authority.
 
 Project governance charters live beneath `$GOVERNANCE_ROOT` (default
 `apps/api/data/governance`). Repository owners and organization owners publish

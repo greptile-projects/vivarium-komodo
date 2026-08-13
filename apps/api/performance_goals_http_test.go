@@ -72,3 +72,23 @@ func TestPerformanceTrialRetainsComparableEvidence(t *testing.T) {
 		t.Fatal("credential-like evidence accepted")
 	}
 }
+
+func TestPerformanceComparisonBindsComparableExactRevisions(t *testing.T) {
+	store, _ := performancegoals.New(t.TempDir())
+	max := 250.0
+	goal, _ := store.Create("repo", "owner", performancegoals.VersionInput{SubjectKind: "service", Title: "fast", Workloads: []string{"search"}, Metrics: []performancegoals.Metric{{ID: "latency", Name: "latency", Unit: "ms", Direction: "lower", Target: performancegoals.Range{Maximum: &max}, EnvironmentDigest: "env"}}, CorrectnessConstraints: []string{"same results"}, Environments: []performancegoals.Environment{{Name: "linux", Digest: "env"}}, OwnerIDs: []string{"owner"}, BaselineMaxAgeDays: 30, ChangeReason: "optimize"})
+	record := func(revision string, samples []performancegoals.Sample, cpu, memory, cost float64) performancegoals.Trial {
+		goal, _ = store.RecordTrial("repo", goal.ID, "owner", performancegoals.TrialInput{Version: 1, Benchmark: "search", DefinitionDigest: "definition", Revision: revision, Environment: performancegoals.Environment{Name: "linux", Digest: "env"}, WorkloadSource: "repository_fixture", SamplingMethod: "wall_clock", Samples: samples, ResourceProfile: performancegoals.ResourceProfile{CPUSeconds: cpu, PeakMemoryMB: memory}, Cost: cost})
+		return goal.Trials[len(goal.Trials)-1]
+	}
+	base := record("base", []performancegoals.Sample{{Value: 100}, {Value: 110}, {Value: 90}}, 3, 40, .03)
+	candidate := record("candidate", []performancegoals.Sample{{Value: 70}, {Value: 80}, {Value: 75}}, 2, 48, .02)
+	goal, err := store.Compare("repo", goal.ID, "analyst", performancegoals.ComparisonInput{Version: 1, BaselineTrialID: base.ID, CandidateTrialID: candidate.ID, PullRequestID: "pull", MetricID: "latency", CorrectnessChecks: []string{"results identical"}, AffectedScenarios: []string{"search"}, Commands: []string{"go test ./..."}, ResidualRisks: []string{"memory rises"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := goal.Comparisons[0]
+	if c.MeanChange != -25 || c.PercentChange != -25 || c.PeakMemoryMBChange != 8 || c.CostChange > -.009 || c.ActorID != "analyst" || c.Confidence95.Maximum == nil {
+		t.Fatalf("comparison lost tradeoffs: %+v", c)
+	}
+}

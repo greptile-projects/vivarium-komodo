@@ -131,8 +131,40 @@ type Goal struct {
 	Versions       []Version     `json:"versions"`
 	Measurements   []Measurement `json:"measurements"`
 	Trials         []Trial       `json:"trials"`
+	Comparisons    []Comparison  `json:"comparisons,omitempty"`
 	Statuses       []Status      `json:"statuses"`
 	Conflicts      []string      `json:"conflicts"`
+}
+type Comparison struct {
+	ID                 string    `json:"id"`
+	Version            int64     `json:"version"`
+	BaselineTrialID    string    `json:"baseline_trial_id"`
+	CandidateTrialID   string    `json:"candidate_trial_id"`
+	PullRequestID      string    `json:"pull_request_id"`
+	MetricID           string    `json:"metric_id"`
+	MeanChange         float64   `json:"mean_change"`
+	PercentChange      float64   `json:"percent_change"`
+	Confidence95       Range     `json:"confidence_95"`
+	CPUSecondsChange   float64   `json:"cpu_seconds_change"`
+	PeakMemoryMBChange float64   `json:"peak_memory_mb_change"`
+	CostChange         float64   `json:"cost_change"`
+	CorrectnessChecks  []string  `json:"correctness_checks"`
+	AffectedScenarios  []string  `json:"affected_scenarios"`
+	Commands           []string  `json:"commands"`
+	ResidualRisks      []string  `json:"residual_risks"`
+	ActorID            string    `json:"actor_id"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+type ComparisonInput struct {
+	Version           int64    `json:"version"`
+	BaselineTrialID   string   `json:"baseline_trial_id"`
+	CandidateTrialID  string   `json:"candidate_trial_id"`
+	PullRequestID     string   `json:"pull_request_id"`
+	MetricID          string   `json:"metric_id"`
+	CorrectnessChecks []string `json:"correctness_checks"`
+	AffectedScenarios []string `json:"affected_scenarios"`
+	Commands          []string `json:"commands"`
+	ResidualRisks     []string `json:"residual_risks"`
 }
 type VersionInput struct {
 	SubjectKind            string        `json:"subject_kind"`
@@ -334,6 +366,47 @@ func (s *Store) RecordTrial(repo, gid, actor string, in TrialInput) (Goal, error
 	t := Trial{ID: id(), Version: in.Version, Benchmark: strings.TrimSpace(in.Benchmark), DefinitionDigest: in.DefinitionDigest, Revision: in.Revision, ReleaseID: in.ReleaseID, Environment: in.Environment, WorkloadSource: in.WorkloadSource, InputDigests: in.InputDigests, WarmupRuns: in.WarmupRuns, SamplingMethod: in.SamplingMethod, Samples: in.Samples, Mean: mean, Variance: variance, ResourceProfile: in.ResourceProfile, Evidence: in.Evidence, Cost: in.Cost, RerunOf: in.RerunOf, ActorID: actor, CreatedAt: s.now().UTC()}
 	g.Trials = append(g.Trials, t)
 	return g, s.write(g)
+}
+func (s *Store) Compare(repo, gid, actor string, in ComparisonInput) (Goal, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	g, err := s.read(repo, gid)
+	if err != nil {
+		return g, err
+	}
+	if actor == "" || in.Version != g.CurrentVersion || in.PullRequestID == "" || in.MetricID == "" || !clean(in.CorrectnessChecks) || !clean(in.AffectedScenarios) || !clean(in.Commands) || !clean(in.ResidualRisks) {
+		return g, ErrInvalid
+	}
+	var base, candidate *Trial
+	for i := range g.Trials {
+		t := &g.Trials[i]
+		if t.ID == in.BaselineTrialID {
+			base = t
+		}
+		if t.ID == in.CandidateTrialID {
+			candidate = t
+		}
+	}
+	if base == nil || candidate == nil || base.Version != in.Version || candidate.Version != in.Version || base.DefinitionDigest != candidate.DefinitionDigest || base.Environment.Digest != candidate.Environment.Digest || base.WorkloadSource != candidate.WorkloadSource || base.SamplingMethod != candidate.SamplingMethod || base.Revision == candidate.Revision {
+		return g, ErrInvalid
+	}
+	delta := candidate.Mean - base.Mean
+	se := base.Variance/float64(len(base.Samples)) + candidate.Variance/float64(len(candidate.Samples))
+	margin := 1.96 * sqrt(se)
+	low, high := delta-margin, delta+margin
+	c := Comparison{ID: id(), Version: in.Version, BaselineTrialID: base.ID, CandidateTrialID: candidate.ID, PullRequestID: in.PullRequestID, MetricID: in.MetricID, MeanChange: delta, PercentChange: delta / base.Mean * 100, Confidence95: Range{Minimum: &low, Maximum: &high}, CPUSecondsChange: candidate.ResourceProfile.CPUSeconds - base.ResourceProfile.CPUSeconds, PeakMemoryMBChange: candidate.ResourceProfile.PeakMemoryMB - base.ResourceProfile.PeakMemoryMB, CostChange: candidate.Cost - base.Cost, CorrectnessChecks: in.CorrectnessChecks, AffectedScenarios: in.AffectedScenarios, Commands: in.Commands, ResidualRisks: in.ResidualRisks, ActorID: actor, CreatedAt: s.now().UTC()}
+	g.Comparisons = append(g.Comparisons, c)
+	return g, s.write(g)
+}
+func sqrt(x float64) float64 {
+	if x == 0 {
+		return 0
+	}
+	z := x
+	for i := 0; i < 20; i++ {
+		z = (z + x/z) / 2
+	}
+	return z
 }
 func containsSensitive(v string) bool {
 	x := strings.ToLower(v)

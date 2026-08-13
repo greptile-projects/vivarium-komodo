@@ -64,9 +64,27 @@ type Investigation struct {
 	OwnerIDs     []string      `json:"owner_ids"`
 	Evidence     []EvidenceRef `json:"evidence"`
 	Entries      []Entry       `json:"entries"`
+	Changes      []Change      `json:"changes,omitempty"`
 	CreatorID    string        `json:"creator_id"`
 	CreatedAt    time.Time     `json:"created_at"`
 	UpdatedAt    time.Time     `json:"updated_at"`
+}
+type Change struct {
+	ID               string    `json:"id"`
+	Kind             string    `json:"kind"`
+	OwnerKind        string    `json:"owner_kind"`
+	OwnerID          string    `json:"owner_id"`
+	GoalID           string    `json:"goal_id"`
+	GoalVersion      int64     `json:"goal_version"`
+	DiagnosisEntryID string    `json:"diagnosis_entry_id"`
+	BaselineTrialID  string    `json:"baseline_trial_id"`
+	Title            string    `json:"title"`
+	Constraints      []string  `json:"constraints"`
+	ProposalID       string    `json:"proposal_id,omitempty"`
+	TaskID           string    `json:"task_id,omitempty"`
+	PullRequestID    string    `json:"pull_request_id,omitempty"`
+	CreatorID        string    `json:"creator_id"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 type CreateInput struct {
 	GoalID      string        `json:"goal_id"`
@@ -121,6 +139,31 @@ func (s *Store) Get(repo, id string) (Investigation, error) {
 		return Investigation{}, ErrNotFound
 	}
 	return v, nil
+}
+func (s *Store) AddChange(repo, investigation, actor string, change Change) (Investigation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, err := s.read(investigation)
+	if err != nil || v.RepositoryID != repo {
+		return Investigation{}, ErrNotFound
+	}
+	if !has(v.Participants, actor) || change.Title == "" || change.DiagnosisEntryID == "" || change.BaselineTrialID == "" {
+		return Investigation{}, ErrInvalid
+	}
+	found := false
+	for _, entry := range v.Entries {
+		if entry.ID == change.DiagnosisEntryID && entry.Kind == "conclusion" && !entry.Stale {
+			found = true
+		}
+	}
+	if !found {
+		return Investigation{}, ErrInvalid
+	}
+	change.ID, change.GoalID, change.GoalVersion = newid(), v.GoalID, v.GoalVersion
+	change.CreatorID, change.CreatedAt = actor, s.now().UTC()
+	v.Changes = append(v.Changes, change)
+	v.UpdatedAt = change.CreatedAt
+	return v, s.write(v)
 }
 func (s *Store) List(repo string) ([]Investigation, error) {
 	s.mu.Lock()
