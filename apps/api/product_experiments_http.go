@@ -4,10 +4,16 @@ import (
 	"errors"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/productexperiments"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"net/http"
 )
 
-func registerProductExperimentsHTTP(mux *http.ServeMux, s *productexperiments.Store, repos proposalRepositoryStore, c authStore, pulls ...previewPullStore) {
+type productExperimentReleases interface {
+	Get(string, string) (releases.Release, error)
+}
+
+func registerProductExperimentsHTTP(mux *http.ServeMux, s *productexperiments.Store, repos proposalRepositoryStore, c authStore, pulls previewPullStore, releaseStore productExperimentReleases) {
 	base := "/repositories/{repository}/product-experiments"
 	access := func(w http.ResponseWriter, r *http.Request, write bool) (string, string, bool) {
 		perm := auth.RepositoryRead
@@ -152,16 +158,75 @@ func registerProductExperimentsHTTP(mux *http.ServeMux, s *productexperiments.St
 		if !readJSON(w, r, &in, 128<<10) {
 			return
 		}
-		if len(pulls) == 0 {
-			writeJSON(w, 422, map[string]string{"error": "invalid_product_experiment"})
-			return
-		}
-		pull, e := pulls[0].Get(repo, in.PullRequestID)
+		pull, e := pulls.Get(repo, in.PullRequestID)
 		if e != nil {
 			writeJSON(w, 422, map[string]string{"error": "invalid_product_experiment_pull_request"})
 			return
 		}
 		v, e := s.AddImplementation(repo, r.PathValue("experiment"), a, pull.SourceCommitID, in)
+		if experimentError(w, e) {
+			return
+		}
+		writeJSON(w, 201, v)
+	})
+	mux.HandleFunc("POST "+base+"/{experiment}/audience-policies", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		inspected, e := repos.Inspect(storage.ID(r.PathValue("repository")))
+		if e != nil || inspected.OwnerID != a {
+			writeJSON(w, 403, map[string]string{"error": "repository_owner_required"})
+			return
+		}
+		var in productexperiments.AudiencePolicyInput
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		rel, e := releaseStore.Get(repo, in.ReleaseID)
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_product_experiment_release"})
+			return
+		}
+		v, e := s.PutAudiencePolicy(repo, r.PathValue("experiment"), a, rel.ID, rel.CommitID, in)
+		if experimentError(w, e) {
+			return
+		}
+		writeJSON(w, 201, v)
+	})
+	mux.HandleFunc("POST "+base+"/{experiment}/audience-policies/approval", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Decision string `json:"decision"`
+			Note     string `json:"note"`
+		}
+		if !readJSON(w, r, &in, 16<<10) {
+			return
+		}
+		v, e := s.ApproveAudiencePolicy(repo, r.PathValue("experiment"), a, in.Decision, in.Note)
+		if experimentError(w, e) {
+			return
+		}
+		writeJSON(w, 201, v)
+	})
+	mux.HandleFunc("POST "+base+"/{experiment}/audience-policies/assignments", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		inspected, e := repos.Inspect(storage.ID(r.PathValue("repository")))
+		if e != nil || inspected.OwnerID != a {
+			writeJSON(w, 403, map[string]string{"error": "repository_owner_required"})
+			return
+		}
+		var in productexperiments.AssignmentInput
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		v, e := s.Assign(repo, r.PathValue("experiment"), a, in)
 		if experimentError(w, e) {
 			return
 		}

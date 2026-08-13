@@ -78,3 +78,61 @@ func TestImplementationWorkIsRevisionExactAndReviewSafe(t *testing.T) {
 		t.Fatalf("missing repository checks accepted: %v", err)
 	}
 }
+
+func TestAudiencePolicyGovernsExactReleaseConsentAndStableAssignment(t *testing.T) {
+	s, _ := New(t.TempDir())
+	sig, _ := s.CreateSignal("repo", "owner", SignalVersion{Name: "activation", Description: "Activation", Unit: "users", Event: "repository.activated", Properties: []string{"variant", "completed"}, PermittedAudiences: []string{"product_analytics"}, Instrumented: true, ChangeReason: "reviewed"})
+	x, _ := s.Create("repo", "owner", plan(sig.ID))
+	impl := ImplementationInput{PullRequestID: "pr", VariantIDs: []string{"control", "guided"}, EventDefinitions: []EventDefinition{{SignalID: sig.ID, SignalVersion: 1, Event: "repository.activated", Properties: []string{"variant"}}, {SignalID: sig.ID, SignalVersion: 1, Event: "repository.activated", Properties: []string{"variant"}}}, ExposureRules: []string{"stable"}, PrivacyClassification: "consented", RemovalPlan: "remove", CheckNames: map[string]string{"assignment": "a", "metric_capture": "m", "variant_isolation": "i", "fallback": "f"}}
+	var implErr error
+	x, implErr = s.AddImplementation("repo", x.ID, "owner", "released", impl)
+	if implErr != nil {
+		t.Fatal(implErr)
+	}
+	in := AudiencePolicyInput{ExpectedPlanVersion: 1, ReleaseID: "rel", VariantIDs: []string{"control", "guided"}, MutualExclusionGroup: "onboarding", Eligibility: EligibilityPolicy{ConsentClass: "product_analytics", Regions: []string{"EU"}, RequiredAttributes: []string{"new_owner"}, ExcludedAttributes: []string{"staff"}}, Allocation: []Allocation{{VariantID: "control", BasisPoints: 5000}, {VariantID: "guided", BasisPoints: 5000}}, Collection: []CollectionField{{SignalID: sig.ID, SignalVersion: 1, Properties: []string{"variant"}}}, RetentionDays: 30, ApproverIDs: []string{"owner", "privacy"}, ChangeReason: "bounded audience"}
+	x, err := s.PutAudiencePolicy("repo", x.ID, "owner", "rel", "released", in)
+	if err != nil || x.AudiencePolicies[0].Ready {
+		t.Fatalf("unapproved policy: %#v %v", x.AudiencePolicies, err)
+	}
+	x, _ = s.ApproveAudiencePolicy("repo", x.ID, "owner", "approved", "release owner")
+	x, _ = s.ApproveAudiencePolicy("repo", x.ID, "privacy", "approved", "minimal collection")
+	if !x.AudiencePolicies[0].Ready {
+		t.Fatalf("policy blockers: %#v", x.AudiencePolicies[0].Blockers)
+	}
+	x, err = s.Assign("repo", x.ID, "owner", AssignmentInput{Subject: "private-user-id", Region: "EU", ConsentClasses: []string{"product_analytics"}, Attributes: []string{"new_owner"}})
+	if err != nil || len(x.AudiencePolicies[0].Assignments) != 1 || x.AudiencePolicies[0].Assignments[0].SubjectDigest == "private-user-id" || x.AudiencePolicies[0].Assignments[0].VariantID == "" {
+		t.Fatalf("assignment: %#v %v", x.AudiencePolicies[0].Assignments, err)
+	}
+	x, _ = s.Assign("repo", x.ID, "owner", AssignmentInput{Subject: "private-user-id", Region: "EU", ConsentClasses: []string{"product_analytics"}, Attributes: []string{"new_owner"}})
+	if len(x.AudiencePolicies[0].Assignments) != 1 {
+		t.Fatal("assignment was not stable and idempotent")
+	}
+	x, _ = s.Assign("repo", x.ID, "owner", AssignmentInput{Subject: "without-consent", Region: "EU", Attributes: []string{"new_owner"}})
+	if x.AudiencePolicies[0].Assignments[1].Decision != "excluded" || x.AudiencePolicies[0].Assignments[1].VariantID != "" {
+		t.Fatalf("consent exclusion: %#v", x.AudiencePolicies[0].Assignments[1])
+	}
+}
+
+func TestAudiencePolicyRejectsBiasedOrUnauthorizedAllocation(t *testing.T) {
+	s, _ := New(t.TempDir())
+	sig, _ := s.CreateSignal("repo", "owner", SignalVersion{Name: "signal", Description: "signal", Unit: "users", Event: "event", Properties: []string{"allowed"}, PermittedAudiences: []string{"consent"}, Instrumented: true, ChangeReason: "reviewed"})
+	p := plan(sig.ID)
+	p.Audience.Consent = "consent"
+	x, _ := s.Create("repo", "owner", p)
+	in := AudiencePolicyInput{ExpectedPlanVersion: 1, ReleaseID: "rel", VariantIDs: []string{"control", "guided"}, MutualExclusionGroup: "group", Eligibility: EligibilityPolicy{ConsentClass: "consent"}, Allocation: []Allocation{{VariantID: "control", BasisPoints: 9000}, {VariantID: "guided", BasisPoints: 900}}, Collection: []CollectionField{{SignalID: sig.ID, SignalVersion: 1, Properties: []string{"secret"}}}, RetentionDays: 30, ApproverIDs: []string{"owner"}, ChangeReason: "test"}
+	if _, err := s.PutAudiencePolicy("repo", x.ID, "owner", "rel", "commit", in); err != ErrInvalid {
+		t.Fatalf("biased incomplete allocation accepted: %v", err)
+	}
+	in.Allocation[1].BasisPoints = 1000
+	x, err := s.PutAudiencePolicy("repo", x.ID, "owner", "rel", "commit", in)
+	if err != nil || x.AudiencePolicies[0].Blockers[0].Kind != "stale_release" {
+		t.Fatalf("release blocker: %#v %v", x.AudiencePolicies, err)
+	}
+	found := false
+	for _, b := range x.AudiencePolicies[0].Blockers {
+		found = found || b.Kind == "unauthorized_collection"
+	}
+	if !found {
+		t.Fatalf("unauthorized property was hidden: %#v", x.AudiencePolicies[0].Blockers)
+	}
+}

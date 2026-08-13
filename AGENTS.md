@@ -196,6 +196,16 @@ removal plan, and repository check names for assignment, metric capture,
 variant isolation, and fallback. Plan revisions make earlier implementation
 records explicitly non-current; neither record grants code, data, agent,
 review, merge, release, deployment, or exposure authority.
+Repository owners bind an audience policy to one exact release commit and the
+complete current variant set. Policies declare structured eligibility and
+exclusions, consent class, regions and organizations, deterministic basis-point
+allocation, a mutual-exclusion group, exact permitted signal properties,
+retention, and named approvers. Reads preview these boundaries and derive stale
+plan/release, unapproved, unauthorized-collection, and conflicting-allocation
+blockers before assignment. Assignment is stable and idempotent, retains only a
+repository-scoped subject digest and decision evidence, and never exposes raw
+membership. The contract grants no deployment, exposure, telemetry, or user-data
+authority; rollout remains a later independently governed action.
 
 Repository performance contracts live beneath `$PERFORMANCE_GOAL_ROOT` (default
 `apps/api/data/performance-goals`). Collaborators publish immutable,
