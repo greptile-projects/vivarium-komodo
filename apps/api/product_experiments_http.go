@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/productexperiments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -12,8 +13,12 @@ import (
 type productExperimentReleases interface {
 	Get(string, string) (releases.Release, error)
 }
+type productExperimentDeployments interface {
+	GetEnvironment(string, string) (deployments.Environment, error)
+	GetDeployment(string, string) (deployments.Deployment, error)
+}
 
-func registerProductExperimentsHTTP(mux *http.ServeMux, s *productexperiments.Store, repos proposalRepositoryStore, c authStore, pulls previewPullStore, releaseStore productExperimentReleases) {
+func registerProductExperimentsHTTP(mux *http.ServeMux, s *productexperiments.Store, repos proposalRepositoryStore, c authStore, pulls previewPullStore, releaseStore productExperimentReleases, deploymentStore productExperimentDeployments) {
 	base := "/repositories/{repository}/product-experiments"
 	access := func(w http.ResponseWriter, r *http.Request, write bool) (string, string, bool) {
 		perm := auth.RepositoryRead
@@ -227,6 +232,99 @@ func registerProductExperimentsHTTP(mux *http.ServeMux, s *productexperiments.St
 			return
 		}
 		v, e := s.Assign(repo, r.PathValue("experiment"), a, in)
+		if experimentError(w, e) {
+			return
+		}
+		writeJSON(w, 201, v)
+	})
+	mux.HandleFunc("POST "+base+"/{experiment}/runs", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			EnvironmentID string                        `json:"environment_id"`
+			DeploymentID  string                        `json:"deployment_id"`
+			Stages        []productexperiments.RunStage `json:"stages"`
+		}
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		env, e := deploymentStore.GetEnvironment(repo, in.EnvironmentID)
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_product_experiment_environment"})
+			return
+		}
+		deployment, e := deploymentStore.GetDeployment(repo, in.DeploymentID)
+		if e != nil || deployment.EnvironmentID != env.ID {
+			writeJSON(w, 422, map[string]string{"error": "invalid_product_experiment_deployment"})
+			return
+		}
+		x, e := s.Get(repo, r.PathValue("experiment"))
+		if e != nil {
+			experimentError(w, e)
+			return
+		}
+		if len(x.AudiencePolicies) == 0 {
+			writeJSON(w, 409, map[string]string{"error": "experiment_audience_policy_required"})
+			return
+		}
+		policy := x.AudiencePolicies[len(x.AudiencePolicies)-1]
+		if deployment.ReleaseID != policy.ReleaseID || deployment.SourceCommitID != policy.ReleaseCommitID || deployment.State != "succeeded" {
+			writeJSON(w, 409, map[string]string{"error": "experiment_release_not_deployed"})
+			return
+		}
+		v, e := s.Launch(repo, x.ID, a, env.ID, deployment.ID, in.Stages)
+		if experimentError(w, e) {
+			return
+		}
+		writeJSON(w, 201, v)
+	})
+	mux.HandleFunc("POST "+base+"/{experiment}/runs/{run}/stages/advance", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Reason string `json:"reason"`
+		}
+		if !readJSON(w, r, &in, 16<<10) {
+			return
+		}
+		v, e := s.Advance(repo, r.PathValue("experiment"), r.PathValue("run"), a, in.Reason)
+		if experimentError(w, e) {
+			return
+		}
+		writeJSON(w, 201, v)
+	})
+	mux.HandleFunc("POST "+base+"/{experiment}/runs/{run}/observations", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in productexperiments.ObservationInput
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		v, e := s.Observe(repo, r.PathValue("experiment"), r.PathValue("run"), a, in)
+		if experimentError(w, e) {
+			return
+		}
+		writeJSON(w, 201, v)
+	})
+	mux.HandleFunc("POST "+base+"/{experiment}/runs/{run}/controls", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Action string `json:"action"`
+			Reason string `json:"reason"`
+		}
+		if !readJSON(w, r, &in, 16<<10) {
+			return
+		}
+		v, e := s.Control(repo, r.PathValue("experiment"), r.PathValue("run"), a, in.Action, in.Reason)
 		if experimentError(w, e) {
 			return
 		}

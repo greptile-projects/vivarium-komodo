@@ -163,6 +163,7 @@ type Experiment struct {
 	WorkItems         []WorkItem         `json:"work_items"`
 	Implementations   []Implementation   `json:"implementations"`
 	AudiencePolicies  []AudiencePolicy   `json:"audience_policies"`
+	Runs              []Run              `json:"runs"`
 	Blockers          []Blocker          `json:"blockers"`
 	Ready             bool               `json:"ready"`
 }
@@ -697,6 +698,17 @@ func (s *Store) resolve(repo string, v Experiment) Experiment {
 	}
 	for i := range v.Implementations {
 		v.Implementations[i].Current = v.Implementations[i].PlanVersion == v.CurrentVersion
+	}
+	for i := range v.Runs {
+		r := &v.Runs[i]
+		r.ExposureAuthority = (r.Status == "running") && r.PlanVersion == v.CurrentVersion
+		if len(v.AudiencePolicies) == 0 || r.AudiencePolicyVersion != v.AudiencePolicies[len(v.AudiencePolicies)-1].Version {
+			r.ExposureAuthority = false
+			if r.Status == "running" {
+				r.Status = "contained"
+				r.ContainmentReason = "audience policy changed"
+			}
+		}
 	}
 	signals, _ := s.Signals(repo)
 	sm := map[string]Signal{}

@@ -206,6 +206,15 @@ blockers before assignment. Assignment is stable and idempotent, retains only a
 repository-scoped subject digest and decision evidence, and never exposes raw
 membership. The contract grants no deployment, exposure, telemetry, or user-data
 authority; rollout remains a later independently governed action.
+Approved exact-release experiments run only through an existing successful
+deployment in a declared release environment. Each retained run attempt binds
+the current plan and audience-policy versions, release commit, deployment,
+environment, and ordered allocation stages. Participants inspect attributed
+exposure, measure values and uncertainty, data and instrumentation quality,
+guardrails, consent, operational health, evidence, and cost, and may pause,
+resume, or stop. Safety failures deterministically contain only that attempt,
+without rebucketing subjects or deleting stages, evidence, costs, or controls;
+retry requires a new attempt.
 
 Repository performance contracts live beneath `$PERFORMANCE_GOAL_ROOT` (default
 `apps/api/data/performance-goals`). Collaborators publish immutable,
