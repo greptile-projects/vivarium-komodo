@@ -186,6 +186,16 @@ audiences, overlapping plans, changed assumptions, and missing approvals. A
 ready plan is only a pre-exposure contract and grants no variant publication,
 audience assignment, telemetry, release, deployment, or operational authority.
 The repository web surface is `view=experiments`.
+Declared variant and instrumentation delivery stays ordinary project work.
+Experiment `/work-items` link exact-revision human- or agent-owned tasks,
+sessions, and workspaces without creating or starting them. An
+`/implementations` record resolves an existing ordinary pull request and
+server-captures its exact source commit alongside declared variants, exact
+signal event versions and properties, exposure rules, privacy classification,
+removal plan, and repository check names for assignment, metric capture,
+variant isolation, and fallback. Plan revisions make earlier implementation
+records explicitly non-current; neither record grants code, data, agent,
+review, merge, release, deployment, or exposure authority.
 
 Repository performance contracts live beneath `$PERFORMANCE_GOAL_ROOT` (default
 `apps/api/data/performance-goals`). Collaborators publish immutable,

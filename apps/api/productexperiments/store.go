@@ -115,6 +115,42 @@ type Blocker struct {
 	Detail     string `json:"detail"`
 	ResourceID string `json:"resource_id,omitempty"`
 }
+type WorkItem struct {
+	ID          string    `json:"id"`
+	PlanVersion int64     `json:"plan_version"`
+	Kind        string    `json:"kind"`
+	OwnerKind   string    `json:"owner_kind"`
+	OwnerID     string    `json:"owner_id"`
+	VariantIDs  []string  `json:"variant_ids"`
+	ResourceID  string    `json:"resource_id"`
+	Revision    string    `json:"revision"`
+	CreatedByID string    `json:"created_by_id"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+type EventDefinition struct {
+	SignalID      string   `json:"signal_id"`
+	SignalVersion int64    `json:"signal_version"`
+	Event         string   `json:"event"`
+	Properties    []string `json:"properties"`
+}
+type ImplementationInput struct {
+	PullRequestID         string            `json:"pull_request_id"`
+	VariantIDs            []string          `json:"variant_ids"`
+	EventDefinitions      []EventDefinition `json:"event_definitions"`
+	ExposureRules         []string          `json:"exposure_rules"`
+	PrivacyClassification string            `json:"privacy_classification"`
+	RemovalPlan           string            `json:"removal_plan"`
+	CheckNames            map[string]string `json:"check_names"`
+}
+type Implementation struct {
+	ID          string `json:"id"`
+	PlanVersion int64  `json:"plan_version"`
+	ImplementationInput
+	SourceCommitID string    `json:"source_commit_id"`
+	AuthorID       string    `json:"author_id"`
+	CreatedAt      time.Time `json:"created_at"`
+	Current        bool      `json:"current"`
+}
 type Experiment struct {
 	ID                string             `json:"id"`
 	RepositoryID      string             `json:"repository_id"`
@@ -123,9 +159,73 @@ type Experiment struct {
 	Comments          []Comment          `json:"comments"`
 	Approvals         []Approval         `json:"approvals"`
 	AssumptionChanges []AssumptionChange `json:"assumption_changes"`
+	WorkItems         []WorkItem         `json:"work_items"`
+	Implementations   []Implementation   `json:"implementations"`
 	Blockers          []Blocker          `json:"blockers"`
 	Ready             bool               `json:"ready"`
 }
+
+func (s *Store) AddWorkItem(repo, eid, actor string, item WorkItem) (Experiment, error) {
+	return s.mutate(repo, eid, func(v *Experiment) error {
+		p := v.Versions[len(v.Versions)-1]
+		if !one(item.Kind, "task", "session", "workspace") || !one(item.OwnerKind, "human", "agent") || strings.TrimSpace(item.OwnerID) == "" || strings.TrimSpace(item.ResourceID) == "" || strings.TrimSpace(item.Revision) == "" || !declaredVariants(p, item.VariantIDs) {
+			return ErrInvalid
+		}
+		item.ID, item.PlanVersion, item.CreatedByID, item.CreatedAt = id("work_"), v.CurrentVersion, actor, s.now()
+		v.WorkItems = append(v.WorkItems, item)
+		return nil
+	})
+}
+
+func (s *Store) AddImplementation(repo, eid, actor, commit string, in ImplementationInput) (Experiment, error) {
+	return s.mutate(repo, eid, func(v *Experiment) error {
+		p := v.Versions[len(v.Versions)-1]
+		if strings.TrimSpace(in.PullRequestID) == "" || strings.TrimSpace(commit) == "" || !declaredVariants(p, in.VariantIDs) || len(in.ExposureRules) == 0 || strings.TrimSpace(in.PrivacyClassification) == "" || strings.TrimSpace(in.RemovalPlan) == "" {
+			return ErrInvalid
+		}
+		for _, kind := range []string{"assignment", "metric_capture", "variant_isolation", "fallback"} {
+			if strings.TrimSpace(in.CheckNames[kind]) == "" {
+				return ErrInvalid
+			}
+		}
+		if len(in.EventDefinitions) != len(p.Measures) {
+			return ErrInvalid
+		}
+		for _, m := range p.Measures {
+			matched := false
+			for _, d := range in.EventDefinitions {
+				if d.SignalID == m.SignalID && d.SignalVersion == m.SignalVersion && strings.TrimSpace(d.Event) != "" {
+					matched = true
+				}
+			}
+			if !matched {
+				return ErrInvalid
+			}
+		}
+		v.Implementations = append(v.Implementations, Implementation{ID: id("impl_"), PlanVersion: v.CurrentVersion, ImplementationInput: in, SourceCommitID: commit, AuthorID: actor, CreatedAt: s.now(), Current: true})
+		return nil
+	})
+}
+
+func declaredVariants(p PlanVersion, ids []string) bool {
+	if len(ids) == 0 {
+		return false
+	}
+	for _, wanted := range ids {
+		found := false
+		for _, v := range p.Variants {
+			if v.ID == wanted {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
 type Store struct {
 	root string
 	mu   sync.Mutex
@@ -356,6 +456,9 @@ func (s *Store) resolve(repo string, v Experiment) Experiment {
 		return v
 	}
 	p := v.Versions[len(v.Versions)-1]
+	for i := range v.Implementations {
+		v.Implementations[i].Current = v.Implementations[i].PlanVersion == v.CurrentVersion
+	}
 	signals, _ := s.Signals(repo)
 	sm := map[string]Signal{}
 	for _, x := range signals {

@@ -52,3 +52,29 @@ func TestOverlapAndSignalPolicyStayExplicit(t *testing.T) {
 		t.Fatalf("missing derived blockers %+v (first %s)", second.Blockers, first.ID)
 	}
 }
+
+func TestImplementationWorkIsRevisionExactAndReviewSafe(t *testing.T) {
+	s, _ := New(t.TempDir())
+	sig, _ := s.CreateSignal("repo", "owner", SignalVersion{Name: "activation", Description: "Activation", Unit: "users", Event: "repository.activated", Properties: []string{"variant"}, PermittedAudiences: []string{"product_analytics"}, Instrumented: true, ChangeReason: "reviewed event"})
+	x, _ := s.Create("repo", "owner", plan(sig.ID))
+	x, err := s.AddWorkItem("repo", x.ID, "owner", WorkItem{Kind: "workspace", OwnerKind: "agent", OwnerID: "codex", VariantIDs: []string{"guided"}, ResourceID: "ws_1", Revision: "abc123"})
+	if err != nil || len(x.WorkItems) != 1 || x.WorkItems[0].PlanVersion != 1 {
+		t.Fatalf("work item: %+v %v", x.WorkItems, err)
+	}
+	in := ImplementationInput{PullRequestID: "pr_1", VariantIDs: []string{"control", "guided"}, EventDefinitions: []EventDefinition{{SignalID: sig.ID, SignalVersion: 1, Event: "repository.activated", Properties: []string{"variant"}}, {SignalID: sig.ID, SignalVersion: 1, Event: "repository.activated", Properties: []string{"variant"}}}, ExposureRules: []string{"eligible owners deterministically assigned"}, PrivacyClassification: "consented product analytics", RemovalPlan: "delete flag and event after decision", CheckNames: map[string]string{"assignment": "experiment/assignment", "metric_capture": "experiment/metrics", "variant_isolation": "experiment/isolation", "fallback": "experiment/fallback"}}
+	x, err = s.AddImplementation("repo", x.ID, "owner", "deadbeef", in)
+	if err != nil || len(x.Implementations) != 1 || x.Implementations[0].SourceCommitID != "deadbeef" || !x.Implementations[0].Current {
+		t.Fatalf("implementation: %+v %v", x.Implementations, err)
+	}
+	p := plan(sig.ID)
+	p.ChangeReason = "revise audience"
+	x, _ = s.Revise("repo", x.ID, "owner", 1, p)
+	if x.Implementations[0].Current {
+		t.Fatal("old implementation remained current after plan revision")
+	}
+	bad := in
+	bad.CheckNames = map[string]string{"assignment": "only-one"}
+	if _, err := s.AddImplementation("repo", x.ID, "owner", "new", bad); err != ErrInvalid {
+		t.Fatalf("missing repository checks accepted: %v", err)
+	}
+}
