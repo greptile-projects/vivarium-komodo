@@ -191,6 +191,19 @@ warmups, raw samples, sampling method, derived mean/variance, resource profile,
 bounded redacted traces/logs/artifacts, cost, attribution, and rerun lineage.
 Repository reads expose the evidence without granting execution or operational
 access; credential-like evidence and unverified releases are rejected.
+Collaborative performance investigations live beneath
+`$PERFORMANCE_INVESTIGATION_ROOT` (default
+`apps/api/data/performance-investigations`). A repository participant selects
+exact trials from one performance-goal version and invites repository owners or
+collaborators to inspect them alongside exact code/symbol, dependency, commit,
+release, and runtime-path citations. Participants, including credentialed
+read-only agents, publish attributable hypotheses, folded flame graphs,
+comparisons, uncertainty, challenges, confirmations, and conclusions without
+gaining Git or execution authority. Reads derive stale findings from changed
+goal versions and selected trial revision, workload, environment, or
+availability. Evidence explicitly scoped to investigation participants cannot
+be cited into repository-audience entries, and investigations containing it
+remain invisible to uninvolved repository readers.
 
 Project governance charters live beneath `$GOVERNANCE_ROOT` (default
 `apps/api/data/governance`). Repository owners and organization owners publish

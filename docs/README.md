@@ -3081,3 +3081,20 @@ expired and renewed outsider access, revision-grounded redacted feedback, agent
 repair through a branch credential, a new exact preview, stale then renewed
 stakeholder acceptance, required checks and review, merge, release attribution,
 and the absence of repository authority for the invited stakeholder.
+# Collaborative performance diagnosis
+
+Performance investigations extend exact-version performance goals and their
+reproducible trials through
+`/repositories/{repository}/performance-investigations`. A diagnosis selects
+trial IDs with their exact revision, workload source, environment digest, and
+audience before discussion begins. Its entries require inspectable citations
+and retain hypotheses, folded flame graphs, structured comparisons, runtime
+paths, uncertainty, challenges, confirmations, conclusions, and attribution.
+
+Code and symbol citations resolve against exact Git blobs. Trial/profile/trace
+citations must belong to the selected evidence set; restricted operational
+evidence cannot be promoted into repository-audience discussion. Current reads
+mark affected entries stale when the goal contract changes or selected evidence
+is unavailable or differs in revision, workload, or environment. These records
+are explanations only: they issue no credential and grant no repository,
+execution, review, or merge authority.
