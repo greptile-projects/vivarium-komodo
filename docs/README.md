@@ -3194,3 +3194,12 @@ pull-request, release, deployment, and evidence links. After all are complete, a
 cleanup receipt records retired variants, targeting, credentials, and collection;
 future assignment and launch are blocked while aggregate evidence, provenance,
 user protections, and delivery links remain inspectable.
+
+`product_experiment_workflow_test.go` composes this contract through public HTTP
+and stock Git. It starts from user feedback, retains separate human variant and
+agent instrumentation commits through ordinary checks and review, binds the
+merged release to a successful deployment and consent-minimized audience,
+contains a guardrail-breaching attempt, and progressively runs a separately
+identified retry. The final analysis preserves agent uncertainty and human
+dissent; the acknowledged decision links rollout evidence before cleanup retires
+obsolete targeting and collection without deleting aggregate learning.
