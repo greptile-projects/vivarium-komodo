@@ -136,3 +136,37 @@ func TestAudiencePolicyRejectsBiasedOrUnauthorizedAllocation(t *testing.T) {
 		t.Fatalf("unauthorized property was hidden: %#v", x.AudiencePolicies[0].Blockers)
 	}
 }
+
+func TestLiveRunStagesControlAndDeterministicContainment(t *testing.T) {
+	s, _ := New(t.TempDir())
+	sig, _ := s.CreateSignal("repo", "owner", SignalVersion{Name: "activation", Description: "Activation", Unit: "users", Event: "activated", Properties: []string{"variant"}, PermittedAudiences: []string{"product_analytics"}, Instrumented: true, ChangeReason: "ready"})
+	x, _ := s.Create("repo", "owner", plan(sig.ID))
+	for _, actor := range []string{"owner", "analyst"} {
+		x, _ = s.Approve("repo", x.ID, actor, "approved", "")
+	}
+	impl := ImplementationInput{PullRequestID: "pr", VariantIDs: []string{"control", "guided"}, EventDefinitions: []EventDefinition{{SignalID: sig.ID, SignalVersion: 1, Event: "activated"}, {SignalID: sig.ID, SignalVersion: 1, Event: "activated"}}, ExposureRules: []string{"stable"}, PrivacyClassification: "consented", RemovalPlan: "remove", CheckNames: map[string]string{"assignment": "a", "metric_capture": "m", "variant_isolation": "i", "fallback": "f"}}
+	x, _ = s.AddImplementation("repo", x.ID, "owner", "commit", impl)
+	policy := AudiencePolicyInput{ExpectedPlanVersion: 1, ReleaseID: "release", VariantIDs: []string{"control", "guided"}, MutualExclusionGroup: "onboarding", Eligibility: EligibilityPolicy{ConsentClass: "product_analytics"}, Allocation: []Allocation{{VariantID: "control", BasisPoints: 5000}, {VariantID: "guided", BasisPoints: 5000}}, Collection: []CollectionField{{SignalID: sig.ID, SignalVersion: 1, Properties: []string{"variant"}}}, RetentionDays: 30, ApproverIDs: []string{"owner"}, ChangeReason: "launch"}
+	x, _ = s.PutAudiencePolicy("repo", x.ID, "owner", "release", "commit", policy)
+	x, _ = s.ApproveAudiencePolicy("repo", x.ID, "owner", "approved", "")
+	stages := []RunStage{{Name: "canary", MaxExposure: 500, Allocation: policy.Allocation}, {Name: "broader", MaxExposure: 2500, Allocation: []Allocation{{VariantID: "control", BasisPoints: 4000}, {VariantID: "guided", BasisPoints: 6000}}}}
+	x, err := s.Launch("repo", x.ID, "owner", "production", "deployment", stages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := x.Runs[0]
+	x, err = s.Advance("repo", x.ID, run.ID, "analyst", "credible canary")
+	if err != nil || x.Runs[0].CurrentStage != 2 {
+		t.Fatalf("advance: %#v %v", x.Runs, err)
+	}
+	x, err = s.Observe("repo", x.ID, run.ID, "analyst", ObservationInput{ExposureByVariant: map[string]int{"control": 120, "guided": 130}, MeasureValues: map[string]float64{"activation": .42}, Uncertainty: map[string]float64{"activation": .04}, DataQuality: "healthy", OperationalHealth: "healthy", InstrumentationHealth: "healthy", ConsentHealth: "valid", GuardrailBreached: true, CostUnits: 8, Evidence: []string{"dashboard:1"}})
+	if err != nil || x.Runs[0].Status != "contained" || !x.Runs[0].Observations[0].ContainmentTriggered || x.Runs[0].ContainmentReason != "guardrail breach" {
+		t.Fatalf("containment: %#v %v", x.Runs[0], err)
+	}
+	if _, err = s.Control("repo", x.ID, run.ID, "owner", "resume", "unsafe"); err != ErrConflict {
+		t.Fatalf("contained run resumed: %v", err)
+	}
+	if len(x.Runs[0].Stages) != 2 || len(x.Runs[0].Observations) != 1 {
+		t.Fatal("containment discarded evidence")
+	}
+}

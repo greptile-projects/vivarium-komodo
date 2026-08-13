@@ -3169,3 +3169,17 @@ exact-revision comparison, release, and staged observations. A noisy trial and
 correctness-regressed trial are retained as blockers, and a missed canary target
 is retained with its pause before a retry and production measurement confirm the
 user-facing improvement.
+
+# Live product experiments
+
+Approved audience policies launch only against an existing successful
+deployment whose environment, release, and exact commit match the policy. Each
+run retains ordered allocation stages and observations for live exposure,
+declared measures and uncertainty, data and instrumentation quality, guardrails,
+consent, operational health, evidence, and cost. Plan participants may advance,
+pause, resume, or stop an active attempt.
+
+Guardrail breaches, failed deployments, lost instrumentation or data, sample
+imbalance, and revoked consent synchronously contain the affected attempt.
+Containment does not alter stable assignments or discard prior evidence, and a
+contained attempt cannot resume; retry is a separately identified run.
