@@ -221,6 +221,12 @@ handoffs remain separately owner-approved external actions. Emergency scope is
 allowlisted, reviewed, limited to thirty days, and relinquished explicitly or
 on the next mutation after expiry. `/health` derives vacancies, expiring terms,
 quorum loss, unresolved handoffs, deadlocks, appeals, and emergency powers.
+`governance_workflow_test.go` is the black-box regression boundary for the
+complete charter-to-delivery-to-renewed-stewardship loop. It retains proven
+standing, recusal and failed quorum, evidence-backed approval with dissent,
+human-verified agent work, ordinary checks/review/merge/release, successor
+election and owner-approved handoff, appeal, and bounded emergency recovery
+while proving governance never replaces repository authority.
 
 External integration identities live beneath `$EXTENSION_ROOT` (default
 `apps/api/data/extensions`). An authenticated developer registers an extension
