@@ -223,6 +223,12 @@ tasks. Only tasks completed with pull-request, release, deployment, and evidence
 links permit a cleanup receipt; it retires future assignment, launch, targeting,
 credentials, and collection while preserving aggregate evidence, provenance,
 user protections, and delivery links.
+`product_experiment_workflow_test.go` is the black-box regression boundary for
+the complete feedback-to-learned-product loop. It retains the feedback source,
+human and agent implementation commits, ordinary checks/review/release and
+deployment, consent-bounded assignment, deterministic guardrail containment,
+progressive retry evidence, agent interpretation, human dissent, acknowledged
+choice, delivered outcome, and final retirement of targeting and collection.
 
 Repository performance contracts live beneath `$PERFORMANCE_GOAL_ROOT` (default
 `apps/api/data/performance-goals`). Collaborators publish immutable,
