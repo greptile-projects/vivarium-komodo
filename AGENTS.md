@@ -211,6 +211,19 @@ and slipped-target replan blockers. Readers may discuss versions and publish
 human or agent scenarios, but scenarios have no resource authority and only
 repository writers can commit or replan direction.
 
+Accepted roadmap outcomes cross into accountable delivery beneath
+`$ROADMAP_DELIVERY_ROOT` (default `apps/api/data/roadmap-deliveries`). Promotion
+creates one ordinary proposal and ordered human- or agent-owned tasks whose
+acceptance criteria cite the outcome's evidence and collectively cover every
+success measure. Delivery links report exact pull request, check, preview,
+integration, release, deployment, and experiment resources back to that frozen
+roadmap and opportunity version. A release or deployment may make the state
+`delivered_not_achieved`; only reported passing measures with no changed
+assumptions, unresolved user needs, policy conflicts, or revisit request make it
+`achieved`. Failed measures and explicit revisit requests remain attributable
+blockers, and the contract grants no Git, review, merge, release, deployment,
+experiment, or participant authority.
+
 Product experiment plans live beneath `$PRODUCT_EXPERIMENT_ROOT` (default
 `apps/api/data/product-experiments`). Repository collaborators register
 versioned product signals with their event, unit, permitted properties and

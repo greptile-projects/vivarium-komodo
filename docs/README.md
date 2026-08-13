@@ -58,6 +58,25 @@ requires an attributed optimistic-concurrency replan. Readers can add version-
 bound discussion and human or agent scenarios, but scenarios always carry no
 resource, repository, delivery, or governance authority.
 
+### Outcome delivery and measured value
+
+Repository writers promote an accepted outcome through
+`POST /repositories/{repository}/product-roadmaps/{roadmap}/outcomes/{outcome}/delivery`.
+The request freezes the current roadmap and opportunity versions and an exact
+base revision, then creates an ordinary proposal with ordered human- and
+agent-owned tasks. Each task carries acceptance criteria, cited evidence, and
+the success measures it covers; promotion fails unless the plan collectively
+covers every measure that earned the outcome priority.
+
+Writers attach exact pull request, check, preview, integration, release,
+deployment, and experiment observations through the delivery's `/links`
+collection. Shipping can therefore produce `delivered_not_achieved` while
+measures remain absent or failed. Changed assumptions, unresolved user needs,
+policy conflicts, and failed measures are explicit blockers. A cited
+`/revisit-requests` entry moves the record to `revisit_required`; only delivered
+work with all measures passed and no blockers becomes `achieved`. These records
+report through existing delivery systems and grant no operational authority.
+
 ## Project governance
 
 ## Repository performance contracts
