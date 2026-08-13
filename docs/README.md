@@ -810,6 +810,24 @@ and conflicting groups block assignment. Repeated assignment is consistent and
 does not turn the audience contract into deployment, telemetry, or exposure
 authority.
 
+### Validate direction before commitment
+
+Repository writers create outcome validations beneath a roadmap's
+`/validations` collection. Each captures the current roadmap and opportunity
+versions, a technical decision, prototype, documentation concept, or product
+experiment, and representative success and guardrail measures traced to cited
+feedback. Its preview or research activity has an exact revision, bounded
+scope, and time window; optimistic versions retain later changes.
+
+An invitation requires a feedback reporter with active research consent and
+returns a purpose-bound participant credential. That credential can read only
+`/roadmap-validation-participant/context` and append bounded findings through
+`/roadmap-validation-participant/findings`; it grants no repository access.
+Findings retain attribution, the invited revision, accessibility needs,
+dissent, acceptance, and evidence validity. Writers append assessments citing
+exact findings and choose `accept`, `revise`, `defer`, or `reject`, preserving
+the roadmap plan and validation versions that preceded the learning.
+
 The accountable owner requests affected-owner acknowledgements or named policy
 approvals through the decision's `/approval-requirements` collection. Only the
 named participant can respond; pending requirements and rejected approvals are
