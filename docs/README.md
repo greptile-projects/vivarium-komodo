@@ -5,6 +5,26 @@ written down here as they're decided, not before.
 
 ## Project governance
 
+## Repository performance contracts
+
+Collaborators define the meaning of an optimization through repository-scoped
+`/performance-goals`. An immutable version selects a repository, release, user
+journey, API, command, or service and records representative workloads,
+unit-bearing metrics, baseline values and evidence, target ranges, explicit
+budgets, correctness constraints, supported environment digests, accountable
+owners, baseline freshness, and links to issues, incidents, previews, releases,
+and decisions. Revisions use optimistic concurrency so a stale editor cannot
+replace a newer agreement.
+
+Measurements append beneath a goal and retain their actor, exact goal version,
+metric, value, environment digest, source, optional repository revision, and
+measurement time. The API derives `missing_measurement`,
+`incomparable_environment`, `stale_baseline`, and conflicting target-range
+states on reads instead of treating an isolated result as comparable. The
+repository `view=performance` surface publishes, revises, and measures these
+contracts; it grants no additional repository or execution authority. Durable
+state is rooted beneath `$PERFORMANCE_GOAL_ROOT`.
+
 Repository and organization owners publish governance charter drafts through
 their scoped `/governance-charter` API. Each immutable revision records roles,
 eligibility, decision classes, participation and quorum, protected resources,

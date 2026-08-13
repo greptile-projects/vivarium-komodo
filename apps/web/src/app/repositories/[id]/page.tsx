@@ -15,6 +15,7 @@ import { ContributionOpportunities } from "@/components/contribution-opportuniti
 import { DocumentationCollections } from "@/components/documentation-collections";
 import { Extensions } from "@/components/extensions";
 import { GovernanceCharter } from "@/components/governance-charter";
+import { PerformanceGoals } from "@/components/performance-goals";
 import {
   Book,
   Branch,
@@ -1208,6 +1209,7 @@ export default function RepositoryPage({
     assessment?: string;
     decision?: string;
     team?: string;
+    goal?: string;
     issue?: string;
   }>;
 }) {
@@ -1243,6 +1245,8 @@ export default function RepositoryPage({
                             ? "decisions"
                           : query.view === "teams"
                             ? "teams"
+                            : query.view === "performance"
+                              ? "performance"
                             : query.view === "contribute"
                               ? "contribute"
                               : query.view === "documentation"
@@ -1308,6 +1312,7 @@ export default function RepositoryPage({
         view === "investigations" ||
         view === "decisions" ||
         view === "teams" ||
+        view === "performance" ||
         view === "issues" ||
         view === "documentation" ||
         view === "people" ||
@@ -1571,6 +1576,13 @@ export default function RepositoryPage({
           Delivery teams
         </button>
         <button
+          className={view === "performance" ? "active" : ""}
+          onClick={() => navigate({ view: "performance", path: "" })}
+        >
+          <Clock size={15} />
+          Performance
+        </button>
+        <button
           className={view === "decisions" ? "active" : ""}
           onClick={() => navigate({ view: "decisions", path: "" })}
         >
@@ -1694,6 +1706,8 @@ export default function RepositoryPage({
         />
       ) : view === "teams" ? (
         <DeliveryTeams repository={repository.id} actor={actor} selected={query.team} />
+      ) : view === "performance" ? (
+        <PerformanceGoals repository={repository.id} actor={actor} />
       ) : view === "decisions" ? (
         <TechnicalDecisions repository={repository} actor={actor} selected={query.decision} />
       ) : view === "pulls" ? (

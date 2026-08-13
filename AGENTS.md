@@ -171,6 +171,20 @@ team publication without erasing accepted progress.
 
 Guidance for coding agents working in this repository.
 
+Repository performance contracts live beneath `$PERFORMANCE_GOAL_ROOT` (default
+`apps/api/data/performance-goals`). Collaborators publish immutable,
+optimistically concurrency-checked versions for a repository, release, user
+journey, API, command, or service. Each version retains representative
+workloads, unit-bearing metrics and baseline evidence, target ranges,
+performance budgets, correctness constraints, supported environment digests,
+owners, baseline freshness policy, links to issues, incidents, previews,
+releases, and decisions, author, and change reason. Attributable measurements
+bind the exact goal version, metric, value, environment, revision, source, and
+measurement time. Reads derive missing measurements, incomparable environments,
+stale baselines, and conflicting target ranges explicitly; measurements never
+silently rewrite the agreed contract. The repository web surface is
+`view=performance`.
+
 Project governance charters live beneath `$GOVERNANCE_ROOT` (default
 `apps/api/data/governance`). Repository owners and organization owners publish
 immutable revisions defining roles and eligibility, decision classes,

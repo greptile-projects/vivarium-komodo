@@ -30,6 +30,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/issues"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
 	packagecatalog "github.com/greptile-projects/vivarium-komodo/apps/api/packages"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/performancegoals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/previews"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
@@ -274,6 +275,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	performanceGoalRoot := os.Getenv("PERFORMANCE_GOAL_ROOT")
+	if performanceGoalRoot == "" {
+		performanceGoalRoot = "data/performance-goals"
+	}
+	performanceGoalStore, err := performancegoals.New(performanceGoalRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	contributorPathwayRoot := os.Getenv("CONTRIBUTOR_PATHWAY_ROOT")
 	if contributorPathwayRoot == "" {
 		contributorPathwayRoot = "data/contributor-pathways"
@@ -352,6 +361,7 @@ func main() {
 	registerImpactAssessmentsHTTP(mux, impactStore, repositoryCatalog, credentials, relationshipStore, investigationStore, releaseStore, deploymentStore, packageStore)
 	registerDecisionsHTTP(mux, decisionStore, repositoryCatalog, credentials, workspaceStore, workspaceRunner, proposalStore)
 	registerDeliveryTeamsHTTP(mux, deliveryTeamStore, repositoryCatalog, credentials, organizationStore, deliveryExecutionStores{changes: changeSessionStore, investigations: investigationStore, decisions: decisionStore, workspaces: workspaceStore}, pullRequestStore, checkRunner)
+	registerPerformanceGoalsHTTP(mux, performanceGoalStore, repositoryCatalog, credentials)
 	registerReasoningWorkHTTP(mux, investigationStore, impactStore, proposalStore, repositoryCatalog, credentials)
 	registerCollaboratorsHTTP(mux, repositoryCatalog, userStore, credentials, activityStore)
 	registerProposalsHTTP(mux, proposalStore, repositoryCatalog, credentials, activityStore)

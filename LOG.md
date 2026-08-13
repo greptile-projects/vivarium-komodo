@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-13T00:37:12Z: Added immutable repository performance contracts for repository, release, journey, API, command, and service scopes with workloads, metrics, baselines, target ranges, correctness constraints, comparable environment digests, owners, budgets, linked context, and attributable measurements. API and repository `view=performance` reads keep missing evidence, incomparable environments, stale baselines, and conflicting targets explicit.
+
 2026-08-12T23:32:01Z: Added the complete community-governance black-box workflow from charter and proven standing through failed quorum, evidence-backed initiative dissent, human/agent Git delivery, checks/review/release, successor election, handoff appeal, and emergency recovery. The regression proves governance legitimacy never substitutes for repository credentials, owner approval, or publication policy.
 
 2026-08-12T22:43:22Z: Added charter-bound stewardship nomination, election, expiry, recall, succession, deadlock, appeal, and narrowly time-bounded emergency recovery, with derived continuity health and separately approved resource handoffs. Removal revokes derived governance access while retaining project identity, evidence, work, attribution, and completed decisions.
