@@ -3097,7 +3097,10 @@ and the absence of repository authority for the invited stakeholder.
 Performance delivery policies apply current goal versions to target branches,
 path globs, and risk classes. Pull-request readiness and merge require the same
 exact candidate comparison to meet declared regression and confidence
-thresholds. Staged observations preserve that comparison through release and
+thresholds. Comparison confidence intervals and policy thresholds use percentage
+change from the baseline; a comparison with declared correctness failures or a
+candidate trial that no longer matches the current pull revision blocks delivery.
+Staged observations preserve that comparison through release and
 deployment, retaining environment, health, assumptions, uncertainty, and
 explicit pause, restore, linked repair, or decision-revisit outcomes without
 granting operational authority.
@@ -3117,3 +3120,11 @@ mark affected entries stale when the goal contract changes or selected evidence
 is unavailable or differs in revision, workload, or environment. These records
 are explanations only: they issue no credential and grant no repository,
 execution, review, or merge authority.
+
+`performance_workflow_test.go` proves the complete public concern-to-production
+journey with stock Git: a production-linked goal and sanitized baseline lead to
+an agent/owner diagnosis, agent-owned optimization, required check, review,
+exact-revision comparison, release, and staged observations. A noisy trial and
+correctness-regressed trial are retained as blockers, and a missed canary target
+is retained with its pause before a retry and production measurement confirm the
+user-facing improvement.

@@ -138,35 +138,37 @@ type Goal struct {
 	Conflicts      []string              `json:"conflicts"`
 }
 type Comparison struct {
-	ID                 string    `json:"id"`
-	Version            int64     `json:"version"`
-	BaselineTrialID    string    `json:"baseline_trial_id"`
-	CandidateTrialID   string    `json:"candidate_trial_id"`
-	PullRequestID      string    `json:"pull_request_id"`
-	MetricID           string    `json:"metric_id"`
-	MeanChange         float64   `json:"mean_change"`
-	PercentChange      float64   `json:"percent_change"`
-	Confidence95       Range     `json:"confidence_95"`
-	CPUSecondsChange   float64   `json:"cpu_seconds_change"`
-	PeakMemoryMBChange float64   `json:"peak_memory_mb_change"`
-	CostChange         float64   `json:"cost_change"`
-	CorrectnessChecks  []string  `json:"correctness_checks"`
-	AffectedScenarios  []string  `json:"affected_scenarios"`
-	Commands           []string  `json:"commands"`
-	ResidualRisks      []string  `json:"residual_risks"`
-	ActorID            string    `json:"actor_id"`
-	CreatedAt          time.Time `json:"created_at"`
+	ID                  string    `json:"id"`
+	Version             int64     `json:"version"`
+	BaselineTrialID     string    `json:"baseline_trial_id"`
+	CandidateTrialID    string    `json:"candidate_trial_id"`
+	PullRequestID       string    `json:"pull_request_id"`
+	MetricID            string    `json:"metric_id"`
+	MeanChange          float64   `json:"mean_change"`
+	PercentChange       float64   `json:"percent_change"`
+	Confidence95        Range     `json:"confidence_95"`
+	CPUSecondsChange    float64   `json:"cpu_seconds_change"`
+	PeakMemoryMBChange  float64   `json:"peak_memory_mb_change"`
+	CostChange          float64   `json:"cost_change"`
+	CorrectnessChecks   []string  `json:"correctness_checks"`
+	CorrectnessFailures []string  `json:"correctness_failures,omitempty"`
+	AffectedScenarios   []string  `json:"affected_scenarios"`
+	Commands            []string  `json:"commands"`
+	ResidualRisks       []string  `json:"residual_risks"`
+	ActorID             string    `json:"actor_id"`
+	CreatedAt           time.Time `json:"created_at"`
 }
 type ComparisonInput struct {
-	Version           int64    `json:"version"`
-	BaselineTrialID   string   `json:"baseline_trial_id"`
-	CandidateTrialID  string   `json:"candidate_trial_id"`
-	PullRequestID     string   `json:"pull_request_id"`
-	MetricID          string   `json:"metric_id"`
-	CorrectnessChecks []string `json:"correctness_checks"`
-	AffectedScenarios []string `json:"affected_scenarios"`
-	Commands          []string `json:"commands"`
-	ResidualRisks     []string `json:"residual_risks"`
+	Version             int64    `json:"version"`
+	BaselineTrialID     string   `json:"baseline_trial_id"`
+	CandidateTrialID    string   `json:"candidate_trial_id"`
+	PullRequestID       string   `json:"pull_request_id"`
+	MetricID            string   `json:"metric_id"`
+	CorrectnessChecks   []string `json:"correctness_checks"`
+	CorrectnessFailures []string `json:"correctness_failures"`
+	AffectedScenarios   []string `json:"affected_scenarios"`
+	Commands            []string `json:"commands"`
+	ResidualRisks       []string `json:"residual_risks"`
 }
 type VersionInput struct {
 	SubjectKind            string        `json:"subject_kind"`
@@ -376,7 +378,7 @@ func (s *Store) Compare(repo, gid, actor string, in ComparisonInput) (Goal, erro
 	if err != nil {
 		return g, err
 	}
-	if actor == "" || in.Version != g.CurrentVersion || in.PullRequestID == "" || in.MetricID == "" || !clean(in.CorrectnessChecks) || !clean(in.AffectedScenarios) || !clean(in.Commands) || !clean(in.ResidualRisks) {
+	if actor == "" || in.Version != g.CurrentVersion || in.PullRequestID == "" || in.MetricID == "" || !clean(in.CorrectnessChecks) || len(in.CorrectnessFailures) > 0 && !clean(in.CorrectnessFailures) || !clean(in.AffectedScenarios) || !clean(in.Commands) || !clean(in.ResidualRisks) {
 		return g, ErrInvalid
 	}
 	var base, candidate *Trial
@@ -395,8 +397,11 @@ func (s *Store) Compare(repo, gid, actor string, in ComparisonInput) (Goal, erro
 	delta := candidate.Mean - base.Mean
 	se := base.Variance/float64(len(base.Samples)) + candidate.Variance/float64(len(candidate.Samples))
 	margin := 1.96 * sqrt(se)
-	low, high := delta-margin, delta+margin
-	c := Comparison{ID: id(), Version: in.Version, BaselineTrialID: base.ID, CandidateTrialID: candidate.ID, PullRequestID: in.PullRequestID, MetricID: in.MetricID, MeanChange: delta, PercentChange: delta / base.Mean * 100, Confidence95: Range{Minimum: &low, Maximum: &high}, CPUSecondsChange: candidate.ResourceProfile.CPUSeconds - base.ResourceProfile.CPUSeconds, PeakMemoryMBChange: candidate.ResourceProfile.PeakMemoryMB - base.ResourceProfile.PeakMemoryMB, CostChange: candidate.Cost - base.Cost, CorrectnessChecks: in.CorrectnessChecks, AffectedScenarios: in.AffectedScenarios, Commands: in.Commands, ResidualRisks: in.ResidualRisks, ActorID: actor, CreatedAt: s.now().UTC()}
+	if base.Mean == 0 {
+		return g, ErrInvalid
+	}
+	low, high := (delta-margin)/base.Mean*100, (delta+margin)/base.Mean*100
+	c := Comparison{ID: id(), Version: in.Version, BaselineTrialID: base.ID, CandidateTrialID: candidate.ID, PullRequestID: in.PullRequestID, MetricID: in.MetricID, MeanChange: delta, PercentChange: delta / base.Mean * 100, Confidence95: Range{Minimum: &low, Maximum: &high}, CPUSecondsChange: candidate.ResourceProfile.CPUSeconds - base.ResourceProfile.CPUSeconds, PeakMemoryMBChange: candidate.ResourceProfile.PeakMemoryMB - base.ResourceProfile.PeakMemoryMB, CostChange: candidate.Cost - base.Cost, CorrectnessChecks: in.CorrectnessChecks, CorrectnessFailures: in.CorrectnessFailures, AffectedScenarios: in.AffectedScenarios, Commands: in.Commands, ResidualRisks: in.ResidualRisks, ActorID: actor, CreatedAt: s.now().UTC()}
 	g.Comparisons = append(g.Comparisons, c)
 	return g, s.write(g)
 }
