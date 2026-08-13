@@ -714,6 +714,22 @@ environment fingerprints to `/validity` reports `code_changed`,
 `dependencies_changed`, or `environment_changed` without deleting evidence.
 Experiments never publish, open a pull request, or merge implicitly.
 
+Product experimentation planning is separate from those decision-research
+workspaces. Repository collaborators use `/product-experiments/signals` to
+register versioned, permitted product measures and `/product-experiments` to
+agree a complete pre-exposure plan originating from a proposal, issue,
+decision, pull request, preview, or release. Each success or guardrail measure
+binds an exact signal version; the plan also freezes variants, audience
+eligibility and exclusions, consent class, minimum evidence, duration,
+accountable owners, participants, stop conditions, assumptions, and overlap
+keys. The API and `view=experiments` web surface derive instrumentation and
+audience-policy gaps, overlaps, changed assumptions, and current-version
+approval gaps without erasing discussion or earlier approvals. Readiness is
+advisory agreement to proceed with later implementation and exposure work; it
+does not assign users, collect signals, publish variants, or grant release or
+operational authority. Storage defaults to `data/product-experiments` and can
+be changed with `$PRODUCT_EXPERIMENT_ROOT`.
+
 The accountable owner requests affected-owner acknowledgements or named policy
 approvals through the decision's `/approval-requirements` collection. Only the
 named participant can respond; pending requirements and rejected approvals are
