@@ -3094,6 +3094,14 @@ stakeholder acceptance, required checks and review, merge, release attribution,
 and the absence of repository authority for the invited stakeholder.
 # Collaborative performance diagnosis
 
+Performance delivery policies apply current goal versions to target branches,
+path globs, and risk classes. Pull-request readiness and merge require the same
+exact candidate comparison to meet declared regression and confidence
+thresholds. Staged observations preserve that comparison through release and
+deployment, retaining environment, health, assumptions, uncertainty, and
+explicit pause, restore, linked repair, or decision-revisit outcomes without
+granting operational authority.
+
 Performance investigations extend exact-version performance goals and their
 reproducible trials through
 `/repositories/{repository}/performance-investigations`. A diagnosis selects
