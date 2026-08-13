@@ -17,6 +17,7 @@ import { Extensions } from "@/components/extensions";
 import { GovernanceCharter } from "@/components/governance-charter";
 import { PerformanceGoals } from "@/components/performance-goals";
 import { ProductExperiments } from "@/components/product-experiments";
+import { ProductFeedback } from "@/components/product-feedback";
 import {
   Book,
   Branch,
@@ -1212,6 +1213,7 @@ export default function RepositoryPage({
     team?: string;
     goal?: string;
     issue?: string;
+    feedback?: string;
   }>;
 }) {
   const { id } = use(params);
@@ -1250,6 +1252,8 @@ export default function RepositoryPage({
                               ? "performance"
                             : query.view === "experiments"
                               ? "experiments"
+                            : query.view === "feedback"
+                              ? "feedback"
                             : query.view === "contribute"
                               ? "contribute"
                               : query.view === "documentation"
@@ -1317,6 +1321,7 @@ export default function RepositoryPage({
         view === "teams" ||
         view === "performance" ||
         view === "experiments" ||
+        view === "feedback" ||
         view === "issues" ||
         view === "documentation" ||
         view === "people" ||
@@ -1538,6 +1543,13 @@ export default function RepositoryPage({
       )}
       <nav className="repository-tabs" aria-label="Repository">
         <button
+          className={view === "feedback" ? "active" : ""}
+          onClick={() => navigate({ view: "feedback", path: "" })}
+        >
+          <MessageCircle size={15} />
+          Feedback
+        </button>
+        <button
           className={view === "experiments" ? "active" : ""}
           onClick={() => navigate({ view: "experiments", path: "" })}
         >
@@ -1721,6 +1733,8 @@ export default function RepositoryPage({
         <PerformanceGoals repository={repository.id} actor={actor} />
       ) : view === "experiments" ? (
         <ProductExperiments repository={repository.id} actor={actor} />
+      ) : view === "feedback" ? (
+        <ProductFeedback repository={repository.id} actor={actor} selected={query.feedback} />
       ) : view === "decisions" ? (
         <TechnicalDecisions repository={repository} actor={actor} selected={query.decision} />
       ) : view === "pulls" ? (
