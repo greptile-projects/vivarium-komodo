@@ -36,6 +36,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/productexperiments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/productfeedback"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/productopportunities"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/productroadmaps"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/questions"
@@ -319,6 +320,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	productRoadmapRoot := os.Getenv("PRODUCT_ROADMAP_ROOT")
+	if productRoadmapRoot == "" {
+		productRoadmapRoot = "data/product-roadmaps"
+	}
+	productRoadmapStore, err := productroadmaps.New(productRoadmapRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	contributorPathwayRoot := os.Getenv("CONTRIBUTOR_PATHWAY_ROOT")
 	if contributorPathwayRoot == "" {
 		contributorPathwayRoot = "data/contributor-pathways"
@@ -402,6 +411,7 @@ func main() {
 	registerProductExperimentsHTTP(mux, productExperimentStore, repositoryCatalog, credentials, pullRequestStore, releaseStore, deploymentStore)
 	registerProductFeedbackHTTP(mux, productFeedbackStore, repositoryCatalog, credentials, feedbackSources{releases: releaseStore, docs: documentationStore, previews: previewStore, issues: issueStore, experiments: productExperimentStore, organizations: organizationStore})
 	registerProductOpportunitiesHTTP(mux, productOpportunityStore, repositoryCatalog, credentials, opportunitySources{feedback: productFeedbackStore, issues: issueStore, previews: previewStore, experiments: productExperimentStore})
+	registerProductRoadmapsHTTP(mux, productRoadmapStore, productOpportunityStore, repositoryCatalog, credentials)
 	registerReasoningWorkHTTP(mux, investigationStore, impactStore, proposalStore, repositoryCatalog, credentials)
 	registerCollaboratorsHTTP(mux, repositoryCatalog, userStore, credentials, activityStore)
 	registerProposalsHTTP(mux, proposalStore, repositoryCatalog, credentials, activityStore)

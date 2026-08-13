@@ -46,6 +46,18 @@ minority needs, duplicate classification, uncertainty, and staleness rather
 than calculating a popularity score or asking readers to trust hidden agent
 reasoning. They grant no operational or research authority.
 
+## Product roadmaps
+
+Repository writers turn current opportunity versions into accountable direction
+through `/repositories/{repository}/product-roadmaps`. Immutable versions record
+goals, capacity, and sequenced accepted, rejected, or deferred outcomes with
+owners, horizons, success measures, dependencies, risks, governance decisions,
+commitments, and rationale. Reads derive capacity overflow, missing dependency,
+commitment conflict, unavailable owner, and slipped target blockers; resolution
+requires an attributed optimistic-concurrency replan. Readers can add version-
+bound discussion and human or agent scenarios, but scenarios always carry no
+resource, repository, delivery, or governance authority.
+
 ## Project governance
 
 ## Repository performance contracts

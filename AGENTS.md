@@ -200,6 +200,17 @@ detach their own report by creating a new version without rewriting the
 historical citation. Opportunities are evidence, not popularity scores, and
 grant no research, targeting, repository, experiment, or delivery authority.
 
+Product roadmaps live beneath `$PRODUCT_ROADMAP_ROOT` (default
+`apps/api/data/product-roadmaps`). Repository writers publish immutable,
+optimistically concurrency-checked versions comparing exact opportunity
+versions with goals, capacity, dependencies, risks, governance decisions, and
+commitments. Accepted outcomes require available owners, target horizons,
+success measures, capacity, sequence, and rationale; rejection reasons remain
+visible. Reads derive overcommitment, dependency, owner, commitment-conflict,
+and slipped-target replan blockers. Readers may discuss versions and publish
+human or agent scenarios, but scenarios have no resource authority and only
+repository writers can commit or replan direction.
+
 Product experiment plans live beneath `$PRODUCT_EXPERIMENT_ROOT` (default
 `apps/api/data/product-experiments`). Repository collaborators register
 versioned product signals with their event, unit, permitted properties and
