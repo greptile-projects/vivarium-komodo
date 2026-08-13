@@ -170,3 +170,33 @@ func TestLiveRunStagesControlAndDeterministicContainment(t *testing.T) {
 		t.Fatal("containment discarded evidence")
 	}
 }
+
+func TestEvidenceDecisionTasksAndCleanupRetainLearning(t *testing.T) {
+	s, _ := New(t.TempDir())
+	sig, _ := s.CreateSignal("repo", "owner", SignalVersion{Name: "activation", Description: "Activation", Unit: "users", Event: "activated", Properties: []string{"variant"}, PermittedAudiences: []string{"product_analytics"}, Instrumented: true, ChangeReason: "ready"})
+	x, _ := s.Create("repo", "owner", plan(sig.ID))
+	x.Runs = []Run{{ID: "run", PlanVersion: 1, Status: "stopped", Observations: []Observation{{ID: "obs", MeasureValues: map[string]float64{"activation": .5}, Uncertainty: map[string]float64{"activation": .03}}}}}
+	if err := write(s.path("repo", "experiments", x.ID), x); err != nil {
+		t.Fatal(err)
+	}
+	x, err := s.AddAnalysis("repo", x.ID, "analyst", AnalysisInput{RunID: "run", ObservationID: "obs", EvidenceState: "threshold_reached", Summary: "Guided wins overall, with a weaker small-team segment", SegmentEffects: []SegmentEffect{{Segment: "small teams", VariantID: "guided", MeasureID: "activation", Effect: .02, Uncertainty: .04, SampleSize: 80}}, Exclusions: []string{"staff"}, Guardrails: []GuardrailOutcome{{MeasureID: "support", Status: "passed", Value: .01, Uncertainty: .01}}, Interpretation: Interpretation{Summary: "Effect is credible but heterogeneous", ActorKind: "agent", ActorID: "agent:analyst", Evidence: []string{"aggregate:1"}, Uncertainty: "small-team effect crosses zero"}, Dissent: []Dissent{{ActorID: "owner", Position: "roll out gradually", Evidence: []string{"segment:small"}}}, AggregatedEvidence: []string{"aggregate:1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err = s.Decide("repo", x.ID, "owner", DecisionInput{ExpectedVersion: 0, AnalysisID: x.Analyses[0].ID, Outcome: "adopt_variant", AdoptedVariantID: "guided", Rationale: "threshold met with protected rollout", UserProtections: []string{"honor existing consent"}, Tasks: []OutcomeTask{{Kind: "rollout", Title: "ship guided", OwnerID: "owner", RequiredActions: []string{"remove control flag", "stop collection"}}}, ChangeReason: "turn learning into product"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := x.Decisions[0]
+	x, err = s.CompleteOutcomeTask("repo", x.ID, d.ID, d.Tasks[0].ID, "owner", TaskCompletion{PullRequestID: "pr", ReleaseID: "rel", DeploymentID: "dep", Evidence: []string{"checks:passed"}})
+	if err != nil || !x.Decisions[0].Complete {
+		t.Fatalf("task: %#v %v", x.Decisions, err)
+	}
+	x, err = s.CompleteCleanup("repo", x.ID, d.ID, "owner")
+	if err != nil || x.Cleanup == nil || !x.Cleanup.CollectionStopped || x.Cleanup.AggregatedEvidenceRetained[0] != "aggregate:1" {
+		t.Fatalf("cleanup: %#v %v", x.Cleanup, err)
+	}
+	if _, err = s.Assign("repo", x.ID, "owner", AssignmentInput{Subject: "later"}); err != ErrConflict {
+		t.Fatalf("assignment after cleanup: %v", err)
+	}
+}

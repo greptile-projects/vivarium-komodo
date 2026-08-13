@@ -83,6 +83,7 @@ type RunControl struct {
 
 func (s *Store) Launch(repo, eid, actor, environment, deployment string, stages []RunStage) (Experiment, error) {
 	return s.mutate(repo, eid, func(v *Experiment) error {
+		if v.Cleanup != nil { return ErrConflict }
 		resolved := s.resolve(repo, *v)
 		if !resolved.Ready || len(resolved.AudiencePolicies) == 0 || environment == "" || deployment == "" || len(stages) == 0 {
 			return ErrConflict

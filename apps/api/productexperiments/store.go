@@ -164,6 +164,9 @@ type Experiment struct {
 	Implementations   []Implementation   `json:"implementations"`
 	AudiencePolicies  []AudiencePolicy   `json:"audience_policies"`
 	Runs              []Run              `json:"runs"`
+	Analyses          []Analysis         `json:"analyses"`
+	Decisions         []OutcomeDecision  `json:"decisions"`
+	Cleanup           *CleanupReceipt    `json:"cleanup,omitempty"`
 	Blockers          []Blocker          `json:"blockers"`
 	Ready             bool               `json:"ready"`
 }
@@ -294,6 +297,9 @@ func (s *Store) ApproveAudiencePolicy(repo, eid, actor, decision, note string) (
 }
 func (s *Store) Assign(repo, eid, actor string, in AssignmentInput) (Experiment, error) {
 	return s.mutate(repo, eid, func(v *Experiment) error {
+		if v.Cleanup != nil {
+			return ErrConflict
+		}
 		if len(v.AudiencePolicies) == 0 || in.Subject == "" {
 			return ErrInvalid
 		}

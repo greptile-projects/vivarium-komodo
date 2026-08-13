@@ -3183,3 +3183,14 @@ Guardrail breaches, failed deployments, lost instrumentation or data, sample
 imbalance, and revoked consent synchronously contain the affected attempt.
 Containment does not alter stable assignments or discard prior evidence, and a
 contained attempt cannot resume; retry is a separately identified run.
+
+Once a declared threshold or stop condition is reached, participants publish an
+analysis bound to one run observation. It retains segment effects, uncertainty,
+exclusions, guardrail outcomes, bounded human or agent interpretation, dissent,
+and aggregate evidence. Versioned outcome decisions adopt a variant, retain the
+control, extend, or remain inconclusive and create rollout, rollback, follow-up,
+or cleanup tasks without granting operational authority. Tasks require ordinary
+pull-request, release, deployment, and evidence links. After all are complete, a
+cleanup receipt records retired variants, targeting, credentials, and collection;
+future assignment and launch are blocked while aggregate evidence, provenance,
+user protections, and delivery links remain inspectable.
