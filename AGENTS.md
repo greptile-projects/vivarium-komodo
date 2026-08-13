@@ -226,6 +226,17 @@ audiences, overlapping plans, changed assumptions, and missing approvals. A
 ready plan is only a pre-exposure contract and grants no variant publication,
 audience assignment, telemetry, release, deployment, or operational authority.
 The repository web surface is `view=experiments`.
+
+Roadmap outcome validations live beneath `$ROADMAP_VALIDATION_ROOT` (default
+`apps/api/data/roadmap-validations`). Repository writers open a technical
+decision, prototype, documentation concept, or product experiment against an
+exact roadmap outcome and opportunity version. Immutable versions bind success
+and guardrail measures to cited feedback and a bounded preview or research
+revision. Only feedback reporters with active research consent may receive a
+purpose-bound participant credential; it grants no repository access. Findings
+retain attribution, accessibility needs, dissent, acceptance, and evidence
+validity. Collaborator assessments may accept, revise, defer, or reject the
+direction without rewriting prior roadmap or validation versions.
 Declared variant and instrumentation delivery stays ordinary project work.
 Experiment `/work-items` link exact-revision human- or agent-owned tasks,
 sessions, and workspaces without creating or starting them. An

@@ -43,6 +43,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/relationships"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/roadmapvalidations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityreports"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/users"
@@ -328,6 +329,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	roadmapValidationRoot := os.Getenv("ROADMAP_VALIDATION_ROOT")
+	if roadmapValidationRoot == "" {
+		roadmapValidationRoot = "data/roadmap-validations"
+	}
+	roadmapValidationStore, err := roadmapvalidations.New(roadmapValidationRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	contributorPathwayRoot := os.Getenv("CONTRIBUTOR_PATHWAY_ROOT")
 	if contributorPathwayRoot == "" {
 		contributorPathwayRoot = "data/contributor-pathways"
@@ -412,6 +421,7 @@ func main() {
 	registerProductFeedbackHTTP(mux, productFeedbackStore, repositoryCatalog, credentials, feedbackSources{releases: releaseStore, docs: documentationStore, previews: previewStore, issues: issueStore, experiments: productExperimentStore, organizations: organizationStore})
 	registerProductOpportunitiesHTTP(mux, productOpportunityStore, repositoryCatalog, credentials, opportunitySources{feedback: productFeedbackStore, issues: issueStore, previews: previewStore, experiments: productExperimentStore})
 	registerProductRoadmapsHTTP(mux, productRoadmapStore, productOpportunityStore, repositoryCatalog, credentials)
+	registerRoadmapValidationsHTTP(mux, roadmapValidationStore, productRoadmapStore, productFeedbackStore, repositoryCatalog, credentials)
 	registerReasoningWorkHTTP(mux, investigationStore, impactStore, proposalStore, repositoryCatalog, credentials)
 	registerCollaboratorsHTTP(mux, repositoryCatalog, userStore, credentials, activityStore)
 	registerProposalsHTTP(mux, proposalStore, repositoryCatalog, credentials, activityStore)
