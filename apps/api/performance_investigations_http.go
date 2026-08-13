@@ -9,6 +9,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/performancegoals"
 	pi "github.com/greptile-projects/vivarium-komodo/apps/api/performanceinvestigations"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
 
@@ -18,9 +19,16 @@ type performanceInvestigationStore interface {
 	List(string) ([]pi.Investigation, error)
 	Invite(string, string, string, string) (pi.Investigation, error)
 	Add(string, string, string, pi.Entry) (pi.Investigation, error)
+	AddChange(string, string, string, pi.Change) (pi.Investigation, error)
 }
 
-func registerPerformanceInvestigationsHTTP(mux *http.ServeMux, store performanceInvestigationStore, goals performanceGoalStore, repos performanceRepositoryStore, credentials authStore) {
+func registerPerformanceInvestigationsHTTP(mux *http.ServeMux, store performanceInvestigationStore, goals performanceGoalStore, repos performanceRepositoryStore, credentials authStore, extras ...any) {
+	var plans proposalStore
+	for _, extra := range extras {
+		if v, ok := extra.(proposalStore); ok {
+			plans = v
+		}
+	}
 	base := "/repositories/{repository}/performance-investigations"
 	mux.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
 		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
@@ -165,6 +173,62 @@ func registerPerformanceInvestigationsHTTP(mux *http.ServeMux, store performance
 		in.StaleReasons = nil
 		v, e = store.Add(string(repo.ID), v.ID, a.UserID, in)
 		writePI(w, v, e, 201)
+	})
+	mux.HandleFunc("POST "+base+"/{investigation}/changes", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in pi.Change
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		if plans == nil || (in.OwnerKind != "human" && in.OwnerKind != "agent") {
+			writeJSON(w, 422, map[string]string{"error": "invalid_change"})
+			return
+		}
+		inv, err := store.Get(string(repo.ID), r.PathValue("investigation"))
+		if err != nil || !participant(inv, a.UserID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		g, err := goals.Get(string(repo.ID), inv.GoalID)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "goal_unavailable"})
+			return
+		}
+		validBase := false
+		for _, t := range g.Trials {
+			if t.ID == in.BaselineTrialID && t.Version == inv.GoalVersion {
+				validBase = true
+			}
+		}
+		if !validBase {
+			writeJSON(w, 422, map[string]string{"error": "invalid_baseline"})
+			return
+		}
+		proposal, err := plans.Create(string(repo.ID), a.UserID, in.Title, "Performance change from diagnosis "+in.DiagnosisEntryID)
+		if err != nil {
+			writeProposalError(w, err)
+			return
+		}
+		task, err := plans.CreateTask(string(repo.ID), proposal.ID, a.UserID, proposals.TaskInput{Title: in.Title, Outcome: "Demonstrate a measured candidate improvement without violating constraints.", Position: 1, Status: proposals.TaskPlanned})
+		if err != nil {
+			writeProposalTaskError(w, err)
+			return
+		}
+		kind := proposals.HumanAssignee
+		if in.OwnerKind == "agent" {
+			kind = proposals.AgentAssignee
+		}
+		task, err = plans.AssignTask(string(repo.ID), proposal.ID, task.ID, a.UserID, "", proposals.AssignmentInput{Kind: kind, AssigneeID: in.OwnerID, Mandate: "Optimize the captured workload and publish exact-revision comparison evidence.", RepositoryID: string(repo.ID), BaseRevision: inv.Evidence[0].Revision})
+		if err != nil {
+			writeProposalTaskError(w, err)
+			return
+		}
+		in.ProposalID, in.TaskID = proposal.ID, task.ID
+		inv, err = store.AddChange(string(repo.ID), inv.ID, a.UserID, in)
+		writePI(w, inv, err, 201)
 	})
 }
 func trialMap(g performancegoals.Goal) map[string]pi.EvidenceRef {

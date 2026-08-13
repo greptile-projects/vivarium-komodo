@@ -16,6 +16,7 @@ type performanceGoalStore interface {
 	Revise(string, string, string, int64, performancegoals.VersionInput) (performancegoals.Goal, error)
 	Measure(string, string, string, performancegoals.MeasurementInput) (performancegoals.Goal, error)
 	RecordTrial(string, string, string, performancegoals.TrialInput) (performancegoals.Goal, error)
+	Compare(string, string, string, performancegoals.ComparisonInput) (performancegoals.Goal, error)
 	Get(string, string) (performancegoals.Goal, error)
 	List(string) ([]performancegoals.Goal, error)
 }
@@ -27,7 +28,13 @@ type performanceRepositoryStore interface {
 	Open(storage.ID) (*storage.Repository, error)
 }
 
-func registerPerformanceGoalsHTTP(mux *http.ServeMux, store performanceGoalStore, repos performanceRepositoryStore, releaseStore performanceReleaseStore, credentials authStore) {
+func registerPerformanceGoalsHTTP(mux *http.ServeMux, store performanceGoalStore, repos performanceRepositoryStore, releaseStore performanceReleaseStore, credentials authStore, extras ...any) {
+	var pulls pullRequestStore
+	for _, extra := range extras {
+		if v, ok := extra.(pullRequestStore); ok {
+			pulls = v
+		}
+	}
 	base := "/repositories/{repository}/performance-goals"
 	mux.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
 		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
@@ -132,6 +139,45 @@ func registerPerformanceGoalsHTTP(mux *http.ServeMux, store performanceGoalStore
 			return
 		}
 		writeJSON(w, 201, performancegoals.Resolve(g, time.Now().UTC()))
+	})
+	mux.HandleFunc("POST "+base+"/{goal}/comparisons", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in performancegoals.ComparisonInput
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		if pulls == nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		pull, err := pulls.Get(string(repo.ID), in.PullRequestID)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_pull_request"})
+			return
+		}
+		g, err := store.Get(string(repo.ID), r.PathValue("goal"))
+		if err != nil {
+			performanceGoalError(w, err)
+			return
+		}
+		candidate := ""
+		for _, trial := range g.Trials {
+			if trial.ID == in.CandidateTrialID {
+				candidate = trial.Revision
+			}
+		}
+		if candidate == "" || pull.SourceCommitID != candidate {
+			writeJSON(w, 422, map[string]string{"error": "candidate_revision_mismatch"})
+			return
+		}
+		g, err = store.Compare(string(repo.ID), r.PathValue("goal"), a.UserID, in)
+		if performanceGoalError(w, err) {
+			return
+		}
+		writeJSON(w, 201, g)
 	})
 }
 func performanceGoalError(w http.ResponseWriter, e error) bool {

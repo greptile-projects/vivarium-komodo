@@ -35,6 +35,17 @@ profiles and artifacts, cost, attribution, and rerun lineage. Credential-like
 evidence is rejected. Repository readers can inspect this on `view=performance`
 without receiving operational access or private production data.
 
+Supported performance-investigation conclusions cross into delivery through
+`POST /repositories/{repository}/performance-investigations/{investigation}/changes`.
+The endpoint creates an ordinary assigned proposal task and snapshots the goal,
+baseline trial, diagnosis, constraints, owner, and base revision. Exact
+candidate evidence is attached through a goal's `/comparisons` collection only
+when its trial revision equals the linked pull request source and the baseline
+and candidate share the benchmark definition, workload, environment, and
+sampling method. The result reports a 95% confidence interval plus CPU, memory,
+cost, correctness, scenario, command, author, and residual-risk evidence; it
+does not alter ordinary repository or pull-request authority.
+
 Repository and organization owners publish governance charter drafts through
 their scoped `/governance-charter` API. Each immutable revision records roles,
 eligibility, decision classes, participation and quorum, protected resources,
