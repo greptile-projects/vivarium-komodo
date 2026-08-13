@@ -7,7 +7,7 @@ import (
 	"net/http"
 )
 
-func registerProductExperimentsHTTP(mux *http.ServeMux, s *productexperiments.Store, repos proposalRepositoryStore, c authStore) {
+func registerProductExperimentsHTTP(mux *http.ServeMux, s *productexperiments.Store, repos proposalRepositoryStore, c authStore, pulls ...previewPullStore) {
 	base := "/repositories/{repository}/product-experiments"
 	access := func(w http.ResponseWriter, r *http.Request, write bool) (string, string, bool) {
 		perm := auth.RepositoryRead
@@ -123,6 +123,45 @@ func registerProductExperimentsHTTP(mux *http.ServeMux, s *productexperiments.St
 			return
 		}
 		v, e := s.ChangeAssumption(repo, r.PathValue("experiment"), a, in.Assumption, in.Detail)
+		if experimentError(w, e) {
+			return
+		}
+		writeJSON(w, 201, v)
+	})
+	mux.HandleFunc("POST "+base+"/{experiment}/work-items", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in productexperiments.WorkItem
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		v, e := s.AddWorkItem(repo, r.PathValue("experiment"), a, in)
+		if experimentError(w, e) {
+			return
+		}
+		writeJSON(w, 201, v)
+	})
+	mux.HandleFunc("POST "+base+"/{experiment}/implementations", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in productexperiments.ImplementationInput
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		if len(pulls) == 0 {
+			writeJSON(w, 422, map[string]string{"error": "invalid_product_experiment"})
+			return
+		}
+		pull, e := pulls[0].Get(repo, in.PullRequestID)
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_product_experiment_pull_request"})
+			return
+		}
+		v, e := s.AddImplementation(repo, r.PathValue("experiment"), a, pull.SourceCommitID, in)
 		if experimentError(w, e) {
 			return
 		}

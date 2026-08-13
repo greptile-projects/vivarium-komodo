@@ -730,6 +730,18 @@ does not assign users, collect signals, publish variants, or grant release or
 operational authority. Storage defaults to `data/product-experiments` and can
 be changed with `$PRODUCT_EXPERIMENT_ROOT`.
 
+Variant and instrumentation implementation is attached through the experiment's
+`/work-items` and `/implementations` collections. Work items reference existing
+human- or agent-owned tasks, sessions, or workspaces at an exact revision; they
+do not create or execute those resources. Implementation publication accepts an
+ordinary pull request ID and derives its exact source commit on the server. The
+review record freezes the implemented variant IDs, exact signal event versions
+and properties, exposure rules, privacy classification, removal plan, and the
+repository-defined check names that verify assignment, metric capture, variant
+isolation, and fallback behavior. Ordinary pull-request review, checks, branch
+protection, and merge remain authoritative, and a later plan revision marks old
+implementation evidence non-current instead of rewriting it.
+
 The accountable owner requests affected-owner acknowledgements or named policy
 approvals through the decision's `/approval-requirements` collection. Only the
 named participant can respond; pending requirements and rejected approvals are
