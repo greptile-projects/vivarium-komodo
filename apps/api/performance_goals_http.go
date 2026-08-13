@@ -17,6 +17,9 @@ type performanceGoalStore interface {
 	Measure(string, string, string, performancegoals.MeasurementInput) (performancegoals.Goal, error)
 	RecordTrial(string, string, string, performancegoals.TrialInput) (performancegoals.Goal, error)
 	Compare(string, string, string, performancegoals.ComparisonInput) (performancegoals.Goal, error)
+	PutDeliveryPolicy(string, string, string, performancegoals.DeliveryPolicyInput) (performancegoals.Goal, error)
+	AssessDelivery(string, string, string, string, []string, []string) ([]performancegoals.DeliveryRequirement, error)
+	ObserveDelivery(string, string, string, performancegoals.DeliveryObservationInput) (performancegoals.Goal, error)
 	Get(string, string) (performancegoals.Goal, error)
 	List(string) ([]performancegoals.Goal, error)
 }
@@ -175,6 +178,40 @@ func registerPerformanceGoalsHTTP(mux *http.ServeMux, store performanceGoalStore
 		}
 		g, err = store.Compare(string(repo.ID), r.PathValue("goal"), a.UserID, in)
 		if performanceGoalError(w, err) {
+			return
+		}
+		writeJSON(w, 201, g)
+	})
+	mux.HandleFunc("POST "+base+"/{goal}/delivery-policies", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if a.UserID != repo.OwnerID {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var in performancegoals.DeliveryPolicyInput
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		g, e := store.PutDeliveryPolicy(string(repo.ID), r.PathValue("goal"), a.UserID, in)
+		if performanceGoalError(w, e) {
+			return
+		}
+		writeJSON(w, 201, g)
+	})
+	mux.HandleFunc("POST "+base+"/{goal}/delivery-observations", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in performancegoals.DeliveryObservationInput
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		g, e := store.ObserveDelivery(string(repo.ID), r.PathValue("goal"), a.UserID, in)
+		if performanceGoalError(w, e) {
 			return
 		}
 		writeJSON(w, 201, g)

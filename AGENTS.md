@@ -214,6 +214,17 @@ pull-request-linked evidence derives the mean and percentage change, 95%
 confidence interval, CPU, memory and cost deltas, correctness checks, affected
 scenarios, reproducible commands, attribution, and residual risks. These
 records grant no Git, execution, review, check, or merge authority.
+Repository owners attach immutable performance delivery policies to a goal's
+current version by target branch, path glob, or risk class. Each metric declares
+an allowed percentage regression and whether its confidence interval must clear
+that threshold. Pull-request readiness and merge independently require an exact-
+revision comparison for every applicable policy; revised goals or pull commits
+make earlier evidence non-current. Staged observations bind that comparison to
+an attested release, deployment, stage, revision, environment, health,
+assumptions, and observed metric. Regression, uncertainty, failed health, or an
+incomparable environment requires an explicit pause, known-good restore, linked
+issue repair, or linked decision revisit. Evidence grants neither agents nor
+observers merge or environment authority.
 
 Project governance charters live beneath `$GOVERNANCE_ROOT` (default
 `apps/api/data/governance`). Repository owners and organization owners publish

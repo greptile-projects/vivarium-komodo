@@ -24,6 +24,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/federation"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/integrationqueue"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/performancegoals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/previews"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
@@ -74,6 +75,7 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	var queue integrationQueueStore
 	var previewAcceptance *previews.Store
 	var federationStore *federation.Store
+	var performance performanceGoalStore
 	for _, extra := range extras {
 		switch value := extra.(type) {
 		case activityStore:
@@ -88,6 +90,8 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 			previewAcceptance = value
 		case *federation.Store:
 			federationStore = value
+		case performanceGoalStore:
+			performance = value
 		}
 	}
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests", createPullRequest(store, proposalStore, repositories, credentials, activity, checks))
@@ -102,8 +106,8 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/reviews/me", putPullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("DELETE /repositories/{repository}/pull-requests/{pull_request}/reviews/me", deletePullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
-	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults, previewAcceptance))
-	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequestWithFederation(store, proposalStore, repositories, credentials, activity, checkResults, previewAcceptance, federationStore))
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults, previewAcceptance, performance))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequestWithFederation(store, proposalStore, repositories, credentials, activity, checkResults, previewAcceptance, federationStore, performance))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/queue", enqueuePullRequest(store, repositories, credentials, activity, checkResults, checks, queue))
 	mux.HandleFunc("GET /repositories/{repository}/integration-queue/entries", listIntegrationQueueEntries(repositories, credentials, checkResults, queue))
 	mux.HandleFunc("PATCH /repositories/{repository}/integration-queue/entries/{entry}", operateIntegrationQueueEntry(repositories, credentials, activity, checks, queue))
@@ -578,15 +582,16 @@ type readinessBlocker struct {
 }
 
 type readinessResponse struct {
-	Ready        bool                           `json:"ready"`
-	CanMerge     bool                           `json:"can_merge"`
-	HasConflicts *bool                          `json:"has_conflicts"`
-	SourceBranch readinessBranch                `json:"source_branch"`
-	TargetBranch readinessBranch                `json:"target_branch"`
-	Reviews      readinessReviews               `json:"reviews"`
-	Checks       readinessChecks                `json:"checks"`
-	Acceptance   *previews.AcceptanceAssessment `json:"preview_acceptance,omitempty"`
-	Blockers     []readinessBlocker             `json:"blockers"`
+	Ready        bool                                   `json:"ready"`
+	CanMerge     bool                                   `json:"can_merge"`
+	HasConflicts *bool                                  `json:"has_conflicts"`
+	SourceBranch readinessBranch                        `json:"source_branch"`
+	TargetBranch readinessBranch                        `json:"target_branch"`
+	Reviews      readinessReviews                       `json:"reviews"`
+	Checks       readinessChecks                        `json:"checks"`
+	Acceptance   *previews.AcceptanceAssessment         `json:"preview_acceptance,omitempty"`
+	Performance  []performancegoals.DeliveryRequirement `json:"performance_requirements"`
+	Blockers     []readinessBlocker                     `json:"blockers"`
 }
 
 type readinessCheck struct {
@@ -602,7 +607,17 @@ type readinessChecks struct {
 	Satisfied    bool             `json:"satisfied"`
 }
 
-func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, checkStore readinessCheckStore, acceptanceStores ...*previews.Store) http.HandlerFunc {
+func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, checkStore readinessCheckStore, extras ...any) http.HandlerFunc {
+	var acceptance *previews.Store
+	var performance performanceGoalStore
+	for _, x := range extras {
+		if v, ok := x.(*previews.Store); ok {
+			acceptance = v
+		}
+		if v, ok := x.(performanceGoalStore); ok {
+			performance = v
+		}
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryRead, false)
 		if !ok {
@@ -689,7 +704,7 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 				addBlocker("required_check_"+requirement.Status, "Required check ‘"+requirement.Name+"’ is "+requirement.Status+" for revision "+item.SourceCommitID+".")
 			}
 		}
-		if len(acceptanceStores) > 0 && acceptanceStores[0] != nil {
+		if acceptance != nil {
 			changes, err := filesBetweenRepositories(sourceOpened, targetOpened, storage.ObjectID(item.SourceCommitID), storage.ObjectID(item.TargetCommitID))
 			if err != nil {
 				writeJSON(w, 500, map[string]string{"error": "internal_error"})
@@ -699,7 +714,7 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 			for i := range changes {
 				paths[i] = changes[i].Path
 			}
-			assessment, err := acceptanceStores[0].Assess(item.RepositoryID, item.ID, item.SourceCommitID, item.TargetBranch, paths, repository.PreviewAcceptance)
+			assessment, err := acceptance.Assess(item.RepositoryID, item.ID, item.SourceCommitID, item.TargetBranch, paths, repository.PreviewAcceptance)
 			if err != nil {
 				writeJSON(w, 500, map[string]string{"error": "internal_error"})
 				return
@@ -707,6 +722,33 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 			response.Acceptance = &assessment
 			if !assessment.Satisfied {
 				addBlocker("preview_acceptance_required", "Current preview acceptance is missing, rejected, or has unresolved blocking findings.")
+			}
+		}
+		if performance != nil {
+			changes, err := filesBetweenRepositories(sourceOpened, targetOpened, storage.ObjectID(item.SourceCommitID), storage.ObjectID(item.TargetCommitID))
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			paths := make([]string, len(changes))
+			for i := range changes {
+				paths[i] = changes[i].Path
+			}
+			risks := []string{}
+			for _, p := range paths {
+				if strings.HasPrefix(p, "migrations/") || strings.Contains(p, "security") {
+					risks = append(risks, "high")
+				}
+			}
+			response.Performance, err = performance.AssessDelivery(item.RepositoryID, item.ID, item.SourceCommitID, item.TargetBranch, paths, risks)
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			for _, req := range response.Performance {
+				if req.Status != "satisfied" {
+					addBlocker("performance_"+req.Status, req.Detail)
+				}
 			}
 		}
 
@@ -803,10 +845,10 @@ func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repos
 		}
 	}
 	// The federation store is supplied through the package-level merge wrapper.
-	return mergePullRequestWithFederation(store, proposalStore, repositories, credentials, activity, checkStore, acceptanceStore, fed)
+	return mergePullRequestWithFederation(store, proposalStore, repositories, credentials, activity, checkStore, acceptanceStore, fed, nil)
 }
 
-func mergePullRequestWithFederation(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, checkStore readinessCheckStore, acceptanceStore *previews.Store, fed *federation.Store) http.HandlerFunc {
+func mergePullRequestWithFederation(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, checkStore readinessCheckStore, acceptanceStore *previews.Store, fed *federation.Store, performance performanceGoalStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -869,6 +911,28 @@ func mergePullRequestWithFederation(store pullRequestStore, proposalStore propos
 		if !ownerApproved {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "pull_request_not_ready"})
 			return
+		}
+		if performance != nil {
+			changes, e := filesBetweenRepositories(sourceOpened, opened, source, target)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			paths := make([]string, len(changes))
+			for i := range changes {
+				paths[i] = changes[i].Path
+			}
+			reqs, e := performance.AssessDelivery(item.RepositoryID, item.ID, item.SourceCommitID, item.TargetBranch, paths, nil)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			for _, req := range reqs {
+				if req.Status != "satisfied" {
+					writeJSON(w, http.StatusConflict, map[string]any{"error": "pull_request_not_ready", "performance_requirements": reqs})
+					return
+				}
+			}
 		}
 		if required := repository.RequiredChecks[item.TargetBranch]; len(required) > 0 {
 			if checkStore == nil {

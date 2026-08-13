@@ -125,15 +125,17 @@ type Status struct {
 	MeasurementID string `json:"measurement_id,omitempty"`
 }
 type Goal struct {
-	ID             string        `json:"id"`
-	RepositoryID   string        `json:"repository_id"`
-	CurrentVersion int64         `json:"current_version"`
-	Versions       []Version     `json:"versions"`
-	Measurements   []Measurement `json:"measurements"`
-	Trials         []Trial       `json:"trials"`
-	Comparisons    []Comparison  `json:"comparisons,omitempty"`
-	Statuses       []Status      `json:"statuses"`
-	Conflicts      []string      `json:"conflicts"`
+	ID             string                `json:"id"`
+	RepositoryID   string                `json:"repository_id"`
+	CurrentVersion int64                 `json:"current_version"`
+	Versions       []Version             `json:"versions"`
+	Measurements   []Measurement         `json:"measurements"`
+	Trials         []Trial               `json:"trials"`
+	Comparisons    []Comparison          `json:"comparisons,omitempty"`
+	Policies       []DeliveryPolicy      `json:"delivery_policies,omitempty"`
+	Observations   []DeliveryObservation `json:"delivery_observations,omitempty"`
+	Statuses       []Status              `json:"statuses"`
+	Conflicts      []string              `json:"conflicts"`
 }
 type Comparison struct {
 	ID                 string    `json:"id"`
