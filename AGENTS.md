@@ -224,6 +224,19 @@ assumptions, unresolved user needs, policy conflicts, or revisit request make it
 blockers, and the contract grants no Git, review, merge, release, deployment,
 experiment, or participant authority.
 
+Post-delivery product learning lives beneath `$PRODUCT_LEARNING_ROOT` (default
+`apps/api/data/product-learning`). A roadmap delivery has one reciprocal record
+where repository writers publish decision, preview, delivery, rejection, and
+measured-outcome updates to explicitly cited feedback contributors and named
+stakeholders. Feedback delivery requires active product-update consent; reads
+are audience-projected, non-public links are redacted, and a participant may
+validate the result with bounded follow-up evidence and dissent or leave future
+updates without deleting prior credit and provenance. Maintainers append
+optimistically concurrency-checked promised-versus-observed lessons against a
+current roadmap revision, retain resulting-work links and dissent, and classify
+the opportunity as open, fulfilled, or unsupported. Learning records grant no
+roadmap, research, contact, repository, release, or operational authority.
+
 Product experiment plans live beneath `$PRODUCT_EXPERIMENT_ROOT` (default
 `apps/api/data/product-experiments`). Repository collaborators register
 versioned product signals with their event, unit, permitted properties and
