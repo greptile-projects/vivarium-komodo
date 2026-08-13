@@ -88,7 +88,7 @@ func TestPerformanceComparisonBindsComparableExactRevisions(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := goal.Comparisons[0]
-	if c.MeanChange != -25 || c.PercentChange != -25 || c.PeakMemoryMBChange != 8 || c.CostChange > -.009 || c.ActorID != "analyst" || c.Confidence95.Maximum == nil {
+	if c.MeanChange != -25 || c.PercentChange != -25 || c.PeakMemoryMBChange != 8 || c.CostChange > -.009 || c.ActorID != "analyst" || c.Confidence95.Maximum == nil || *c.Confidence95.Maximum < -13 || *c.Confidence95.Maximum > -12 {
 		t.Fatalf("comparison lost tradeoffs: %+v", c)
 	}
 }

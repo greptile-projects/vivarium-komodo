@@ -142,6 +142,17 @@ func (s *Store) AssessDelivery(repo, pull, revision, branch string, paths, risks
 					c := g.Comparisons[i]
 					if c.Version == g.CurrentVersion && c.PullRequestID == pull && c.MetricID == t.MetricID {
 						r.ComparisonID = c.ID
+						candidateRevision := ""
+						for _, trial := range g.Trials {
+							if trial.ID == c.CandidateTrialID {
+								candidateRevision = trial.Revision
+							}
+						}
+						if candidateRevision != revision {
+							r.Status = "stale"
+							r.Detail = "Comparison evidence does not describe the current pull request revision."
+							break
+						}
 						r.Status = "satisfied"
 						r.Detail = "Current candidate comparison is within the allowed regression threshold."
 						if c.PercentChange > t.MaximumPercentRegression {
@@ -151,6 +162,10 @@ func (s *Store) AssessDelivery(repo, pull, revision, branch string, paths, risks
 						if t.RequireConfidence && c.Confidence95.Maximum != nil && *c.Confidence95.Maximum > t.MaximumPercentRegression {
 							r.Status = "uncertain"
 							r.Detail = "Confidence interval does not exclude a disallowed regression."
+						}
+						if len(c.CorrectnessFailures) > 0 {
+							r.Status = "correctness_failed"
+							r.Detail = "Candidate violates one or more declared correctness constraints."
 						}
 						break
 					}

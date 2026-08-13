@@ -225,6 +225,15 @@ assumptions, and observed metric. Regression, uncertainty, failed health, or an
 incomparable environment requires an explicit pause, known-good restore, linked
 issue repair, or linked decision revisit. Evidence grants neither agents nor
 observers merge or environment authority.
+`performance_workflow_test.go` is the black-box regression boundary for the
+complete production-concern-to-validated-improvement loop. It retains linked
+user impact, a sanitized exact-revision baseline, agent and affected-owner
+diagnosis, agent-owned delivery work, statistically comparable candidate
+evidence, costs and correctness results, ordinary checks/review/merge/release,
+and staged production observations. Noisy confidence, correctness failure,
+stale pull revisions, and a missed rollout target must block or pause the
+workflow until an attributable retry supplies current evidence; confidence
+bounds and delivery thresholds are both percentages.
 
 Project governance charters live beneath `$GOVERNANCE_ROOT` (default
 `apps/api/data/governance`). Repository owners and organization owners publish
