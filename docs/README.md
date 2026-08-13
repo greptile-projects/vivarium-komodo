@@ -77,6 +77,29 @@ policy conflicts, and failed measures are explicit blockers. A cited
 work with all measures passed and no blockers becomes `achieved`. These records
 report through existing delivery systems and grant no operational authority.
 
+### Reciprocal product learning
+
+Each delivery exposes its consent-aware learning record at
+`/repositories/{repository}/roadmap-deliveries/{delivery}/learning`. Repository
+writers publish typed decision, preview, delivery, rejection, or measured-
+outcome updates with a plain-language rationale, explicitly cited feedback and
+stakeholder recipients, and links for inspecting rationale, validating a
+release, or following resulting work. Feedback recipients must still have
+active product-update consent. Participant reads include only their addressed
+updates, redact non-public link targets, and omit maintainers' broader response
+and departure ledger.
+
+A cited feedback reporter can respond once per update with `improved`,
+`not_improved`, `mixed`, or `unknown`, a bounded explanation and evidence, and
+explicit dissent. Any participant can leave the delivery conversation, while a
+reporter may scope departure to one feedback record; departures suppress future
+projection but preserve earlier credit, consent history, responses, and source
+provenance. Maintainers append optimistic-concurrency lesson versions comparing
+promised and observed outcomes, citing dissent and resulting work, binding a
+current roadmap revision, and marking the opportunity `open`, `fulfilled`, or
+`unsupported`. This record informs later roadmap revisions but grants no
+contact, research, repository, roadmap, release, or operational authority.
+
 ## Project governance
 
 ## Repository performance contracts

@@ -35,6 +35,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/previews"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/productexperiments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/productfeedback"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/productlearning"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/productopportunities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/productroadmaps"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
@@ -346,6 +347,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	productLearningRoot := os.Getenv("PRODUCT_LEARNING_ROOT")
+	if productLearningRoot == "" {
+		productLearningRoot = "data/product-learning"
+	}
+	productLearningStore, err := productlearning.New(productLearningRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	contributorPathwayRoot := os.Getenv("CONTRIBUTOR_PATHWAY_ROOT")
 	if contributorPathwayRoot == "" {
 		contributorPathwayRoot = "data/contributor-pathways"
@@ -432,6 +441,7 @@ func main() {
 	registerProductRoadmapsHTTP(mux, productRoadmapStore, productOpportunityStore, repositoryCatalog, credentials)
 	registerRoadmapValidationsHTTP(mux, roadmapValidationStore, productRoadmapStore, productFeedbackStore, repositoryCatalog, credentials)
 	registerRoadmapDeliveryHTTP(mux, roadmapDeliveryStore, productRoadmapStore, proposalStore, repositoryCatalog, credentials)
+	registerProductLearningHTTP(mux, productLearningStore, roadmapDeliveryStore, productFeedbackStore, productOpportunityStore, productRoadmapStore, repositoryCatalog, credentials)
 	registerReasoningWorkHTTP(mux, investigationStore, impactStore, proposalStore, repositoryCatalog, credentials)
 	registerCollaboratorsHTTP(mux, repositoryCatalog, userStore, credentials, activityStore)
 	registerProposalsHTTP(mux, proposalStore, repositoryCatalog, credentials, activityStore)
