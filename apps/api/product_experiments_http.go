@@ -330,6 +330,62 @@ func registerProductExperimentsHTTP(mux *http.ServeMux, s *productexperiments.St
 		}
 		writeJSON(w, 201, v)
 	})
+	mux.HandleFunc("POST "+base+"/{experiment}/analyses", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in productexperiments.AnalysisInput
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		v, e := s.AddAnalysis(repo, r.PathValue("experiment"), a, in)
+		if experimentError(w, e) {
+			return
+		}
+		writeJSON(w, 201, v)
+	})
+	mux.HandleFunc("POST "+base+"/{experiment}/decisions", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in productexperiments.DecisionInput
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		v, e := s.Decide(repo, r.PathValue("experiment"), a, in)
+		if experimentError(w, e) {
+			return
+		}
+		writeJSON(w, 201, v)
+	})
+	mux.HandleFunc("POST "+base+"/{experiment}/decisions/{decision}/tasks/{task}/complete", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in productexperiments.TaskCompletion
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		v, e := s.CompleteOutcomeTask(repo, r.PathValue("experiment"), r.PathValue("decision"), r.PathValue("task"), a, in)
+		if experimentError(w, e) {
+			return
+		}
+		writeJSON(w, 201, v)
+	})
+	mux.HandleFunc("POST "+base+"/{experiment}/decisions/{decision}/cleanup", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		v, e := s.CompleteCleanup(repo, r.PathValue("experiment"), r.PathValue("decision"), a)
+		if experimentError(w, e) {
+			return
+		}
+		writeJSON(w, 201, v)
+	})
 	sig := base + "/signals"
 	mux.HandleFunc("GET "+sig, func(w http.ResponseWriter, r *http.Request) {
 		repo, _, ok := access(w, r, false)

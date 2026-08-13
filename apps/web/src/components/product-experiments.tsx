@@ -88,6 +88,51 @@ type Experiment = {
       containment_triggered: boolean;
     }>;
   }>;
+  analyses: Array<{
+    id: string;
+    evidence_state: string;
+    summary: string;
+    segment_effects: Array<{
+      segment: string;
+      variant_id: string;
+      effect: number;
+      uncertainty: number;
+    }>;
+    exclusions: string[];
+    guardrails: Array<{ measure_id: string; status: string }>;
+    interpretation: {
+      summary: string;
+      actor_kind: string;
+      actor_id: string;
+      uncertainty: string;
+    };
+    dissent: Array<{ actor_id: string; position: string }>;
+  }>;
+  decisions: Array<{
+    id: string;
+    version: number;
+    outcome: string;
+    adopted_variant_id?: string;
+    rationale: string;
+    user_protections: string[];
+    complete: boolean;
+    tasks: Array<{
+      id: string;
+      kind: string;
+      title: string;
+      status: string;
+      pull_request_id?: string;
+      release_id?: string;
+      deployment_id?: string;
+    }>;
+  }>;
+  cleanup?: {
+    obsolete_variants_removed: boolean;
+    targeting_rules_removed: boolean;
+    credentials_revoked: boolean;
+    collection_stopped: boolean;
+    aggregated_evidence_retained: string[];
+  };
 };
 export function ProductExperiments({
   repository,
@@ -547,6 +592,86 @@ export function ProductExperiments({
                 </section>
               );
             })}
+            {x.analyses?.map((analysis) => (
+              <section key={analysis.id} className="experiment-live">
+                <p>
+                  <Badge tone="accent">
+                    {analysis.evidence_state.replaceAll("_", " ")}
+                  </Badge>{" "}
+                  revision-bound analysis
+                </p>
+                <p>{analysis.summary}</p>
+                <p>
+                  <strong>Segments:</strong>{" "}
+                  {analysis.segment_effects
+                    .map(
+                      (s) =>
+                        `${s.segment}: ${s.variant_id} ${s.effect} ± ${s.uncertainty}`,
+                    )
+                    .join(" · ") || "none declared"}
+                </p>
+                <p>
+                  <strong>Exclusions:</strong>{" "}
+                  {analysis.exclusions.join(" · ") || "none"}
+                </p>
+                <p>
+                  <strong>Guardrails:</strong>{" "}
+                  {analysis.guardrails
+                    .map((g) => `${g.measure_id} ${g.status}`)
+                    .join(" · ")}
+                </p>
+                {analysis.interpretation?.summary && (
+                  <p>
+                    <strong>
+                      {analysis.interpretation.actor_kind} interpretation:
+                    </strong>{" "}
+                    {analysis.interpretation.summary} (
+                    {analysis.interpretation.uncertainty})
+                  </p>
+                )}
+                {analysis.dissent.map((d, i) => (
+                  <p key={i}>
+                    <strong>Dissent from {d.actor_id}:</strong> {d.position}
+                  </p>
+                ))}
+              </section>
+            ))}
+            {x.decisions?.map((decision) => (
+              <section key={decision.id} className="experiment-live">
+                <p>
+                  <Badge tone={decision.complete ? "accent" : "warning"}>
+                    {decision.outcome.replaceAll("_", " ")}
+                  </Badge>{" "}
+                  decision v{decision.version}
+                </p>
+                <p>
+                  {decision.rationale}
+                  {decision.adopted_variant_id
+                    ? ` Adopted: ${decision.adopted_variant_id}.`
+                    : ""}
+                </p>
+                <p>
+                  <strong>User protections:</strong>{" "}
+                  {decision.user_protections.join(" · ")}
+                </p>
+                {decision.tasks.map((task) => (
+                  <p key={task.id}>
+                    <strong>{task.kind}:</strong> {task.title} · {task.status}
+                    {task.pull_request_id
+                      ? ` · ${task.pull_request_id} → ${task.release_id} → ${task.deployment_id}`
+                      : ""}
+                  </p>
+                ))}
+              </section>
+            ))}
+            {x.cleanup && (
+              <p>
+                <Badge tone="accent">cleaned up</Badge> Obsolete variants,
+                targeting, credentials, and collection are retired;{" "}
+                {x.cleanup.aggregated_evidence_retained.length} aggregate
+                evidence links remain.
+              </p>
+            )}
             <form
               className="form-stack"
               onSubmit={(e) => {

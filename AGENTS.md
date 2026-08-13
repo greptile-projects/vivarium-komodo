@@ -215,6 +215,14 @@ guardrails, consent, operational health, evidence, and cost, and may pause,
 resume, or stop. Safety failures deterministically contain only that attempt,
 without rebucketing subjects or deleting stages, evidence, costs, or controls;
 retry requires a new attempt.
+Threshold or stop-condition analyses bind one exact run observation and retain
+segments, uncertainty, exclusions, guardrails, bounded agent interpretation,
+dissent, and aggregate evidence. Versioned adopt/control/extend/inconclusive
+decisions create non-authoritative rollout, rollback, follow-up, or cleanup
+tasks. Only tasks completed with pull-request, release, deployment, and evidence
+links permit a cleanup receipt; it retires future assignment, launch, targeting,
+credentials, and collection while preserving aggregate evidence, provenance,
+user protections, and delivery links.
 
 Repository performance contracts live beneath `$PERFORMANCE_GOAL_ROOT` (default
 `apps/api/data/performance-goals`). Collaborators publish immutable,
