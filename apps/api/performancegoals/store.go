@@ -79,6 +79,45 @@ type Measurement struct {
 	MeasuredAt        time.Time `json:"measured_at"`
 	CreatedAt         time.Time `json:"created_at"`
 }
+type Sample struct {
+	Value      float64 `json:"value"`
+	DurationMS float64 `json:"duration_ms,omitempty"`
+}
+type ResourceProfile struct {
+	CPUSeconds   float64 `json:"cpu_seconds"`
+	PeakMemoryMB float64 `json:"peak_memory_mb"`
+	DiskMB       float64 `json:"disk_mb,omitempty"`
+	NetworkBytes int64   `json:"network_bytes,omitempty"`
+}
+type Evidence struct {
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	MediaType string `json:"media_type"`
+	SHA256    string `json:"sha256"`
+	Content   string `json:"content,omitempty"`
+}
+type Trial struct {
+	ID               string          `json:"id"`
+	Version          int64           `json:"version"`
+	Benchmark        string          `json:"benchmark"`
+	DefinitionDigest string          `json:"definition_digest"`
+	Revision         string          `json:"revision"`
+	ReleaseID        string          `json:"release_id,omitempty"`
+	Environment      Environment     `json:"environment"`
+	WorkloadSource   string          `json:"workload_source"`
+	InputDigests     []string        `json:"input_digests"`
+	WarmupRuns       int             `json:"warmup_runs"`
+	SamplingMethod   string          `json:"sampling_method"`
+	Samples          []Sample        `json:"samples"`
+	Mean             float64         `json:"mean"`
+	Variance         float64         `json:"variance"`
+	ResourceProfile  ResourceProfile `json:"resource_profile"`
+	Evidence         []Evidence      `json:"evidence"`
+	Cost             float64         `json:"cost"`
+	RerunOf          string          `json:"rerun_of,omitempty"`
+	ActorID          string          `json:"actor_id"`
+	CreatedAt        time.Time       `json:"created_at"`
+}
 type Status struct {
 	MetricID      string `json:"metric_id"`
 	State         string `json:"state"`
@@ -91,6 +130,7 @@ type Goal struct {
 	CurrentVersion int64         `json:"current_version"`
 	Versions       []Version     `json:"versions"`
 	Measurements   []Measurement `json:"measurements"`
+	Trials         []Trial       `json:"trials"`
 	Statuses       []Status      `json:"statuses"`
 	Conflicts      []string      `json:"conflicts"`
 }
@@ -115,6 +155,23 @@ type MeasurementInput struct {
 	Revision          string    `json:"revision"`
 	Source            string    `json:"source"`
 	MeasuredAt        time.Time `json:"measured_at"`
+}
+type TrialInput struct {
+	Version          int64           `json:"version"`
+	Benchmark        string          `json:"benchmark"`
+	DefinitionDigest string          `json:"definition_digest"`
+	Revision         string          `json:"revision"`
+	ReleaseID        string          `json:"release_id"`
+	Environment      Environment     `json:"environment"`
+	WorkloadSource   string          `json:"workload_source"`
+	InputDigests     []string        `json:"input_digests"`
+	WarmupRuns       int             `json:"warmup_runs"`
+	SamplingMethod   string          `json:"sampling_method"`
+	Samples          []Sample        `json:"samples"`
+	ResourceProfile  ResourceProfile `json:"resource_profile"`
+	Evidence         []Evidence      `json:"evidence"`
+	Cost             float64         `json:"cost"`
+	RerunOf          string          `json:"rerun_of"`
 }
 type Store struct {
 	root string
@@ -225,6 +282,67 @@ func (s *Store) Measure(repo, gid, actor string, in MeasurementInput) (Goal, err
 	}
 	g.Measurements = append(g.Measurements, Measurement{ID: id(), Version: in.Version, MetricID: in.MetricID, Value: in.Value, EnvironmentDigest: in.EnvironmentDigest, Revision: in.Revision, Source: in.Source, ActorID: actor, MeasuredAt: in.MeasuredAt.UTC(), CreatedAt: s.now().UTC()})
 	return g, s.write(g)
+}
+func (s *Store) RecordTrial(repo, gid, actor string, in TrialInput) (Goal, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	g, e := s.read(repo, gid)
+	if e != nil {
+		return g, e
+	}
+	if actor == "" || in.Version != g.CurrentVersion || strings.TrimSpace(in.Benchmark) == "" || in.DefinitionDigest == "" || in.Revision == "" || in.Environment.Digest == "" || in.WarmupRuns < 0 || in.WarmupRuns > 100 || len(in.Samples) < 2 || len(in.Samples) > 1000 || (in.WorkloadSource != "repository_fixture" && in.WorkloadSource != "sanitized_production_capture") || len(in.InputDigests) > 50 || len(in.Evidence) > 20 || in.Cost < 0 {
+		return g, ErrInvalid
+	}
+	if in.SamplingMethod != "wall_clock" && in.SamplingMethod != "cpu_time" && in.SamplingMethod != "throughput" && in.SamplingMethod != "profile" {
+		return g, ErrInvalid
+	}
+	for _, x := range in.InputDigests {
+		if len(x) != 64 {
+			return g, ErrInvalid
+		}
+	}
+	for _, x := range in.Evidence {
+		if !map[string]bool{"trace": true, "log": true, "profile": true, "artifact": true}[x.Kind] || x.Name == "" || x.SHA256 == "" || len(x.Content) > 1<<20 || containsSensitive(x.Content) {
+			return g, ErrInvalid
+		}
+	}
+	mean := 0.0
+	for _, x := range in.Samples {
+		if x.Value < 0 {
+			return g, ErrInvalid
+		}
+		mean += x.Value
+	}
+	mean /= float64(len(in.Samples))
+	variance := 0.0
+	for _, x := range in.Samples {
+		d := x.Value - mean
+		variance += d * d
+	}
+	variance /= float64(len(in.Samples) - 1)
+	if in.RerunOf != "" {
+		found := false
+		for _, x := range g.Trials {
+			if x.ID == in.RerunOf && x.Benchmark == in.Benchmark {
+				found = true
+			}
+		}
+		if !found {
+			return g, ErrInvalid
+		}
+	}
+	t := Trial{ID: id(), Version: in.Version, Benchmark: strings.TrimSpace(in.Benchmark), DefinitionDigest: in.DefinitionDigest, Revision: in.Revision, ReleaseID: in.ReleaseID, Environment: in.Environment, WorkloadSource: in.WorkloadSource, InputDigests: in.InputDigests, WarmupRuns: in.WarmupRuns, SamplingMethod: in.SamplingMethod, Samples: in.Samples, Mean: mean, Variance: variance, ResourceProfile: in.ResourceProfile, Evidence: in.Evidence, Cost: in.Cost, RerunOf: in.RerunOf, ActorID: actor, CreatedAt: s.now().UTC()}
+	g.Trials = append(g.Trials, t)
+	return g, s.write(g)
+}
+func containsSensitive(v string) bool {
+	x := strings.ToLower(v)
+	for _, m := range []string{"authorization: bearer", "-----begin private key", "github_pat_", "ghp_", "aws_secret_access_key", "password="} {
+		if strings.Contains(x, m) {
+			return true
+		}
+	}
+	return false
 }
 func (s *Store) Get(repo, gid string) (Goal, error) {
 	s.mu.Lock()

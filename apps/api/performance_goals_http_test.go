@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/performancegoals"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
@@ -22,8 +24,9 @@ func TestPerformanceGoalContract(t *testing.T) {
 	ownerToken := issueAccess(t, credentials, owner, auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	collabToken := issueAccess(t, credentials, collab, auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	store, _ := performancegoals.New(t.TempDir())
+	releaseStore, _ := releases.New(t.TempDir())
 	mux := http.NewServeMux()
-	registerPerformanceGoalsHTTP(mux, store, catalog, credentials)
+	registerPerformanceGoalsHTTP(mux, store, catalog, releaseStore, credentials)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	base := server.URL + "/repositories/" + string(repo.ID) + "/performance-goals"
@@ -47,4 +50,25 @@ func TestPerformanceGoalContract(t *testing.T) {
 		t.Fatal("goal not listed")
 	}
 	workflowJSON(t, server.URL, http.MethodPost, base[len(server.URL):]+"/"+goal.ID+"/versions", ownerToken, body[:1]+`"expected_version":0,`+body[1:], http.StatusConflict, nil)
+}
+
+func TestPerformanceTrialRetainsComparableEvidence(t *testing.T) {
+	store, _ := performancegoals.New(t.TempDir())
+	max := 250.0
+	goal, err := store.Create("repo", "owner", performancegoals.VersionInput{SubjectKind: "service", Title: "fast", Workloads: []string{"captured search"}, Metrics: []performancegoals.Metric{{ID: "p95", Name: "latency", Unit: "ms", Direction: "lower", Target: performancegoals.Range{Maximum: &max}, EnvironmentDigest: "env1"}}, CorrectnessConstraints: []string{"same results"}, Environments: []performancegoals.Environment{{Name: "linux", Digest: "env1"}}, OwnerIDs: []string{"owner"}, BaselineMaxAgeDays: 30, ChangeReason: "investigate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	goal, err = store.RecordTrial("repo", goal.ID, "collab", performancegoals.TrialInput{Version: 1, Benchmark: "search", DefinitionDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Revision: "deadbeef", Environment: performancegoals.Environment{Name: "linux", Digest: "env1"}, WorkloadSource: "sanitized_production_capture", InputDigests: []string{"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, WarmupRuns: 2, SamplingMethod: "wall_clock", Samples: []performancegoals.Sample{{Value: 100}, {Value: 120}, {Value: 110}}, ResourceProfile: performancegoals.ResourceProfile{CPUSeconds: 1.2, PeakMemoryMB: 42}, Evidence: []performancegoals.Evidence{{Kind: "trace", Name: "trace.json", MediaType: "application/json", SHA256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", Content: "{}"}}, Cost: 0.04})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trial := goal.Trials[0]
+	if trial.Mean != 110 || trial.Variance != 100 || trial.ActorID != "collab" || trial.WorkloadSource != "sanitized_production_capture" {
+		t.Fatalf("incomplete evidence: %+v", trial)
+	}
+	_, err = store.RecordTrial("repo", goal.ID, "collab", performancegoals.TrialInput{Version: 1, Benchmark: "search", DefinitionDigest: "x", Revision: "deadbeef", Environment: performancegoals.Environment{Name: "linux", Digest: "env1"}, WorkloadSource: "repository_fixture", SamplingMethod: "wall_clock", Samples: []performancegoals.Sample{{Value: 1}, {Value: 2}}, Evidence: []performancegoals.Evidence{{Kind: "log", Name: "out", SHA256: "x", Content: "Authorization: Bearer secret"}}})
+	if !errors.Is(err, performancegoals.ErrInvalid) {
+		t.Fatal("credential-like evidence accepted")
+	}
 }
