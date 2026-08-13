@@ -186,6 +186,20 @@ disables future contact without deleting the need or its history. The repository
 web surface is `view=feedback`; these records grant no repository, research,
 experiment, targeting, or follow-up authority beyond the recorded consent.
 
+Product opportunities live beneath `$PRODUCT_OPPORTUNITY_ROOT` (default
+`apps/api/data/product-opportunities`). Repository writers and authorized
+read-only agents synthesize permitted feedback, issues, exact-preview findings,
+bounded support signals, usage evidence, and experiment outcomes into immutable
+versions. Every version declares affected audiences, severity, reach,
+confidence, expected value, uncertainty, and source-by-source relevance and
+classification as supporting, contradicting, minority, or duplicate evidence;
+source revisions are captured and validated where the platform owns the source.
+Repository readers inspect both current evidence and complete version history,
+append attributable corrections or challenges, and feedback reporters may
+detach their own report by creating a new version without rewriting the
+historical citation. Opportunities are evidence, not popularity scores, and
+grant no research, targeting, repository, experiment, or delivery authority.
+
 Product experiment plans live beneath `$PRODUCT_EXPERIMENT_ROOT` (default
 `apps/api/data/product-experiments`). Repository collaborators register
 versioned product signals with their event, unit, permitted properties and

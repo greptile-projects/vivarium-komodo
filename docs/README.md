@@ -24,6 +24,28 @@ contact while preserving the historical need. The web application exposes the
 same contract at `view=feedback`. Feedback and consent do not grant operational,
 research, targeting, or repository authority.
 
+## Product opportunities
+
+Repository writers use `POST /repositories/{repository}/product-opportunities`
+to publish an inspectable synthesis of permitted feedback, issues, preview
+findings, support signals, usage evidence, and experiment outcomes. Each
+immutable version states the unmet need, affected audiences, severity, reach,
+confidence, expected value, explicit uncertainty, and why every cited source is
+supporting, contradicting, a minority need, or a duplicate. Platform-owned
+sources must resolve at the cited feedback timestamp, issue version, exact
+preview-finding revision, or experiment decision version; bounded external
+support and usage observations retain their declared revision identifiers.
+
+Repository readers can inspect complete history and append attributable
+corrections or challenges without changing a submission. A feedback reporter
+may detach their report through the opportunity's `/feedback/{feedback}/detach`
+action; detachment publishes a new opportunity version while the older version
+continues to explain what was previously synthesized. Lists project only the
+current version. These records deliberately expose contradictory evidence,
+minority needs, duplicate classification, uncertainty, and staleness rather
+than calculating a popularity score or asking readers to trust hidden agent
+reasoning. They grant no operational or research authority.
+
 ## Project governance
 
 ## Repository performance contracts
