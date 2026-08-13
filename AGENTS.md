@@ -171,6 +171,22 @@ team publication without erasing accepted progress.
 
 Guidance for coding agents working in this repository.
 
+Product experiment plans live beneath `$PRODUCT_EXPERIMENT_ROOT` (default
+`apps/api/data/product-experiments`). Repository collaborators register
+versioned product signals with their event, unit, permitted properties and
+audience consent classes, and explicit instrumentation state. They open a plan
+from a proposal, issue, decision, pull request, preview, or release and freeze
+its hypothesis, control and variants, eligibility and exclusions, success and
+guardrail measures, minimum evidence, duration, owners, participants, stop
+conditions, assumptions, and overlap keys. Measures always cite an exact signal
+version. Discussion, approvals, changes requested, and assumption changes are
+append-only and attributable; every plan revision requires current participant
+approval again. Reads explicitly derive missing instrumentation, ineligible
+audiences, overlapping plans, changed assumptions, and missing approvals. A
+ready plan is only a pre-exposure contract and grants no variant publication,
+audience assignment, telemetry, release, deployment, or operational authority.
+The repository web surface is `view=experiments`.
+
 Repository performance contracts live beneath `$PERFORMANCE_GOAL_ROOT` (default
 `apps/api/data/performance-goals`). Collaborators publish immutable,
 optimistically concurrency-checked versions for a repository, release, user

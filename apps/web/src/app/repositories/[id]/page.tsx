@@ -16,6 +16,7 @@ import { DocumentationCollections } from "@/components/documentation-collections
 import { Extensions } from "@/components/extensions";
 import { GovernanceCharter } from "@/components/governance-charter";
 import { PerformanceGoals } from "@/components/performance-goals";
+import { ProductExperiments } from "@/components/product-experiments";
 import {
   Book,
   Branch,
@@ -1247,6 +1248,8 @@ export default function RepositoryPage({
                             ? "teams"
                             : query.view === "performance"
                               ? "performance"
+                            : query.view === "experiments"
+                              ? "experiments"
                             : query.view === "contribute"
                               ? "contribute"
                               : query.view === "documentation"
@@ -1313,6 +1316,7 @@ export default function RepositoryPage({
         view === "decisions" ||
         view === "teams" ||
         view === "performance" ||
+        view === "experiments" ||
         view === "issues" ||
         view === "documentation" ||
         view === "people" ||
@@ -1534,6 +1538,13 @@ export default function RepositoryPage({
       )}
       <nav className="repository-tabs" aria-label="Repository">
         <button
+          className={view === "experiments" ? "active" : ""}
+          onClick={() => navigate({ view: "experiments", path: "" })}
+        >
+          <Sparkles size={15} />
+          Experiments
+        </button>
+        <button
           className={view === "governance" ? "active" : ""}
           onClick={() => navigate({ view: "governance", path: "" })}
         >
@@ -1708,6 +1719,8 @@ export default function RepositoryPage({
         <DeliveryTeams repository={repository.id} actor={actor} selected={query.team} />
       ) : view === "performance" ? (
         <PerformanceGoals repository={repository.id} actor={actor} />
+      ) : view === "experiments" ? (
+        <ProductExperiments repository={repository.id} actor={actor} />
       ) : view === "decisions" ? (
         <TechnicalDecisions repository={repository} actor={actor} selected={query.decision} />
       ) : view === "pulls" ? (
