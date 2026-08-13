@@ -62,6 +62,14 @@ external actions. Emergencies require narrow scope, review, and an expiry of at
 most thirty days. The derived `/health` view exposes vacancies, expiring terms,
 quorum loss, unresolved handoffs, deadlocks, appeals, and emergency powers.
 
+The complete collaboration contract is exercised by
+`governance_workflow_test.go`: a project adopts a charter, recognizes proven
+contributors, records recusal, failed quorum, evidence, approval, and dissent,
+then links human-verified agent work delivered through stock Git and ordinary
+checks, owner review, merge, and release. Successor election, a separately
+owner-approved resource handoff, appeal, and bounded emergency recovery retain
+the full record without changing repository ownership or availability.
+
 ## External extensions
 
 ## Federation identity
