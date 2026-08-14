@@ -16,6 +16,7 @@ import { DocumentationCollections } from "@/components/documentation-collections
 import { Extensions } from "@/components/extensions";
 import { GovernanceCharter } from "@/components/governance-charter";
 import { PerformanceGoals } from "@/components/performance-goals";
+import { ProjectFunds } from "@/components/project-funds";
 import { ProductExperiments } from "@/components/product-experiments";
 import { ProductFeedback } from "@/components/product-feedback";
 import {
@@ -1248,6 +1249,8 @@ export default function RepositoryPage({
                             ? "decisions"
                           : query.view === "teams"
                             ? "teams"
+                            : query.view === "funds"
+                              ? "funds"
                             : query.view === "performance"
                               ? "performance"
                             : query.view === "experiments"
@@ -1319,6 +1322,7 @@ export default function RepositoryPage({
         view === "investigations" ||
         view === "decisions" ||
         view === "teams" ||
+        view === "funds" ||
         view === "performance" ||
         view === "experiments" ||
         view === "feedback" ||
@@ -1599,6 +1603,13 @@ export default function RepositoryPage({
           Delivery teams
         </button>
         <button
+          className={view === "funds" ? "active" : ""}
+          onClick={() => navigate({ view: "funds", path: "" })}
+        >
+          <Sparkles size={15} />
+          Funds
+        </button>
+        <button
           className={view === "performance" ? "active" : ""}
           onClick={() => navigate({ view: "performance", path: "" })}
         >
@@ -1731,6 +1742,8 @@ export default function RepositoryPage({
         <DeliveryTeams repository={repository.id} actor={actor} selected={query.team} />
       ) : view === "performance" ? (
         <PerformanceGoals repository={repository.id} actor={actor} />
+      ) : view === "funds" ? (
+        <ProjectFunds repository={repository.id} actor={actor} />
       ) : view === "experiments" ? (
         <ProductExperiments repository={repository.id} actor={actor} />
       ) : view === "feedback" ? (
