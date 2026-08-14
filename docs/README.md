@@ -5,6 +5,12 @@ written down here as they're decided, not before.
 
 ## Product feedback
 
+The complete discovery regression is `product_discovery_workflow_test.go`. It
+connects released-product feedback, opportunity synthesis and challenge,
+transparent roadmap acceptance and rejection, consent-bound validation,
+human-agent delivery evidence, measured failure, reciprocal participant
+learning, and accountable replanning through the public API and stock Git.
+
 Authenticated repository readers use `POST
 /repositories/{repository}/product-feedback` for product needs broader than a
 reproducible issue. A submission names project, release, documentation journey,
