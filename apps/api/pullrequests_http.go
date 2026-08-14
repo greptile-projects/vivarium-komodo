@@ -1435,6 +1435,7 @@ func createPullRequest(store pullRequestStore, proposalStore proposalStore, repo
 		}
 		var input struct {
 			ProposalID         string `json:"proposal_id"`
+			TaskID             string `json:"task_id"`
 			Title              string `json:"title"`
 			Body               string `json:"body"`
 			SourceBranch       string `json:"source_branch"`
@@ -1445,13 +1446,32 @@ func createPullRequest(store pullRequestStore, proposalStore proposalStore, repo
 			return
 		}
 		if input.ProposalID != "" {
-			if _, err := proposalStore.Get(string(repository.ID), input.ProposalID); errors.Is(err, proposals.ErrNotFound) {
+			_, err := proposalStore.Get(string(repository.ID), input.ProposalID)
+			if errors.Is(err, proposals.ErrNotFound) {
 				writeJSON(w, 422, map[string]string{"error": "invalid_proposal"})
 				return
 			} else if err != nil {
 				writeJSON(w, 500, map[string]string{"error": "internal_error"})
 				return
 			}
+			if input.TaskID != "" {
+				plan, planErr := proposalStore.GetPlan(string(repository.ID), input.ProposalID)
+				if planErr != nil {
+					writeJSON(w, 500, map[string]string{"error": "internal_error"})
+					return
+				}
+				validTask := false
+				for _, task := range plan.Tasks {
+					validTask = validTask || task.ID == input.TaskID && task.Assignment != nil && task.Assignment.AssigneeID == actor.UserID
+				}
+				if !validTask {
+					writeJSON(w, 422, map[string]string{"error": "invalid_proposal_task"})
+					return
+				}
+			}
+		} else if input.TaskID != "" {
+			writeJSON(w, 422, map[string]string{"error": "invalid_proposal_task"})
+			return
 		}
 		sourceRepositoryID := repository.ID
 		if input.SourceRepositoryID != "" {
@@ -1485,7 +1505,7 @@ func createPullRequest(store pullRequestStore, proposalStore proposalStore, repo
 			writeJSON(w, 422, map[string]string{"error": "invalid_branches"})
 			return
 		}
-		item, err := store.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), SourceRepositoryID: string(sourceRepositoryID), ProposalID: input.ProposalID, AuthorID: actor.UserID, Title: input.Title, Body: input.Body, SourceBranch: sourceName, TargetBranch: targetName, SourceCommitID: string(source), TargetCommitID: string(target)})
+		item, err := store.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), SourceRepositoryID: string(sourceRepositoryID), ProposalID: input.ProposalID, TaskID: input.TaskID, AuthorID: actor.UserID, Title: input.Title, Body: input.Body, SourceBranch: sourceName, TargetBranch: targetName, SourceCommitID: string(source), TargetCommitID: string(target)})
 		if errors.Is(err, pullrequests.ErrInvalid) {
 			writeJSON(w, 422, map[string]string{"error": "invalid_pull_request"})
 			return

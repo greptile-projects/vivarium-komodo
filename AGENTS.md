@@ -448,6 +448,15 @@ environment-specific, or unconfirmed. The repository web surface remains
 `view=accessibility`; reports and attempts grant no repository, workspace,
 preview, credential, review, merge, or operational authority.
 
+`accessibility_workflow_test.go` is the black-box regression boundary for the
+complete released-barrier-to-sustained-access loop. Through public HTTP and
+stock Git it retains consent-projected lived evidence, bounded reproduction,
+specialist and agent assessment and repair, false-positive correction,
+revision-exact automation and assistive-technology judgment, stale preview
+acceptance, ordinary review, merge, and release provenance, reporter
+confirmation, expiring-exception visibility, and release-linked regression
+coverage without widening repository or operational authority.
+
 Repository performance contracts live beneath `$PERFORMANCE_GOAL_ROOT` (default
 `apps/api/data/performance-goals`). Collaborators publish immutable,
 optimistically concurrency-checked versions for a repository, release, user
