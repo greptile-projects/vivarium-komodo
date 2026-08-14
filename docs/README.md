@@ -5,6 +5,26 @@ written down here as they're decided, not before.
 
 ## Product feedback
 
+## Accessibility barrier reproduction
+
+Authenticated repository readers submit lived barriers through `POST
+/repositories/{repository}/accessibility-barriers`. A report targets an
+existing release, documentation journey, preview, or repository page and the
+server captures or verifies its exact revision. It retains access needs and
+expected interaction rather than medical context, plus ordered steps, declared
+browser/device/assistive-technology settings, and only evidence explicitly
+marked redacted. Screenshots, recordings, accessibility trees, speech output,
+and input traces each carry audience or maintainer-only visibility.
+
+All reads are projected for the viewer: restricted reporter identity,
+sensitive device details, and evidence content are omitted without erasing the
+report. Repository writers add immutable `/attempts` only from an existing
+bounded workspace or preview whose server-held revision exactly matches the
+attempt. Reproducible, intermittent, environment-specific, and unconfirmed
+results remain distinct and attributable. The `view=accessibility` workspace
+supports both safe reporting and reproduction; neither action grants access to
+the cited runtime or any repository or delivery authority.
+
 ## Governed project funds
 
 Repository writers create resource contracts through `POST

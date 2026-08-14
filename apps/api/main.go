@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilitybarriers"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilitycommitments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
@@ -301,6 +302,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	accessibilityBarrierRoot := os.Getenv("ACCESSIBILITY_BARRIER_ROOT")
+	if accessibilityBarrierRoot == "" {
+		accessibilityBarrierRoot = "data/accessibility-barriers"
+	}
+	accessibilityBarrierStore, err := accessibilitybarriers.New(accessibilityBarrierRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	projectFundRoot := os.Getenv("PROJECT_FUND_ROOT")
 	if projectFundRoot == "" {
 		projectFundRoot = "data/project-funds"
@@ -453,6 +462,7 @@ func main() {
 	registerDeliveryTeamsHTTP(mux, deliveryTeamStore, repositoryCatalog, credentials, organizationStore, deliveryExecutionStores{changes: changeSessionStore, investigations: investigationStore, decisions: decisionStore, workspaces: workspaceStore}, pullRequestStore, checkRunner)
 	registerPerformanceGoalsHTTP(mux, performanceGoalStore, repositoryCatalog, releaseStore, credentials, pullRequestStore)
 	registerAccessibilityCommitmentsHTTP(mux, accessibilityCommitmentStore, repositoryCatalog, credentials)
+	registerAccessibilityBarriersHTTP(mux, accessibilityBarrierStore, repositoryCatalog, credentials, accessibilityBarrierSources{releases: releaseStore, docs: documentationStore, previews: previewStore, workspaces: workspaceStore, repositories: repositoryCatalog})
 	registerProjectFundsHTTP(mux, projectFundStore, repositoryCatalog, credentials)
 	registerPerformanceInvestigationsHTTP(mux, performanceInvestigationStore, performanceGoalStore, repositoryCatalog, credentials, proposalStore)
 	registerProductExperimentsHTTP(mux, productExperimentStore, repositoryCatalog, credentials, pullRequestStore, releaseStore, deploymentStore)

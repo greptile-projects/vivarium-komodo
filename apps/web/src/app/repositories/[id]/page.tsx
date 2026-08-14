@@ -17,6 +17,7 @@ import { Extensions } from "@/components/extensions";
 import { GovernanceCharter } from "@/components/governance-charter";
 import { PerformanceGoals } from "@/components/performance-goals";
 import { AccessibilityCommitments } from "@/components/accessibility-commitments";
+import { AccessibilityBarriers } from "@/components/accessibility-barriers";
 import { ProjectFunds } from "@/components/project-funds";
 import { ProductExperiments } from "@/components/product-experiments";
 import { ProductFeedback } from "@/components/product-feedback";
@@ -1754,7 +1755,7 @@ export default function RepositoryPage({
       ) : view === "performance" ? (
         <PerformanceGoals repository={repository.id} actor={actor} />
       ) : view === "accessibility" ? (
-        <AccessibilityCommitments repository={repository.id} actor={actor} />
+        <><AccessibilityCommitments repository={repository.id} actor={actor} /><AccessibilityBarriers repository={repository.id} actor={actor} /></>
       ) : view === "funds" ? (
         <ProjectFunds repository={repository.id} actor={actor} />
       ) : view === "experiments" ? (
