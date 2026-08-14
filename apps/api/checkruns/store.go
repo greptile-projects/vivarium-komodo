@@ -36,6 +36,19 @@ type Definition struct {
 	Artifacts        []string           `json:"artifacts,omitempty"`
 	Dependencies     []string           `json:"dependencies,omitempty"`
 	Documentation    *DocumentationSpec `json:"documentation,omitempty"`
+	Accessibility    *AccessibilitySpec `json:"accessibility,omitempty"`
+}
+
+// AccessibilitySpec describes exactly which behavior automation can inspect;
+// anything outside Evaluations remains visible as a human-evaluation gap.
+type AccessibilitySpec struct {
+	ScenarioIDs             []string `json:"scenario_ids"`
+	Evaluations             []string `json:"evaluations"`
+	Inputs                  []string `json:"inputs"`
+	AffectedAudiences       []string `json:"affected_audiences"`
+	RequiresHumanEvaluation []string `json:"requires_human_evaluation,omitempty"`
+	InputDigest             string   `json:"input_digest,omitempty"`
+	ReusedFromRunID         string   `json:"reused_from_run_id,omitempty"`
 }
 
 // DocumentationSpec makes the evidence behind a documentation check

@@ -390,6 +390,25 @@ conflicting requirements across overlapping current scopes. The repository web
 surface is `view=accessibility`; commitments and evidence grant no repository,
 review, merge, release, credential, or operational authority.
 
+Revision-exact accessibility assessments live beneath
+`$ACCESSIBILITY_ASSESSMENT_ROOT` (default
+`apps/api/data/accessibility-assessments`). Repositories declare schema-version
+`1` checks in `.komodo/accessibility-checks.json`, naming scenarios, code and
+scenario inputs, affected audiences, covered dimensions (`semantics`,
+`keyboard`, `focus`, `contrast`, `motion`, `captions`, or `journey`), and
+dimensions that still require human evaluation. They run as ordinary
+credential-free, networkless pull-request checks. Authorized readers,
+specialists, and read-only agents append findings only from a permitted exact
+preview or a retained revision-exact barrier reproduction, with source
+locations, severity, audiences, uncertainty, and attributable judgment.
+Maintainers retain confirmations, duplicate links, and false-positive decisions.
+Reads compare captured source blob identities with the current pull revision so
+unrelated changes preserve evidence while affected automation and findings
+become explicitly stale. Both the pull-request Accessibility section and
+repository `view=accessibility` show proved coverage, lived experience,
+human-evaluation requirements, and unevaluated scenario dimensions. Assessments
+grant no preview, workspace, agent, review, merge, or operational authority.
+
 Accessibility barrier reports live beneath `$ACCESSIBILITY_BARRIER_ROOT`
 (default `apps/api/data/accessibility-barriers`). Authenticated repository
 readers report release-, page-, documentation-journey-, or preview-scoped
