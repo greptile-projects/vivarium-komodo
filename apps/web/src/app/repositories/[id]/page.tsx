@@ -26,6 +26,7 @@ import { DataCommitments } from "@/components/data-commitments";
 import { DataFlows } from "@/components/data-flows";
 import { LocalePlans } from "@/components/locale-plans";
 import { TranslationWork } from "@/components/translation-work";
+import { LocalizationVerification } from "@/components/localization-verification";
 import { PrivacyAssessments } from "@/components/privacy-assessments";
 import {
   Book,
@@ -1785,7 +1786,7 @@ export default function RepositoryPage({
       ) : view === "privacy" ? (
         <><DataFlows repository={repository.id} /><DataCommitments repository={repository.id} actor={actor} /></>
       ) : view === "locales" ? (
-        <><LocalePlans repository={repository.id} actor={actor} /><TranslationWork repository={repository.id} /></>
+        <><LocalePlans repository={repository.id} actor={actor} /><TranslationWork repository={repository.id} /><LocalizationVerification repository={repository.id} /></>
       ) : view === "funds" ? (
         <ProjectFunds repository={repository.id} actor={actor} />
       ) : view === "experiments" ? (
