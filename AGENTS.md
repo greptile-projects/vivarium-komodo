@@ -230,6 +230,18 @@ team publication without erasing accepted progress.
 
 Guidance for coding agents working in this repository.
 
+Repository service objectives live beneath `$SERVICE_OBJECTIVE_ROOT` (default
+`apps/api/data/service-objectives`). Repository writers publish immutable,
+optimistically concurrency-checked versions across repository, release, and
+environment scopes. Each version binds user journeys to named indicators,
+measurement windows, targets, error budgets, dependencies, severity responses,
+owners, exception policy, and product, performance, accessibility, privacy, and
+release commitments. Reads derive missing signals and ownership, unsupported
+calculations, overlapping target conflicts, unresolved commitments, and
+expiring or expired exceptions. The repository web surface is
+`view=reliability`; objectives grant no repository, deployment, telemetry,
+credential, or operational authority.
+
 Product feedback lives beneath `$PRODUCT_FEEDBACK_ROOT` (default
 `apps/api/data/product-feedback`). Authenticated project readers submit a need
 against the project, an exact release, a documentation collection journey, or

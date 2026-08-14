@@ -60,6 +60,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/roadmapdelivery"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/roadmapvalidations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityreports"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/serviceobjectives"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/translationunits"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/users"
@@ -329,6 +330,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	serviceObjectiveRoot := os.Getenv("SERVICE_OBJECTIVE_ROOT")
+	if serviceObjectiveRoot == "" {
+		serviceObjectiveRoot = "data/service-objectives"
+	}
+	serviceObjectiveStore, err := serviceobjectives.New(serviceObjectiveRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	translationUnitRoot := os.Getenv("TRANSLATION_UNIT_ROOT")
 	if translationUnitRoot == "" {
 		translationUnitRoot = "data/translation-units"
@@ -563,6 +572,7 @@ func main() {
 	registerAccessibilityCommitmentsHTTP(mux, accessibilityCommitmentStore, repositoryCatalog, credentials)
 	registerDataCommitmentsHTTP(mux, dataCommitmentStore, repositoryCatalog, credentials)
 	registerLocalePlansHTTP(mux, localePlanStore, repositoryCatalog, credentials)
+	registerServiceObjectivesHTTP(mux, serviceObjectiveStore, repositoryCatalog, credentials)
 	registerTranslationUnitsHTTP(mux, translationUnitStore, repositoryCatalog, credentials, translationUnitSources{pulls: pullRequestStore, repositories: repositoryCatalog, plans: localePlanStore})
 	registerLocalizationVerificationHTTP(mux, localizationVerificationStore, repositoryCatalog, credentials, localizationVerificationSources{pulls: pullRequestStore, repositories: repositoryCatalog, translations: translationUnitStore, previews: previewStore})
 	registerLocalizationDeliveryHTTP(mux, localizationDeliveryStore, repositoryCatalog, credentials, localizationDeliverySources{pulls: pullRequestStore, verification: localizationVerificationStore, releases: releaseStore, docs: documentationStore, proposals: proposalStore})

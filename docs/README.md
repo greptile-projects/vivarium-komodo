@@ -3,6 +3,24 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Shared service objectives
+
+Authorized repository collaborators define reliability contracts through
+`/repositories/{repository}/service-objectives`. Immutable versions describe
+repository, release, and environment scope; user-visible journeys; available
+or missing signals and supported calculations; rolling or calendar measurement
+windows; explicit targets and error budgets; dependencies; escalating response
+thresholds and owners; and time-bounded exceptions. Links retain the relevant
+product, performance, accessibility, privacy, and release commitments rather
+than treating reliability as a separate operations-only judgment.
+
+Repository readers inspect current terms and complete attributable history in
+the `view=reliability` workspace. Derived blockers keep missing signals and
+owners, unsupported calculations, conflicting overlapping targets, unresolved
+commitments, and expiring or expired exceptions visible. Defining an objective
+does not grant telemetry access, deployment control, repository authority, or
+credentials. Durable state lives beneath `$SERVICE_OBJECTIVE_ROOT`.
+
 ## Product feedback
 
 ## Accessibility barrier reproduction
