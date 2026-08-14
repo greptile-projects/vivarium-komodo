@@ -27,6 +27,24 @@ the cited runtime or any repository or delivery authority.
 
 ## Accountable accessibility assessment
 
+Repository owners can turn the evidence into an exact-candidate delivery gate
+through `/repositories/{repository}/accessibility-delivery-policies`. A policy
+binds a commitment version to branches and optional paths, journeys, or risk
+classes, then names required checks, scenario evaluation dimensions, and
+reviewer or participant roles. Pull readiness reports individual
+`accessibility_*` blockers and merge enforces the same current-revision result.
+Release tooling obtains the same projection from
+`/repositories/{repository}/releases/accessibility-readiness` for an exact
+pull-request candidate before publication.
+
+Invited preview users confirm or reject a scenario through
+`/pull-requests/{pull}/accessibility-acknowledgements`; the invitation role must
+match and the decision is revision-bound. Rejection remains immutable. An owner
+may override it only with retained rationale and linked issue, proposal, or task
+follow-up. This does not generalize one participant's experience, rewrite
+dissent, or grant delivery authority. Policy state lives beneath
+`$ACCESSIBILITY_POLICY_ROOT`.
+
 An open pull request freezes declared journeys and their source paths at its
 exact source revision through `POST
 /repositories/{repository}/pull-requests/{pull}/accessibility-assessments`.

@@ -422,6 +422,18 @@ preview, and retains separate design and code changes plus interaction and
 content tradeoffs. Findings and repairs grant no repository, agent, credential,
 review, preview, or merge authority.
 
+Accessibility delivery policies live beneath `$ACCESSIBILITY_POLICY_ROOT`
+(default `apps/api/data/accessibility-policies`). Repository owners bind an exact
+accessibility commitment version to selected target branches, changed paths,
+journeys, or risk classes and require named accessibility checks, scenario
+dimensions, and reviewer or participant roles. Pull-request readiness and merge
+evaluate only the current candidate: old check runs, assessments, and preview
+acknowledgements remain visible but do not satisfy the policy. Invited preview
+participants retain attributable confirmations or rejections for their stated
+role without representing other access needs. Owner overrides preserve dissent,
+require rationale and linked issue, proposal, or task follow-up, and never grant
+repository or operational authority.
+
 Accessibility barrier reports live beneath `$ACCESSIBILITY_BARRIER_ROOT`
 (default `apps/api/data/accessibility-barriers`). Authenticated repository
 readers report release-, page-, documentation-journey-, or preview-scoped

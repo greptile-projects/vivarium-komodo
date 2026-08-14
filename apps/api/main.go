@@ -9,6 +9,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilityassessments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilitybarriers"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilitycommitments"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilitypolicies"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
@@ -319,6 +320,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	accessibilityPolicyRoot := os.Getenv("ACCESSIBILITY_POLICY_ROOT")
+	if accessibilityPolicyRoot == "" {
+		accessibilityPolicyRoot = "data/accessibility-policies"
+	}
+	accessibilityPolicyStore, err := accessibilitypolicies.New(accessibilityPolicyRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	projectFundRoot := os.Getenv("PROJECT_FUND_ROOT")
 	if projectFundRoot == "" {
 		projectFundRoot = "data/project-funds"
@@ -473,6 +482,7 @@ func main() {
 	registerAccessibilityCommitmentsHTTP(mux, accessibilityCommitmentStore, repositoryCatalog, credentials)
 	registerAccessibilityBarriersHTTP(mux, accessibilityBarrierStore, repositoryCatalog, credentials, accessibilityBarrierSources{releases: releaseStore, docs: documentationStore, previews: previewStore, workspaces: workspaceStore, repositories: repositoryCatalog})
 	registerAccessibilityAssessmentsHTTP(mux, accessibilityAssessmentStore, repositoryCatalog, credentials, accessibilityAssessmentSources{pulls: pullRequestStore, runs: checkRunStore, previews: previewStore, barriers: accessibilityBarrierStore, repositories: repositoryCatalog, commitments: accessibilityCommitmentStore, plans: proposalStore, sessions: changeSessionStore, workspaces: workspaceStore, workspaceRunner: workspaceRunner})
+	registerAccessibilityPoliciesHTTP(mux, accessibilityPolicyStore, repositoryCatalog, credentials, accessibilityCommitmentStore, previewStore, accessibilityAssessmentStore, checkRunStore, pullRequestStore)
 	registerProjectFundsHTTP(mux, projectFundStore, repositoryCatalog, credentials)
 	registerPerformanceInvestigationsHTTP(mux, performanceInvestigationStore, performanceGoalStore, repositoryCatalog, credentials, proposalStore)
 	registerProductExperimentsHTTP(mux, productExperimentStore, repositoryCatalog, credentials, pullRequestStore, releaseStore, deploymentStore)
@@ -491,7 +501,7 @@ func main() {
 	registerContributionOpportunitiesHTTP(mux, contributionOpportunityStore, repositoryCatalog, credentials, issueStore, proposalStore, organizationStore, contributorPathwayStore, workspaceStore, workspaceRunner, pullRequestStore, checkRunner, releaseStore)
 	registerIssueRepairsHTTP(mux, issueStore, proposalStore, pullRequestStore, repositoryCatalog, credentials, issueReproductionRunner, checkRunStore)
 	registerProposalTaskSessionsHTTP(mux, proposalStore, changeSessionStore, repositoryCatalog, credentials, activityStore, pullRequestStore, checkRunner)
-	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore, previewStore, federationStore, performanceGoalStore)
+	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore, previewStore, federationStore, performanceGoalStore, accessibilityPolicyStore, accessibilityAssessmentStore)
 	registerPreviewsHTTP(mux, previewStore, previewRunner, pullRequestStore, repositoryCatalog, credentials, previewSources{issues: issueStore, decisions: decisionStore, proposals: proposalStore}, previewRepairStores{plans: proposalStore, sessions: changeSessionStore, workspaces: workspaceStore, workspaceRunner: workspaceRunner})
 	registerReleasesHTTP(mux, releaseStore, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials)
 	registerPackagesHTTP(mux, packageStore, releaseStore, checkRunStore, repositoryCatalog, credentials)
