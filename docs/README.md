@@ -89,6 +89,30 @@ block new expense submission or approval. Controls and replacement preserve all
 legitimate progress and evidence and never grant repository, credential,
 review, merge, environment, or fund-withdrawal authority.
 
+### Evidence-governed milestone settlement
+
+Outcome milestones may name `reviewer_ids`; otherwise the fund's governed
+approvers are the designated reviewers. A reviewer posts an immutable decision
+to `/repositories/{repository}/funded-outcomes/{outcome}/delivery-proposals/{proposal}/milestones/{milestone}/reviews`.
+The decision snapshots bounded references to commits, authorship, handoffs,
+checks, previews, releases, deployments, and declared outcome measures, plus a
+required rationale and any dissent. Decisions can request correction, reject,
+open a dispute, approve a partial award, or accept the remaining milestone.
+
+An accepted award settles only value already reserved for the proposal's
+original named recipient. Approved execution expenses count against that
+milestone allocation, partial awards cannot exceed its remainder, and neither
+evidence nor payment changes ordinary authorship, review, check, merge, release,
+deployment, credential, or repository authority. The settlement history and
+fund balances make every recognized tranche inspectable.
+
+`/recoveries` records recipient withdrawal, deadline timeout, recipient appeal,
+provider payment failure and retry, or a steward refund. Rejection, withdrawal,
+and timeout release unearned value; payment failure returns an accepted award
+to its reservation until retry; refunds release it back to the fund. Appeals
+retain the challenged decision and allow a designated reviewer to assess the
+same original allocation again rather than rewriting history.
+
 The complete discovery regression is `product_discovery_workflow_test.go`. It
 connects released-product feedback, opportunity synthesis and challenge,
 transparent roadmap acceptance and rejection, consent-bound validation,

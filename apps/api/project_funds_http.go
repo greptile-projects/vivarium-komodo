@@ -30,6 +30,8 @@ type projectFundStore interface {
 	SubmitExpense(string, string, string, string, projectfunds.ExpenseInput) (projectfunds.DeliveryProposal, error)
 	DecideExpense(string, string, string, string, string, projectfunds.ExpenseDecisionInput) (projectfunds.DeliveryProposal, error)
 	ControlExecution(string, string, string, string, projectfunds.ExecutionControlInput) (projectfunds.DeliveryProposal, error)
+	ReviewMilestone(string, string, string, string, string, projectfunds.MilestoneReviewInput) (projectfunds.DeliveryProposal, error)
+	RecoverMilestone(string, string, string, string, string, projectfunds.MilestoneRecoveryInput) (projectfunds.DeliveryProposal, error)
 }
 
 func registerProjectFundsHTTP(mux *http.ServeMux, store projectFundStore, repos proposalRepositoryStore, credentials authStore) {
@@ -347,6 +349,36 @@ func registerProjectFundsHTTP(mux *http.ServeMux, store projectFundStore, repos 
 			return
 		}
 		writeJSON(w, 200, p)
+	})
+	mux.HandleFunc("POST "+proposals+"/{deliveryProposal}/milestones/{milestone}/reviews", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in projectfunds.MilestoneReviewInput
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		p, e := store.ReviewMilestone(string(repo.ID), r.PathValue("outcome"), r.PathValue("deliveryProposal"), r.PathValue("milestone"), a.UserID, in)
+		if fundError(w, e) {
+			return
+		}
+		writeJSON(w, 201, p)
+	})
+	mux.HandleFunc("POST "+proposals+"/{deliveryProposal}/milestones/{milestone}/recoveries", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in projectfunds.MilestoneRecoveryInput
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		p, e := store.RecoverMilestone(string(repo.ID), r.PathValue("outcome"), r.PathValue("deliveryProposal"), r.PathValue("milestone"), a.UserID, in)
+		if fundError(w, e) {
+			return
+		}
+		writeJSON(w, 201, p)
 	})
 }
 func fundError(w http.ResponseWriter, e error) bool {

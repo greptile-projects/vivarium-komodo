@@ -22,6 +22,7 @@ type Milestone struct {
 	Budget               int64    `json:"budget"`
 	AcceptanceCriteria   []string `json:"acceptance_criteria"`
 	EvidenceRequirements []string `json:"evidence_requirements"`
+	ReviewerIDs          []string `json:"reviewer_ids,omitempty"`
 }
 
 type OutcomeTerms struct {
@@ -130,7 +131,7 @@ func validOutcomeTerms(t OutcomeTerms, f Fund) bool {
 	}
 	seen, total := map[string]bool{}, int64(0)
 	for _, m := range t.Milestones {
-		if strings.TrimSpace(m.ID) == "" || seen[m.ID] || strings.TrimSpace(m.Name) == "" || m.Budget <= 0 || !clean(m.AcceptanceCriteria) || !clean(m.EvidenceRequirements) {
+		if strings.TrimSpace(m.ID) == "" || seen[m.ID] || strings.TrimSpace(m.Name) == "" || m.Budget <= 0 || !clean(m.AcceptanceCriteria) || !clean(m.EvidenceRequirements) || !cleanOptional(m.ReviewerIDs) {
 			return false
 		}
 		seen[m.ID] = true

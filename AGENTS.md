@@ -40,6 +40,17 @@ pause, resume, replace, or cancel execution. Derived overrun, inactivity,
 revoked-access, and failed-handoff blockers stop new expense submission or
 approval while retaining prior evidence and spend. Replacement and recorded
 work references grant no operational authority.
+Each funded milestone is compensated only through its governed settlement
+record. Reviewers explicitly named by the outcome (or, when omitted, the
+fund's named approvers) inspect bounded commit, authorship, handoff, check,
+preview, release, deployment, and outcome-measure references. Their immutable
+decisions retain rationale and dissent and may request correction, accept,
+partially award, reject, or dispute. Accepted value moves only from the
+proposal's original recipient reservation; approved milestone expenses reduce
+the remaining award. Recipient withdrawal, deadline timeout, appeal, refund,
+and payment failure or retry retain deterministic events and restore or release
+value without granting Git, review, merge, release, deployment, credential, or
+fund-withdrawal authority.
 
 ## Delivery team operating contracts
 
