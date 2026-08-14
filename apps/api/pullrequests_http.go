@@ -28,6 +28,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/integrationqueue"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/performancegoals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/previews"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/privacyverification"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -80,6 +81,7 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	var performance performanceGoalStore
 	var accessibilityPolicy *accessibilitypolicies.Store
 	var accessibilityEvidence *accessibilityassessments.Store
+	var privacyVerification *privacyverification.Store
 	for _, extra := range extras {
 		switch value := extra.(type) {
 		case activityStore:
@@ -100,6 +102,8 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 			accessibilityPolicy = value
 		case *accessibilityassessments.Store:
 			accessibilityEvidence = value
+		case *privacyverification.Store:
+			privacyVerification = value
 		}
 	}
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests", createPullRequest(store, proposalStore, repositories, credentials, activity, checks))
@@ -114,8 +118,8 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/reviews/me", putPullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("DELETE /repositories/{repository}/pull-requests/{pull_request}/reviews/me", deletePullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
-	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults, previewAcceptance, performance, accessibilityPolicy, accessibilityEvidence))
-	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequestWithFederation(store, proposalStore, repositories, credentials, activity, checkResults, previewAcceptance, federationStore, performance, accessibilityPolicy, accessibilityEvidence))
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults, previewAcceptance, performance, accessibilityPolicy, accessibilityEvidence, privacyVerification))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequestWithFederation(store, proposalStore, repositories, credentials, activity, checkResults, previewAcceptance, federationStore, performance, accessibilityPolicy, accessibilityEvidence, privacyVerification))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/queue", enqueuePullRequest(store, repositories, credentials, activity, checkResults, checks, queue))
 	mux.HandleFunc("GET /repositories/{repository}/integration-queue/entries", listIntegrationQueueEntries(repositories, credentials, checkResults, queue))
 	mux.HandleFunc("PATCH /repositories/{repository}/integration-queue/entries/{entry}", operateIntegrationQueueEntry(repositories, credentials, activity, checks, queue))
@@ -600,6 +604,7 @@ type readinessResponse struct {
 	Acceptance    *previews.AcceptanceAssessment         `json:"preview_acceptance,omitempty"`
 	Performance   []performancegoals.DeliveryRequirement `json:"performance_requirements"`
 	Accessibility *accessibilitypolicies.Assessment      `json:"accessibility,omitempty"`
+	Privacy       *privacyverification.Assessment        `json:"privacy,omitempty"`
 	Blockers      []readinessBlocker                     `json:"blockers"`
 }
 
@@ -621,6 +626,7 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 	var performance performanceGoalStore
 	var accessibilityPolicy *accessibilitypolicies.Store
 	var accessibilityEvidence *accessibilityassessments.Store
+	var privacyVerification *privacyverification.Store
 	for _, x := range extras {
 		if v, ok := x.(*previews.Store); ok {
 			acceptance = v
@@ -633,6 +639,9 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 		}
 		if v, ok := x.(*accessibilityassessments.Store); ok {
 			accessibilityEvidence = v
+		}
+		if v, ok := x.(*privacyverification.Store); ok {
+			privacyVerification = v
 		}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -796,6 +805,28 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 				}
 			}
 		}
+		if privacyVerification != nil {
+			changes, e := filesBetweenRepositories(sourceOpened, targetOpened, storage.ObjectID(item.SourceCommitID), storage.ObjectID(item.TargetCommitID))
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			paths := make([]string, len(changes))
+			for i := range changes {
+				paths[i] = changes[i].Path
+			}
+			assessment, e := privacyVerification.Assess(string(repository.ID), item.ID, item.SourceCommitID, item.TargetBranch, paths, runs)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			response.Privacy = &assessment
+			for _, req := range assessment.Requirements {
+				if req.Blocking {
+					addBlocker("privacy_"+req.Kind, req.Detail)
+				}
+			}
+		}
 
 		if response.SourceBranch.Exists && response.SourceBranch.MatchesPullRequest && response.TargetBranch.Exists {
 			hasConflicts, err := mergeHasConflictsAcross(r.Context(), targetOpened, sourceOpened, storage.ObjectID(response.TargetBranch.CommitID), storage.ObjectID(response.SourceBranch.CommitID))
@@ -896,12 +927,16 @@ func mergePullRequest(store pullRequestStore, proposalStore proposalStore, repos
 func mergePullRequestWithFederation(store pullRequestStore, proposalStore proposalStore, repositories pullRequestRepositoryStore, credentials authStore, activity activityStore, checkStore readinessCheckStore, acceptanceStore *previews.Store, fed *federation.Store, performance performanceGoalStore, extras ...any) http.HandlerFunc {
 	var accessibilityPolicy *accessibilitypolicies.Store
 	var accessibilityEvidence *accessibilityassessments.Store
+	var privacyVerification *privacyverification.Store
 	for _, x := range extras {
 		if v, ok := x.(*accessibilitypolicies.Store); ok {
 			accessibilityPolicy = v
 		}
 		if v, ok := x.(*accessibilityassessments.Store); ok {
 			accessibilityEvidence = v
+		}
+		if v, ok := x.(*privacyverification.Store); ok {
+			privacyVerification = v
 		}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -1035,6 +1070,34 @@ func mergePullRequestWithFederation(store pullRequestStore, proposalStore propos
 			}
 			if !a.Ready {
 				writeJSON(w, http.StatusConflict, map[string]any{"error": "pull_request_not_ready", "accessibility": a})
+				return
+			}
+		}
+		if privacyVerification != nil {
+			changes, e := filesBetweenRepositories(sourceOpened, opened, source, target)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			paths := make([]string, len(changes))
+			for i := range changes {
+				paths[i] = changes[i].Path
+			}
+			runs := []checkruns.Run{}
+			if checkStore != nil {
+				runs, e = checkStore.List(string(repository.ID), item.ID)
+				if e != nil {
+					writeJSON(w, 500, map[string]string{"error": "internal_error"})
+					return
+				}
+			}
+			a, e := privacyVerification.Assess(string(repository.ID), item.ID, item.SourceCommitID, item.TargetBranch, paths, runs)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			if !a.Ready {
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "pull_request_not_ready", "privacy": a})
 				return
 			}
 		}

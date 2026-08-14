@@ -37,6 +37,19 @@ type Definition struct {
 	Dependencies     []string           `json:"dependencies,omitempty"`
 	Documentation    *DocumentationSpec `json:"documentation,omitempty"`
 	Accessibility    *AccessibilitySpec `json:"accessibility,omitempty"`
+	Privacy          *PrivacySpec       `json:"privacy,omitempty"`
+}
+
+// PrivacySpec makes synthetic, non-production runtime evidence machine-readable.
+type PrivacySpec struct {
+	JourneyIDs      []string `json:"journey_ids"`
+	Dimensions      []string `json:"dimensions"`
+	Inputs          []string `json:"inputs"`
+	CommitmentIDs   []string `json:"commitment_ids"`
+	SyntheticData   bool     `json:"synthetic_data"`
+	RequiresPreview bool     `json:"requires_preview"`
+	InputDigest     string   `json:"input_digest,omitempty"`
+	ReusedFromRunID string   `json:"reused_from_run_id,omitempty"`
 }
 
 // AccessibilitySpec describes exactly which behavior automation can inspect;
