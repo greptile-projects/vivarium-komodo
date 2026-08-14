@@ -30,6 +30,16 @@ Steward selection reserves only settled available value within fund limits and
 may link ordinary proposal tasks or delivery teams; selection and compensation
 grant no repository, secret, credential, review, merge, environment, or fund-
 withdrawal authority.
+Selected delivery proposals retain an append-only execution account through
+their `/progress`, `/expenses`, and `/controls` resources. Recipient observations
+cite ordinary tasks, sessions, workspaces, forks, pull requests, checks,
+previews, or delivery teams and report milestone progress, evidence, agent
+compute, access and handoff health, and completion forecasts. Stewards approve
+expenses against the live reservation and may boundedly change its budget,
+pause, resume, replace, or cancel execution. Derived overrun, inactivity,
+revoked-access, and failed-handoff blockers stop new expense submission or
+approval while retaining prior evidence and spend. Replacement and recorded
+work references grant no operational authority.
 
 ## Delivery team operating contracts
 

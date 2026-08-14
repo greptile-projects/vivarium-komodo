@@ -43,4 +43,45 @@ func TestDeliverySelectionSeparatesAcceptanceReservationAndAuthority(t *testing.
 	if f.Balances.Reserved != 6000 || f.Balances.Available != 4000 || len(f.Reservations) != 1 {
 		t.Fatalf("fund = %+v", f)
 	}
+	p, err = s.RecordProgress("repo", o.ID, p.ID, "operator", ProgressInput{ExpectedVersion: 5, MilestoneID: "profile", Status: "active", Percent: 50, Summary: "Profile captured in the ordinary workspace", AgentCompute: 12, AccessState: "active", HandoffState: "ready", Evidence: []ExecutionReference{{Kind: "workspace", ID: "work-1", Revision: "abc", Summary: "bounded profile"}}, ForecastCompletionAt: ptrTime(time.Now().Add(30 * time.Minute))})
+	if err != nil || p.Execution.Forecast.Percent != 25 || p.Execution.AgentCompute != 12 {
+		t.Fatalf("progress = %+v, %v", p.Execution, err)
+	}
+	p, err = s.SubmitExpense("repo", o.ID, p.ID, "operator", ExpenseInput{ExpectedVersion: 6, MilestoneID: "profile", Amount: 1000, Description: "approved profiling tranche", Evidence: []ExecutionReference{{Kind: "check", ID: "check-1", Summary: "profile check passed"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = s.DecideExpense("repo", o.ID, p.ID, p.Execution.Expenses[0].ID, "steward", ExpenseDecisionInput{ExpectedVersion: 7, Approve: true})
+	if err != nil || p.Execution.ApprovedExpenses != 1000 {
+		t.Fatalf("expense = %+v, %v", p.Execution, err)
+	}
+	f, _ = s.Get("repo", f.ID)
+	if f.Balances.Spent != 1000 || f.Balances.Reserved != 5000 {
+		t.Fatalf("settled reservation = %+v", f.Balances)
+	}
+	p, err = s.RecordProgress("repo", o.ID, p.ID, "operator", ProgressInput{ExpectedVersion: 8, MilestoneID: "repair", Status: "inactive", Percent: 20, Summary: "credential was revoked before handoff", AccessState: "revoked", HandoffState: "failed", Evidence: []ExecutionReference{{Kind: "pull_request", ID: "17", Revision: "def", Summary: "legitimate partial contribution remains reviewable"}}})
+	if err != nil || len(p.Execution.Blockers) != 3 {
+		t.Fatalf("containment = %+v, %v", p.Execution, err)
+	}
+	if _, err = s.SubmitExpense("repo", o.ID, p.ID, "operator", ExpenseInput{ExpectedVersion: 9, MilestoneID: "repair", Amount: 100, Description: "must stop", Evidence: []ExecutionReference{}}); err != ErrConflict {
+		t.Fatalf("blocked spending = %v", err)
+	}
+	p, err = s.ControlExecution("repo", o.ID, p.ID, "steward", ExecutionControlInput{ExpectedVersion: 9, Action: "replace", Reason: "preserve partial work under an already-authorized contributor", RecipientID: "maintainer"})
+	if err != nil || p.Execution.ActiveRecipientID != "maintainer" || len(p.OperationalAuthority) != 0 || len(p.Execution.Progress) != 2 {
+		t.Fatalf("replacement = %+v, %v", p, err)
+	}
+	outcome, _ := s.GetOutcome("repo", o.ID)
+	if len(outcome.Delivery) != 1 || outcome.Delivery[0].Execution.ApprovedExpenses != 1000 || !hasBlocker(outcome.Blockers, "revoked_access") {
+		t.Fatalf("outcome delivery report = %+v", outcome.Delivery)
+	}
+}
+
+func ptrTime(v time.Time) *time.Time { return &v }
+func hasBlocker(items []OutcomeBlocker, kind string) bool {
+	for _, b := range items {
+		if b.Kind == kind {
+			return true
+		}
+	}
+	return false
 }

@@ -87,9 +87,16 @@ type FundedOutcome struct {
 	Replanning           []ReplanEvent    `json:"replanning"`
 	Pledged              int64            `json:"pledged"`
 	Blockers             []OutcomeBlocker `json:"blockers"`
+	Delivery             []DeliveryReport `json:"delivery"`
 	CreatedByID          string           `json:"created_by_id"`
 	CreatedAt            time.Time        `json:"created_at"`
 	OperationalAuthority []string         `json:"operational_authority"`
+}
+
+type DeliveryReport struct {
+	ProposalID  string            `json:"delivery_proposal_id"`
+	RecipientID string            `json:"recipient_id"`
+	Execution   DeliveryExecution `json:"execution"`
 }
 
 type CreateOutcomeInput struct {
@@ -306,6 +313,7 @@ func (s *Store) ListOutcomes(repo string) ([]FundedOutcome, error) {
 func (s *Store) deriveOutcome(o *FundedOutcome) {
 	o.Pledged = 0
 	o.Blockers = []OutcomeBlocker{}
+	o.Delivery = []DeliveryReport{}
 	targetBacking := map[string]int64{}
 	for _, p := range o.Pledges {
 		if p.State == "active" {
@@ -350,6 +358,18 @@ func (s *Store) deriveOutcome(o *FundedOutcome) {
 	}
 	for _, c := range t.DeclaredConflicts {
 		o.Blockers = append(o.Blockers, OutcomeBlocker{Kind: "declared_conflict", Detail: c})
+	}
+	proposals, _ := filepath.Glob(filepath.Join(s.root, o.RepositoryID, "outcomes", o.ID, "delivery-proposals", "*.json"))
+	for _, path := range proposals {
+		b, err := os.ReadFile(path)
+		var p DeliveryProposal
+		if err == nil && json.Unmarshal(b, &p) == nil && p.Execution != nil {
+			deriveExecution(p.Execution)
+			o.Delivery = append(o.Delivery, DeliveryReport{ProposalID: p.ID, RecipientID: p.Execution.ActiveRecipientID, Execution: *p.Execution})
+			for _, blocker := range p.Execution.Blockers {
+				o.Blockers = append(o.Blockers, blocker)
+			}
+		}
 	}
 }
 func addOverlap(a *FundedOutcome, b FundedOutcome) {

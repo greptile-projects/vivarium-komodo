@@ -72,6 +72,7 @@ type DeliveryProposal struct {
 	Conflicts            []ProposalConflict    `json:"conflicts"`
 	Approvals            []ProposalApproval    `json:"approvals"`
 	Selection            *ProposalSelection    `json:"selection,omitempty"`
+	Execution            *DeliveryExecution    `json:"execution,omitempty"`
 	CreatedAt            time.Time             `json:"created_at"`
 	UpdatedAt            time.Time             `json:"updated_at"`
 	OperationalAuthority []string              `json:"operational_authority"`
@@ -277,6 +278,8 @@ func (s *Store) SelectDeliveryProposal(repo, oid, pid, actor string, in SelectDe
 	p.Version++
 	p.State = "selected"
 	p.Selection = &ProposalSelection{StewardID: actor, Reason: strings.TrimSpace(in.Reason), ReservationID: reservation.ID, Connections: in.Connections, SelectedAt: now}
+	p.Execution = &DeliveryExecution{State: "active", ActiveRecipientID: p.Terms.RecipientID, Budget: p.Terms.Cost, MilestoneCount: len(p.Terms.Milestones), Progress: []ProgressObservation{}, Expenses: []Expense{}, Changes: []ExecutionChange{}}
+	deriveExecution(p.Execution)
 	p.UpdatedAt = now
 	return p, s.writeDeliveryProposal(p)
 }
