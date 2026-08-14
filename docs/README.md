@@ -3661,8 +3661,12 @@ The append-only ledger inherits the responsible release, environment,
 extension, and owners from the monitor and records containment, notifications
 limited to named participants, private incident links, governed-exception
 decisions, and resolution. A repair creates an ordinary proposal and human- or
-approved-agent-owned task at the affected release revision with only sanitized
-aggregate evidence preloaded. Pull requests, privacy verification, review,
-release, and deployment continue through their existing contracts and may be
-cited back as ledger events. No drift resource grants data, environment,
-extension, credential, review, merge, release, or deployment authority.
+approved-agent-owned task at the affected release revision. Its immutable
+reasoning context retains the expected behavior, verification criteria, and
+sanitized signal reference—not the raw production data—so later task and pull
+request readers can reconstruct why the correction exists. Pull requests,
+privacy verification, review, release, and deployment continue through their
+existing contracts and may be cited back as ledger events. Revoking a connected
+extension empties its effective authority without deleting the historical flow
+or correction trail. No drift resource grants data, environment, extension,
+credential, review, merge, release, or deployment authority.

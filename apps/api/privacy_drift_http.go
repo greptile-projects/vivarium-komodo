@@ -8,6 +8,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/datacommitments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/privacydrift"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/reasoning"
 )
 
 func registerPrivacyDriftHTTP(mux *http.ServeMux, s *privacydrift.Store, repos proposalRepositoryStore, credentials authStore, commitments interface {
@@ -147,7 +148,7 @@ func registerPrivacyDriftHTTP(mux *http.ServeMux, s *privacydrift.Store, repos p
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
-		task, e := plans.CreateTask(string(repo.ID), p.ID, actor.UserID, proposals.TaskInput{Title: in.Title, Outcome: drift.Expected, OwnerKind: in.OwnerKind, OwnerID: in.OwnerID, CompletionCriteria: in.AcceptanceCriteria, VerificationPlan: in.AcceptanceCriteria, BaseRevision: drift.ReleaseRevision})
+		task, e := plans.CreateTask(string(repo.ID), p.ID, actor.UserID, proposals.TaskInput{Title: in.Title, Outcome: drift.Expected, OwnerKind: in.OwnerKind, OwnerID: in.OwnerID, CompletionCriteria: in.AcceptanceCriteria, VerificationPlan: in.AcceptanceCriteria, BaseRevision: drift.ReleaseRevision, ReasoningContext: &reasoning.Context{Kind: "privacy_drift", InvestigationID: drift.ID, RepositoryID: string(repo.ID), CommitID: drift.ReleaseRevision, Claim: drift.Observed, Risk: drift.Kind, State: drift.State, Rationale: drift.Expected, Verification: append([]string{}, in.AcceptanceCriteria...), Evidence: []reasoning.Evidence{{RepositoryID: string(repo.ID), CommitID: drift.ReleaseRevision, Kind: "sanitized_privacy_signal", ResourceID: drift.Evidence.SignalReference, Label: drift.Evidence.Summary}}}})
 		if e != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
