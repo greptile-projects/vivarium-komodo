@@ -13,6 +13,12 @@ type projectFundStore interface {
 	Reconcile(string, string, string, string, projectfunds.ReconcileInput) (projectfunds.Fund, error)
 	Get(string, string) (projectfunds.Fund, error)
 	List(string) ([]projectfunds.Fund, error)
+	CreateOutcome(string, string, projectfunds.CreateOutcomeInput) (projectfunds.FundedOutcome, error)
+	PledgeOutcome(string, string, string, projectfunds.PledgeInput) (projectfunds.FundedOutcome, error)
+	WithdrawPledge(string, string, string, string, projectfunds.WithdrawInput) (projectfunds.FundedOutcome, error)
+	ReplanOutcome(string, string, string, projectfunds.ReplanInput) (projectfunds.FundedOutcome, error)
+	GetOutcome(string, string) (projectfunds.FundedOutcome, error)
+	ListOutcomes(string) ([]projectfunds.FundedOutcome, error)
 }
 
 func registerProjectFundsHTTP(mux *http.ServeMux, store projectFundStore, repos proposalRepositoryStore, credentials authStore) {
@@ -89,6 +95,89 @@ func registerProjectFundsHTTP(mux *http.ServeMux, store projectFundStore, repos 
 			return
 		}
 		writeJSON(w, 200, f)
+	})
+	outcomes := "/repositories/{repository}/funded-outcomes"
+	mux.HandleFunc("GET "+outcomes, func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		items, e := store.ListOutcomes(string(repo.ID))
+		if fundError(w, e) {
+			return
+		}
+		writeJSON(w, 200, map[string]any{"items": items})
+	})
+	mux.HandleFunc("POST "+outcomes, func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in projectfunds.CreateOutcomeInput
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		o, e := store.CreateOutcome(string(repo.ID), a.UserID, in)
+		if fundError(w, e) {
+			return
+		}
+		writeJSON(w, 201, o)
+	})
+	mux.HandleFunc("GET "+outcomes+"/{outcome}", func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		o, e := store.GetOutcome(string(repo.ID), r.PathValue("outcome"))
+		if fundError(w, e) {
+			return
+		}
+		writeJSON(w, 200, o)
+	})
+	mux.HandleFunc("POST "+outcomes+"/{outcome}/pledges", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in projectfunds.PledgeInput
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		o, e := store.PledgeOutcome(string(repo.ID), r.PathValue("outcome"), a.UserID, in)
+		if fundError(w, e) {
+			return
+		}
+		writeJSON(w, 201, o)
+	})
+	mux.HandleFunc("POST "+outcomes+"/{outcome}/pledges/{pledge}/withdraw", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in projectfunds.WithdrawInput
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		o, e := store.WithdrawPledge(string(repo.ID), r.PathValue("outcome"), r.PathValue("pledge"), a.UserID, in)
+		if fundError(w, e) {
+			return
+		}
+		writeJSON(w, 200, o)
+	})
+	mux.HandleFunc("POST "+outcomes+"/{outcome}/replan", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in projectfunds.ReplanInput
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		o, e := store.ReplanOutcome(string(repo.ID), r.PathValue("outcome"), a.UserID, in)
+		if fundError(w, e) {
+			return
+		}
+		writeJSON(w, 200, o)
 	})
 }
 func fundError(w http.ResponseWriter, e error) bool {
