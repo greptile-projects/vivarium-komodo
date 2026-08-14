@@ -307,6 +307,14 @@ deployment, consent-bounded assignment, deterministic guardrail containment,
 progressive retry evidence, agent interpretation, human dissent, acknowledged
 choice, delivered outcome, and final retirement of targeting and collection.
 
+`product_discovery_workflow_test.go` is the black-box regression boundary for
+the complete released-product-feedback-to-measured-learning loop. Through
+public HTTP and stock Git it retains public and maintainer-only feedback,
+human-agent synthesis and challenge, an explicit rejected alternative, slipped
+target replanning, consent-bound validation and withdrawal, ordinary delivery
+evidence, failed adoption, participant dissent, and an open opportunity carried
+forward without widening repository or operational authority.
+
 Repository performance contracts live beneath `$PERFORMANCE_GOAL_ROOT` (default
 `apps/api/data/performance-goals`). Collaborators publish immutable,
 optimistically concurrency-checked versions for a repository, release, user
