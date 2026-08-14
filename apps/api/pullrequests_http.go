@@ -26,6 +26,8 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/federation"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/integrationqueue"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/localizationdelivery"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/localizationverification"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/performancegoals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/previews"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/privacyverification"
@@ -82,6 +84,8 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	var accessibilityPolicy *accessibilitypolicies.Store
 	var accessibilityEvidence *accessibilityassessments.Store
 	var privacyVerification *privacyverification.Store
+	var localizationDelivery *localizationdelivery.Store
+	var localizationEvidence *localizationverification.Store
 	for _, extra := range extras {
 		switch value := extra.(type) {
 		case activityStore:
@@ -104,6 +108,10 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 			accessibilityEvidence = value
 		case *privacyverification.Store:
 			privacyVerification = value
+		case *localizationdelivery.Store:
+			localizationDelivery = value
+		case *localizationverification.Store:
+			localizationEvidence = value
 		}
 	}
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests", createPullRequest(store, proposalStore, repositories, credentials, activity, checks))
@@ -118,8 +126,8 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/reviews/me", putPullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("DELETE /repositories/{repository}/pull-requests/{pull_request}/reviews/me", deletePullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
-	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults, previewAcceptance, performance, accessibilityPolicy, accessibilityEvidence, privacyVerification))
-	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequestWithFederation(store, proposalStore, repositories, credentials, activity, checkResults, previewAcceptance, federationStore, performance, accessibilityPolicy, accessibilityEvidence, privacyVerification))
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults, previewAcceptance, performance, accessibilityPolicy, accessibilityEvidence, privacyVerification, localizationDelivery, localizationEvidence))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequestWithFederation(store, proposalStore, repositories, credentials, activity, checkResults, previewAcceptance, federationStore, performance, accessibilityPolicy, accessibilityEvidence, privacyVerification, localizationDelivery, localizationEvidence))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/queue", enqueuePullRequest(store, repositories, credentials, activity, checkResults, checks, queue))
 	mux.HandleFunc("GET /repositories/{repository}/integration-queue/entries", listIntegrationQueueEntries(repositories, credentials, checkResults, queue))
 	mux.HandleFunc("PATCH /repositories/{repository}/integration-queue/entries/{entry}", operateIntegrationQueueEntry(repositories, credentials, activity, checks, queue))
@@ -605,6 +613,7 @@ type readinessResponse struct {
 	Performance   []performancegoals.DeliveryRequirement `json:"performance_requirements"`
 	Accessibility *accessibilitypolicies.Assessment      `json:"accessibility,omitempty"`
 	Privacy       *privacyverification.Assessment        `json:"privacy,omitempty"`
+	Localization  *localizationdelivery.Assessment       `json:"localization,omitempty"`
 	Blockers      []readinessBlocker                     `json:"blockers"`
 }
 
@@ -627,6 +636,8 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 	var accessibilityPolicy *accessibilitypolicies.Store
 	var accessibilityEvidence *accessibilityassessments.Store
 	var privacyVerification *privacyverification.Store
+	var localizationDelivery *localizationdelivery.Store
+	var localizationEvidence *localizationverification.Store
 	for _, x := range extras {
 		if v, ok := x.(*previews.Store); ok {
 			acceptance = v
@@ -642,6 +653,12 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 		}
 		if v, ok := x.(*privacyverification.Store); ok {
 			privacyVerification = v
+		}
+		if v, ok := x.(*localizationdelivery.Store); ok {
+			localizationDelivery = v
+		}
+		if v, ok := x.(*localizationverification.Store); ok {
+			localizationEvidence = v
 		}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -827,6 +844,34 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 				}
 			}
 		}
+		if localizationDelivery != nil {
+			changes, e := filesBetweenRepositories(sourceOpened, targetOpened, storage.ObjectID(item.SourceCommitID), storage.ObjectID(item.TargetCommitID))
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			paths := make([]string, len(changes))
+			for i := range changes {
+				paths[i] = changes[i].Path
+			}
+			var evidence *localizationverification.Assessment
+			if localizationEvidence != nil {
+				if a, er := localizationEvidence.Get(string(repository.ID), item.ID); er == nil {
+					evidence = &a
+				}
+			}
+			a, e := localizationDelivery.Assess(string(repository.ID), item.ID, item.SourceCommitID, item.TargetBranch, paths, evidence)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			response.Localization = &a
+			for _, req := range a.Requirements {
+				if req.Blocking {
+					addBlocker("localization_"+req.Kind, req.Detail)
+				}
+			}
+		}
 
 		if response.SourceBranch.Exists && response.SourceBranch.MatchesPullRequest && response.TargetBranch.Exists {
 			hasConflicts, err := mergeHasConflictsAcross(r.Context(), targetOpened, sourceOpened, storage.ObjectID(response.TargetBranch.CommitID), storage.ObjectID(response.SourceBranch.CommitID))
@@ -928,6 +973,8 @@ func mergePullRequestWithFederation(store pullRequestStore, proposalStore propos
 	var accessibilityPolicy *accessibilitypolicies.Store
 	var accessibilityEvidence *accessibilityassessments.Store
 	var privacyVerification *privacyverification.Store
+	var localizationDelivery *localizationdelivery.Store
+	var localizationEvidence *localizationverification.Store
 	for _, x := range extras {
 		if v, ok := x.(*accessibilitypolicies.Store); ok {
 			accessibilityPolicy = v
@@ -937,6 +984,12 @@ func mergePullRequestWithFederation(store pullRequestStore, proposalStore propos
 		}
 		if v, ok := x.(*privacyverification.Store); ok {
 			privacyVerification = v
+		}
+		if v, ok := x.(*localizationdelivery.Store); ok {
+			localizationDelivery = v
+		}
+		if v, ok := x.(*localizationverification.Store); ok {
+			localizationEvidence = v
 		}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -1022,6 +1075,32 @@ func mergePullRequestWithFederation(store pullRequestStore, proposalStore propos
 					writeJSON(w, http.StatusConflict, map[string]any{"error": "pull_request_not_ready", "performance_requirements": reqs})
 					return
 				}
+			}
+		}
+		if localizationDelivery != nil {
+			changes, e := filesBetweenRepositories(sourceOpened, opened, source, target)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			paths := make([]string, len(changes))
+			for i := range changes {
+				paths[i] = changes[i].Path
+			}
+			var evidence *localizationverification.Assessment
+			if localizationEvidence != nil {
+				if a, er := localizationEvidence.Get(string(repository.ID), item.ID); er == nil {
+					evidence = &a
+				}
+			}
+			a, e := localizationDelivery.Assess(string(repository.ID), item.ID, item.SourceCommitID, item.TargetBranch, paths, evidence)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			if !a.Ready {
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "pull_request_not_ready", "localization": a})
+				return
 			}
 		}
 		if required := repository.RequiredChecks[item.TargetBranch]; len(required) > 0 {

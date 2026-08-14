@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-14T20:01:10Z: Added locale delivery policies and exact-candidate staged/deferred/withdrawn governance to merge readiness, plus provenance-rich application/documentation locale publications and publication-bound regional findings that validate into ordinary human/agent repair tasks. Durable state lives beneath `$LOCALIZATION_DELIVERY_ROOT`; focused tests, vet, web lint/build pass, while the full API suite retains the known federation TLS and product-experiment check-route failures.
+
 2026-08-14T14:11:16Z: Added synthetic exact-revision privacy checks with sanitized logs/artifacts and input-bound reuse, plus commitment-scoped policies requiring current behavioral coverage and exact-preview privacy-owner acknowledgement. Merge and release assessments retain stale/failed evidence and scoped, expiring follow-up-linked exceptions beneath `$PRIVACY_VERIFICATION_ROOT`; full API tests and vet pass.
 
 2026-08-13T22:44:30Z: Added consent-aware post-delivery product learning with audience-projected participant updates, reporter outcome validation and dissent, scoped opt-out, and versioned promised-versus-observed lessons tied to current roadmaps and retained opportunity dispositions. Durable records live beneath `$PRODUCT_LEARNING_ROOT`; the full API suite, vet, web lint, and production build pass.

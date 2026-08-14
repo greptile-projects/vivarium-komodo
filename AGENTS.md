@@ -1907,6 +1907,25 @@ approve or reject affected content. Checks, preview access, findings, and
 decisions grant no repository, review, merge, release, credential, or
 operational authority. The repository surface remains `view=locales`.
 
+Localization delivery governance lives beneath `$LOCALIZATION_DELIVERY_ROOT`
+(default `apps/api/data/localization-delivery`). Repository writers publish
+branch-, path-, audience-, risk-, and locale-scoped policies requiring minimum
+coverage, named current localization checks, and current regional reviewer
+approvals. Each exact pull candidate stages, defers, or withdraws locales with
+optimistic concurrency; only staged locales are readiness blockers, so an
+explicitly deferred or withdrawn locale cannot be mistaken for supported and
+does not block unaffected locale releases. Pull readiness and merge enforce the
+same exact-revision assessment. Application releases and documentation
+collections retain per-locale publication records with version, source
+revision, candidate version, provenance, fallback, and published or withdrawn
+state. Repository readers report publication-bound mistranslation, cultural
+mismatch, broken formatting, or missing content; writers validate the finding
+before linking an existing ordinary human- or agent-owned proposal task with
+immutable acceptance criteria. The `view=locales` reader surface exposes the
+complete publication and correction trail. These records grant no Git,
+translation-provider, review, merge, release, documentation-publication,
+credential, or operational authority.
+
 ## LADDER.md
 
 `/LADDER.md` at the repo root is **not part of this repository**. It is placed

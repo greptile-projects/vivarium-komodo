@@ -3621,6 +3621,33 @@ content, embargoes, source supersession, handoffs, and review decisions remain
 explicit without granting Git, translation-provider, credential, merge, or
 release authority.
 
+### Locale publication governance and regional correction
+
+`/repositories/{repository}/localization-delivery-policies` binds target
+branches and changed paths to locale requirements selected by audience and risk
+class. Each requirement names a coverage threshold, current localization check
+names, and regional reviewers. A writer records an exact pull candidate at
+`/pull-requests/{pull}/locale-publication`, assigning every included locale the
+`staged`, `deferred`, or `withdrawn` state with a rationale and optional
+fallback. Updates use an expected version. Readiness and merge evaluate only
+staged locales against the exact candidate verification; deferred and withdrawn
+locales stay explicit without blocking unaffected delivery or being presented
+as supported.
+
+After an application release or documentation collection is published,
+`/locale-publications` retains its locale, public version, exact source
+revision, candidate provenance, fallback, and published or withdrawn state.
+The repository Locales surface presents those facts to readers. A permitted
+reader can attach a `mistranslation`, `cultural_mismatch`, `broken_formatting`,
+or `missing_content` finding to that exact publication and path. Repository
+writers retain validation or rejection; only a validated finding can link an
+existing ordinary proposal task with a named human or approved-agent owner and
+immutable acceptance criteria. Publication, feedback, validation, and repair
+links grant no source, review, merge, release, documentation, credential,
+translation-provider, or operational authority. Durable state lives beneath
+`$LOCALIZATION_DELIVERY_ROOT` (default
+`apps/api/data/localization-delivery`).
+
 # Versioned data-use commitments
 
 Repository privacy engineering begins at
