@@ -1863,6 +1863,20 @@ stale coverage, and unmet release thresholds. The shareable repository surface
 is `view=locales`; plans and coverage grant no repository, review, merge,
 release, translation-provider, credential, or operational authority.
 
+Pull-request translation extraction lives beneath `$TRANSLATION_UNIT_ROOT`
+(default `apps/api/data/translation-units`). Schema-version `1`
+`.komodo/localization.json` at the exact pull source revision declares the
+source locale, target locales, JSON resources, locale-path templates, message
+context, screenshots, plural rules, and stable resource identifiers. Extraction
+captures configuration and source blob identities and projects stable
+resource/key units as added, changed, removed, or reused, with translated,
+untranslated, superseded, or removed state per locale. Repository readers may
+submit attributable unit proposals through the pull-request localization
+surface; later source edits supersede affected proposals and unchanged
+translations without deleting history. Extraction and proposals grant no Git,
+repository-write, review, merge, release, translation-provider, credential, or
+operational authority. The shareable repository surface remains `view=locales`.
+
 ## LADDER.md
 
 `/LADDER.md` at the repo root is **not part of this repository**. It is placed

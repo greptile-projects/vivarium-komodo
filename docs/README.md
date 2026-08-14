@@ -3578,6 +3578,27 @@ support claims reviewable; they do not grant source, review, merge, release,
 translation-provider, credential, or operational authority. Durable state
 lives beneath `$LOCALE_PLAN_ROOT` (default `apps/api/data/locale-plans`).
 
+### Revision-exact translation work
+
+A repository defines extraction in schema-version `1`
+`.komodo/localization.json`. The document names one source locale, target
+locales, and JSON resources with stable IDs, source paths, `{locale}`
+translation path templates, context, screenshot URLs, and plural rules. `POST
+/repositories/{repository}/pull-requests/{pull}/translation-units/extract`
+accepts only the pull request's exact source revision and server-captures the
+configuration and source blob identities. Stable resource/key units expose
+source locations, variables, prior messages, and added, changed, removed, or
+reused state together with translated, untranslated, superseded, or removed
+state for every locale.
+
+Readers use the same pull-request surface to inspect extraction and submit a
+translation proposal for an individual unit and locale. Proposals retain actor,
+revision, source message, and prior versions. Re-extraction after source edits
+supersedes affected proposals without erasing them; it never grants Git or
+unrelated repository write access. Durable state lives beneath
+`$TRANSLATION_UNIT_ROOT` (default `apps/api/data/translation-units`) and the web
+workspace is `view=locales`.
+
 # Versioned data-use commitments
 
 Repository privacy engineering begins at
