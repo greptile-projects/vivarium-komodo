@@ -241,6 +241,16 @@ calculations, overlapping target conflicts, unresolved commitments, and
 expiring or expired exceptions. The repository web surface is
 `view=reliability`; objectives grant no repository, deployment, telemetry,
 credential, or operational authority.
+Repository writers attach immutable signal-mapping versions and append-only
+attainment observations beneath each objective. Mappings bind an exact
+objective version, indicator, window, instrumentation revision, and sanitized
+metric, log, trace, health-check, support, delivery, source, package, or
+dependency fields. Observations retain exact mapping and objective versions,
+bounded release and code provenance, attainment, error-budget consumption,
+uncertainty, audience, and comparability. Restricted or unsanitized evidence is
+rejected; anonymous public reads omit repository-audience observations, while
+instrumentation changes, incomparable windows, and missing mappings or
+attainment remain explicit.
 
 Product feedback lives beneath `$PRODUCT_FEEDBACK_ROOT` (default
 `apps/api/data/product-feedback`). Authenticated project readers submit a need

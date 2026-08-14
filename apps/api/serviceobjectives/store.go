@@ -111,16 +111,100 @@ type Blocker struct {
 	Detail       string `json:"detail"`
 }
 type Objective struct {
-	ID             string    `json:"id"`
-	RepositoryID   string    `json:"repository_id"`
-	CurrentVersion int64     `json:"current_version"`
-	Versions       []Version `json:"versions"`
-	Blockers       []Blocker `json:"blockers"`
+	ID             string          `json:"id"`
+	RepositoryID   string          `json:"repository_id"`
+	CurrentVersion int64           `json:"current_version"`
+	Versions       []Version       `json:"versions"`
+	Blockers       []Blocker       `json:"blockers"`
+	Mappings       []SignalMapping `json:"signal_mappings"`
+	Attainment     []Attainment    `json:"attainment_history"`
+}
+type SourceMapping struct {
+	ID              string   `json:"id"`
+	Kind            string   `json:"kind"`
+	Name            string   `json:"name"`
+	SanitizedFields []string `json:"sanitized_fields"`
+	ResourceID      string   `json:"resource_id,omitempty"`
+}
+type MappingInput struct {
+	ExpectedVersion         int64           `json:"expected_version"`
+	ObjectiveVersion        int64           `json:"objective_version"`
+	IndicatorID             string          `json:"indicator_id"`
+	WindowID                string          `json:"window_id"`
+	InstrumentationRevision string          `json:"instrumentation_revision"`
+	Sources                 []SourceMapping `json:"sources"`
+	ChangeReason            string          `json:"change_reason"`
+}
+type MappingVersion struct {
+	Number                  int64           `json:"number"`
+	ObjectiveVersion        int64           `json:"objective_version"`
+	IndicatorID             string          `json:"indicator_id"`
+	WindowID                string          `json:"window_id"`
+	InstrumentationRevision string          `json:"instrumentation_revision"`
+	Sources                 []SourceMapping `json:"sources"`
+	ChangeReason            string          `json:"change_reason"`
+	AuthorID                string          `json:"author_id"`
+	CreatedAt               time.Time       `json:"created_at"`
+}
+type SignalMapping struct {
+	ID             string           `json:"id"`
+	CurrentVersion int64            `json:"current_version"`
+	Versions       []MappingVersion `json:"versions"`
+}
+type EvidenceRef struct {
+	Kind       string `json:"kind"`
+	ResourceID string `json:"resource_id"`
+	Revision   string `json:"revision"`
+	Label      string `json:"label"`
+}
+type ObservationInput struct {
+	MappingID                  string        `json:"mapping_id"`
+	MappingVersion             int64         `json:"mapping_version"`
+	WindowStart                time.Time     `json:"window_start"`
+	WindowEnd                  time.Time     `json:"window_end"`
+	Value                      float64       `json:"value"`
+	ErrorBudgetConsumedPercent float64       `json:"error_budget_consumed_percent"`
+	Uncertainty                string        `json:"uncertainty"`
+	ComparableToPrevious       bool          `json:"comparable_to_previous"`
+	Sanitized                  bool          `json:"sanitized"`
+	ContainsRestrictedData     bool          `json:"contains_restricted_data"`
+	Audience                   string        `json:"audience"`
+	Evidence                   []EvidenceRef `json:"evidence"`
+}
+type Attainment struct {
+	ID string `json:"id"`
+	ObservationInput
+	ObjectiveVersion        int64     `json:"objective_version"`
+	IndicatorID             string    `json:"indicator_id"`
+	WindowID                string    `json:"window_id"`
+	InstrumentationRevision string    `json:"instrumentation_revision"`
+	Status                  string    `json:"status"`
+	GapKinds                []string  `json:"gap_kinds"`
+	AuthorID                string    `json:"author_id"`
+	CreatedAt               time.Time `json:"created_at"`
 }
 type Store struct {
 	root string
 	mu   sync.Mutex
 	now  func() time.Time
+}
+
+// Project removes repository-reader observations from anonymous public views.
+func Project(x Objective, authenticated bool) Objective {
+	if authenticated {
+		return x
+	}
+	out := x.Attainment[:0]
+	for _, a := range x.Attainment {
+		if a.Audience == "public" {
+			out = append(out, a)
+		}
+	}
+	x.Attainment = out
+	if len(out) == 0 {
+		x.Blockers = append(x.Blockers, Blocker{Kind: "missing_visible_attainment", Detail: "no attainment evidence is visible to this reader"})
+	}
+	return x
 }
 
 func New(root string) (*Store, error) {
@@ -256,6 +340,104 @@ func (s *Store) Revise(repo, id, actor string, expected int64, in VersionInput) 
 	derive(&x, nil, s.now().UTC())
 	return x, s.save(x)
 }
+
+var sourceKinds = map[string]bool{"metric": true, "log": true, "trace": true, "health_check": true, "support_report": true, "deployment": true, "release": true, "commit": true, "pull_request": true, "package": true, "dependent_service": true}
+
+func mappingValid(x Objective, in MappingInput) bool {
+	if in.ObjectiveVersion < 1 || in.ObjectiveVersion > x.CurrentVersion || in.IndicatorID == "" || in.WindowID == "" || in.InstrumentationRevision == "" || in.ChangeReason == "" || len(in.Sources) == 0 || len(in.Sources) > 100 {
+		return false
+	}
+	v := x.Versions[in.ObjectiveVersion-1]
+	indicator, window := false, false
+	for _, i := range v.Indicators {
+		indicator = indicator || i.ID == in.IndicatorID
+	}
+	for _, w := range v.Windows {
+		window = window || w.ID == in.WindowID
+	}
+	seen := map[string]bool{}
+	for _, q := range in.Sources {
+		if q.ID == "" || q.Name == "" || !sourceKinds[q.Kind] || seen[q.ID] || len(q.SanitizedFields) == 0 || !listOK(q.SanitizedFields, true) {
+			return false
+		}
+		seen[q.ID] = true
+	}
+	return indicator && window
+}
+func (s *Store) PutMapping(repo, id, mapping, actor string, in MappingInput) (Objective, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.raw(repo, id)
+	if e != nil {
+		return x, e
+	}
+	if actor == "" || !mappingValid(x, in) {
+		return x, ErrInvalid
+	}
+	var m *SignalMapping
+	if mapping == "" {
+		x.Mappings = append(x.Mappings, SignalMapping{ID: newid()})
+		m = &x.Mappings[len(x.Mappings)-1]
+	} else {
+		for i := range x.Mappings {
+			if x.Mappings[i].ID == mapping {
+				m = &x.Mappings[i]
+				break
+			}
+		}
+		if m == nil {
+			return x, ErrNotFound
+		}
+	}
+	if m.CurrentVersion != in.ExpectedVersion {
+		return x, ErrConflict
+	}
+	m.CurrentVersion++
+	m.Versions = append(m.Versions, MappingVersion{Number: m.CurrentVersion, ObjectiveVersion: in.ObjectiveVersion, IndicatorID: in.IndicatorID, WindowID: in.WindowID, InstrumentationRevision: in.InstrumentationRevision, Sources: in.Sources, ChangeReason: in.ChangeReason, AuthorID: actor, CreatedAt: s.now().UTC()})
+	derive(&x, nil, s.now().UTC())
+	return x, s.save(x)
+}
+func (s *Store) Observe(repo, id, actor string, in ObservationInput) (Objective, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.raw(repo, id)
+	if e != nil {
+		return x, e
+	}
+	var mv *MappingVersion
+	for i := range x.Mappings {
+		m := &x.Mappings[i]
+		if m.ID == in.MappingID && in.MappingVersion > 0 && in.MappingVersion <= int64(len(m.Versions)) {
+			mv = &m.Versions[in.MappingVersion-1]
+		}
+	}
+	if actor == "" || mv == nil || !in.Sanitized || in.ContainsRestrictedData || !map[string]bool{"public": true, "repository": true}[in.Audience] || in.WindowStart.IsZero() || !in.WindowEnd.After(in.WindowStart) || in.ErrorBudgetConsumedPercent < 0 || len(in.Evidence) == 0 || len(in.Evidence) > 100 {
+		return x, ErrInvalid
+	}
+	for _, q := range in.Evidence {
+		if !sourceKinds[q.Kind] || q.ResourceID == "" || q.Revision == "" || q.Label == "" {
+			return x, ErrInvalid
+		}
+	}
+	target := Target{}
+	ov := x.Versions[mv.ObjectiveVersion-1]
+	for _, t := range ov.Targets {
+		if t.IndicatorID == mv.IndicatorID && t.WindowID == mv.WindowID {
+			target = t
+		}
+	}
+	status := "met"
+	if target.Comparator == "gte" && in.Value < target.Value || target.Comparator == "lte" && in.Value > target.Value {
+		status = "missed"
+	}
+	gaps := []string{}
+	if !in.ComparableToPrevious && len(x.Attainment) > 0 {
+		gaps = append(gaps, "incomparable_window")
+	}
+	x.Attainment = append(x.Attainment, Attainment{ID: newid(), ObservationInput: in, ObjectiveVersion: mv.ObjectiveVersion, IndicatorID: mv.IndicatorID, WindowID: mv.WindowID, InstrumentationRevision: mv.InstrumentationRevision, Status: status, GapKinds: gaps, AuthorID: actor, CreatedAt: s.now().UTC()})
+	derive(&x, nil, s.now().UTC())
+	return x, s.save(x)
+}
 func (s *Store) Get(repo, id string) (Objective, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -304,6 +486,30 @@ func (s *Store) List(repo string) ([]Objective, error) {
 func derive(x *Objective, all []Objective, now time.Time) {
 	x.Blockers = nil
 	v := x.Versions[len(x.Versions)-1]
+	for _, i := range v.Indicators {
+		found := false
+		for _, m := range x.Mappings {
+			if len(m.Versions) > 0 {
+				q := m.Versions[len(m.Versions)-1]
+				found = found || q.ObjectiveVersion == v.Number && q.IndicatorID == i.ID
+			}
+		}
+		if !found {
+			x.Blockers = append(x.Blockers, Blocker{Kind: "missing_signal_mapping", IndicatorID: i.ID, Detail: "current objective indicator has no revision-exact signal mapping"})
+		}
+	}
+	if len(x.Attainment) == 0 {
+		x.Blockers = append(x.Blockers, Blocker{Kind: "missing_attainment", Detail: "objective has no sanitized attainment observation"})
+	}
+	for i := 1; i < len(x.Attainment); i++ {
+		a, b := x.Attainment[i-1], x.Attainment[i]
+		if a.MappingID == b.MappingID && a.InstrumentationRevision != b.InstrumentationRevision {
+			x.Blockers = append(x.Blockers, Blocker{Kind: "changed_instrumentation", IndicatorID: b.IndicatorID, Detail: "instrumentation changed between retained observations"})
+		}
+		if !b.ComparableToPrevious {
+			x.Blockers = append(x.Blockers, Blocker{Kind: "incomparable_window", IndicatorID: b.IndicatorID, Detail: "observation is not comparable with its predecessor"})
+		}
+	}
 	if len(v.OwnerIDs) == 0 {
 		x.Blockers = append(x.Blockers, Blocker{Kind: "missing_ownership", Detail: "objective has no accountable owner"})
 	}
