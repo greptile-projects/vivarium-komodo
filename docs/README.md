@@ -3597,3 +3597,19 @@ evidence the viewer cannot inspect. Inaccessible evidence is represented only
 by a typed bounded reference: its body is never copied into the data-flow store
 or broader privacy workspace. Flow evidence is explanatory and grants no data,
 source, extension, release, environment, credential, or operational authority.
+
+## Pull-request privacy impact assessments
+
+`/repositories/{repository}/pull-requests/{pull}/privacy-assessments` compares
+one exact candidate with the pull request's exact target while behavior can
+still change. Assessments classify changed collection, purposes, recipients,
+retention, access, and user controls and link target/candidate flow maps,
+commitment versions, and server-captured candidate source blobs. Explicit
+requirements assign owners for acknowledgement, notices, consent changes,
+migrations, tests, or exceptions instead of hiding follow-up in an approval.
+
+Readers and scoped read-only agents may append revision-grounded challenges,
+mitigations, and residual risk. Only a requirement's named owner can accept it
+or request changes. A changed candidate or cited blob makes evidence and prior
+acknowledgement stale and restores visible blockers. Privacy review grants no
+data access, repository write, review, merge, release, or operational authority.
