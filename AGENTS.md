@@ -1850,6 +1850,19 @@ authority. Drift repair tasks copy an immutable reasoning context containing
 the affected release revision, expected behavior, verification criteria, and
 sanitized signal reference; that context grants no data or operational access.
 
+Repository locale plans live beneath `$LOCALE_PLAN_ROOT` (default
+`apps/api/data/locale-plans`). Repository writers publish immutable,
+optimistic-concurrency versions for repository, product, documentation, and
+release scopes. Plans declare target languages and regions, ordered fallbacks,
+terminology, supported formatting requirements, covered journeys, owners,
+reviewers, and per-locale release thresholds. Translatable resources bind a
+path and format to an exact Git commit; attributable coverage binds the same
+resource, locale, journey, plan version, and source revision. Reads derive
+missing ownership and coverage, unsupported formats, conflicting terminology,
+stale coverage, and unmet release thresholds. The shareable repository surface
+is `view=locales`; plans and coverage grant no repository, review, merge,
+release, translation-provider, credential, or operational authority.
+
 ## LADDER.md
 
 `/LADDER.md` at the repo root is **not part of this repository**. It is placed

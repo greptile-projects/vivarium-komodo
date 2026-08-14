@@ -3557,6 +3557,27 @@ identified retry. The final analysis preserves agent uncertainty and human
 dissent; the acknowledged decision links rollout evidence before cleanup retires
 obsolete targeting and collection without deleting aggregate learning.
 
+# Versioned locale support plans
+
+`/repositories/{repository}/locale-plans` gives collaborators one attributable
+contract for which repository, product, documentation, and release experiences
+must work in each locale. Immutable versions declare language and region
+targets, ordered fallback locales, preferred and avoided terminology,
+formatting requirements, covered journeys, accountable owners and reviewers,
+and per-locale completion thresholds. Readers can inspect the current agreement
+and its complete history at `view=locales`.
+
+Every translatable resource names its path, resource kind, format, journeys,
+owners, and an exact source commit that the server verifies before publication.
+Coverage evidence is separately attributable and pins the plan version,
+resource, locale, journey, completion percentage, status, and exact source
+revision. The reader derives missing ownership or coverage, unsupported
+formats, conflicting preferred terminology, evidence stale against the current
+resource commit, and release thresholds that remain unmet. These records make
+support claims reviewable; they do not grant source, review, merge, release,
+translation-provider, credential, or operational authority. Durable state
+lives beneath `$LOCALE_PLAN_ROOT` (default `apps/api/data/locale-plans`).
+
 # Versioned data-use commitments
 
 Repository privacy engineering begins at
