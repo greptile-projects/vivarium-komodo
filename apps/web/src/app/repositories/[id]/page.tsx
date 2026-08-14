@@ -28,6 +28,7 @@ import { LocalePlans } from "@/components/locale-plans";
 import { TranslationWork } from "@/components/translation-work";
 import { LocalizationVerification } from "@/components/localization-verification";
 import { LocalizationDelivery } from "@/components/localization-delivery";
+import { ServiceObjectives } from "@/components/service-objectives";
 import { PrivacyAssessments } from "@/components/privacy-assessments";
 import {
   Book,
@@ -1269,6 +1270,8 @@ export default function RepositoryPage({
                               ? "privacy"
                             : query.view === "locales"
                               ? "locales"
+                            : query.view === "reliability"
+                              ? "reliability"
                             : query.view === "experiments"
                               ? "experiments"
                             : query.view === "feedback"
@@ -1343,6 +1346,7 @@ export default function RepositoryPage({
         view === "accessibility" ||
         view === "privacy" ||
         view === "locales" ||
+        view === "reliability" ||
         view === "experiments" ||
         view === "feedback" ||
         view === "issues" ||
@@ -1664,6 +1668,13 @@ export default function RepositoryPage({
           Decisions
         </button>
         <button
+          className={view === "reliability" ? "active" : ""}
+          onClick={() => navigate({ view: "reliability", path: "" })}
+        >
+          <Check size={15} />
+          Reliability
+        </button>
+        <button
           className={view === "impact" ? "active" : ""}
           onClick={() => navigate({ view: "impact", ref, path: "" })}
         >
@@ -1788,6 +1799,8 @@ export default function RepositoryPage({
         <><DataFlows repository={repository.id} /><DataCommitments repository={repository.id} actor={actor} /></>
       ) : view === "locales" ? (
         <><LocalePlans repository={repository.id} actor={actor} /><TranslationWork repository={repository.id} /><LocalizationVerification repository={repository.id} /><LocalizationDelivery repository={repository.id} /></>
+      ) : view === "reliability" ? (
+        <ServiceObjectives repository={repository.id} actor={actor} />
       ) : view === "funds" ? (
         <ProjectFunds repository={repository.id} actor={actor} />
       ) : view === "experiments" ? (
