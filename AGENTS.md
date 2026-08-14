@@ -1839,6 +1839,17 @@ approved-agent repair tasks based at the affected release revision. Signals and
 controls grant no data, environment, extension, credential, review, merge,
 release, or deployment authority.
 
+`privacy_workflow_test.go` is the black-box regression boundary for the full
+commitment-to-corrected-data-use loop. It retains an existing journey, bounded
+inaccessible extension evidence, stale impact analysis after human-requested
+design revision, a rejected exception, current synthetic consent,
+minimization, retention, and deletion proof, privacy-owner approval, ordinary
+agent-authored merge and release, sanitized production drift, a permission-
+scoped investigation link, an evidence-preloaded repair, and revoked extension
+authority. Drift repair tasks copy an immutable reasoning context containing
+the affected release revision, expected behavior, verification criteria, and
+sanitized signal reference; that context grants no data or operational access.
+
 ## LADDER.md
 
 `/LADDER.md` at the repo root is **not part of this repository**. It is placed
