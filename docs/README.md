@@ -3648,6 +3648,16 @@ translation-provider, or operational authority. Durable state lives beneath
 `$LOCALIZATION_DELIVERY_ROOT` (default
 `apps/api/data/localization-delivery`).
 
+`localization_workflow_test.go` composes the complete public contract through
+stock Git and HTTP: evolving source supersedes prior translation evidence;
+human and grounded-agent language decisions remain attributable; exact-preview
+checks and named regional review govern only staged locales; a failed RTL
+locale is withdrawn without widening the support claim or blocking French;
+and post-release reader feedback returns through an ordinary agent-owned task,
+reviewed repair, release, and corrected publication. A publication verifies
+the locale candidate against the pull's exact source revision and the released
+application against its merge revision, preserving both sides of provenance.
+
 # Versioned data-use commitments
 
 Repository privacy engineering begins at
