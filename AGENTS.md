@@ -1891,6 +1891,22 @@ Protected or embargoed extraction content is omitted from both list and detail
 reads outside its explicit actor audience, and the same boundary covers claims,
 discussion, proposals, suggestions, decisions, reviews, and handoffs.
 
+Localized experience verification lives beneath
+`$LOCALIZATION_VERIFICATION_ROOT` (default
+`apps/api/data/localization-verification`). Schema-version `1`
+`.komodo/localization-checks.json` declarations bind variable, pluralization,
+formatting, terminology, link, layout-expansion, bidirectional-text, fallback,
+and localized-journey checks to an exact pull revision, locale, optional route,
+translation units, and interface paths. Retained outcomes separately digest
+source, translation, and interface inputs so only evidence affected by a
+changed input becomes stale. Ready exact-revision previews can be narrowed to
+locale-specific route allowlists and the regional reviewers frozen by the
+translation extraction. Translators append route-, revision-, unit-, and
+interface-grounded linguistic or functional findings; only invited reviewers
+approve or reject affected content. Checks, preview access, findings, and
+decisions grant no repository, review, merge, release, credential, or
+operational authority. The repository surface remains `view=locales`.
+
 ## LADDER.md
 
 `/LADDER.md` at the repo root is **not part of this repository**. It is placed

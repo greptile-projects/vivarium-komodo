@@ -35,6 +35,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/investigations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/issues"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/localeplans"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/localizationverification"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
 	packagecatalog "github.com/greptile-projects/vivarium-komodo/apps/api/packages"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/performancegoals"
@@ -335,6 +336,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	localizationVerificationRoot := os.Getenv("LOCALIZATION_VERIFICATION_ROOT")
+	if localizationVerificationRoot == "" {
+		localizationVerificationRoot = "data/localization-verification"
+	}
+	localizationVerificationStore, err := localizationverification.New(localizationVerificationRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	dataFlowRoot := os.Getenv("DATA_FLOW_ROOT")
 	if dataFlowRoot == "" {
 		dataFlowRoot = "data/data-flows"
@@ -546,6 +555,7 @@ func main() {
 	registerDataCommitmentsHTTP(mux, dataCommitmentStore, repositoryCatalog, credentials)
 	registerLocalePlansHTTP(mux, localePlanStore, repositoryCatalog, credentials)
 	registerTranslationUnitsHTTP(mux, translationUnitStore, repositoryCatalog, credentials, translationUnitSources{pulls: pullRequestStore, repositories: repositoryCatalog, plans: localePlanStore})
+	registerLocalizationVerificationHTTP(mux, localizationVerificationStore, repositoryCatalog, credentials, localizationVerificationSources{pulls: pullRequestStore, repositories: repositoryCatalog, translations: translationUnitStore, previews: previewStore})
 	registerDataFlowsHTTP(mux, dataFlowStore, dataCommitmentStore, repositoryCatalog, credentials)
 	registerPrivacyAssessmentsHTTP(mux, privacyAssessmentStore, repositoryCatalog, credentials, privacyAssessmentSources{pulls: pullRequestStore, flows: dataFlowStore, commitments: dataCommitmentStore, repositories: repositoryCatalog})
 	registerPrivacyVerificationHTTP(mux, privacyVerificationStore, repositoryCatalog, credentials, dataCommitmentStore, previewStore, checkRunStore, pullRequestStore)
