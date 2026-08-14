@@ -1782,6 +1782,21 @@ expiring or expired-exception blockers at `view=privacy`. A declaration or
 exception is project evidence only and grants no repository, data, extension,
 experiment, environment, credential, or operational authority.
 
+Revision-exact data-flow maps live beneath `$DATA_FLOW_ROOT` (default
+`apps/api/data/data-flows`). Repository writers publish declarations from an
+exact commit and manifest blob, connecting interaction, interface, package,
+store, extension, release, environment, audience, and external-recipient nodes
+with `enters`, `moves`, `persists`, and `leaves` edges. Every map cites exact
+data-use commitment versions and data-use IDs; server-captured source blob
+identities ground code nodes. Repository readers, including read-only agents,
+may append bounded cited observations and uncertainty. Reads derive stale
+analysis, undeclared or differently observed movement, inaccessible dependency
+evidence, and declared paths not observed by current analysis. Restricted
+evidence bodies never enter this store or the `view=privacy` surface: retain
+only an explicit inaccessible state and bounded reference. Maps and findings
+grant no data, repository, extension, release, environment, credential, or
+operational authority.
+
 ## LADDER.md
 
 `/LADDER.md` at the repo root is **not part of this repository**. It is placed

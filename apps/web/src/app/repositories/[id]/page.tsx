@@ -23,6 +23,7 @@ import { ProjectFunds } from "@/components/project-funds";
 import { ProductExperiments } from "@/components/product-experiments";
 import { ProductFeedback } from "@/components/product-feedback";
 import { DataCommitments } from "@/components/data-commitments";
+import { DataFlows } from "@/components/data-flows";
 import {
   Book,
   Branch,
@@ -1769,7 +1770,7 @@ export default function RepositoryPage({
       ) : view === "accessibility" ? (
         <><AccessibilityAssessments repository={repository.id} actor={actor} /><AccessibilityCommitments repository={repository.id} actor={actor} /><AccessibilityBarriers repository={repository.id} actor={actor} /></>
       ) : view === "privacy" ? (
-        <DataCommitments repository={repository.id} actor={actor} />
+        <><DataFlows repository={repository.id} /><DataCommitments repository={repository.id} actor={actor} /></>
       ) : view === "funds" ? (
         <ProjectFunds repository={repository.id} actor={actor} />
       ) : view === "experiments" ? (

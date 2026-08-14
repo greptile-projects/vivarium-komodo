@@ -17,6 +17,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/contributionopportunities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/contributorpathways"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/datacommitments"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/dataflows"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/decisions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deliveryteams"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/dependencyinventory"
@@ -313,6 +314,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	dataFlowRoot := os.Getenv("DATA_FLOW_ROOT")
+	if dataFlowRoot == "" {
+		dataFlowRoot = "data/data-flows"
+	}
+	dataFlowStore, err := dataflows.New(dataFlowRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	accessibilityBarrierRoot := os.Getenv("ACCESSIBILITY_BARRIER_ROOT")
 	if accessibilityBarrierRoot == "" {
 		accessibilityBarrierRoot = "data/accessibility-barriers"
@@ -490,6 +499,7 @@ func main() {
 	registerPerformanceGoalsHTTP(mux, performanceGoalStore, repositoryCatalog, releaseStore, credentials, pullRequestStore)
 	registerAccessibilityCommitmentsHTTP(mux, accessibilityCommitmentStore, repositoryCatalog, credentials)
 	registerDataCommitmentsHTTP(mux, dataCommitmentStore, repositoryCatalog, credentials)
+	registerDataFlowsHTTP(mux, dataFlowStore, dataCommitmentStore, repositoryCatalog, credentials)
 	registerAccessibilityBarriersHTTP(mux, accessibilityBarrierStore, repositoryCatalog, credentials, accessibilityBarrierSources{releases: releaseStore, docs: documentationStore, previews: previewStore, workspaces: workspaceStore, repositories: repositoryCatalog})
 	registerAccessibilityAssessmentsHTTP(mux, accessibilityAssessmentStore, repositoryCatalog, credentials, accessibilityAssessmentSources{pulls: pullRequestStore, runs: checkRunStore, previews: previewStore, barriers: accessibilityBarrierStore, repositories: repositoryCatalog, commitments: accessibilityCommitmentStore, plans: proposalStore, sessions: changeSessionStore, workspaces: workspaceStore, workspaceRunner: workspaceRunner})
 	registerAccessibilityPoliciesHTTP(mux, accessibilityPolicyStore, repositoryCatalog, credentials, accessibilityCommitmentStore, previewStore, accessibilityAssessmentStore, checkRunStore, pullRequestStore)

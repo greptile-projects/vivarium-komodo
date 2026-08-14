@@ -3577,3 +3577,23 @@ purpose, retention, deletion, or consent, both retain a reciprocal conflict
 blocker. These records explain permitted handling before implementation and do
 not themselves authorize data access, collection, release, deployment, extension
 execution, or experiment exposure. The repository web surface is `view=privacy`.
+
+## Revision-exact data-flow maps
+
+`/repositories/{repository}/data-flows` turns repository-defined flow manifests
+into an inspectable map at one exact Git commit. A declaration captures the
+manifest and code blob identities, cites exact commitment versions and data-use
+IDs, and connects interactions, interfaces, packages, stores, extensions,
+releases, environments, audiences, and external recipients with explicit entry,
+movement, persistence, and exit edges. This makes every retained copy and
+processor traceable from current project evidence rather than a detached
+inventory.
+
+Repository readers and read-only agents can append bounded findings with exact
+code citations, observed edges, and uncertainty. The reader projection reports
+new undeclared movement, category or purpose differences, declared paths that
+were not observed, newer declarations that stale prior analysis, and dependency
+evidence the viewer cannot inspect. Inaccessible evidence is represented only
+by a typed bounded reference: its body is never copied into the data-flow store
+or broader privacy workspace. Flow evidence is explanatory and grants no data,
+source, extension, release, environment, credential, or operational authority.
