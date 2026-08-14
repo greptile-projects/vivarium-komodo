@@ -18,6 +18,7 @@ import { GovernanceCharter } from "@/components/governance-charter";
 import { PerformanceGoals } from "@/components/performance-goals";
 import { AccessibilityCommitments } from "@/components/accessibility-commitments";
 import { AccessibilityBarriers } from "@/components/accessibility-barriers";
+import { AccessibilityAssessments } from "@/components/accessibility-assessments";
 import { ProjectFunds } from "@/components/project-funds";
 import { ProductExperiments } from "@/components/product-experiments";
 import { ProductFeedback } from "@/components/product-feedback";
@@ -1755,7 +1756,7 @@ export default function RepositoryPage({
       ) : view === "performance" ? (
         <PerformanceGoals repository={repository.id} actor={actor} />
       ) : view === "accessibility" ? (
-        <><AccessibilityCommitments repository={repository.id} actor={actor} /><AccessibilityBarriers repository={repository.id} actor={actor} /></>
+        <><AccessibilityAssessments repository={repository.id} actor={actor} /><AccessibilityCommitments repository={repository.id} actor={actor} /><AccessibilityBarriers repository={repository.id} actor={actor} /></>
       ) : view === "funds" ? (
         <ProjectFunds repository={repository.id} actor={actor} />
       ) : view === "experiments" ? (
@@ -9370,6 +9371,8 @@ function PullRequestDetail({
               ? "checks"
               : section === "previews"
                 ? "previews"
+              : section === "accessibility"
+                ? "accessibility"
               : "overview";
   const [item, setItem] = useState<PullRequest>();
   const [commits, setCommits] = useState<PullRequestCommit[]>([]);
@@ -9580,6 +9583,12 @@ function PullRequestDetail({
       )}
       <nav className="pull-sections" aria-label="Pull request">
         <button
+          className={active === "accessibility" ? "active" : ""}
+          onClick={() => onSection("accessibility")}
+        >
+          Accessibility
+        </button>
+        <button
           className={active === "previews" ? "active" : ""}
           onClick={() => onSection("previews")}
         >
@@ -9667,6 +9676,8 @@ function PullRequestDetail({
           previews={previews}
           onChanged={() => void load()}
         />
+      ) : active === "accessibility" ? (
+        <AccessibilityAssessments repository={repository} actor={actor} pull={item.id} revision={item.source_commit_id} />
       ) : (
         <PullDiscussion
           repository={repository}

@@ -22,6 +22,7 @@ const ManifestPath = ".komodo/checks.json"
 const ReleaseManifestPath = ".komodo/releases.json"
 const EvolutionManifestPath = ".komodo/evolution-checks.json"
 const DocumentationManifestPath = ".komodo/documentation-checks.json"
+const AccessibilityManifestPath = ".komodo/accessibility-checks.json"
 
 type repositoryOpener interface {
 	Open(storage.ID) (*storage.Repository, error)
@@ -131,7 +132,100 @@ func (r *Runner) Start(repositoryID, sourceRepositoryID, pullRequestID, commitID
 			go r.execute(run.ID)
 		}
 	}
+	accessibility, err := readAccessibilityManifest(repository, storage.ObjectID(commitID))
+	if err != nil {
+		return err
+	}
+	previous, _ = r.store.List(repositoryID, pullRequestID)
+	for _, definition := range accessibility {
+		digest, digestErr := documentationInputDigest(repository, storage.ObjectID(commitID), definition.Accessibility.Inputs)
+		if digestErr != nil {
+			return digestErr
+		}
+		definition.Accessibility.InputDigest = digest
+		var reused *Run
+		for i := len(previous) - 1; i >= 0; i-- {
+			candidate := &previous[i]
+			if candidate.State == Succeeded && candidate.Definition.Name == definition.Name && candidate.Definition.Accessibility != nil && candidate.Definition.Accessibility.InputDigest == digest {
+				reused = candidate
+				break
+			}
+		}
+		run, createErr := r.store.CreateForSource(repositoryID, sourceRepositoryID, pullRequestID, commitID, definition)
+		if createErr != nil {
+			return createErr
+		}
+		if reused != nil {
+			run.Definition.Accessibility.ReusedFromRunID = reused.ID
+			_ = r.store.write(run)
+			started, _ := r.store.Start(run.ID)
+			_ = r.store.AppendLog(started.ID, "stdout", "Accessibility evidence remains valid: declared code and scenario inputs are unchanged; reused "+reused.ID+".\n")
+			completed, _ := r.store.Complete(started.ID, 0, false, "unaffected accessibility evidence reused")
+			if r.onComplete != nil {
+				r.onComplete(completed)
+			}
+		} else {
+			go r.execute(run.ID)
+		}
+	}
 	return nil
+}
+
+func readAccessibilityManifest(repository *storage.Repository, commitID storage.ObjectID) ([]Definition, error) {
+	commit, err := repository.ReadCommit(commitID)
+	if err != nil {
+		return nil, err
+	}
+	entry, found, err := findEntry(repository, commit.Tree, strings.Split(AccessibilityManifestPath, "/"))
+	if err != nil || !found {
+		return nil, err
+	}
+	object, err := repository.ReadObject(entry.ObjectID)
+	if err != nil {
+		return nil, err
+	}
+	var raw struct {
+		Version int          `json:"version"`
+		Checks  []Definition `json:"checks"`
+	}
+	dec := json.NewDecoder(strings.NewReader(string(object.Content)))
+	dec.DisallowUnknownFields()
+	if dec.Decode(&raw) != nil || raw.Version != 1 || len(raw.Checks) == 0 || len(raw.Checks) > 20 {
+		return nil, errors.New("invalid accessibility check manifest")
+	}
+	names := map[string]bool{}
+	validEval := map[string]bool{"semantics": true, "keyboard": true, "focus": true, "contrast": true, "motion": true, "captions": true, "journey": true}
+	for i := range raw.Checks {
+		d := &raw.Checks[i]
+		d.Name = strings.TrimSpace(d.Name)
+		d.Command = strings.TrimSpace(d.Command)
+		d.WorkingDirectory = strings.TrimSpace(d.WorkingDirectory)
+		if d.TimeoutSeconds == 0 {
+			d.TimeoutSeconds = 600
+		}
+		s := d.Accessibility
+		if d.Name == "" || names[d.Name] || d.Command == "" || d.TimeoutSeconds < 1 || d.TimeoutSeconds > 1800 || !safeRelative(d.WorkingDirectory) || s == nil || len(s.ScenarioIDs) == 0 || len(s.Evaluations) == 0 || len(s.Inputs) == 0 || len(s.AffectedAudiences) == 0 || len(d.Dependencies) != 0 {
+			return nil, errors.New("invalid accessibility check manifest")
+		}
+		for _, e := range s.Evaluations {
+			if !validEval[e] {
+				return nil, errors.New("invalid accessibility check manifest")
+			}
+		}
+		for _, p := range s.Inputs {
+			if p == "" || !safeRelative(p) {
+				return nil, errors.New("invalid accessibility check manifest")
+			}
+		}
+		for _, e := range s.RequiresHumanEvaluation {
+			if !validEval[e] {
+				return nil, errors.New("invalid accessibility check manifest")
+			}
+		}
+		d.Kind = "accessibility"
+		names[d.Name] = true
+	}
+	return raw.Checks, nil
 }
 
 func readDocumentationManifest(repository *storage.Repository, commitID storage.ObjectID) ([]Definition, error) {

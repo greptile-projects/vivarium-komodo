@@ -25,6 +25,37 @@ results remain distinct and attributable. The `view=accessibility` workspace
 supports both safe reporting and reproduction; neither action grants access to
 the cited runtime or any repository or delivery authority.
 
+## Accountable accessibility assessment
+
+An open pull request freezes declared journeys and their source paths at its
+exact source revision through `POST
+/repositories/{repository}/pull-requests/{pull}/accessibility-assessments`.
+Each scenario names affected audiences and the required semantics, keyboard,
+focus, contrast, motion, caption, and whole-journey evaluation dimensions. The
+server captures source blob identities rather than trusting caller-supplied
+digests.
+
+Schema-version `1` `.komodo/accessibility-checks.json` definitions execute as
+ordinary isolated pull-request checks. A definition declares `scenario_ids`,
+`evaluations`, `inputs`, `affected_audiences`, and optional
+`requires_human_evaluation` beside its bounded command and artifacts. Successful
+evidence may be reused at a later revision only when all declared input blobs
+are unchanged. Attaching its run under an assessment explains exactly what the
+machine proved and preserves the explicit human-only remainder.
+
+Repository readers, accessibility specialists, and credentialed read-only
+agents add `/findings` from a permitted preview or an existing barrier report
+with a revision-exact reproduction. Findings retain result, severity, affected
+audiences, source locations, uncertainty, attribution, and whether a person
+must evaluate the behavior. Repository writers append immutable `confirmed`,
+`duplicate`, or `false_positive` decisions with rationale. A changed pull
+revision compares current source blobs with each finding and check input: only
+affected evidence is stale, its judgment remains visible, and unrelated
+coverage remains current. Derived gaps enumerate every declared scenario and
+evaluation dimension without current evidence. Repository-wide reads are at
+`/repositories/{repository}/accessibility-assessments`; the same projection is
+shown in the pull Accessibility section and `view=accessibility` workspace.
+
 ## Governed project funds
 
 Repository writers create resource contracts through `POST

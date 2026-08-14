@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilityassessments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilitybarriers"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilitycommitments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
@@ -310,6 +311,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	accessibilityAssessmentRoot := os.Getenv("ACCESSIBILITY_ASSESSMENT_ROOT")
+	if accessibilityAssessmentRoot == "" {
+		accessibilityAssessmentRoot = "data/accessibility-assessments"
+	}
+	accessibilityAssessmentStore, err := accessibilityassessments.New(accessibilityAssessmentRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	projectFundRoot := os.Getenv("PROJECT_FUND_ROOT")
 	if projectFundRoot == "" {
 		projectFundRoot = "data/project-funds"
@@ -463,6 +472,7 @@ func main() {
 	registerPerformanceGoalsHTTP(mux, performanceGoalStore, repositoryCatalog, releaseStore, credentials, pullRequestStore)
 	registerAccessibilityCommitmentsHTTP(mux, accessibilityCommitmentStore, repositoryCatalog, credentials)
 	registerAccessibilityBarriersHTTP(mux, accessibilityBarrierStore, repositoryCatalog, credentials, accessibilityBarrierSources{releases: releaseStore, docs: documentationStore, previews: previewStore, workspaces: workspaceStore, repositories: repositoryCatalog})
+	registerAccessibilityAssessmentsHTTP(mux, accessibilityAssessmentStore, repositoryCatalog, credentials, accessibilityAssessmentSources{pulls: pullRequestStore, runs: checkRunStore, previews: previewStore, barriers: accessibilityBarrierStore, repositories: repositoryCatalog})
 	registerProjectFundsHTTP(mux, projectFundStore, repositoryCatalog, credentials)
 	registerPerformanceInvestigationsHTTP(mux, performanceInvestigationStore, performanceGoalStore, repositoryCatalog, credentials, proposalStore)
 	registerProductExperimentsHTTP(mux, productExperimentStore, repositoryCatalog, credentials, pullRequestStore, releaseStore, deploymentStore)
