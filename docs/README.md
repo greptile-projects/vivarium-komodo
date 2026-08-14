@@ -3598,6 +3598,31 @@ by a typed bounded reference: its body is never copied into the data-flow store
 or broader privacy workspace. Flow evidence is explanatory and grants no data,
 source, extension, release, environment, credential, or operational authority.
 
+## Synthetic runtime privacy verification
+
+Repositories declare version-1 privacy checks in
+`.komodo/privacy-checks.json`. Each check names synthetic journeys, exact code
+and fixture inputs, applicable data-use commitments, retained sanitized
+artifacts, and the behaviors it covers: collection, consent, minimization,
+access, retention, export, deletion, telemetry, and recipients. The ordinary
+check runner materializes only the candidate commit in a credential-free,
+networkless sandbox. Privacy checks cannot inject environment secrets; their
+logs and artifacts are sanitized before durable pull-request evidence is
+published. Successful evidence can be reused only when every declared input
+blob is unchanged, with the original run retained as explicit provenance.
+
+Repository owners configure `/privacy-verification-policies` against an exact
+data-use commitment version, target branches and paths, required check names,
+coverage, and named privacy owners. A named owner acknowledges only an exact
+pull-request preview revision. Readiness rejects missing, failed, stale, or
+incomplete evidence and stale or rejected owner acknowledgement. A justified
+exception is limited to named checks or dimensions, expires within 90 days, and
+must link an issue, proposal, or task; expiry restores the blocker. Pull-request
+readiness and merge use this assessment directly, and
+`/releases/privacy-readiness` applies the same evidence to an exact release
+candidate. These records demonstrate bounded runtime behavior but grant no
+production data, preview, repository, merge, release, or operational authority.
+
 ## Pull-request privacy impact assessments
 
 `/repositories/{repository}/pull-requests/{pull}/privacy-assessments` compares

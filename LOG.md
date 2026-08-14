@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-14T14:11:16Z: Added synthetic exact-revision privacy checks with sanitized logs/artifacts and input-bound reuse, plus commitment-scoped policies requiring current behavioral coverage and exact-preview privacy-owner acknowledgement. Merge and release assessments retain stale/failed evidence and scoped, expiring follow-up-linked exceptions beneath `$PRIVACY_VERIFICATION_ROOT`; full API tests and vet pass.
+
 2026-08-13T22:44:30Z: Added consent-aware post-delivery product learning with audience-projected participant updates, reporter outcome validation and dissent, scoped opt-out, and versioned promised-versus-observed lessons tied to current roadmaps and retained opportunity dispositions. Durable records live beneath `$PRODUCT_LEARNING_ROOT`; the full API suite, vet, web lint, and production build pass.
 
 2026-08-13T03:52:22Z: Added exact-revision and attested-release performance trials with sanitized workload digests, warmups, raw samples, derived variance, resource profiles, bounded evidence, costs, and rerun lineage. Repository readers can inspect comparable evidence on the Performance surface while credential-like data and unattested revisions are rejected.

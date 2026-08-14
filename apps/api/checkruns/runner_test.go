@@ -88,6 +88,69 @@ func TestRunnerExecutesVersionedManifestAgainstExactSnapshot(t *testing.T) {
 	}
 }
 
+func TestPrivacyEvidenceSanitizer(t *testing.T) {
+	got := sanitizePrivacyOutput("email=person@example.test token=secret Authorization: Bearer Cookie: session=abc\n")
+	if got != "email=[REDACTED] token=[REDACTED] Authorization:[REDACTED] Cookie:[REDACTED]\n" {
+		t.Fatalf("sanitized output = %q", got)
+	}
+}
+
+func TestPrivacyCheckRunsWithSyntheticExactInputAndSanitizedEvidence(t *testing.T) {
+	gitStore, _ := storage.New(t.TempDir())
+	repository, _ := gitStore.Create()
+	input, _ := repository.WriteObject(storage.BlobObject, []byte("synthetic-user\n"))
+	checks, _ := repository.WriteObject(storage.BlobObject, []byte(`{"version":1,"checks":[{"name":"unit","command":"true"}]}`))
+	privacy, _ := repository.WriteObject(storage.BlobObject, []byte(`{"version":1,"checks":[{"name":"privacy/account","command":"printf 'email=person@example.test token=secret\\n'; printf 'Cookie: session=abc\\n' > privacy.trace","artifacts":["privacy.trace"],"privacy":{"journey_ids":["account-lifecycle"],"dimensions":["consent","deletion","recipient"],"inputs":["journey.txt"],"commitment_ids":["data-use-v2"],"synthetic_data":true,"requires_preview":true}}]}`))
+	config, _ := repository.WriteObject(storage.TreeObject, tree(t, map[string]treeItem{"checks.json": {checks, 0o100644}, "privacy-checks.json": {privacy, 0o100644}}))
+	root, _ := repository.WriteObject(storage.TreeObject, tree(t, map[string]treeItem{".komodo": {config, 0o40000}, "journey.txt": {input, 0o100644}}))
+	commit, _ := repository.WriteObject(storage.CommitObject, []byte("tree "+string(root)+"\nauthor A <a@example.com> 1 +0000\ncommitter A <a@example.com> 1 +0000\n\nprivacy\n"))
+	store, _ := New(t.TempDir())
+	runner := NewRunner(store, testRepositories{repository})
+	if err := runner.Start(string(repository.ID()), string(repository.ID()), "pull-privacy", string(commit)); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		runs, _ := store.List(string(repository.ID()), "pull-privacy")
+		if len(runs) == 2 {
+			for _, run := range runs {
+				if run.Definition.Privacy == nil {
+					continue
+				}
+				if run.State == Failed {
+					t.Fatalf("privacy run failed: %#v", run)
+				}
+				if run.State != Succeeded {
+					break
+				}
+				var log string
+				var artifact *Artifact
+				for _, event := range run.Events {
+					log += event.Message
+					if event.Artifact != nil {
+						artifact = event.Artifact
+					}
+				}
+				if log != "email=[REDACTED] token=[REDACTED]\n" || artifact == nil {
+					t.Fatalf("unsanitized evidence: %q %#v", log, artifact)
+				}
+				_, file, e := store.OpenArtifact(string(repository.ID()), "pull-privacy", run.ID, artifact.ID)
+				if e != nil {
+					t.Fatal(e)
+				}
+				body, _ := io.ReadAll(file)
+				_ = file.Close()
+				if string(body) != "Cookie:[REDACTED]\n" {
+					t.Fatalf("artifact=%q", body)
+				}
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("privacy check did not complete")
+}
+
 func TestRunnerExecutesUpstreamCheckAgainstForkSnapshot(t *testing.T) {
 	gitStore, _ := storage.New(t.TempDir())
 	upstream, _ := gitStore.Create()

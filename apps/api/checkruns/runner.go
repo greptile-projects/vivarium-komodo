@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ const ReleaseManifestPath = ".komodo/releases.json"
 const EvolutionManifestPath = ".komodo/evolution-checks.json"
 const DocumentationManifestPath = ".komodo/documentation-checks.json"
 const AccessibilityManifestPath = ".komodo/accessibility-checks.json"
+const PrivacyManifestPath = ".komodo/privacy-checks.json"
 
 type repositoryOpener interface {
 	Open(storage.ID) (*storage.Repository, error)
@@ -168,7 +170,100 @@ func (r *Runner) Start(repositoryID, sourceRepositoryID, pullRequestID, commitID
 			go r.execute(run.ID)
 		}
 	}
+	privacy, err := readPrivacyManifest(repository, storage.ObjectID(commitID))
+	if err != nil {
+		return err
+	}
+	previous, _ = r.store.List(repositoryID, pullRequestID)
+	for _, definition := range privacy {
+		digest, digestErr := documentationInputDigest(repository, storage.ObjectID(commitID), definition.Privacy.Inputs)
+		if digestErr != nil {
+			return digestErr
+		}
+		definition.Privacy.InputDigest = digest
+		var reused *Run
+		for i := len(previous) - 1; i >= 0; i-- {
+			c := &previous[i]
+			if c.State == Succeeded && c.Definition.Name == definition.Name && c.Definition.Privacy != nil && c.Definition.Privacy.InputDigest == digest {
+				reused = c
+				break
+			}
+		}
+		run, createErr := r.store.CreateForSource(repositoryID, sourceRepositoryID, pullRequestID, commitID, definition)
+		if createErr != nil {
+			return createErr
+		}
+		if reused != nil {
+			run.Definition.Privacy.ReusedFromRunID = reused.ID
+			_ = r.store.write(run)
+			started, _ := r.store.Start(run.ID)
+			_ = r.store.AppendLog(started.ID, "stdout", "Privacy evidence remains current: declared inputs are unchanged; reused "+reused.ID+".\n")
+			completed, _ := r.store.Complete(started.ID, 0, false, "unaffected privacy evidence reused")
+			if r.onComplete != nil {
+				r.onComplete(completed)
+			}
+		} else {
+			go r.execute(run.ID)
+		}
+	}
 	return nil
+}
+
+func readPrivacyManifest(repository *storage.Repository, commitID storage.ObjectID) ([]Definition, error) {
+	commit, err := repository.ReadCommit(commitID)
+	if err != nil {
+		return nil, err
+	}
+	entry, found, err := findEntry(repository, commit.Tree, strings.Split(PrivacyManifestPath, "/"))
+	if err != nil || !found {
+		return nil, err
+	}
+	object, err := repository.ReadObject(entry.ObjectID)
+	if err != nil {
+		return nil, err
+	}
+	var raw struct {
+		Version int          `json:"version"`
+		Checks  []Definition `json:"checks"`
+	}
+	dec := json.NewDecoder(strings.NewReader(string(object.Content)))
+	dec.DisallowUnknownFields()
+	if dec.Decode(&raw) != nil || raw.Version != 1 || len(raw.Checks) == 0 || len(raw.Checks) > 20 {
+		return nil, errors.New("invalid privacy check manifest")
+	}
+	dims := map[string]bool{"collection": true, "consent": true, "minimization": true, "access": true, "retention": true, "export": true, "deletion": true, "telemetry": true, "recipient": true}
+	names := map[string]bool{}
+	for i := range raw.Checks {
+		d := &raw.Checks[i]
+		d.Name = strings.TrimSpace(d.Name)
+		d.Command = strings.TrimSpace(d.Command)
+		d.WorkingDirectory = strings.TrimSpace(d.WorkingDirectory)
+		if d.TimeoutSeconds == 0 {
+			d.TimeoutSeconds = 600
+		}
+		s := d.Privacy
+		if d.Name == "" || names[d.Name] || d.Command == "" || d.TimeoutSeconds < 1 || d.TimeoutSeconds > 1800 || !safeRelative(d.WorkingDirectory) || s == nil || !s.SyntheticData || !s.RequiresPreview || len(s.JourneyIDs) == 0 || len(s.Dimensions) == 0 || len(s.Inputs) == 0 || len(s.CommitmentIDs) == 0 || len(d.Dependencies) != 0 || len(d.Environment) != 0 {
+			return nil, errors.New("invalid privacy check manifest")
+		}
+		for _, x := range s.Dimensions {
+			if !dims[x] {
+				return nil, errors.New("invalid privacy check manifest")
+			}
+		}
+		for _, p := range s.Inputs {
+			if p == "" || !safeRelative(p) {
+				return nil, errors.New("invalid privacy check manifest")
+			}
+		}
+		for _, p := range d.Artifacts {
+			if p == "" || !safeRelative(p) {
+				return nil, errors.New("invalid privacy check manifest")
+			}
+		}
+		d.Kind = "privacy"
+		names[d.Name] = true
+	}
+	return raw.Checks, nil
 }
 
 func readAccessibilityManifest(repository *storage.Repository, commitID storage.ObjectID) ([]Definition, error) {
@@ -637,8 +732,9 @@ func (r *Runner) execute(id string) {
 	commandErr := command.Start()
 	if commandErr == nil {
 		done := make(chan struct{}, 2)
-		go r.capture(id, "stdout", stdout, done)
-		go r.capture(id, "stderr", stderr, done)
+		privacy := run.Definition.Privacy != nil
+		go r.capture(id, "stdout", stdout, privacy, done)
+		go r.capture(id, "stderr", stderr, privacy, done)
 		commandErr = command.Wait()
 		<-done
 		<-done
@@ -666,6 +762,9 @@ func (r *Runner) execute(id string) {
 		}
 		content, readErr := os.ReadFile(path)
 		if readErr == nil {
+			if run.Definition.Privacy != nil {
+				content = []byte(sanitizePrivacyOutput(string(content)))
+			}
 			mediaType := mime.TypeByExtension(filepath.Ext(path))
 			if mediaType == "" {
 				mediaType = "application/octet-stream"
@@ -679,18 +778,26 @@ func (r *Runner) execute(id string) {
 	}
 }
 
-func (r *Runner) capture(id, stream string, reader io.Reader, done chan<- struct{}) {
+func (r *Runner) capture(id, stream string, reader io.Reader, privacy bool, done chan<- struct{}) {
 	defer func() { done <- struct{}{} }()
 	buffer := make([]byte, 16<<10)
 	for {
 		n, err := reader.Read(buffer)
 		if n > 0 {
-			_ = r.store.AppendLog(id, stream, string(buffer[:n]))
+			message := string(buffer[:n])
+			if privacy {
+				message = sanitizePrivacyOutput(message)
+			}
+			_ = r.store.AppendLog(id, stream, message)
 		}
 		if err != nil {
 			return
 		}
 	}
+}
+
+func sanitizePrivacyOutput(s string) string {
+	return regexp.MustCompile(`(?i)(email=|token=|authorization:|cookie:)\s*[^\s]+`).ReplaceAllString(s, `$1[REDACTED]`)
 }
 
 func materialize(repository *storage.Repository, treeID storage.ObjectID, root string) error {

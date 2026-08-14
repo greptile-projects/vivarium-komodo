@@ -1797,6 +1797,22 @@ only an explicit inaccessible state and bounded reference. Maps and findings
 grant no data, repository, extension, release, environment, credential, or
 operational authority.
 
+Runtime privacy verification policy lives beneath `$PRIVACY_VERIFICATION_ROOT`
+(default `apps/api/data/privacy-verifications`). Schema-version `1`
+`.komodo/privacy-checks.json` declarations bind synthetic journeys, exact input
+blobs, data-use commitments, and coverage for collection, consent,
+minimization, access, retention, export, deletion, telemetry, and recipients.
+They run in the ordinary credential-free, networkless exact-revision check
+sandbox; privacy logs and artifacts are sanitized before retention, and
+unchanged declared inputs may reuse successful evidence with explicit lineage.
+Owner policies scope required current checks and coverage by branch and path.
+Only named privacy owners can acknowledge evidence from an exact preview;
+candidate changes stale both evidence and acknowledgement. Scoped exceptions
+must expire within 90 days and cite an issue, proposal, or task. The same
+assessment governs pull-request merge and exact-candidate release readiness
+without granting data, preview, repository, merge, release, or operational
+authority.
+
 Pull-request privacy impact assessments live beneath
 `$PRIVACY_ASSESSMENT_ROOT` (default `apps/api/data/privacy-assessments`). Each
 assessment binds exact candidate and target commits, cited flow maps,
