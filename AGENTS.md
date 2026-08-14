@@ -1797,6 +1797,17 @@ only an explicit inaccessible state and bounded reference. Maps and findings
 grant no data, repository, extension, release, environment, credential, or
 operational authority.
 
+Pull-request privacy impact assessments live beneath
+`$PRIVACY_ASSESSMENT_ROOT` (default `apps/api/data/privacy-assessments`). Each
+assessment binds exact candidate and target commits, cited flow maps,
+commitment versions, and server-captured source blobs. It classifies collection,
+purpose, recipient, retention, access, and user-control changes and assigns
+owner acknowledgements, notices, consent changes, migrations, tests, or
+exceptions. Readers and scoped agents may append cited challenges, mitigations,
+and residual risk; only named requirement owners acknowledge. A changed pull
+revision or cited blob makes evidence and prior acceptance stale. These records
+grant no data, repository, merge, release, credential, or operational authority.
+
 ## LADDER.md
 
 `/LADDER.md` at the repo root is **not part of this repository**. It is placed

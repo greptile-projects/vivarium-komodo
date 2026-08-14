@@ -24,6 +24,7 @@ import { ProductExperiments } from "@/components/product-experiments";
 import { ProductFeedback } from "@/components/product-feedback";
 import { DataCommitments } from "@/components/data-commitments";
 import { DataFlows } from "@/components/data-flows";
+import { PrivacyAssessments } from "@/components/privacy-assessments";
 import {
   Book,
   Branch,
@@ -9691,7 +9692,7 @@ function PullRequestDetail({
           onChanged={() => void load()}
         />
       ) : active === "accessibility" ? (
-        <AccessibilityAssessments repository={repository} actor={actor} pull={item.id} revision={item.source_commit_id} />
+		<><AccessibilityAssessments repository={repository} actor={actor} pull={item.id} revision={item.source_commit_id} /><PrivacyAssessments repository={repository} pull={item.id} revision={item.source_commit_id} targetRevision={item.target_commit_id} /></>
       ) : (
         <PullDiscussion
           repository={repository}
