@@ -29,3 +29,26 @@ func TestAssessmentSeparatesEvidenceAndInvalidatesOnlyAffectedSources(t *testing
 		t.Fatalf("affected source change retained stale acceptance: %#v", a)
 	}
 }
+
+func TestConfirmedFindingRetainsGovernedRepairAndDeliveryProgress(t *testing.T) {
+	s, _ := New(t.TempDir())
+	a, _ := s.Create("repo", "pull", "owner", Input{Revision: "base", CommitmentID: "commitment", CommitmentVersion: 2, Scenarios: []Scenario{{ID: "dialog", Name: "Use dialog", Journey: "Open and close", Audiences: []string{"keyboard users"}, Evaluations: []string{"focus"}, Locations: []Location{{Path: "dialog.go", BlobID: "old"}}, Digest: "digest"}}})
+	a, _ = s.AddFinding("repo", "pull", a.ID, "specialist", FindingInput{ScenarioID: "dialog", Evaluation: "focus", Result: "barrier", Severity: "high", Audiences: []string{"keyboard users"}, Locations: []Location{{Path: "dialog.go", BlobID: "old"}}, Summary: "Focus is lost", Citation: Citation{Kind: "reproduction", ResourceID: "barrier", EvidenceIDs: []string{"tree"}}})
+	fid := a.Findings[0].ID
+	if _, _, err := s.CreateRepair("repo", "pull", a.ID, fid, "owner", Repair{Revision: "base", AcceptanceCriteria: []string{"Focus returns to the opener"}, CommitmentID: "commitment", CommitmentVersion: 2, ComponentGuidance: []string{"Use the shared dialog focus helper"}, OwnerKind: "agent", OwnerID: "codex", ProposalID: "proposal", TaskID: "task"}); err == nil {
+		t.Fatal("unconfirmed finding created delivery work")
+	}
+	a, _ = s.Decide("repo", "pull", a.ID, fid, "owner", DecisionInput{Outcome: "confirmed", Rationale: "Reproduced from the retained accessibility tree"})
+	a, repair, err := s.CreateRepair("repo", "pull", a.ID, fid, "owner", Repair{Revision: "base", AcceptanceCriteria: []string{"Focus returns to the opener"}, EvidenceIDs: []string{"tree"}, CommitmentID: "commitment", CommitmentVersion: 2, ComponentGuidance: []string{"Use the shared dialog focus helper"}, OwnerKind: "agent", OwnerID: "codex", ProposalID: "proposal", TaskID: "task", ChangeSessionID: "session"})
+	if err != nil || repair.CreatedByID != "owner" || len(repair.Progress) != 1 {
+		t.Fatalf("repair provenance missing: %#v, %v", repair, err)
+	}
+	a, err = s.AddRepairProgress("repo", "pull", a.ID, fid, repair.ID, "codex", "in_progress", "Implementing the focus handoff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err = s.LinkRepairDelivery("repo", "pull", a.ID, fid, repair.ID, "owner", RepairDelivery{PullRequestID: "repair-pull", Revision: "candidate", PreviewID: "preview", DesignChanges: []string{"Return focus on close"}, CodeChanges: []string{"Use the dialog helper"}, InteractionTradeoffs: []string{"Delay close until focus target resolves"}, ContentTradeoffs: []string{"Keep the existing close label"}})
+	if err != nil || a.Findings[0].Repair.Delivery.LinkedByID != "owner" || len(a.Findings[0].Repair.Progress) != 3 {
+		t.Fatalf("delivery did not report to original finding: %#v, %v", a.Findings[0].Repair, err)
+	}
+}

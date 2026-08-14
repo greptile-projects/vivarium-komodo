@@ -409,6 +409,19 @@ repository `view=accessibility` show proved coverage, lived experience,
 human-evaluation requirements, and unevaluated scenario dimensions. Assessments
 grant no preview, workspace, agent, review, merge, or operational authority.
 
+Confirmed current findings extend into governed delivery beneath their
+`/repairs` resource. A repository writer selects an existing proposal and
+creates a human- or approved-agent-owned task at the assessment revision, with
+immutable acceptance criteria, permitted reproduction evidence IDs, an exact
+accessibility commitment version, and component guidance. The writer may also
+preload an ordinary pull-request change session or shared workspace; those
+resources retain their own credential and access boundaries. Attributable
+progress remains on the original finding. A delivery link is accepted only
+from the repair task's ordinary pull request and an exact-source-revision
+preview, and retains separate design and code changes plus interaction and
+content tradeoffs. Findings and repairs grant no repository, agent, credential,
+review, preview, or merge authority.
+
 Accessibility barrier reports live beneath `$ACCESSIBILITY_BARRIER_ROOT`
 (default `apps/api/data/accessibility-barriers`). Authenticated repository
 readers report release-, page-, documentation-journey-, or preview-scoped
