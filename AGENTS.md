@@ -390,6 +390,20 @@ conflicting requirements across overlapping current scopes. The repository web
 surface is `view=accessibility`; commitments and evidence grant no repository,
 review, merge, release, credential, or operational authority.
 
+Accessibility barrier reports live beneath `$ACCESSIBILITY_BARRIER_ROOT`
+(default `apps/api/data/accessibility-barriers`). Authenticated repository
+readers report release-, page-, documentation-journey-, or preview-scoped
+barriers at a server-verified exact revision with access needs, expected
+outcome, interaction steps, consent-scoped device context, and explicitly
+redacted screenshots, recordings, accessibility trees, speech output, or input
+traces. Viewer projections hide reporter identity, sensitive device details,
+and evidence bodies outside their declared audience. Repository writers retain
+reproduction attempts only against an existing preview or bounded workspace at
+the same exact revision and classify the result as reproducible, intermittent,
+environment-specific, or unconfirmed. The repository web surface remains
+`view=accessibility`; reports and attempts grant no repository, workspace,
+preview, credential, review, merge, or operational authority.
+
 Repository performance contracts live beneath `$PERFORMANCE_GOAL_ROOT` (default
 `apps/api/data/performance-goals`). Collaborators publish immutable,
 optimistically concurrency-checked versions for a repository, release, user
