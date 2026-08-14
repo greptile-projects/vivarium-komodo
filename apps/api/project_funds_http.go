@@ -26,6 +26,10 @@ type projectFundStore interface {
 	SelectDeliveryProposal(string, string, string, string, projectfunds.SelectDeliveryProposalInput) (projectfunds.DeliveryProposal, error)
 	GetDeliveryProposal(string, string, string) (projectfunds.DeliveryProposal, error)
 	ListDeliveryProposals(string, string) ([]projectfunds.DeliveryProposal, error)
+	RecordProgress(string, string, string, string, projectfunds.ProgressInput) (projectfunds.DeliveryProposal, error)
+	SubmitExpense(string, string, string, string, projectfunds.ExpenseInput) (projectfunds.DeliveryProposal, error)
+	DecideExpense(string, string, string, string, string, projectfunds.ExpenseDecisionInput) (projectfunds.DeliveryProposal, error)
+	ControlExecution(string, string, string, string, projectfunds.ExecutionControlInput) (projectfunds.DeliveryProposal, error)
 }
 
 func registerProjectFundsHTTP(mux *http.ServeMux, store projectFundStore, repos proposalRepositoryStore, credentials authStore) {
@@ -279,6 +283,66 @@ func registerProjectFundsHTTP(mux *http.ServeMux, store projectFundStore, repos 
 			return
 		}
 		p, e := store.SelectDeliveryProposal(string(repo.ID), r.PathValue("outcome"), r.PathValue("deliveryProposal"), a.UserID, in)
+		if fundError(w, e) {
+			return
+		}
+		writeJSON(w, 200, p)
+	})
+	mux.HandleFunc("POST "+proposals+"/{deliveryProposal}/progress", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in projectfunds.ProgressInput
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		p, e := store.RecordProgress(string(repo.ID), r.PathValue("outcome"), r.PathValue("deliveryProposal"), a.UserID, in)
+		if fundError(w, e) {
+			return
+		}
+		writeJSON(w, 201, p)
+	})
+	mux.HandleFunc("POST "+proposals+"/{deliveryProposal}/expenses", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in projectfunds.ExpenseInput
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		p, e := store.SubmitExpense(string(repo.ID), r.PathValue("outcome"), r.PathValue("deliveryProposal"), a.UserID, in)
+		if fundError(w, e) {
+			return
+		}
+		writeJSON(w, 201, p)
+	})
+	mux.HandleFunc("POST "+proposals+"/{deliveryProposal}/expenses/{expense}/decision", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in projectfunds.ExpenseDecisionInput
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		p, e := store.DecideExpense(string(repo.ID), r.PathValue("outcome"), r.PathValue("deliveryProposal"), r.PathValue("expense"), a.UserID, in)
+		if fundError(w, e) {
+			return
+		}
+		writeJSON(w, 200, p)
+	})
+	mux.HandleFunc("POST "+proposals+"/{deliveryProposal}/controls", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in projectfunds.ExecutionControlInput
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		p, e := store.ControlExecution(string(repo.ID), r.PathValue("outcome"), r.PathValue("deliveryProposal"), a.UserID, in)
 		if fundError(w, e) {
 			return
 		}

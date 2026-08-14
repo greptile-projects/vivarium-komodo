@@ -57,6 +57,7 @@ type Reservation struct {
 	ProposalID string    `json:"delivery_proposal_id"`
 	Recipient  string    `json:"recipient_id"`
 	Amount     int64     `json:"amount"`
+	Spent      int64     `json:"spent"`
 	State      string    `json:"state"`
 	CreatedBy  string    `json:"created_by_id"`
 	CreatedAt  time.Time `json:"created_at"`
@@ -236,8 +237,13 @@ func derive(f *Fund) {
 	}
 	for _, r := range f.Reservations {
 		if r.State == "active" {
-			f.Balances.Reserved += r.Amount
+			remaining := r.Amount - r.Spent
+			f.Balances.Reserved += remaining
+			f.Balances.Spent += r.Spent
 			f.Balances.Available -= r.Amount
+		} else if r.State == "completed" || r.State == "cancelled" {
+			f.Balances.Spent += r.Spent
+			f.Balances.Available -= r.Spent
 		}
 	}
 }

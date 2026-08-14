@@ -67,6 +67,28 @@ proposal tasks or a delivery team. Fund reads report reserved value separately.
 Requested access is descriptive: neither selection nor compensation grants
 repository, secret, credential, merge, environment, or withdrawal authority.
 
+### Visible funded execution
+
+A selected recipient reports milestone execution through the delivery
+proposal's `/progress` resource. Each immutable observation carries its
+milestone status and percentage, summary, agent compute, forecast date, access
+and handoff health, and bounded references to established proposal tasks,
+sessions, workspaces, forks, pull requests, checks, previews, or delivery
+teams. The funded-outcome detail projects every selected execution with its
+current progress, evidence, reservation, approved expense total, compute,
+changes, blockers, and remaining-budget forecast, while the cited resources
+continue to enforce their own permissions.
+
+Recipients submit evidenced costs through `/expenses`; only a named fund
+steward can decide them, and approval atomically moves value from reserved to
+spent. Steward `/controls` can pause or resume work, replace the active
+recipient, cancel the unspent reservation, or change its budget within the
+outcome, fund allocation, recipient, and settled-availability limits. Reported
+inactivity, revoked access, failed handoffs, overruns, pauses, and cancellation
+block new expense submission or approval. Controls and replacement preserve all
+legitimate progress and evidence and never grant repository, credential,
+review, merge, environment, or fund-withdrawal authority.
+
 The complete discovery regression is `product_discovery_workflow_test.go`. It
 connects released-product feedback, opportunity synthesis and challenge,
 transparent roadmap acceptance and rejection, consent-bound validation,
