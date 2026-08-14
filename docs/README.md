@@ -3599,6 +3599,28 @@ unrelated repository write access. Durable state lives beneath
 `$TRANSLATION_UNIT_ROOT` (default `apps/api/data/translation-units`) and the web
 workspace is `view=locales`.
 
+### Grounded collaborative translation
+
+Extraction can bind `locale_plan_id` and its current
+`locale_plan_version`, freezing preferred and avoided terminology plus the
+plan's locale-specific reviewers. The localization configuration may also
+declare bounded `product_context`, `protected` or `embargoed` content, and
+`permitted_actor_ids`; inaccessible work is omitted from repository extraction
+lists as well as rejected at its detail and mutation routes.
+
+Readers coordinate a locale through `/translation-units/claims` using the
+latest claim version, with attributable release and permission-checked handoff.
+Unit `/discussion` retains linguistic judgment next to its exact source.
+`/suggestions` records the requesting human, scoped agent, exact revision,
+suggested text, evidence references, and uncertainty. A human other than that
+agent must approve, edit, reject, or escalate the result. Approval or editing
+creates a human-authored proposal that retains its agent-suggestion origin;
+the agent cannot approve itself. Proposal `/reviews` enforce the reviewers
+frozen from the locale plan and retain rationale. Concurrent claims, protected
+content, embargoes, source supersession, handoffs, and review decisions remain
+explicit without granting Git, translation-provider, credential, merge, or
+release authority.
+
 # Versioned data-use commitments
 
 Repository privacy engineering begins at

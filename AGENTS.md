@@ -1877,6 +1877,20 @@ translations without deleting history. Extraction and proposals grant no Git,
 repository-write, review, merge, release, translation-provider, credential, or
 operational authority. The shareable repository surface remains `view=locales`.
 
+Collaborative translation stays on that exact extraction. Repository readers
+claim locale work with optimistic versions, hand it to another permitted
+collaborator, and append unit-scoped discussion without receiving source-write
+access. An extraction may freeze a current locale-plan version so approved
+terminology and required regional reviewers remain visible even if the plan
+later changes. Agent suggestions bind the exact source revision and product
+context, name the scoped agent and requesting human, and require cited evidence
+plus explicit uncertainty. They remain pending until a different human edits,
+approves, rejects, or escalates them; accepted text is attributed to that human
+and retains its agent origin. Proposal reviews enforce the frozen reviewer set.
+Protected or embargoed extraction content is omitted from both list and detail
+reads outside its explicit actor audience, and the same boundary covers claims,
+discussion, proposals, suggestions, decisions, reviews, and handoffs.
+
 ## LADDER.md
 
 `/LADDER.md` at the repo root is **not part of this repository**. It is placed
