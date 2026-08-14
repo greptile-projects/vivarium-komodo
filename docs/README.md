@@ -3556,3 +3556,24 @@ contains a guardrail-breaching attempt, and progressively runs a separately
 identified retry. The final analysis preserves agent uncertainty and human
 dissent; the acknowledged decision links rollout evidence before cleanup retires
 obsolete targeting and collection without deleting aggregate learning.
+
+# Versioned data-use commitments
+
+Repository privacy engineering begins at
+`/repositories/{repository}/data-commitments`. Writers define immutable terms
+for repository, release, extension, experiment, and environment scopes; readers
+see the current version and its full attributable history. Every permitted use
+names its data categories, purposes, subjects, collection mechanism, processing,
+recipients, retention, residency, deletion behavior, consent basis, and owners.
+Each version must link both an applicable policy and a user-facing notice.
+
+Guarantees are explicit as `supported`, `partial`, or `unsupported`; partial and
+unsupported claims require a rationale and remain visible blockers. Missing
+commitment or per-use ownership is also derived rather than hidden. Time-bounded
+exceptions identify affected uses and guarantees, approver, reason, and expiry;
+the reader flags them during their last 30 days and after expiry. When current
+commitments overlap on the same scope, category, and subject but disagree on
+purpose, retention, deletion, or consent, both retain a reciprocal conflict
+blocker. These records explain permitted handling before implementation and do
+not themselves authorize data access, collection, release, deployment, extension
+execution, or experiment exposure. The repository web surface is `view=privacy`.

@@ -1769,6 +1769,19 @@ whenever dependencies change or the web job fails before it starts.
 - **Docs** — `docs/README.md` records decisions once they're made, not before.
   Update it when you change how the apps fit together, not for every change.
 
+Repository data-use commitments live beneath `$DATA_COMMITMENT_ROOT` (default
+`apps/api/data/data-commitments`). Repository writers publish immutable,
+optimistic-concurrency versions across repository, release, extension,
+experiment, and environment scopes. Each version explicitly declares data
+categories, purposes, subjects, collection, processing, sharing, retention,
+residency, deletion, consent, accountable owners, supported or unsupported
+guarantees, applicable policy and user-facing notice links, and attributable
+time-bounded exceptions. Repository readers can inspect complete history and
+derived missing-ownership, unsupported-guarantee, conflicting-term, and
+expiring or expired-exception blockers at `view=privacy`. A declaration or
+exception is project evidence only and grants no repository, data, extension,
+experiment, environment, credential, or operational authority.
+
 ## LADDER.md
 
 `/LADDER.md` at the repo root is **not part of this repository**. It is placed

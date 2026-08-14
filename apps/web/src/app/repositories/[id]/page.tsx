@@ -22,6 +22,7 @@ import { AccessibilityAssessments } from "@/components/accessibility-assessments
 import { ProjectFunds } from "@/components/project-funds";
 import { ProductExperiments } from "@/components/product-experiments";
 import { ProductFeedback } from "@/components/product-feedback";
+import { DataCommitments } from "@/components/data-commitments";
 import {
   Book,
   Branch,
@@ -1258,6 +1259,8 @@ export default function RepositoryPage({
                               ? "performance"
                             : query.view === "accessibility"
                               ? "accessibility"
+                            : query.view === "privacy"
+                              ? "privacy"
                             : query.view === "experiments"
                               ? "experiments"
                             : query.view === "feedback"
@@ -1330,6 +1333,7 @@ export default function RepositoryPage({
         view === "funds" ||
         view === "performance" ||
         view === "accessibility" ||
+        view === "privacy" ||
         view === "experiments" ||
         view === "feedback" ||
         view === "issues" ||
@@ -1630,6 +1634,13 @@ export default function RepositoryPage({
           Accessibility
         </button>
         <button
+          className={view === "privacy" ? "active" : ""}
+          onClick={() => navigate({ view: "privacy", path: "" })}
+        >
+          <User size={15} />
+          Privacy
+        </button>
+        <button
           className={view === "decisions" ? "active" : ""}
           onClick={() => navigate({ view: "decisions", path: "" })}
         >
@@ -1757,6 +1768,8 @@ export default function RepositoryPage({
         <PerformanceGoals repository={repository.id} actor={actor} />
       ) : view === "accessibility" ? (
         <><AccessibilityAssessments repository={repository.id} actor={actor} /><AccessibilityCommitments repository={repository.id} actor={actor} /><AccessibilityBarriers repository={repository.id} actor={actor} /></>
+      ) : view === "privacy" ? (
+        <DataCommitments repository={repository.id} actor={actor} />
       ) : view === "funds" ? (
         <ProjectFunds repository={repository.id} actor={actor} />
       ) : view === "experiments" ? (
