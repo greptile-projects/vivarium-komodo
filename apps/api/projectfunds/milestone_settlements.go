@@ -181,6 +181,10 @@ func (s *Store) ReviewMilestone(repo, oid, pid, mid, actor string, in MilestoneR
 		}
 		x.Awarded += award
 		x.Payment = "settled"
+	} else if amountDelta != 0 {
+		if err = adjustReservation(&f, p.Selection.ReservationID, 0, amountDelta); err != nil {
+			return p, err
+		}
 	}
 	x.State = in.Decision
 	if in.Decision == "partial_award" && x.Awarded == pm.Cost-approvedForMilestone(p.Execution, mid) {

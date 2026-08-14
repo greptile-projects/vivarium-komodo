@@ -113,6 +113,24 @@ to its reservation until retry; refunds release it back to the fund. Appeals
 retain the challenged decision and allow a designated reviewer to assess the
 same original allocation again rather than rewriting history.
 
+### Complete backing-to-outcome workflow
+
+The Funds repository workspace combines the governed ledger with roadmap
+outcome creation and backing, human or approved-agent delivery offers,
+acceptance, approval, selection, reservation, execution blockers, evidence,
+costs, replacement controls, and attributable settlement receipts. Its reader
+projection follows exact commit, pull request, check, preview, release, and
+outcome-measure references without treating any financial record as authority
+over those ordinary resources.
+
+`project_funding_workflow_test.go` proves the complete loop through public HTTP
+and stock Git. It retains a community-backed roadmap scope change,
+complementary developer and approved-agent delivery, a pending agent-cost
+overrun that blocks approval, an attributable replacement, a rejected
+milestone, a disputed and then accepted milestone, and a refund. Rejected
+milestone value is released immediately from the reservation; pending and
+approved expenses are both counted when deriving an overrun blocker.
+
 The complete discovery regression is `product_discovery_workflow_test.go`. It
 connects released-product feedback, opportunity synthesis and challenge,
 transparent roadmap acceptance and rejection, consent-bound validation,

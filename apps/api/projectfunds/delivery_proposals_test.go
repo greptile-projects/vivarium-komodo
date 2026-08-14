@@ -77,6 +77,15 @@ func TestDeliverySelectionSeparatesAcceptanceReservationAndAuthority(t *testing.
 }
 
 func ptrTime(v time.Time) *time.Time { return &v }
+
+func TestPendingExpenseOverrunStopsFurtherSpending(t *testing.T) {
+	x := DeliveryExecution{State: "active", Budget: 100, Expenses: []Expense{{Amount: 101, State: "pending"}}}
+	deriveExecution(&x)
+	if !hasBlocker(x.Blockers, "overrun") || !spendingBlocked(&x) || x.ApprovedExpenses != 0 {
+		t.Fatalf("pending overrun was not contained: %+v", x)
+	}
+}
+
 func hasBlocker(items []OutcomeBlocker, kind string) bool {
 	for _, b := range items {
 		if b.Kind == kind {
