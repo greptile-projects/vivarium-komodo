@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/serviceobjectives"
@@ -64,5 +65,46 @@ func TestServiceObjectiveConflictingTargets(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected conflict: %+v", items)
+	}
+}
+
+func TestServiceObjectiveRevisionExactEvidence(t *testing.T) {
+	s, _ := serviceobjectives.New(t.TempDir())
+	in := serviceobjectives.VersionInput{Title: "Availability", Description: "Journey works", Scopes: []serviceobjectives.Scope{{Kind: "environment", ResourceID: "prod", Name: "Production"}}, Indicators: []serviceobjectives.Indicator{{ID: "ok", Name: "OK", Description: "requests succeed", Signal: "requests", SignalStatus: "available", Calculation: "ratio", Unit: "percent"}}, Windows: []serviceobjectives.Window{{ID: "month", Kind: "rolling", Duration: "30d"}}, Targets: []serviceobjectives.Target{{IndicatorID: "ok", WindowID: "month", Comparator: "gte", Value: 99, ErrorBudgetPercent: 1}}, Journeys: []serviceobjectives.Journey{{ID: "use", Name: "Use", Behavior: "user succeeds", OwnerIDs: []string{"owner"}}}, Severities: []serviceobjectives.Severity{{Level: "critical", BudgetConsumedPercent: 100, Response: "respond", OwnerIDs: []string{"owner"}}}, OwnerIDs: []string{"owner"}, ExceptionPolicy: "time bounded", ChangeReason: "publish"}
+	x, _ := s.Create("repo", "owner", in)
+	x, err := s.PutMapping("repo", x.ID, "", "owner", serviceobjectives.MappingInput{ObjectiveVersion: 1, IndicatorID: "ok", WindowID: "month", InstrumentationRevision: "instrumentation@abc", ChangeReason: "connect shipped behavior", Sources: []serviceobjectives.SourceMapping{{ID: "requests", Kind: "metric", Name: "sanitized request ratio", SanitizedFields: []string{"status_class"}}, {ID: "release", Kind: "release", Name: "production release", SanitizedFields: []string{"release_id", "commit"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := x.Mappings[0]
+	start := time.Now().UTC().Add(-30 * 24 * time.Hour)
+	x, err = s.Observe("repo", x.ID, "owner", serviceobjectives.ObservationInput{MappingID: m.ID, MappingVersion: 1, WindowStart: start, WindowEnd: start.Add(30 * 24 * time.Hour), Value: 98.5, ErrorBudgetConsumedPercent: 150, Uncertainty: "support reports may undercount", ComparableToPrevious: true, Sanitized: true, Audience: "repository", Evidence: []serviceobjectives.EvidenceRef{{Kind: "metric", ResourceID: "metric-digest", Revision: "sample@123", Label: "bounded aggregate"}, {Kind: "deployment", ResourceID: "deploy-1", Revision: "commit-abc", Label: "production deployment"}, {Kind: "pull_request", ResourceID: "42", Revision: "commit-abc", Label: "shipped retry change"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(x.Attainment) != 1 || x.Attainment[0].Status != "missed" || x.Attainment[0].InstrumentationRevision != "instrumentation@abc" || x.Attainment[0].ObjectiveVersion != 1 {
+		t.Fatalf("unexpected attainment: %+v", x.Attainment)
+	}
+	if projected := serviceobjectives.Project(x, false); len(projected.Attainment) != 0 || projected.Blockers[len(projected.Blockers)-1].Kind != "missing_visible_attainment" {
+		t.Fatalf("repository evidence leaked to anonymous reader: %+v", projected)
+	}
+	_, err = s.Observe("repo", x.ID, "owner", serviceobjectives.ObservationInput{MappingID: m.ID, MappingVersion: 1, WindowStart: start, WindowEnd: start.Add(time.Hour), Sanitized: true, ContainsRestrictedData: true, Audience: "repository", Evidence: []serviceobjectives.EvidenceRef{{Kind: "log", ResourceID: "raw", Revision: "1", Label: "restricted"}}})
+	if !errors.Is(err, serviceobjectives.ErrInvalid) {
+		t.Fatalf("restricted evidence accepted: %v", err)
+	}
+	x, err = s.PutMapping("repo", x.ID, m.ID, "owner", serviceobjectives.MappingInput{ExpectedVersion: 1, ObjectiveVersion: 1, IndicatorID: "ok", WindowID: "month", InstrumentationRevision: "instrumentation@def", ChangeReason: "changed instrumentation", Sources: m.Versions[0].Sources})
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err = s.Observe("repo", x.ID, "owner", serviceobjectives.ObservationInput{MappingID: m.ID, MappingVersion: 2, WindowStart: start.Add(30 * 24 * time.Hour), WindowEnd: start.Add(60 * 24 * time.Hour), Value: 99.5, ErrorBudgetConsumedPercent: 50, Uncertainty: "window definition changed", ComparableToPrevious: false, Sanitized: true, Audience: "public", Evidence: []serviceobjectives.EvidenceRef{{Kind: "release", ResourceID: "v2", Revision: "commit-def", Label: "release provenance"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := map[string]bool{}
+	for _, b := range x.Blockers {
+		k[b.Kind] = true
+	}
+	if !k["changed_instrumentation"] || !k["incomparable_window"] {
+		t.Fatalf("missing evidence gaps: %+v", x.Blockers)
 	}
 }

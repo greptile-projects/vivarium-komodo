@@ -64,6 +64,37 @@ type O = {
   current_version: number;
   versions: V[];
   blockers: { kind: string; detail: string }[];
+  signal_mappings: {
+    id: string;
+    current_version: number;
+    versions: {
+      number: number;
+      objective_version: number;
+      indicator_id: string;
+      window_id: string;
+      instrumentation_revision: string;
+      sources: { id: string; kind: string; name: string }[];
+      author_id: string;
+    }[];
+  }[];
+  attainment_history: {
+    id: string;
+    indicator_id: string;
+    window_id: string;
+    objective_version: number;
+    mapping_version: number;
+    instrumentation_revision: string;
+    window_start: string;
+    window_end: string;
+    value: number;
+    error_budget_consumed_percent: number;
+    uncertainty: string;
+    comparable_to_previous: boolean;
+    status: string;
+    gap_kinds: string[];
+    audience: string;
+    evidence: { kind: string; resource_id: string; revision: string; label: string }[];
+  }[];
 };
 const lines = (x: FormDataEntryValue | null) =>
     String(x || "")
@@ -186,6 +217,22 @@ export function ServiceObjectives({
                 <Badge>{s.level}</Badge> {s.budget_consumed_percent}% consumed:{" "}
                 {s.response} · {s.owner_ids.join(", ")}
               </p>
+            ))}
+            <h4>Revision-exact operational evidence</h4>
+            {!x.signal_mappings?.length && <p>No signal mapping published.</p>}
+            {x.signal_mappings?.map((m) => {
+              const q = m.versions.at(-1)!;
+              return <p key={m.id}><Badge>mapping v{q.number}</Badge> {q.indicator_id} / {q.window_id} · instrumentation <code>{q.instrumentation_revision}</code> · {q.sources.map((s) => `${s.kind}: ${s.name}`).join(", ")}</p>;
+            })}
+            {!x.attainment_history?.length && <p>No sanitized attainment recorded.</p>}
+            {x.attainment_history?.map((a) => (
+              <div key={a.id} className="timeline-card">
+                <p><Badge>{a.status}</Badge> <strong>{a.value}</strong> · {a.error_budget_consumed_percent}% error budget consumed · {new Date(a.window_start).toLocaleDateString()}–{new Date(a.window_end).toLocaleDateString()}</p>
+                <p>Objective v{a.objective_version}, mapping v{a.mapping_version}, instrumentation <code>{a.instrumentation_revision}</code> · {a.audience} evidence</p>
+                {a.uncertainty && <p><strong>Uncertainty:</strong> {a.uncertainty}</p>}
+                {a.gap_kinds.map((g) => <p className="form-error" key={g}>{g.replaceAll("_", " ")}</p>)}
+                {a.evidence.map((e, i) => <p key={i}><Badge>{e.kind}</Badge> {e.label} · <code>{e.resource_id}@{e.revision}</code></p>)}
+              </div>
             ))}
             <h4>Linked commitments</h4>
             {v.commitment_links.map((l, i) => (

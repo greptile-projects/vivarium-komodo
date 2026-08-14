@@ -21,6 +21,21 @@ commitments, and expiring or expired exceptions visible. Defining an objective
 does not grant telemetry access, deployment control, repository authority, or
 credentials. Durable state lives beneath `$SERVICE_OBJECTIVE_ROOT`.
 
+Each objective also owns repository-defined signal mappings at
+`/{objective}/signal-mappings` and append-only observations at
+`/{objective}/attainment`. A mapping version freezes the exact objective
+version, indicator, measurement window, instrumentation revision, permitted
+sanitized fields, and sources across metrics, logs, traces, health checks,
+support reports, deployments, releases, commits, pull requests, packages, and
+dependent services. An observation must cite that exact mapping version and
+retains its window, attainment, error-budget consumption, uncertainty,
+comparability, audience, and revision-exact evidence references. Unsanitized or
+restricted-user evidence is rejected. Anonymous readers of public repositories
+see only public observations; authenticated repository readers may also inspect
+repository-audience evidence. Historical observations are never recomputed when
+terms or instrumentation change, and derived gaps call out missing mappings,
+missing attainment, changed instrumentation, and incomparable windows.
+
 ## Product feedback
 
 ## Accessibility barrier reproduction
