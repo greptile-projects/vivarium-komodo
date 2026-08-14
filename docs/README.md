@@ -74,6 +74,21 @@ evaluation dimension without current evidence. Repository-wide reads are at
 `/repositories/{repository}/accessibility-assessments`; the same projection is
 shown in the pull Accessibility section and `view=accessibility` workspace.
 
+`accessibility_workflow_test.go` composes these contracts into the durable
+released-barrier-to-sustained-access boundary. It proves a consent-projected
+report and clean bounded reproduction, specialist and agent collaboration,
+false-positive correction, an unavailable restricted attachment, stale
+reporter acceptance, exact-candidate automated and assistive-technology
+evidence, ordinary review/merge/release provenance, an expiring exception, and
+release-linked scenario coverage. The reporter's preview confirmation remains
+their bounded observation; it neither generalizes their access needs nor grants
+repository authority.
+
+An assigned contributor opens the ordinary repair pull request with both
+`proposal_id` and `task_id`. The API accepts that task link only when the task
+belongs to the proposal and its current assignee is the pull-request author,
+preserving the repair's reasoning and authorship chain without granting access.
+
 ## Governed project funds
 
 Repository writers create resource contracts through `POST
