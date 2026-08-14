@@ -16,6 +16,7 @@ import { DocumentationCollections } from "@/components/documentation-collections
 import { Extensions } from "@/components/extensions";
 import { GovernanceCharter } from "@/components/governance-charter";
 import { PerformanceGoals } from "@/components/performance-goals";
+import { AccessibilityCommitments } from "@/components/accessibility-commitments";
 import { ProjectFunds } from "@/components/project-funds";
 import { ProductExperiments } from "@/components/product-experiments";
 import { ProductFeedback } from "@/components/product-feedback";
@@ -1253,6 +1254,8 @@ export default function RepositoryPage({
                               ? "funds"
                             : query.view === "performance"
                               ? "performance"
+                            : query.view === "accessibility"
+                              ? "accessibility"
                             : query.view === "experiments"
                               ? "experiments"
                             : query.view === "feedback"
@@ -1324,6 +1327,7 @@ export default function RepositoryPage({
         view === "teams" ||
         view === "funds" ||
         view === "performance" ||
+        view === "accessibility" ||
         view === "experiments" ||
         view === "feedback" ||
         view === "issues" ||
@@ -1617,6 +1621,13 @@ export default function RepositoryPage({
           Performance
         </button>
         <button
+          className={view === "accessibility" ? "active" : ""}
+          onClick={() => navigate({ view: "accessibility", path: "" })}
+        >
+          <User size={15} />
+          Accessibility
+        </button>
+        <button
           className={view === "decisions" ? "active" : ""}
           onClick={() => navigate({ view: "decisions", path: "" })}
         >
@@ -1742,6 +1753,8 @@ export default function RepositoryPage({
         <DeliveryTeams repository={repository.id} actor={actor} selected={query.team} />
       ) : view === "performance" ? (
         <PerformanceGoals repository={repository.id} actor={actor} />
+      ) : view === "accessibility" ? (
+        <AccessibilityCommitments repository={repository.id} actor={actor} />
       ) : view === "funds" ? (
         <ProjectFunds repository={repository.id} actor={actor} />
       ) : view === "experiments" ? (

@@ -374,6 +374,22 @@ target replanning, consent-bound validation and withdrawal, ordinary delivery
 evidence, failed adoption, participant dissent, and an open opportunity carried
 forward without widening repository or operational authority.
 
+Repository accessibility commitments live beneath
+`$ACCESSIBILITY_COMMITMENT_ROOT` (default
+`apps/api/data/accessibility-commitments`). Repository writers publish
+immutable, optimistic-concurrency versions covering repository, documented
+journey, component, and release scopes. Each version names applicable
+standards and levels, supported assistive-technology/platform combinations,
+target audiences, required scenario-to-scope coverage, severity and review
+effects, accountable owners, bounded approved exceptions, and roadmap outcome,
+documentation, preview, and release-policy links. Attributable coverage records
+bind one current version, scenario, assistive environment, status, revision,
+and evidence without rewriting the agreement. Reads derive missing or failed coverage,
+unsupported or untested environments, expiring or expired exceptions, and
+conflicting requirements across overlapping current scopes. The repository web
+surface is `view=accessibility`; commitments and evidence grant no repository,
+review, merge, release, credential, or operational authority.
+
 Repository performance contracts live beneath `$PERFORMANCE_GOAL_ROOT` (default
 `apps/api/data/performance-goals`). Collaborators publish immutable,
 optimistically concurrency-checked versions for a repository, release, user

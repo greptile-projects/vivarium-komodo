@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilitycommitments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
@@ -292,6 +293,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	accessibilityCommitmentRoot := os.Getenv("ACCESSIBILITY_COMMITMENT_ROOT")
+	if accessibilityCommitmentRoot == "" {
+		accessibilityCommitmentRoot = "data/accessibility-commitments"
+	}
+	accessibilityCommitmentStore, err := accessibilitycommitments.New(accessibilityCommitmentRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	projectFundRoot := os.Getenv("PROJECT_FUND_ROOT")
 	if projectFundRoot == "" {
 		projectFundRoot = "data/project-funds"
@@ -443,6 +452,7 @@ func main() {
 	registerDecisionsHTTP(mux, decisionStore, repositoryCatalog, credentials, workspaceStore, workspaceRunner, proposalStore)
 	registerDeliveryTeamsHTTP(mux, deliveryTeamStore, repositoryCatalog, credentials, organizationStore, deliveryExecutionStores{changes: changeSessionStore, investigations: investigationStore, decisions: decisionStore, workspaces: workspaceStore}, pullRequestStore, checkRunner)
 	registerPerformanceGoalsHTTP(mux, performanceGoalStore, repositoryCatalog, releaseStore, credentials, pullRequestStore)
+	registerAccessibilityCommitmentsHTTP(mux, accessibilityCommitmentStore, repositoryCatalog, credentials)
 	registerProjectFundsHTTP(mux, projectFundStore, repositoryCatalog, credentials)
 	registerPerformanceInvestigationsHTTP(mux, performanceInvestigationStore, performanceGoalStore, repositoryCatalog, credentials, proposalStore)
 	registerProductExperimentsHTTP(mux, productExperimentStore, repositoryCatalog, credentials, pullRequestStore, releaseStore, deploymentStore)
