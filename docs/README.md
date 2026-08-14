@@ -5,6 +5,28 @@ written down here as they're decided, not before.
 
 ## Product feedback
 
+## Governed project funds
+
+Repository writers create resource contracts through `POST
+/repositories/{repository}/funds`. A fund declares its stewards, accepted
+funding sources, currency or credit unit, per-allocation, per-recipient, and
+total limits, approval threshold and approvers, eligible recipient classes,
+refund policy, and either public or repository-reader ledger visibility. The
+same contract is inspectable in the repository `view=funds` workspace before
+collaborators promise paid work.
+
+Repository readers commit resources through a provider source and stable
+transfer reference. Duplicate source/reference pairs conflict rather than
+double-crediting the ledger. Pending, failed, and revoked transfers contribute
+no available value; a partial transfer contributes only its settled portion,
+while refunds and disputes remain separate explicit balances. Named stewards
+may reconcile a non-terminal transfer with optimistic concurrency. All balances
+are derived from retained transfers, and the fund exposes an empty operational
+authority boundary: money, stewardship, approval eligibility, or recipient
+eligibility grants no code, repository, credential, allocation, review, merge,
+release, or deployment authority. Durable state is beneath
+`$PROJECT_FUND_ROOT`.
+
 The complete discovery regression is `product_discovery_workflow_test.go`. It
 connects released-product feedback, opportunity synthesis and challenge,
 transparent roadmap acceptance and rejection, consent-bound validation,

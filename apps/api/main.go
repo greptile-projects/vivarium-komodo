@@ -38,6 +38,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/productlearning"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/productopportunities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/productroadmaps"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/projectfunds"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/questions"
@@ -291,6 +292,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	projectFundRoot := os.Getenv("PROJECT_FUND_ROOT")
+	if projectFundRoot == "" {
+		projectFundRoot = "data/project-funds"
+	}
+	projectFundStore, err := projectfunds.New(projectFundRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	performanceInvestigationRoot := os.Getenv("PERFORMANCE_INVESTIGATION_ROOT")
 	if performanceInvestigationRoot == "" {
 		performanceInvestigationRoot = "data/performance-investigations"
@@ -434,6 +443,7 @@ func main() {
 	registerDecisionsHTTP(mux, decisionStore, repositoryCatalog, credentials, workspaceStore, workspaceRunner, proposalStore)
 	registerDeliveryTeamsHTTP(mux, deliveryTeamStore, repositoryCatalog, credentials, organizationStore, deliveryExecutionStores{changes: changeSessionStore, investigations: investigationStore, decisions: decisionStore, workspaces: workspaceStore}, pullRequestStore, checkRunner)
 	registerPerformanceGoalsHTTP(mux, performanceGoalStore, repositoryCatalog, releaseStore, credentials, pullRequestStore)
+	registerProjectFundsHTTP(mux, projectFundStore, repositoryCatalog, credentials)
 	registerPerformanceInvestigationsHTTP(mux, performanceInvestigationStore, performanceGoalStore, repositoryCatalog, credentials, proposalStore)
 	registerProductExperimentsHTTP(mux, productExperimentStore, repositoryCatalog, credentials, pullRequestStore, releaseStore, deploymentStore)
 	registerProductFeedbackHTTP(mux, productFeedbackStore, repositoryCatalog, credentials, feedbackSources{releases: releaseStore, docs: documentationStore, previews: previewStore, issues: issueStore, experiments: productExperimentStore, organizations: organizationStore})

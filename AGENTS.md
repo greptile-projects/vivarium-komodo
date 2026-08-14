@@ -1,5 +1,18 @@
 # AGENTS.md
 
+Project funds live beneath `$PROJECT_FUND_ROOT` (default
+`apps/api/data/project-funds`). Repository writers publish governed terms with
+named stewards, accepted transfer sources, currency or credit units, spending
+limits, approval rules, eligible recipient classes, refund policy, and public
+or repository-reader ledger visibility. Readers may record provider-referenced
+commitments; only explicitly settled amounts contribute to the server-derived
+available balance. Transfer source/reference pairs are idempotent, partial
+settlement contributes only its settled portion, and pending, failed, revoked,
+refunded, and disputed states remain explicit. Steward reconciliation uses
+optimistic concurrency, while funding, stewardship, and eligibility grant no
+repository, allocation, credential, review, merge, or operational authority.
+The repository web surface is `view=funds`.
+
 ## Delivery team operating contracts
 
 Federation identity state lives beneath `$FEDERATION_ROOT` (default
