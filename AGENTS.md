@@ -51,6 +51,13 @@ the remaining award. Recipient withdrawal, deadline timeout, appeal, refund,
 and payment failure or retry retain deterministic events and restore or release
 value without granting Git, review, merge, release, deployment, credential, or
 fund-withdrawal authority.
+`project_funding_workflow_test.go` is the black-box regression boundary for the
+complete community-backing-to-delivered-outcome loop. It retains roadmap scope
+replanning, complementary human and approved-agent selection, ordinary Git,
+review, check, preview, merge, release, and measured evidence, pending-cost
+overrun containment, replacement, rejection, dispute, attributable settlement
+receipts, and refund. Rejected milestone value is released from its reservation,
+and pending plus approved expenses over budget block further spending.
 
 ## Delivery team operating contracts
 

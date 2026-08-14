@@ -137,6 +137,7 @@ func spendingBlocked(x *DeliveryExecution) bool {
 }
 func deriveExecution(x *DeliveryExecution) {
 	x.ApprovedExpenses, x.AgentCompute, x.Blockers = 0, 0, []OutcomeBlocker{}
+	var submittedExpenses int64
 	latest := map[string]ProgressObservation{}
 	for _, p := range x.Progress {
 		latest[p.MilestoneID] = p
@@ -161,12 +162,15 @@ func deriveExecution(x *DeliveryExecution) {
 		}
 	}
 	for _, e := range x.Expenses {
+		if e.State == "pending" || e.State == "approved" {
+			submittedExpenses += e.Amount
+		}
 		if e.State == "approved" {
 			x.ApprovedExpenses += e.Amount
 		}
 	}
-	if x.ApprovedExpenses > x.Budget {
-		x.Blockers = append(x.Blockers, OutcomeBlocker{Kind: "overrun", Detail: "approved expenses exceed the execution budget"})
+	if submittedExpenses > x.Budget {
+		x.Blockers = append(x.Blockers, OutcomeBlocker{Kind: "overrun", Detail: "submitted and approved expenses exceed the execution budget"})
 	}
 	count := x.MilestoneCount
 	if count == 0 {
@@ -236,6 +240,7 @@ func (s *Store) SubmitExpense(repo, oid, pid, actor string, in ExpenseInput) (De
 	}
 	now := s.now().UTC()
 	p.Execution.Expenses = append(p.Execution.Expenses, Expense{ID: id(), ActorID: actor, MilestoneID: in.MilestoneID, Amount: in.Amount, Description: strings.TrimSpace(in.Description), Evidence: in.Evidence, State: "pending", CreatedAt: now})
+	deriveExecution(p.Execution)
 	p.Version++
 	p.UpdatedAt = now
 	return p, s.writeDeliveryProposal(p)
