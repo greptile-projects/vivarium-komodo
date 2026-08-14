@@ -17,6 +17,7 @@ type DeliveryExecution struct {
 	Progress          []ProgressObservation `json:"progress"`
 	Expenses          []Expense             `json:"expenses"`
 	Changes           []ExecutionChange     `json:"changes"`
+	Settlements       []MilestoneSettlement `json:"milestone_settlements"`
 	Blockers          []OutcomeBlocker      `json:"blockers"`
 	Forecast          Forecast              `json:"forecast"`
 }
@@ -102,7 +103,7 @@ type ExecutionControlInput struct {
 	Budget          int64  `json:"budget"`
 }
 
-var workKinds = map[string]bool{"proposal_task": true, "session": true, "workspace": true, "fork": true, "pull_request": true, "check": true, "preview": true, "delivery_team": true}
+var workKinds = map[string]bool{"proposal_task": true, "session": true, "workspace": true, "fork": true, "pull_request": true, "commit": true, "authorship": true, "handoff": true, "check": true, "preview": true, "release": true, "deployment": true, "outcome_measure": true, "delivery_team": true}
 var progressStates = map[string]bool{"not_started": true, "active": true, "blocked": true, "inactive": true, "completed": true}
 var accessStates = map[string]bool{"active": true, "limited": true, "revoked": true}
 var handoffStates = map[string]bool{"not_required": true, "pending": true, "ready": true, "accepted": true, "failed": true}

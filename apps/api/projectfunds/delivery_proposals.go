@@ -278,7 +278,7 @@ func (s *Store) SelectDeliveryProposal(repo, oid, pid, actor string, in SelectDe
 	p.Version++
 	p.State = "selected"
 	p.Selection = &ProposalSelection{StewardID: actor, Reason: strings.TrimSpace(in.Reason), ReservationID: reservation.ID, Connections: in.Connections, SelectedAt: now}
-	p.Execution = &DeliveryExecution{State: "active", ActiveRecipientID: p.Terms.RecipientID, Budget: p.Terms.Cost, MilestoneCount: len(p.Terms.Milestones), Progress: []ProgressObservation{}, Expenses: []Expense{}, Changes: []ExecutionChange{}}
+	p.Execution = &DeliveryExecution{State: "active", ActiveRecipientID: p.Terms.RecipientID, Budget: p.Terms.Cost, MilestoneCount: len(p.Terms.Milestones), Progress: []ProgressObservation{}, Expenses: []Expense{}, Changes: []ExecutionChange{}, Settlements: []MilestoneSettlement{}}
 	deriveExecution(p.Execution)
 	p.UpdatedAt = now
 	return p, s.writeDeliveryProposal(p)
