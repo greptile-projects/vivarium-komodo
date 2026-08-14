@@ -234,6 +234,28 @@ contact, research, repository, roadmap, release, or operational authority.
 
 ## Project governance
 
+## Repository accessibility commitments
+
+Repository writers maintain shared accessibility contracts through
+`/repositories/{repository}/accessibility-commitments`. Immutable versions
+cover repository, journey, component, and release scopes and retain standards,
+assistive technologies and platforms, target audiences, required scenarios,
+severity/review policy, owners, explicitly approved time-bounded exceptions,
+and links to roadmap outcomes, documentation, previews, and release policy.
+Revisions require the current version so simultaneous editors cannot silently
+replace one another.
+
+Writers append coverage evidence for one exact contract version, required
+scenario, and declared assistive environment as `passed`, `failed`,
+`unsupported`, or `not_tested`; the record retains its actor, optional exact
+revision, evidence, notes, and time. Reads derive missing or failed scenario/environment
+coverage, unsupported environments, exceptions expiring within 30 days,
+expired exceptions, and conflicting standard versions or levels on overlapping
+scopes. The `view=accessibility` repository surface makes scope, judgment,
+ownership, evidence, and gaps inspectable before review. State lives beneath
+`$ACCESSIBILITY_COMMITMENT_ROOT`; the contract grants no review, merge,
+release, credential, or operational authority.
+
 ## Repository performance contracts
 
 Collaborators define the meaning of an optimization through repository-scoped
