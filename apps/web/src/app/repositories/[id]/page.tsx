@@ -24,6 +24,7 @@ import { ProductExperiments } from "@/components/product-experiments";
 import { ProductFeedback } from "@/components/product-feedback";
 import { DataCommitments } from "@/components/data-commitments";
 import { DataFlows } from "@/components/data-flows";
+import { LocalePlans } from "@/components/locale-plans";
 import { PrivacyAssessments } from "@/components/privacy-assessments";
 import {
   Book,
@@ -1263,6 +1264,8 @@ export default function RepositoryPage({
                               ? "accessibility"
                             : query.view === "privacy"
                               ? "privacy"
+                            : query.view === "locales"
+                              ? "locales"
                             : query.view === "experiments"
                               ? "experiments"
                             : query.view === "feedback"
@@ -1336,6 +1339,7 @@ export default function RepositoryPage({
         view === "performance" ||
         view === "accessibility" ||
         view === "privacy" ||
+        view === "locales" ||
         view === "experiments" ||
         view === "feedback" ||
         view === "issues" ||
@@ -1643,6 +1647,13 @@ export default function RepositoryPage({
           Privacy
         </button>
         <button
+          className={view === "locales" ? "active" : ""}
+          onClick={() => navigate({ view: "locales", path: "" })}
+        >
+          <Book size={15} />
+          Locales
+        </button>
+        <button
           className={view === "decisions" ? "active" : ""}
           onClick={() => navigate({ view: "decisions", path: "" })}
         >
@@ -1772,6 +1783,8 @@ export default function RepositoryPage({
         <><AccessibilityAssessments repository={repository.id} actor={actor} /><AccessibilityCommitments repository={repository.id} actor={actor} /><AccessibilityBarriers repository={repository.id} actor={actor} /></>
       ) : view === "privacy" ? (
         <><DataFlows repository={repository.id} /><DataCommitments repository={repository.id} actor={actor} /></>
+      ) : view === "locales" ? (
+        <LocalePlans repository={repository.id} actor={actor} />
       ) : view === "funds" ? (
         <ProjectFunds repository={repository.id} actor={actor} />
       ) : view === "experiments" ? (
