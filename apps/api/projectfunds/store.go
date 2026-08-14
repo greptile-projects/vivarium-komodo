@@ -51,6 +51,16 @@ type Balances struct {
 	Refunded  int64 `json:"refunded"`
 	Disputed  int64 `json:"disputed"`
 }
+type Reservation struct {
+	ID         string    `json:"id"`
+	OutcomeID  string    `json:"outcome_id"`
+	ProposalID string    `json:"delivery_proposal_id"`
+	Recipient  string    `json:"recipient_id"`
+	Amount     int64     `json:"amount"`
+	State      string    `json:"state"`
+	CreatedBy  string    `json:"created_by_id"`
+	CreatedAt  time.Time `json:"created_at"`
+}
 type Transfer struct {
 	ID            string    `json:"id"`
 	Reference     string    `json:"reference"`
@@ -64,15 +74,16 @@ type Transfer struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 type Fund struct {
-	ID                   string     `json:"id"`
-	RepositoryID         string     `json:"repository_id"`
-	Version              int64      `json:"version"`
-	Terms                Terms      `json:"terms"`
-	Balances             Balances   `json:"balances"`
-	Transfers            []Transfer `json:"transfers"`
-	CreatedByID          string     `json:"created_by_id"`
-	CreatedAt            time.Time  `json:"created_at"`
-	OperationalAuthority []string   `json:"operational_authority"`
+	ID                   string        `json:"id"`
+	RepositoryID         string        `json:"repository_id"`
+	Version              int64         `json:"version"`
+	Terms                Terms         `json:"terms"`
+	Balances             Balances      `json:"balances"`
+	Transfers            []Transfer    `json:"transfers"`
+	Reservations         []Reservation `json:"reservations"`
+	CreatedByID          string        `json:"created_by_id"`
+	CreatedAt            time.Time     `json:"created_at"`
+	OperationalAuthority []string      `json:"operational_authority"`
 }
 type TransferInput struct {
 	Reference string `json:"reference"`
@@ -125,7 +136,7 @@ func (s *Store) Create(repo, actor string, t Terms) (Fund, error) {
 		return Fund{}, ErrInvalid
 	}
 	now := s.now().UTC()
-	f := Fund{ID: id(), RepositoryID: repo, Version: 1, Terms: t, Transfers: []Transfer{}, CreatedByID: actor, CreatedAt: now, OperationalAuthority: []string{}}
+	f := Fund{ID: id(), RepositoryID: repo, Version: 1, Terms: t, Transfers: []Transfer{}, Reservations: []Reservation{}, CreatedByID: actor, CreatedAt: now, OperationalAuthority: []string{}}
 	return f, s.write(f)
 }
 func (s *Store) Commit(repo, fid, actor string, in TransferInput) (Fund, error) {
@@ -221,6 +232,12 @@ func derive(f *Fund) {
 			f.Balances.Refunded += x.Requested
 		case "disputed":
 			f.Balances.Disputed += x.Requested
+		}
+	}
+	for _, r := range f.Reservations {
+		if r.State == "active" {
+			f.Balances.Reserved += r.Amount
+			f.Balances.Available -= r.Amount
 		}
 	}
 }
