@@ -12,6 +12,17 @@ refunded, and disputed states remain explicit. Steward reconciliation uses
 optimistic concurrency, while funding, stewardship, and eligibility grant no
 repository, allocation, credential, review, merge, or operational authority.
 The repository web surface is `view=funds`.
+Fund stewards bind those settled resources to measurable outcomes beneath the
+same store through `/funded-outcomes`. An outcome cites an issue, roadmap
+outcome, proposal, stewardship opportunity, incident follow-up, or security
+repair and freezes scope, milestone or whole-outcome budgets, acceptance and
+evidence requirements, deadline, eligible contributor classes, allocation and
+cancellation terms, dependencies, risks, conflicts, overlap keys, and embargo
+state. Repository readers may pledge to the whole outcome or a named milestone
+and withdraw only their own backing. Immutable term versions and attributable
+replanning retain scope changes and withdrawals, while reads derive
+underfunding, aggregate fund overcommitment, overfunding, overlapping awards,
+declared conflicts, and embargo blockers. Funding remains non-authoritative.
 
 ## Delivery team operating contracts
 

@@ -27,6 +27,28 @@ eligibility grants no code, repository, credential, allocation, review, merge,
 release, or deployment authority. Durable state is beneath
 `$PROJECT_FUND_ROOT`.
 
+### Measurable funded outcomes
+
+Named fund stewards use `POST /repositories/{repository}/funded-outcomes` to
+connect one governed fund to an issue, roadmap outcome, proposal, stewardship
+opportunity, incident follow-up, or security repair. The immutable initial
+version spells out scope, acceptance criteria, evidence requirements, budget,
+deadline, eligible contributor classes, allocation method, cancellation terms,
+dependencies, risks, conflicts, overlap keys, embargo state, and optional
+milestones whose budgets exactly cover the outcome. Eligibility must be within
+the fund's published recipient classes.
+
+Authenticated repository readers can pledge to `outcome` or
+`milestone:{id}`. They may later withdraw only their own pledge with an
+optimistic-concurrency version and reason. Stewards replan changed terms the
+same way, preserving every prior version, author, reason, and a specific scope
+change or backing-withdrawal event. Reads derive underfunding, overfunding,
+milestone overfunding, aggregate settled-fund insufficiency, overlapping award
+keys, declared conflicts, and embargo boundaries. These records expose whether
+the work and its required proof are worth pursuing; they reserve no resources,
+select no recipient, issue no credential, and grant no repository or
+operational authority.
+
 The complete discovery regression is `product_discovery_workflow_test.go`. It
 connects released-product feedback, opportunity synthesis and challenge,
 transparent roadmap acceptance and rejection, consent-bound validation,
