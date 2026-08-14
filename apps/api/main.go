@@ -59,6 +59,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/roadmapvalidations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityreports"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/translationunits"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/users"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
 )
@@ -326,6 +327,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	translationUnitRoot := os.Getenv("TRANSLATION_UNIT_ROOT")
+	if translationUnitRoot == "" {
+		translationUnitRoot = "data/translation-units"
+	}
+	translationUnitStore, err := translationunits.New(translationUnitRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	dataFlowRoot := os.Getenv("DATA_FLOW_ROOT")
 	if dataFlowRoot == "" {
 		dataFlowRoot = "data/data-flows"
@@ -536,6 +545,7 @@ func main() {
 	registerAccessibilityCommitmentsHTTP(mux, accessibilityCommitmentStore, repositoryCatalog, credentials)
 	registerDataCommitmentsHTTP(mux, dataCommitmentStore, repositoryCatalog, credentials)
 	registerLocalePlansHTTP(mux, localePlanStore, repositoryCatalog, credentials)
+	registerTranslationUnitsHTTP(mux, translationUnitStore, repositoryCatalog, credentials, translationUnitSources{pulls: pullRequestStore, repositories: repositoryCatalog})
 	registerDataFlowsHTTP(mux, dataFlowStore, dataCommitmentStore, repositoryCatalog, credentials)
 	registerPrivacyAssessmentsHTTP(mux, privacyAssessmentStore, repositoryCatalog, credentials, privacyAssessmentSources{pulls: pullRequestStore, flows: dataFlowStore, commitments: dataCommitmentStore, repositories: repositoryCatalog})
 	registerPrivacyVerificationHTTP(mux, privacyVerificationStore, repositoryCatalog, credentials, dataCommitmentStore, previewStore, checkRunStore, pullRequestStore)

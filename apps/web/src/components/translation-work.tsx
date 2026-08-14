@@ -1,0 +1,20 @@
+"use client";
+
+import { FormEvent, useState } from "react";
+import { Badge, Button } from "@/components/ui";
+
+type Translation = { text?: string; status: string; actor_id?: string };
+type Unit = { id: string; key: string; message: string; prior_message?: string; context?: string; screenshot_urls?: string[]; variables?: string[]; plural_rule?: string; source_location: { path: string; line: number; blob_id: string }; change: string; translations: Record<string, Translation> };
+type Extraction = { revision: string; target_revision: string; source_locale: string; locales: string[]; config_path: string; config_blob_id: string; units: Unit[]; proposals: { id: string; unit_id: string; locale_id: string; actor_id: string; superseded: boolean }[] };
+
+export function TranslationWork({ repository }: { repository: string }) {
+  const [pull, setPull] = useState(""); const [revision, setRevision] = useState(""); const [work, setWork] = useState<Extraction | null>(null); const [error, setError] = useState("");
+  const root = `/api/repositories/${repository}/pull-requests/${pull}/translation-units`;
+  async function request(path: string, method = "GET", body?: unknown) { const response = await fetch(root + path, { method, headers: body ? { "content-type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined }); if (!response.ok) { setError((await response.json()).error); return; } setWork(await response.json()); setError(""); }
+  function open(e: FormEvent<HTMLFormElement>) { e.preventDefault(); void request(""); }
+  return <section className="investigation-workspace"><div className="section-heading"><div><span className="eyebrow">Exact pull revision → stable units → attributed language work</span><h2>Translation work</h2><p>Inspect source changes with application context, prior validity, locale gaps, and translator proposals without granting repository write access.</p></div>{work && <Badge>{work.units.length} units</Badge>}</div>
+    <form className="panel" onSubmit={open}><label>Pull request ID<input value={pull} onChange={e => setPull(e.target.value)} required /></label><label>Exact source revision<input value={revision} onChange={e => setRevision(e.target.value)} required /></label><Button type="button" onClick={() => void request("/extract", "POST", { revision, config_path: ".komodo/localization.json" })}>Extract configured messages</Button><Button type="submit">Open retained work</Button></form>
+    {error && <p className="form-error" role="alert">{error.replaceAll("_", " ")}</p>}
+    {work && <><p><strong>Source:</strong> <code>{work.revision.slice(0, 12)}</code> against <code>{work.target_revision.slice(0, 12)}</code> · configuration <code>{work.config_path}</code> @ <code>{work.config_blob_id.slice(0, 12)}</code></p>{work.units.map(unit => <article className="panel" key={unit.id}><header><div><Badge>{unit.change}</Badge> <code>{unit.key}</code><h3>{unit.message}</h3>{unit.prior_message && unit.prior_message !== unit.message && <p>Previously: {unit.prior_message}</p>}</div><code>{unit.source_location.path}:{unit.source_location.line}</code></header>{unit.context && <p><strong>Where it appears:</strong> {unit.context}</p>}<p><strong>Variables:</strong> {unit.variables?.join(", ") || "none"} · <strong>Plural rule:</strong> {unit.plural_rule || "none"}</p>{unit.screenshot_urls?.map(url => <p key={url}><a href={url}>Context screenshot</a></p>)}{work.locales.map(locale => { const state = unit.translations[locale]; return <details key={locale}><summary><Badge>{state.status}</Badge> {locale}{state.text && ` · ${state.text}`}</summary>{unit.change !== "removed" && <form onSubmit={e => { e.preventDefault(); const data = new FormData(e.currentTarget); void request(`/${unit.id}/proposals`, "POST", { locale_id: locale, text: data.get("text") }); }}><label>Proposed translation<textarea name="text" defaultValue={state.text} required /></label><Button type="submit">Propose as translator</Button></form>}</details>; })}</article>)}</>}
+  </section>;
+}
