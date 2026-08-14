@@ -3638,3 +3638,31 @@ mitigations, and residual risk. Only a requirement's named owner can accept it
 or request changes. A changed candidate or cited blob makes evidence and prior
 acknowledgement stale and restores visible blockers. Privacy review grants no
 data access, repository write, review, merge, release, or operational authority.
+
+## Post-release privacy drift and correction
+
+Repository owners define permitted production monitors at
+`/repositories/{repository}/privacy-drift/monitors`. A monitor pins an exact
+data-use commitment version and declared use to one release and revision,
+environment, optional extension, responsible owners, notification participants,
+allowed drift classes, and evidence-retention limit. This allowlist makes a
+production-derived signal admissible; it does not authorize collection or
+access.
+
+Authorized collaborators report detections beneath `/privacy-drift/signals`.
+The schema accepts only a permitted signal reference, aggregate metric and
+count, bounded observation window, content digest, and sanitized summary for an
+undeclared flow, excessive retention, failed deletion, consent mismatch, or
+unexpected recipient. It has no field for a subject, raw event, payload,
+contact detail, or attachment, and rejects evidence not explicitly marked
+sanitized. Reads require repository write authority.
+
+The append-only ledger inherits the responsible release, environment,
+extension, and owners from the monitor and records containment, notifications
+limited to named participants, private incident links, governed-exception
+decisions, and resolution. A repair creates an ordinary proposal and human- or
+approved-agent-owned task at the affected release revision with only sanitized
+aggregate evidence preloaded. Pull requests, privacy verification, review,
+release, and deployment continue through their existing contracts and may be
+cited back as ledger events. No drift resource grants data, environment,
+extension, credential, review, merge, release, or deployment authority.

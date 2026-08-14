@@ -1824,6 +1824,21 @@ and residual risk; only named requirement owners acknowledge. A changed pull
 revision or cited blob makes evidence and prior acceptance stale. These records
 grant no data, repository, merge, release, credential, or operational authority.
 
+Post-release privacy drift lives beneath `$PRIVACY_DRIFT_ROOT` (default
+`apps/api/data/privacy-drift`). Repository owners permit aggregate production
+monitors only against exact commitment versions, governed data uses, releases,
+release revisions, environments, optional extensions, named owners and
+participants, drift classes, and bounded evidence retention. Authorized
+collaborators retain only sanitized signal references, aggregate counts,
+windows, digests, and summaries for undeclared flows, excessive retention,
+failed deletion, consent mismatch, or unexpected recipients; raw personal data
+and subject identifiers never enter the store. The private repository API
+retains attributable containment, bounded participant notification, private-
+incident or governed-exception links, resolution, and ordinary human- or
+approved-agent repair tasks based at the affected release revision. Signals and
+controls grant no data, environment, extension, credential, review, merge,
+release, or deployment authority.
+
 ## LADDER.md
 
 `/LADDER.md` at the repo root is **not part of this repository**. It is placed
