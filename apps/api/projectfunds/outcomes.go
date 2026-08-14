@@ -331,7 +331,7 @@ func (s *Store) deriveOutcome(o *FundedOutcome) {
 			}
 		}
 	}
-	if e == nil && aggregate > f.Balances.Available {
+	if e == nil && aggregate > f.Balances.Available+f.Balances.Reserved {
 		o.Blockers = append(o.Blockers, OutcomeBlocker{Kind: "insufficient_funds", Detail: "active backing across funded outcomes exceeds the fund's settled available balance", ResourceID: f.ID})
 	}
 	if o.Pledged < t.Budget {

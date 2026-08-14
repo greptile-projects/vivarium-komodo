@@ -23,6 +23,13 @@ and withdraw only their own backing. Immutable term versions and attributable
 replanning retain scope changes and withdrawals, while reads derive
 underfunding, aggregate fund overcommitment, overfunding, overlapping awards,
 declared conflicts, and embargo blockers. Funding remains non-authoritative.
+Eligible humans, teams, and approved agent operators submit recipient-accepted
+delivery proposals beneath funded outcomes with costed milestones,
+availability, dependencies, requested access, conflicts, and attributed work.
+Steward selection reserves only settled available value within fund limits and
+may link ordinary proposal tasks or delivery teams; selection and compensation
+grant no repository, secret, credential, review, merge, environment, or fund-
+withdrawal authority.
 
 ## Delivery team operating contracts
 

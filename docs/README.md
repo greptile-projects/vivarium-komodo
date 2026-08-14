@@ -49,6 +49,24 @@ the work and its required proof are worth pursuing; they reserve no resources,
 select no recipient, issue no credential, and grant no repository or
 operational authority.
 
+### Accountable delivery selection
+
+Eligible repository participants submit comparable offers at
+`/repositories/{repository}/funded-outcomes/{outcome}/delivery-proposals`.
+Each offer identifies a human, team, or approved agent operator and retains its
+approach, costed milestones, dependencies, availability, requested access, and
+attributed prior work. The named recipient must optimistically accept before
+selection, and participants can append attributable conflict disclosures.
+
+Named fund approvers record version-checked decisions through `/approve`; the
+fund's minimum-approval rule must be met before a steward can select one or
+several accepted complementary proposals through `/select`. Selection enforces
+allocation, recipient, and settled-value limits, creates an explicit fund
+reservation, and may retain links to ordinary
+proposal tasks or a delivery team. Fund reads report reserved value separately.
+Requested access is descriptive: neither selection nor compensation grants
+repository, secret, credential, merge, environment, or withdrawal authority.
+
 The complete discovery regression is `product_discovery_workflow_test.go`. It
 connects released-product feedback, opportunity synthesis and challenge,
 transparent roadmap acceptance and rejection, consent-bound validation,
