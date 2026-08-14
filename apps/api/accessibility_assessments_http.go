@@ -9,11 +9,16 @@ import (
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilityassessments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilitybarriers"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilitycommitments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/previews"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/reasoning"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
 )
 
 type accessibilityAssessmentSources struct {
@@ -31,6 +36,20 @@ type accessibilityAssessmentSources struct {
 	}
 	repositories interface {
 		Open(storage.ID) (*storage.Repository, error)
+	}
+	commitments interface {
+		Get(string, string) (accessibilitycommitments.Commitment, error)
+	}
+	plans    proposalStore
+	sessions interface {
+		CreateForTask(string, string, string, string, changesessions.TaskContext) (changesessions.Session, error)
+	}
+	workspaces interface {
+		Create(string, string, string, workspaces.SourceContext, workspaces.Access, workspaces.Definition, string) (workspaces.Workspace, error)
+	}
+	workspaceRunner interface {
+		Definition(string, string) (workspaces.Definition, string, error)
+		Start(workspaces.Workspace)
 	}
 }
 
@@ -209,6 +228,241 @@ func registerAccessibilityAssessmentsHTTP(mux *http.ServeMux, s *accessibilityas
 		project(repo, r.PathValue("pull"), &a)
 		writeJSON(w, 201, a)
 	})
+	mux.HandleFunc("POST "+base+"/{assessment}/findings/{finding}/repairs", accessibilityRepairWork(s, repos, c, src))
+	mux.HandleFunc("POST "+base+"/{assessment}/findings/{finding}/repairs/{repair}/progress", accessibilityRepairProgress(s, repos, c))
+	mux.HandleFunc("POST "+base+"/{assessment}/findings/{finding}/repairs/{repair}/delivery", accessibilityRepairDelivery(s, repos, c, src))
+}
+
+func accessibilityRepairWork(s *accessibilityassessments.Store, repos proposalRepositoryStore, c authStore, src accessibilityAssessmentSources) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		a, e := s.Get(string(repo.ID), r.PathValue("pull"), r.PathValue("assessment"))
+		if assessmentError(w, e) {
+			return
+		}
+		pull, e := src.pulls.Get(string(repo.ID), r.PathValue("pull"))
+		if e != nil || pull.SourceCommitID != a.Revision {
+			writeJSON(w, 409, map[string]string{"error": "current_finding_revision_required"})
+			return
+		}
+		var in struct {
+			Kind               string   `json:"kind"`
+			ProposalID         string   `json:"proposal_id"`
+			Title              string   `json:"title"`
+			OwnerKind          string   `json:"owner_kind"`
+			OwnerID            string   `json:"owner_id"`
+			CommitmentID       string   `json:"commitment_id"`
+			CommitmentVersion  int64    `json:"commitment_version"`
+			AcceptanceCriteria []string `json:"acceptance_criteria"`
+			EvidenceIDs        []string `json:"evidence_ids"`
+			ComponentGuidance  []string `json:"component_guidance"`
+		}
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		if src.plans == nil || src.commitments == nil || !map[string]bool{"task": true, "change_session": true, "workspace": true}[in.Kind] || !map[string]bool{"human": true, "agent": true}[in.OwnerKind] {
+			writeJSON(w, 422, map[string]string{"error": "invalid_accessibility_repair_work"})
+			return
+		}
+		if in.OwnerKind == "agent" && !availableTaskAgents[in.OwnerID] {
+			writeJSON(w, 422, map[string]string{"error": "agent_unavailable"})
+			return
+		}
+		if in.OwnerKind == "human" {
+			assigned := in.OwnerID == repo.OwnerID
+			if !assigned {
+				assigned, _ = repos.IsCollaborator(repo.ID, in.OwnerID)
+			}
+			if !assigned {
+				writeJSON(w, 422, map[string]string{"error": "invalid_assignee"})
+				return
+			}
+		}
+		commitment, e := src.commitments.Get(string(repo.ID), in.CommitmentID)
+		if e != nil || in.CommitmentVersion < 1 || in.CommitmentVersion > int64(len(commitment.Versions)) || (a.CommitmentID != "" && (a.CommitmentID != in.CommitmentID || a.CommitmentVersion != in.CommitmentVersion)) {
+			writeJSON(w, 422, map[string]string{"error": "exact_accessibility_commitment_required"})
+			return
+		}
+		found := false
+		confirmed := false
+		evidence := map[string]bool{}
+		summary := ""
+		for _, f := range a.Findings {
+			if f.ID == r.PathValue("finding") {
+				found = true
+				confirmed = !f.Stale && f.Repair == nil && len(f.Decisions) > 0 && f.Decisions[len(f.Decisions)-1].Outcome == "confirmed"
+				summary = f.Summary
+				if f.Citation.Kind == "reproduction" {
+					b, _ := src.barriers.Get(string(repo.ID), f.Citation.ResourceID)
+					for _, x := range b.Evidence {
+						evidence[x.ID] = true
+					}
+					for _, at := range b.Attempts {
+						if at.Revision == a.Revision {
+							for _, x := range at.Evidence {
+								evidence[x.ID] = true
+							}
+						}
+					}
+				}
+			}
+		}
+		if !found {
+			writeJSON(w, 404, map[string]string{"error": "accessibility_finding_not_found"})
+			return
+		}
+		if !confirmed || len(in.AcceptanceCriteria) == 0 || len(in.AcceptanceCriteria) > 50 || len(in.ComponentGuidance) == 0 || len(in.ComponentGuidance) > 50 {
+			writeJSON(w, 422, map[string]string{"error": "confirmed_current_finding_required"})
+			return
+		}
+		for _, values := range [][]string{in.AcceptanceCriteria, in.ComponentGuidance} {
+			for _, value := range values {
+				if strings.TrimSpace(value) == "" || len(value) > 4000 {
+					writeJSON(w, 422, map[string]string{"error": "invalid_repair_context"})
+					return
+				}
+			}
+		}
+		for _, id := range in.EvidenceIDs {
+			if !evidence[id] {
+				writeJSON(w, 422, map[string]string{"error": "unpermitted_reproduction_evidence"})
+				return
+			}
+		}
+		proposal, e := src.plans.Get(string(repo.ID), in.ProposalID)
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_proposal"})
+			return
+		}
+		context := &reasoning.Context{Kind: "accessibility_repair", AssessmentID: a.ID, RepositoryID: string(repo.ID), CommitID: a.Revision, Claim: summary, State: "confirmed", Rationale: "Component guidance: " + strings.Join(in.ComponentGuidance, "; ") + ". Preserve the affected user's evidence without treating the implementer as their representative.", Verification: in.AcceptanceCriteria, Evidence: []reasoning.Evidence{{RepositoryID: string(repo.ID), CommitID: a.Revision, Kind: "accessibility_finding", ResourceID: r.PathValue("finding"), Label: summary}, {RepositoryID: string(repo.ID), CommitID: a.Revision, Kind: "accessibility_commitment", ResourceID: in.CommitmentID, Label: commitment.Versions[in.CommitmentVersion-1].Title}}}
+		for _, evidenceID := range in.EvidenceIDs {
+			context.Evidence = append(context.Evidence, reasoning.Evidence{RepositoryID: string(repo.ID), CommitID: a.Revision, Kind: "accessibility_reproduction_evidence", ResourceID: evidenceID, Label: "Permitted evidence body remains in the barrier store."})
+		}
+		if strings.TrimSpace(in.Title) == "" {
+			in.Title = "Repair confirmed accessibility barrier"
+		}
+		task, e := src.plans.CreateTask(string(repo.ID), in.ProposalID, actor.UserID, proposals.TaskInput{Title: in.Title, Outcome: strings.Join(in.AcceptanceCriteria, "; "), OwnerKind: in.OwnerKind, OwnerID: in.OwnerID, CompletionCriteria: in.AcceptanceCriteria, VerificationPlan: in.AcceptanceCriteria, BaseRevision: a.Revision, ReasoningContext: context})
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "task_creation_failed"})
+			return
+		}
+		kind := proposals.HumanAssignee
+		if in.OwnerKind == "agent" {
+			kind = proposals.AgentAssignee
+		}
+		task, e = src.plans.AssignTask(string(repo.ID), in.ProposalID, task.ID, actor.UserID, "", proposals.AssignmentInput{Kind: kind, AssigneeID: in.OwnerID, Mandate: "Implement the confirmed accessibility repair within the retained criteria and ordinary review policy.", RepositoryID: string(repo.ID), BaseRevision: a.Revision})
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "task_assignment_failed"})
+			return
+		}
+		repair := accessibilityassessments.Repair{Revision: a.Revision, AcceptanceCriteria: in.AcceptanceCriteria, EvidenceIDs: in.EvidenceIDs, CommitmentID: in.CommitmentID, CommitmentVersion: in.CommitmentVersion, ComponentGuidance: in.ComponentGuidance, OwnerKind: in.OwnerKind, OwnerID: in.OwnerID, ProposalID: in.ProposalID, TaskID: task.ID}
+		var resource any = task
+		if in.Kind == "change_session" {
+			if src.sessions == nil {
+				writeJSON(w, 422, map[string]string{"error": "change_sessions_unavailable"})
+				return
+			}
+			taskContext := changesessions.TaskContext{ProposalID: proposal.ID, ProposalTitle: proposal.Title, ProposalDescription: proposal.Body, TaskID: task.ID, TaskTitle: task.Title, TaskOutcome: task.Outcome, Mandate: task.Assignment.Mandate, Repository: changesessions.RepositoryContext{ID: string(repo.ID), Name: repo.Name, Description: repo.Description, DefaultBranch: "main", BaseRevision: a.Revision}, ReasoningContext: context}
+			x, er := src.sessions.CreateForTask(string(repo.ID), pull.ID, actor.UserID, a.Revision, taskContext)
+			if er != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			repair.ChangeSessionID = x.ID
+			resource = x
+		}
+		if in.Kind == "workspace" {
+			if src.workspaces == nil || src.workspaceRunner == nil {
+				writeJSON(w, 422, map[string]string{"error": "workspaces_unavailable"})
+				return
+			}
+			def, digest, er := src.workspaceRunner.Definition(string(repo.ID), a.Revision)
+			if er != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_workspace_definition"})
+				return
+			}
+			ctx := workspaces.SourceContext{Type: "accessibility_finding", ID: r.PathValue("finding"), ParentID: a.ID, GuidanceVersion: in.CommitmentVersion, Guidance: in.ComponentGuidance, Evidence: in.EvidenceIDs, AcceptanceCriteria: in.AcceptanceCriteria}
+			x, er := src.workspaces.Create(string(repo.ID), a.Revision, actor.UserID, ctx, workspaces.Access{RepositoryID: string(repo.ID), ActorID: actor.UserID, Permission: "repository:write"}, def, digest)
+			if er != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			src.workspaceRunner.Start(x)
+			repair.WorkspaceID = x.ID
+			resource = x
+		}
+		updated, made, e := s.CreateRepair(string(repo.ID), pull.ID, a.ID, r.PathValue("finding"), actor.UserID, repair)
+		if assessmentError(w, e) {
+			return
+		}
+		writeJSON(w, 201, map[string]any{"assessment": updated, "repair": made, "task": task, "resource": resource, "authority_notice": "The finding grants no repository, agent, credential, review, or merge authority."})
+	}
+}
+
+func accessibilityRepairProgress(s *accessibilityassessments.Store, repos proposalRepositoryStore, c authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Status  string `json:"status"`
+			Summary string `json:"summary"`
+		}
+		if !readJSON(w, r, &in, 72<<10) {
+			return
+		}
+		a, e := s.AddRepairProgress(string(repo.ID), r.PathValue("pull"), r.PathValue("assessment"), r.PathValue("finding"), r.PathValue("repair"), actor.UserID, in.Status, in.Summary)
+		if assessmentError(w, e) {
+			return
+		}
+		writeJSON(w, 201, a)
+	}
+}
+
+func accessibilityRepairDelivery(s *accessibilityassessments.Store, repos proposalRepositoryStore, c authStore, src accessibilityAssessmentSources) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in accessibilityassessments.RepairDelivery
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		a, e := s.Get(string(repo.ID), r.PathValue("pull"), r.PathValue("assessment"))
+		if assessmentError(w, e) {
+			return
+		}
+		var repair *accessibilityassessments.Repair
+		for _, f := range a.Findings {
+			if f.ID == r.PathValue("finding") {
+				repair = f.Repair
+			}
+		}
+		if repair == nil || repair.ID != r.PathValue("repair") {
+			writeJSON(w, 404, map[string]string{"error": "accessibility_repair_not_found"})
+			return
+		}
+		pull, e := src.pulls.Get(string(repo.ID), in.PullRequestID)
+		if e != nil || pull.ProposalID != repair.ProposalID || pull.TaskID != repair.TaskID || pull.SourceCommitID != in.Revision {
+			writeJSON(w, 422, map[string]string{"error": "pull_request_not_from_accessibility_repair"})
+			return
+		}
+		preview, e := src.previews.GetByID(in.PreviewID)
+		if e != nil || preview.RepositoryID != string(repo.ID) || preview.PullRequestID != pull.ID || preview.Revision != in.Revision {
+			writeJSON(w, 422, map[string]string{"error": "revision_exact_preview_required"})
+			return
+		}
+		updated, e := s.LinkRepairDelivery(string(repo.ID), r.PathValue("pull"), a.ID, r.PathValue("finding"), repair.ID, actor.UserID, in)
+		if assessmentError(w, e) {
+			return
+		}
+		writeJSON(w, 201, map[string]any{"assessment": updated, "pull_request": pull, "preview": preview, "authority_notice": "Delivery remains subject to ordinary repository review and merge permissions."})
+	}
 }
 
 func captureAssessmentLocations(opener interface {

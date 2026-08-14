@@ -66,12 +66,49 @@ type Decision struct {
 	ActorID   string    `json:"actor_id"`
 	CreatedAt time.Time `json:"created_at"`
 }
+type RepairProgress struct {
+	Status    string    `json:"status"`
+	Summary   string    `json:"summary"`
+	ActorID   string    `json:"actor_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type RepairDelivery struct {
+	PullRequestID        string    `json:"pull_request_id"`
+	Revision             string    `json:"revision"`
+	PreviewID            string    `json:"preview_id"`
+	DesignChanges        []string  `json:"design_changes"`
+	CodeChanges          []string  `json:"code_changes"`
+	InteractionTradeoffs []string  `json:"interaction_tradeoffs"`
+	ContentTradeoffs     []string  `json:"content_tradeoffs"`
+	LinkedByID           string    `json:"linked_by_id"`
+	LinkedAt             time.Time `json:"linked_at"`
+}
+type Repair struct {
+	ID                 string           `json:"id"`
+	Revision           string           `json:"revision"`
+	AcceptanceCriteria []string         `json:"acceptance_criteria"`
+	EvidenceIDs        []string         `json:"evidence_ids"`
+	CommitmentID       string           `json:"commitment_id"`
+	CommitmentVersion  int64            `json:"commitment_version"`
+	ComponentGuidance  []string         `json:"component_guidance"`
+	OwnerKind          string           `json:"owner_kind"`
+	OwnerID            string           `json:"owner_id"`
+	ProposalID         string           `json:"proposal_id"`
+	TaskID             string           `json:"task_id"`
+	ChangeSessionID    string           `json:"change_session_id,omitempty"`
+	WorkspaceID        string           `json:"workspace_id,omitempty"`
+	CreatedByID        string           `json:"created_by_id"`
+	CreatedAt          time.Time        `json:"created_at"`
+	Progress           []RepairProgress `json:"progress"`
+	Delivery           *RepairDelivery  `json:"delivery,omitempty"`
+}
 type Finding struct {
 	ID string `json:"id"`
 	FindingInput
 	ActorID      string     `json:"actor_id"`
 	CreatedAt    time.Time  `json:"created_at"`
 	Decisions    []Decision `json:"decisions"`
+	Repair       *Repair    `json:"repair,omitempty"`
 	Stale        bool       `json:"stale"`
 	StaleReasons []string   `json:"stale_reasons"`
 }
@@ -267,6 +304,81 @@ func (s *Store) AddAutomation(repo, pull, aid, actor string, in Automation) (Ass
 	in.CreatedAt = s.now().UTC()
 	a.Automation = append(a.Automation, in)
 	return a, s.write(a)
+}
+func (s *Store) CreateRepair(repo, pull, aid, fid, actor string, repair Repair) (Assessment, Repair, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, e := s.read(repo, pull, aid)
+	if e != nil {
+		return a, repair, e
+	}
+	if actor == "" || repair.Revision != a.Revision || repair.ProposalID == "" || repair.TaskID == "" || repair.CommitmentID == "" || repair.CommitmentVersion < 1 || repair.OwnerID == "" || !map[string]bool{"human": true, "agent": true}[repair.OwnerKind] || !list(repair.AcceptanceCriteria) || len(repair.ComponentGuidance) == 0 || len(repair.ComponentGuidance) > 50 {
+		return a, repair, ErrInvalid
+	}
+	for _, x := range repair.ComponentGuidance {
+		if !text(x, 4000) {
+			return a, repair, ErrInvalid
+		}
+	}
+	for i := range a.Findings {
+		f := &a.Findings[i]
+		if f.ID != fid {
+			continue
+		}
+		confirmed := len(f.Decisions) > 0 && f.Decisions[len(f.Decisions)-1].Outcome == "confirmed"
+		if !confirmed || f.Stale || f.Repair != nil {
+			return a, repair, ErrInvalid
+		}
+		now := s.now().UTC()
+		repair.ID, repair.CreatedByID, repair.CreatedAt = id(), actor, now
+		repair.Progress = []RepairProgress{{Status: "planned", Summary: "Governed repair work created from the confirmed finding.", ActorID: actor, CreatedAt: now}}
+		f.Repair = &repair
+		return a, repair, s.write(a)
+	}
+	return a, repair, ErrNotFound
+}
+func (s *Store) AddRepairProgress(repo, pull, aid, fid, rid, actor, status, summary string) (Assessment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, e := s.read(repo, pull, aid)
+	if e != nil {
+		return a, e
+	}
+	if actor == "" || !map[string]bool{"planned": true, "in_progress": true, "blocked": true, "ready_for_review": true, "completed": true, "canceled": true}[status] || !text(summary, 65536) {
+		return a, ErrInvalid
+	}
+	for i := range a.Findings {
+		f := &a.Findings[i]
+		if f.ID == fid && f.Repair != nil && f.Repair.ID == rid {
+			f.Repair.Progress = append(f.Repair.Progress, RepairProgress{Status: status, Summary: summary, ActorID: actor, CreatedAt: s.now().UTC()})
+			return a, s.write(a)
+		}
+	}
+	return a, ErrNotFound
+}
+func (s *Store) LinkRepairDelivery(repo, pull, aid, fid, rid, actor string, delivery RepairDelivery) (Assessment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, e := s.read(repo, pull, aid)
+	if e != nil {
+		return a, e
+	}
+	if actor == "" || delivery.PullRequestID == "" || delivery.Revision == "" || delivery.PreviewID == "" || !list(delivery.DesignChanges) || !list(delivery.CodeChanges) || !list(delivery.InteractionTradeoffs) || !list(delivery.ContentTradeoffs) {
+		return a, ErrInvalid
+	}
+	for i := range a.Findings {
+		f := &a.Findings[i]
+		if f.ID == fid && f.Repair != nil && f.Repair.ID == rid {
+			if f.Repair.Delivery != nil {
+				return a, ErrInvalid
+			}
+			delivery.LinkedByID, delivery.LinkedAt = actor, s.now().UTC()
+			f.Repair.Delivery = &delivery
+			f.Repair.Progress = append(f.Repair.Progress, RepairProgress{Status: "ready_for_review", Summary: "Revision-exact pull request and preview linked for inspection.", ActorID: actor, CreatedAt: delivery.LinkedAt})
+			return a, s.write(a)
+		}
+	}
+	return a, ErrNotFound
 }
 func derive(a *Assessment) {
 	covered := map[string]bool{}
