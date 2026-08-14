@@ -139,7 +139,9 @@ func registerLocalizationDeliveryHTTP(mux *http.ServeMux, s *localizationdeliver
 			return
 		}
 		candidate, e := s.Candidate(repo, in.CandidatePullRequestID)
-		if e != nil || candidate.Version != in.CandidateVersion || candidate.Revision != in.Revision {
+		pull, pe := src.pulls.Get(repo, in.CandidatePullRequestID)
+		candidatePublishedRevision := pe == nil && pull.SourceCommitID == candidate.Revision && (pull.MergeCommitID == in.Revision || candidate.Revision == in.Revision)
+		if e != nil || candidate.Version != in.CandidateVersion || !candidatePublishedRevision {
 			writeJSON(w, 422, map[string]string{"error": "current_locale_candidate_required"})
 			return
 		}

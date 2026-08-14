@@ -1926,6 +1926,16 @@ complete publication and correction trail. These records grant no Git,
 translation-provider, review, merge, release, documentation-publication,
 credential, or operational authority.
 
+`localization_workflow_test.go` is the black-box regression boundary for the
+complete source-change-to-corrected-global-release loop. It retains a
+source-superseded human translation, a grounded agent suggestion edited by a
+translator, exact-preview regional approval, missing-reviewer containment, a
+right-to-left failure and explicit locale withdrawal, ordinary checks, review,
+merge, and release, plus a reader finding returned through an agent-owned
+proposal task and corrected locale publication. Locale candidates bind the
+pull's exact source commit while application publications bind the resulting
+merge commit; both identities are verified and retained rather than conflated.
+
 ## LADDER.md
 
 `/LADDER.md` at the repo root is **not part of this repository**. It is placed
