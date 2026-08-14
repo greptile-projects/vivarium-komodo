@@ -12,16 +12,21 @@ import (
 	"strings"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/localeplans"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/translationunits"
 )
 
 type localizationConfig struct {
-	SchemaVersion int                    `json:"schema_version"`
-	SourceLocale  string                 `json:"source_locale"`
-	Locales       []string               `json:"locales"`
-	Resources     []localizationResource `json:"resources"`
+	SchemaVersion     int                    `json:"schema_version"`
+	SourceLocale      string                 `json:"source_locale"`
+	Locales           []string               `json:"locales"`
+	Resources         []localizationResource `json:"resources"`
+	ProductContext    string                 `json:"product_context"`
+	Protected         bool                   `json:"protected"`
+	Embargoed         bool                   `json:"embargoed"`
+	PermittedActorIDs []string               `json:"permitted_actor_ids"`
 }
 type localizationResource struct {
 	ID              string              `json:"id"`
@@ -39,6 +44,9 @@ type translationUnitSources struct {
 	repositories interface {
 		Open(storage.ID) (*storage.Repository, error)
 	}
+	plans interface {
+		Get(string, string) (localeplans.Plan, error)
+	}
 }
 
 func registerTranslationUnitsHTTP(mux *http.ServeMux, s *translationunits.Store, repos proposalRepositoryStore, c authStore, src translationUnitSources) {
@@ -51,22 +59,22 @@ func registerTranslationUnitsHTTP(mux *http.ServeMux, s *translationunits.Store,
 		return string(repo.ID), a.UserID, true
 	}
 	mux.HandleFunc("GET /repositories/{repository}/translation-extractions", func(w http.ResponseWriter, r *http.Request) {
-		repo, _, ok := access(w, r)
+		repo, actor, ok := access(w, r)
 		if !ok {
 			return
 		}
-		items, e := s.List(repo)
+		items, e := s.ListAuthorized(repo, actor)
 		if translationUnitError(w, e) {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"items": items})
 	})
 	mux.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
-		repo, _, ok := access(w, r)
+		repo, actor, ok := access(w, r)
 		if !ok {
 			return
 		}
-		x, e := s.Get(repo, r.PathValue("pull"))
+		x, e := s.Authorized(repo, r.PathValue("pull"), actor)
 		if translationUnitError(w, e) {
 			return
 		}
@@ -78,8 +86,10 @@ func registerTranslationUnitsHTTP(mux *http.ServeMux, s *translationunits.Store,
 			return
 		}
 		var in struct {
-			Revision   string `json:"revision"`
-			ConfigPath string `json:"config_path"`
+			Revision          string `json:"revision"`
+			ConfigPath        string `json:"config_path"`
+			LocalePlanID      string `json:"locale_plan_id"`
+			LocalePlanVersion int64  `json:"locale_plan_version"`
 		}
 		if !readJSON(w, r, &in, 64<<10) {
 			return
@@ -106,6 +116,36 @@ func registerTranslationUnitsHTTP(mux *http.ServeMux, s *translationunits.Store,
 			writeJSON(w, 422, map[string]string{"error": "invalid_localization_extraction"})
 			return
 		}
+		if in.LocalePlanID != "" {
+			if src.plans == nil {
+				writeJSON(w, 422, map[string]string{"error": "locale_plan_unavailable"})
+				return
+			}
+			plan, pe := src.plans.Get(repo, in.LocalePlanID)
+			if pe != nil || in.LocalePlanVersion != plan.CurrentVersion {
+				writeJSON(w, 422, map[string]string{"error": "invalid_locale_plan_version"})
+				return
+			}
+			v := plan.Versions[in.LocalePlanVersion-1]
+			input.PlanID = plan.ID
+			input.PlanVersion = v.Number
+			input.Terminology = map[string][]translationunits.Terminology{}
+			input.ReviewerIDs = map[string][]string{}
+			for _, term := range v.Terms {
+				input.Terminology[term.LocaleID] = append(input.Terminology[term.LocaleID], translationunits.Terminology{Concept: term.Concept, Preferred: term.Preferred, Avoid: term.Avoid, Context: term.Context})
+			}
+			for _, locale := range input.Locales {
+				ids := append([]string{}, v.ReviewerIDs...)
+				for _, j := range v.Journeys {
+					for _, l := range j.LocaleIDs {
+						if l == locale {
+							ids = append(ids, j.ReviewerIDs...)
+						}
+					}
+				}
+				input.ReviewerIDs[locale] = uniqueStrings(ids)
+			}
+		}
 		x, e := s.Create(repo, p.ID, actor, input)
 		if translationUnitError(w, e) {
 			return
@@ -125,6 +165,103 @@ func registerTranslationUnitsHTTP(mux *http.ServeMux, s *translationunits.Store,
 			return
 		}
 		x, e := s.Propose(repo, r.PathValue("pull"), actor, r.PathValue("unit"), in.LocaleID, in.Text)
+		if translationUnitError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+base+"/claims", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r)
+		if !ok {
+			return
+		}
+		var in struct {
+			LocaleID        string `json:"locale_id"`
+			Action          string `json:"action"`
+			HandoffToID     string `json:"handoff_to_id"`
+			Reason          string `json:"reason"`
+			ExpectedVersion int64  `json:"expected_version"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		x, e := s.Claim(repo, r.PathValue("pull"), actor, in.LocaleID, in.Action, in.HandoffToID, in.Reason, in.ExpectedVersion)
+		if translationUnitError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+base+"/{unit}/discussion", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r)
+		if !ok {
+			return
+		}
+		var in struct {
+			LocaleID string `json:"locale_id"`
+			Body     string `json:"body"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		x, e := s.Discuss(repo, r.PathValue("pull"), actor, r.PathValue("unit"), in.LocaleID, in.Body)
+		if translationUnitError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+base+"/{unit}/suggestions", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r)
+		if !ok {
+			return
+		}
+		var in struct {
+			LocaleID    string                      `json:"locale_id"`
+			AgentID     string                      `json:"agent_id"`
+			Text        string                      `json:"text"`
+			Uncertainty string                      `json:"uncertainty"`
+			Evidence    []translationunits.Evidence `json:"evidence"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		x, e := s.Suggest(repo, r.PathValue("pull"), actor, in.AgentID, r.PathValue("unit"), in.LocaleID, in.Text, in.Uncertainty, in.Evidence)
+		if translationUnitError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+base+"/suggestions/{suggestion}/decisions", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r)
+		if !ok {
+			return
+		}
+		var in struct {
+			Decision  string `json:"decision"`
+			Text      string `json:"text"`
+			Rationale string `json:"rationale"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		x, e := s.DecideSuggestion(repo, r.PathValue("pull"), actor, r.PathValue("suggestion"), in.Decision, in.Text, in.Rationale)
+		if translationUnitError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+base+"/proposals/{proposal}/reviews", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r)
+		if !ok {
+			return
+		}
+		var in struct {
+			Decision  string `json:"decision"`
+			Rationale string `json:"rationale"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		x, e := s.ReviewProposal(repo, r.PathValue("pull"), actor, r.PathValue("proposal"), in.Decision, in.Rationale)
 		if translationUnitError(w, e) {
 			return
 		}
@@ -239,7 +376,18 @@ func extractTranslationUnits(repo *storage.Repository, candidate, target, config
 			units = append(units, u)
 		}
 	}
-	return translationunits.Input{Revision: candidate, TargetRevision: target, SourceLocale: cfg.SourceLocale, Locales: cfg.Locales, ConfigPath: configPath, ConfigBlobID: string(configBlob), Units: units}, nil
+	return translationunits.Input{Revision: candidate, TargetRevision: target, SourceLocale: cfg.SourceLocale, Locales: cfg.Locales, ConfigPath: configPath, ConfigBlobID: string(configBlob), Units: units, ProductContext: cfg.ProductContext, Protected: cfg.Protected, Embargoed: cfg.Embargoed, PermittedActorIDs: cfg.PermittedActorIDs}, nil
+}
+func uniqueStrings(in []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, v := range in {
+		if v != "" && !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
 }
 func localizationBlob(r *storage.Repository, revision, path string) (storage.ObjectID, []byte, bool) {
 	oid, ok := assessmentBlob(r, storage.ObjectID(revision), path)
@@ -324,6 +472,10 @@ func translationUnitError(w http.ResponseWriter, e error) bool {
 		writeJSON(w, 404, map[string]string{"error": "translation_extraction_not_found"})
 	case errors.Is(e, translationunits.ErrInvalid):
 		writeJSON(w, 422, map[string]string{"error": "invalid_translation_work"})
+	case errors.Is(e, translationunits.ErrConflict):
+		writeJSON(w, 409, map[string]string{"error": "translation_work_changed"})
+	case errors.Is(e, translationunits.ErrForbidden):
+		writeJSON(w, 403, map[string]string{"error": "translation_work_forbidden"})
 	default:
 		writeJSON(w, 500, map[string]string{"error": "internal_error"})
 	}
