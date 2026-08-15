@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-14T23:46:03Z: Added revision-bound reliability investigations for objective, pull-request, deployment, and budget-consumption signals, with baseline comparisons, audience-bounded evidence, read-only agent collaboration, owner input requests, explicit stale/disputed/inconclusive blockers, and writer-governed downstream links. Durable state lives beneath `$RELIABILITY_INVESTIGATION_ROOT`; the complete API test suite and vet pass.
+
 2026-08-14T20:53:24Z: Proved the complete source-change-to-corrected-global-release localization loop through public HTTP and stock Git, retaining superseded human translation, grounded agent contribution, exact regional review, RTL withdrawal containment, ordinary delivery, reader feedback, and an agent-owned corrected publication. Locale publication now verifies the pull candidate source and resulting merge revision as distinct provenance identities.
 
 2026-08-14T20:01:10Z: Added locale delivery policies and exact-candidate staged/deferred/withdrawn governance to merge readiness, plus provenance-rich application/documentation locale publications and publication-bound regional findings that validate into ordinary human/agent repair tasks. Durable state lives beneath `$LOCALIZATION_DELIVERY_ROOT`; focused tests, vet, web lint/build pass, while the full API suite retains the known federation TLS and product-experiment check-route failures.
