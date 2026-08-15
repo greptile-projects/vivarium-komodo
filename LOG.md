@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-15T01:30:38Z: Added accountable reliability improvements that turn current supported findings or depleted budgets into ordered ordinary human/agent proposal tasks, retain exact context and delivery links, and derive containment or restored budget state from baseline-comparable rollout evidence without erasing prior impact.
+
 2026-08-14T23:46:03Z: Added revision-bound reliability investigations for objective, pull-request, deployment, and budget-consumption signals, with baseline comparisons, audience-bounded evidence, read-only agent collaboration, owner input requests, explicit stale/disputed/inconclusive blockers, and writer-governed downstream links. Durable state lives beneath `$RELIABILITY_INVESTIGATION_ROOT`; the complete API test suite and vet pass.
 
 2026-08-14T20:53:24Z: Proved the complete source-change-to-corrected-global-release localization loop through public HTTP and stock Git, retaining superseded human translation, grounded agent contribution, exact regional review, RTL withdrawal containment, ordinary delivery, reader feedback, and an agent-owned corrected publication. Locale publication now verifies the pull candidate source and resulting merge revision as distinct provenance identities.

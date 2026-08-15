@@ -74,6 +74,27 @@ signals, and unanswered dependency input remain explicit blockers. Records
 grant no telemetry, alert, rollback, Git, deployment, or operational authority
 and live beneath `$RELIABILITY_INVESTIGATION_ROOT`.
 
+### Accountable reliability improvements
+
+Repository writers use `/repositories/{repository}/reliability-improvements`
+to convert either a current supported investigation conclusion or a depleted
+error-budget event into an ordinary proposal and ordered human- or agent-owned
+tasks. The improvement freezes its exact service-objective version, affected
+revisions and journeys, baseline signal window, dependency context, evidence,
+acceptance criteria, assignees, and task dependencies. This preloads the reason
+for the work while the proposal and task APIs retain their normal authorship,
+access, session, pull-request, review, and check boundaries.
+
+Writers append exact `/delivery-links` for pull requests, checks, releases,
+deployments, and decisions. A `/rollouts` observation binds a release,
+deployment, revision, environment, stage, and current measurement to the
+recorded baseline. Failed measures keep the budget depleted and derive a
+containment, rollback, or decision-revisit requirement; later passing evidence
+may restore the derived budget state without deleting the failed attempt or
+original impact. The durable store is `$RELIABILITY_IMPROVEMENT_ROOT`.
+Nothing in the record grants Git, review, merge, release, deployment, rollback,
+telemetry, credential, or operational authority.
+
 ## Product feedback
 
 ## Accessibility barrier reproduction
