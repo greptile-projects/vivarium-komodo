@@ -1958,6 +1958,22 @@ proposal task and corrected locale publication. Locale candidates bind the
 pull's exact source commit while application publications bind the resulting
 merge commit; both identities are verified and retained rather than conflated.
 
+## Reliability investigations
+
+Revision-bound reliability investigations live beneath
+`$RELIABILITY_INVESTIGATION_ROOT` (default
+`apps/api/data/reliability-investigations`). Repository readers and read-only
+agents open one from an objective, pull request, deployment, or
+budget-consumption event with frozen objective terms, journeys, repository
+revision, and baseline-versus-affected evidence. Participants retain cited
+hypotheses, comparisons, challenges, conclusions, uncertainty, and bounded
+service or dependency-owner input requests. Reads derive stale evidence,
+disputes, inconclusive signals, and unanswered dependency input. Only writers
+invite participants or link issues, incidents, decisions, and planned
+improvements; investigations grant no telemetry, alert, rollback, repository,
+credential, deployment, or operational authority. The reader surface is
+`view=reliability`.
+
 ## LADDER.md
 
 `/LADDER.md` at the repo root is **not part of this repository**. It is placed

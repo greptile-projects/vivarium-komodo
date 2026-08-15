@@ -36,6 +36,27 @@ repository-audience evidence. Historical observations are never recomputed when
 terms or instrumentation change, and derived gaps call out missing mappings,
 missing attainment, changed instrumentation, and incomparable windows.
 
+### Reliability investigations
+
+Authenticated repository readers open shared diagnosis at
+`/repositories/{repository}/reliability-investigations`. Each investigation
+binds an exact service-objective version, affected journeys, repository
+revision, and an objective, pull-request, deployment, or budget-consumption
+trigger. Creation requires a baseline and affected sample; operational and code
+evidence retains its resource, revision, audience, window, summary, and
+uncertainty. Participant evidence keeps the investigation participant-only.
+
+Readers, including approved read-only agents, append cited observations,
+comparisons, hypotheses, challenges, conclusions, and responses and request
+bounded input from service or dependency owners. Conclusions distinguish
+supported, disputed, and inconclusive judgments. Objective owners participate;
+only repository writers invite others or link a cited conclusion to an issue,
+incident, decision, or planned improvement. Changed objective terms make cited
+reasoning stale without rewriting it. Uncertainty, dissent, inconclusive
+signals, and unanswered dependency input remain explicit blockers. Records
+grant no telemetry, alert, rollback, Git, deployment, or operational authority
+and live beneath `$RELIABILITY_INVESTIGATION_ROOT`.
+
 ## Product feedback
 
 ## Accessibility barrier reproduction

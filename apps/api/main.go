@@ -56,6 +56,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/questions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/relationships"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/reliabilityinvestigations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/roadmapdelivery"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/roadmapvalidations"
@@ -338,6 +339,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	reliabilityInvestigationRoot := os.Getenv("RELIABILITY_INVESTIGATION_ROOT")
+	if reliabilityInvestigationRoot == "" {
+		reliabilityInvestigationRoot = "data/reliability-investigations"
+	}
+	reliabilityInvestigationStore, err := reliabilityinvestigations.New(reliabilityInvestigationRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	translationUnitRoot := os.Getenv("TRANSLATION_UNIT_ROOT")
 	if translationUnitRoot == "" {
 		translationUnitRoot = "data/translation-units"
@@ -573,6 +582,7 @@ func main() {
 	registerDataCommitmentsHTTP(mux, dataCommitmentStore, repositoryCatalog, credentials)
 	registerLocalePlansHTTP(mux, localePlanStore, repositoryCatalog, credentials)
 	registerServiceObjectivesHTTP(mux, serviceObjectiveStore, repositoryCatalog, credentials)
+	registerReliabilityInvestigationsHTTP(mux, reliabilityInvestigationStore, serviceObjectiveStore, repositoryCatalog, credentials)
 	registerTranslationUnitsHTTP(mux, translationUnitStore, repositoryCatalog, credentials, translationUnitSources{pulls: pullRequestStore, repositories: repositoryCatalog, plans: localePlanStore})
 	registerLocalizationVerificationHTTP(mux, localizationVerificationStore, repositoryCatalog, credentials, localizationVerificationSources{pulls: pullRequestStore, repositories: repositoryCatalog, translations: translationUnitStore, previews: previewStore})
 	registerLocalizationDeliveryHTTP(mux, localizationDeliveryStore, repositoryCatalog, credentials, localizationDeliverySources{pulls: pullRequestStore, verification: localizationVerificationStore, releases: releaseStore, docs: documentationStore, proposals: proposalStore})
