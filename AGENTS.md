@@ -1985,6 +1985,22 @@ improvements; investigations grant no telemetry, alert, rollback, repository,
 credential, deployment, or operational authority. The reader surface is
 `view=reliability`.
 
+Reliability improvements live beneath `$RELIABILITY_IMPROVEMENT_ROOT` (default
+`apps/api/data/reliability-improvements`). Repository writers convert a current
+supported investigation conclusion or depleted error-budget event into one
+ordinary proposal with ordered human- or agent-owned tasks. The retained record
+freezes the objective version, affected revisions and journeys, baseline,
+dependency context, evidence, acceptance criteria, ownership, and task
+dependencies. Attributable delivery links connect exact pull-request, check,
+release, deployment, and decision revisions without replacing their existing
+permissions or policy. Governed rollout observations compare current indicators
+with the recorded baseline: failed evidence derives containment, rollback, or
+decision-revisit action while successful evidence restores the derived budget
+state. Every attempt and the original impact remain immutable in the record;
+improvements grant no Git, review, merge, release, deployment, rollback,
+telemetry, credential, or operational authority. The reader surface remains
+`view=reliability`.
+
 ## LADDER.md
 
 `/LADDER.md` at the repo root is **not part of this repository**. It is placed
