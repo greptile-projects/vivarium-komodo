@@ -252,6 +252,17 @@ rejected; anonymous public reads omit repository-audience observations, while
 instrumentation changes, incomparable windows, and missing mappings or
 attainment remain explicit.
 
+Reliability delivery policies live beneath `$RELIABILITY_POLICY_ROOT` (default
+`apps/api/data/reliability-policies`). Repository owners bind an exact objective
+version to branches, services, environments, journeys, and risk classes and map
+budget exhaustion or thresholds, regressions, missing evidence, and dependency
+failure to block, slow, pause, or rollback responses. Revision-exact predicted
+and observed impacts cover pull requests, integration queues, releases, and
+deployments; reads retain active exceptions, required objective-owner
+acknowledgements, derived requirements, and available next actions. Policy and
+agent evidence grant no merge, queue, release, deployment, credential, or
+environment authority.
+
 Product feedback lives beneath `$PRODUCT_FEEDBACK_ROOT` (default
 `apps/api/data/product-feedback`). Authenticated project readers submit a need
 against the project, an exact release, a documentation collection journey, or

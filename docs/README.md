@@ -36,6 +36,23 @@ repository-audience evidence. Historical observations are never recomputed when
 terms or instrumentation change, and derived gaps call out missing mappings,
 missing attainment, changed instrumentation, and incomparable windows.
 
+### Reliability delivery policy
+
+Repository owners bind an exact service-objective version to delivery through
+`/repositories/{repository}/reliability-delivery-policies`. A policy selects
+branches, services, environments, journeys, and risk classes, names required
+objective owners, and maps exhausted or threshold-crossing error budgets,
+regressions, missing evidence, and dependency failure to `block`, `slow`,
+`pause`, or `rollback` responses. Policies are immutable and live beneath
+`$RELIABILITY_POLICY_ROOT`.
+
+Maintainers append revision-exact predicted or observed `/impacts` for a pull
+request, integration queue candidate, release, or staged deployment. The
+`/assessment` projection returns impact history, owner acknowledgements, active
+exceptions, requirements, and available next actions for enforcement by the
+existing delivery controller. These records never merge a change or operate an
+environment, and agent evidence cannot silently become either authority.
+
 ### Reliability investigations
 
 Authenticated repository readers open shared diagnosis at
