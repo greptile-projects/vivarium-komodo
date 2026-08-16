@@ -29,6 +29,7 @@ import { TranslationWork } from "@/components/translation-work";
 import { LocalizationVerification } from "@/components/localization-verification";
 import { LocalizationDelivery } from "@/components/localization-delivery";
 import { ServiceObjectives } from "@/components/service-objectives";
+import { RecoveryObjectives } from "@/components/recovery-objectives";
 import { PrivacyAssessments } from "@/components/privacy-assessments";
 import {
   Book,
@@ -1347,6 +1348,7 @@ export default function RepositoryPage({
         view === "privacy" ||
         view === "locales" ||
         view === "reliability" ||
+        view === "continuity" ||
         view === "experiments" ||
         view === "feedback" ||
         view === "issues" ||
@@ -1675,6 +1677,13 @@ export default function RepositoryPage({
           Reliability
         </button>
         <button
+          className={view === "continuity" ? "active" : ""}
+          onClick={() => navigate({ view: "continuity", path: "" })}
+        >
+          <Clock size={15} />
+          Continuity
+        </button>
+        <button
           className={view === "impact" ? "active" : ""}
           onClick={() => navigate({ view: "impact", ref, path: "" })}
         >
@@ -1801,6 +1810,8 @@ export default function RepositoryPage({
         <><LocalePlans repository={repository.id} actor={actor} /><TranslationWork repository={repository.id} /><LocalizationVerification repository={repository.id} /><LocalizationDelivery repository={repository.id} /></>
       ) : view === "reliability" ? (
         <ServiceObjectives repository={repository.id} actor={actor} />
+      ) : view === "continuity" ? (
+        <RecoveryObjectives repository={repository.id} actor={actor} />
       ) : view === "funds" ? (
         <ProjectFunds repository={repository.id} actor={actor} />
       ) : view === "experiments" ? (

@@ -281,6 +281,20 @@ missing dependency evidence, a rejected exception, rollout containment,
 revision-exact human-agent investigation, bounded agent authority and cost, a
 failed first repair, ordinary review and release, and staged verified recovery.
 
+Repository recovery objectives live beneath `$RECOVERY_OBJECTIVE_ROOT` (default
+`apps/api/data/recovery-objectives`). Repository writers publish immutable,
+optimistically concurrency-checked continuity commitments covering repository,
+package, artifact, configuration, collaboration-record, and deployed-service
+state. Every resource binds a user capability to accountable owners,
+dependencies, acceptable loss, restoration time, retention, jurisdictions,
+validation criteria, and declared feasibility; versions retain exclusions,
+time-bounded exceptions, and links to service objectives, environments,
+incidents, privacy rules, and governance. Reads derive missing ownership,
+impossible or unverified targets, unprotected or ownerless dependencies, and
+expiring or expired exceptions. The repository web surface is
+`view=continuity`; commitments grant no repository, backup, environment,
+credential, restoration, or operational authority.
+
 Product feedback lives beneath `$PRODUCT_FEEDBACK_ROOT` (default
 `apps/api/data/product-feedback`). Authenticated project readers submit a need
 against the project, an exact release, a documentation collection journey, or
