@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-16T19:25:00Z: Added isolated recovery exercises bound to exact recoverable captures, ordered restores, integrity and user-journey checks, redacted attributable evidence, bounded time/cost, and derived plan/capture/dependency staleness. Durable state lives beneath `$RECOVERY_EXERCISE_ROOT`, and the Continuity web workspace launches and inspects rehearsals without granting production authority or secret access.
+
 2026-08-15T01:30:38Z: Added accountable reliability improvements that turn current supported findings or depleted budgets into ordered ordinary human/agent proposal tasks, retain exact context and delivery links, and derive containment or restored budget state from baseline-comparable rollout evidence without erasing prior impact.
 
 2026-08-14T23:46:03Z: Added revision-bound reliability investigations for objective, pull-request, deployment, and budget-consumption signals, with baseline comparisons, audience-bounded evidence, read-only agent collaboration, owner input requests, explicit stale/disputed/inconclusive blockers, and writer-governed downstream links. Durable state lives beneath `$RELIABILITY_INVESTIGATION_ROOT`; the complete API test suite and vet pass.
