@@ -263,6 +263,24 @@ acknowledgements, derived requirements, and available next actions. Policy and
 agent evidence grant no merge, queue, release, deployment, credential, or
 environment authority.
 
+Revision-bound collaborative diagnosis lives beneath
+`$RELIABILITY_INVESTIGATION_ROOT` and accountable repair records live beneath
+`$RELIABILITY_IMPROVEMENT_ROOT`. Repository readers and approved read-only
+agents compare bounded baseline, operational, dependency, and code evidence;
+request affected-owner input; retain uncertainty, challenges, and conclusions;
+and expose missing or stale evidence without gaining telemetry or operational
+authority. Writers turn a current supported finding or depleted budget into an
+ordinary proposal with ordered human- and agent-owned tasks, then link reviewed
+pull requests, checks, releases, deployments, decisions, and staged rollout
+measurements. `GET /repositories/{repository}/reliability-improvements` is the
+repository-readable collection projection used by `view=reliability`; failed
+rollouts remain alongside later recovery and restored budget state.
+`reliability_workflow_test.go` is the black-box boundary for the complete
+released-journey-to-sustained-reliability loop. It retains a noisy signal,
+missing dependency evidence, a rejected exception, rollout containment,
+revision-exact human-agent investigation, bounded agent authority and cost, a
+failed first repair, ordinary review and release, and staged verified recovery.
+
 Product feedback lives beneath `$PRODUCT_FEEDBACK_ROOT` (default
 `apps/api/data/product-feedback`). Authenticated project readers submit a need
 against the project, an exact release, a documentation collection journey, or

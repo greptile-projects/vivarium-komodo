@@ -169,6 +169,30 @@ func (s *Store) Get(repo, id string) (Improvement, error) {
 	}
 	return v, nil
 }
+
+func (s *Store) List(repo string) ([]Improvement, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := os.ReadDir(s.root)
+	if err != nil {
+		return nil, err
+	}
+	out := []Improvement{}
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		v, readErr := s.read(strings.TrimSuffix(entry.Name(), ".json"))
+		if readErr != nil {
+			return nil, readErr
+		}
+		if v.RepositoryID == repo {
+			out = append(out, v)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out, nil
+}
 func (s *Store) Link(repo, id, actor string, in DeliveryLink) (Improvement, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -93,7 +93,77 @@ type O = {
     status: string;
     gap_kinds: string[];
     audience: string;
-    evidence: { kind: string; resource_id: string; revision: string; label: string }[];
+    evidence: {
+      kind: string;
+      resource_id: string;
+      revision: string;
+      label: string;
+    }[];
+  }[];
+};
+type Policy = {
+  id: string;
+  name: string;
+  objective_id: string;
+  objective_version: number;
+  environments?: string[];
+  required_owner_ids: string[];
+  rules: { condition: string; action: string }[];
+};
+type Investigation = {
+  id: string;
+  title: string;
+  objective_id: string;
+  objective_version: number;
+  revision: string;
+  question: string;
+  participants: string[];
+  blockers: string[];
+  entries: {
+    id: string;
+    kind: string;
+    body: string;
+    verdict?: string;
+    actor_id: string;
+    uncertainty?: string;
+  }[];
+  input_requests: {
+    owner_id: string;
+    owner_kind: string;
+    question: string;
+    status: string;
+  }[];
+};
+type Improvement = {
+  id: string;
+  title: string;
+  objective_id: string;
+  objective_version: number;
+  proposal_id: string;
+  state: string;
+  budget_state: string;
+  affected_revisions: string[];
+  dependency_context: string[];
+  delivery_links: {
+    kind: string;
+    resource_id: string;
+    revision: string;
+    summary: string;
+  }[];
+  rollouts: {
+    id: string;
+    stage: string;
+    state: string;
+    required_action: string;
+    deployment_id: string;
+    revision: string;
+    rationale: string;
+    measurements: {
+      indicator: string;
+      value: number;
+      unit: string;
+      passed: boolean;
+    }[];
   }[];
 };
 const lines = (x: FormDataEntryValue | null) =>
@@ -117,11 +187,37 @@ export function ServiceObjectives({
 }) {
   const root = `/api/repositories/${repository}/service-objectives`,
     [items, setItems] = useState<O[]>([]),
+    [policies, setPolicies] = useState<Policy[]>([]),
+    [investigations, setInvestigations] = useState<Investigation[]>([]),
+    [improvements, setImprovements] = useState<Improvement[]>([]),
     [error, setError] = useState("");
   const load = useCallback(async () => {
-    const r = await fetch(root);
-    if (r.ok) setItems(((await r.json()) as { items: O[] }).items);
-  }, [root]);
+    const base = `/api/repositories/${repository}`;
+    const [
+      objectiveResponse,
+      policyResponse,
+      investigationResponse,
+      improvementResponse,
+    ] = await Promise.all([
+      fetch(root),
+      fetch(`${base}/reliability-delivery-policies`),
+      fetch(`${base}/reliability-investigations`),
+      fetch(`${base}/reliability-improvements`),
+    ]);
+    if (objectiveResponse.ok)
+      setItems(((await objectiveResponse.json()) as { items: O[] }).items);
+    if (policyResponse.ok)
+      setPolicies(((await policyResponse.json()) as { items: Policy[] }).items);
+    if (investigationResponse.ok)
+      setInvestigations(
+        ((await investigationResponse.json()) as { items: Investigation[] })
+          .items,
+      );
+    if (improvementResponse.ok)
+      setImprovements(
+        ((await improvementResponse.json()) as { items: Improvement[] }).items,
+      );
+  }, [repository, root]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -222,16 +318,49 @@ export function ServiceObjectives({
             {!x.signal_mappings?.length && <p>No signal mapping published.</p>}
             {x.signal_mappings?.map((m) => {
               const q = m.versions.at(-1)!;
-              return <p key={m.id}><Badge>mapping v{q.number}</Badge> {q.indicator_id} / {q.window_id} · instrumentation <code>{q.instrumentation_revision}</code> · {q.sources.map((s) => `${s.kind}: ${s.name}`).join(", ")}</p>;
+              return (
+                <p key={m.id}>
+                  <Badge>mapping v{q.number}</Badge> {q.indicator_id} /{" "}
+                  {q.window_id} · instrumentation{" "}
+                  <code>{q.instrumentation_revision}</code> ·{" "}
+                  {q.sources.map((s) => `${s.kind}: ${s.name}`).join(", ")}
+                </p>
+              );
             })}
-            {!x.attainment_history?.length && <p>No sanitized attainment recorded.</p>}
+            {!x.attainment_history?.length && (
+              <p>No sanitized attainment recorded.</p>
+            )}
             {x.attainment_history?.map((a) => (
               <div key={a.id} className="timeline-card">
-                <p><Badge>{a.status}</Badge> <strong>{a.value}</strong> · {a.error_budget_consumed_percent}% error budget consumed · {new Date(a.window_start).toLocaleDateString()}–{new Date(a.window_end).toLocaleDateString()}</p>
-                <p>Objective v{a.objective_version}, mapping v{a.mapping_version}, instrumentation <code>{a.instrumentation_revision}</code> · {a.audience} evidence</p>
-                {a.uncertainty && <p><strong>Uncertainty:</strong> {a.uncertainty}</p>}
-                {a.gap_kinds.map((g) => <p className="form-error" key={g}>{g.replaceAll("_", " ")}</p>)}
-                {a.evidence.map((e, i) => <p key={i}><Badge>{e.kind}</Badge> {e.label} · <code>{e.resource_id}@{e.revision}</code></p>)}
+                <p>
+                  <Badge>{a.status}</Badge> <strong>{a.value}</strong> ·{" "}
+                  {a.error_budget_consumed_percent}% error budget consumed ·{" "}
+                  {new Date(a.window_start).toLocaleDateString()}–
+                  {new Date(a.window_end).toLocaleDateString()}
+                </p>
+                <p>
+                  Objective v{a.objective_version}, mapping v{a.mapping_version}
+                  , instrumentation <code>{a.instrumentation_revision}</code> ·{" "}
+                  {a.audience} evidence
+                </p>
+                {a.uncertainty && (
+                  <p>
+                    <strong>Uncertainty:</strong> {a.uncertainty}
+                  </p>
+                )}
+                {a.gap_kinds.map((g) => (
+                  <p className="form-error" key={g}>
+                    {g.replaceAll("_", " ")}
+                  </p>
+                ))}
+                {a.evidence.map((e, i) => (
+                  <p key={i}>
+                    <Badge>{e.kind}</Badge> {e.label} ·{" "}
+                    <code>
+                      {e.resource_id}@{e.revision}
+                    </code>
+                  </p>
+                ))}
               </div>
             ))}
             <h4>Linked commitments</h4>
@@ -274,6 +403,134 @@ export function ServiceObjectives({
           </article>
         );
       })}
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">
+            Burn → investigation → governed repair → recovery
+          </span>
+          <h2>Reliability stewardship trail</h2>
+          <p>
+            Inspect how current delivery policy, revision-exact human-agent
+            diagnosis, ordinary reviewed work, and staged recovery remain
+            connected.
+          </p>
+        </div>
+        <Badge>
+          {investigations.length + improvements.length} retained records
+        </Badge>
+      </div>
+      {policies.map((policy) => (
+        <article className="panel" key={policy.id}>
+          <header>
+            <div>
+              <span className="eyebrow">
+                delivery policy · objective v{policy.objective_version}
+              </span>
+              <h3>{policy.name}</h3>
+            </div>
+            <Badge>
+              {policy.environments?.join(", ") || "all environments"}
+            </Badge>
+          </header>
+          <p>
+            <strong>Required owners:</strong>{" "}
+            {policy.required_owner_ids.join(", ")}
+          </p>
+          {policy.rules.map((rule, index) => (
+            <p key={index}>
+              <Badge>{rule.action}</Badge> {rule.condition.replaceAll("_", " ")}
+            </p>
+          ))}
+        </article>
+      ))}
+      {investigations.map((investigation) => (
+        <article className="panel" key={investigation.id}>
+          <header>
+            <div>
+              <span className="eyebrow">
+                investigation · objective v{investigation.objective_version} ·{" "}
+                <code>{investigation.revision}</code>
+              </span>
+              <h3>{investigation.title}</h3>
+              <p>{investigation.question}</p>
+            </div>
+            <Badge>{investigation.participants.length} participants</Badge>
+          </header>
+          {investigation.blockers.map((blocker) => (
+            <p className="form-error" key={blocker}>
+              {blocker.replaceAll("_", " ")}
+            </p>
+          ))}
+          {investigation.input_requests.map((request, index) => (
+            <p key={index}>
+              <Badge>{request.status}</Badge> {request.owner_kind} owner{" "}
+              {request.owner_id}: {request.question}
+            </p>
+          ))}
+          {investigation.entries.map((entry) => (
+            <div className="timeline-card" key={entry.id}>
+              <p>
+                <Badge>{entry.verdict || entry.kind}</Badge>{" "}
+                <strong>{entry.actor_id}</strong>: {entry.body}
+              </p>
+              {entry.uncertainty && (
+                <p>
+                  <strong>Uncertainty:</strong> {entry.uncertainty}
+                </p>
+              )}
+            </div>
+          ))}
+        </article>
+      ))}
+      {improvements.map((improvement) => (
+        <article className="panel" key={improvement.id}>
+          <header>
+            <div>
+              <span className="eyebrow">
+                accountable improvement · objective v
+                {improvement.objective_version}
+              </span>
+              <h3>{improvement.title}</h3>
+              <p>
+                Proposal <code>{improvement.proposal_id}</code> · affected{" "}
+                {improvement.affected_revisions.join(", ")}
+              </p>
+            </div>
+            <Badge>{improvement.budget_state} budget</Badge>
+          </header>
+          <p>
+            <strong>Dependency context:</strong>{" "}
+            {improvement.dependency_context.join("; ")}
+          </p>
+          {improvement.delivery_links.map((link, index) => (
+            <p key={index}>
+              <Badge>{link.kind}</Badge> {link.summary} ·{" "}
+              <code>
+                {link.resource_id}@{link.revision}
+              </code>
+            </p>
+          ))}
+          {improvement.rollouts.map((rollout) => (
+            <div className="timeline-card" key={rollout.id}>
+              <p>
+                <Badge>{rollout.state}</Badge> <strong>{rollout.stage}</strong>{" "}
+                · {rollout.required_action.replaceAll("_", " ")} ·{" "}
+                <code>
+                  {rollout.deployment_id}@{rollout.revision}
+                </code>
+              </p>
+              <p>{rollout.rationale}</p>
+              {rollout.measurements.map((measurement, index) => (
+                <p key={index}>
+                  {measurement.indicator}: {measurement.value}{" "}
+                  {measurement.unit} ·{" "}
+                  {measurement.passed ? "passed" : "failed"}
+                </p>
+              ))}
+            </div>
+          ))}
+        </article>
+      ))}
     </section>
   );
 }
