@@ -30,6 +30,7 @@ import { LocalizationVerification } from "@/components/localization-verification
 import { LocalizationDelivery } from "@/components/localization-delivery";
 import { ServiceObjectives } from "@/components/service-objectives";
 import { RecoveryObjectives } from "@/components/recovery-objectives";
+import { AgentProfiles } from "@/components/agent-profiles";
 import { PrivacyAssessments } from "@/components/privacy-assessments";
 import {
   Book,
@@ -1275,6 +1276,8 @@ export default function RepositoryPage({
                               ? "reliability"
                             : query.view === "continuity"
                               ? "continuity"
+                            : query.view === "agents"
+                              ? "agents"
                             : query.view === "experiments"
                               ? "experiments"
                             : query.view === "feedback"
@@ -1351,6 +1354,7 @@ export default function RepositoryPage({
         view === "locales" ||
         view === "reliability" ||
         view === "continuity" ||
+        view === "agents" ||
         view === "experiments" ||
         view === "feedback" ||
         view === "issues" ||
@@ -1685,6 +1689,10 @@ export default function RepositoryPage({
           <Clock size={15} />
           Continuity
         </button>
+        <button className={view === "agents" ? "active" : ""} onClick={() => navigate({ view: "agents", path: "" })}>
+          <Sparkles size={15} />
+          Agents
+        </button>
         <button
           className={view === "impact" ? "active" : ""}
           onClick={() => navigate({ view: "impact", ref, path: "" })}
@@ -1814,6 +1822,8 @@ export default function RepositoryPage({
         <ServiceObjectives repository={repository.id} actor={actor} />
       ) : view === "continuity" ? (
         <RecoveryObjectives repository={repository.id} actor={actor} />
+      ) : view === "agents" ? (
+        <AgentProfiles actor={actor} />
       ) : view === "funds" ? (
         <ProjectFunds repository={repository.id} actor={actor} />
       ) : view === "experiments" ? (

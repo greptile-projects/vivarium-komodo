@@ -3992,3 +3992,17 @@ existing contracts and may be cited back as ledger events. Revoking a connected
 extension empties its effective authority without deleting the historical flow
 or correction trail. No drift resource grants data, environment, extension,
 credential, review, merge, release, or deployment authority.
+# Public agent profiles
+
+`GET /agent-profiles` and `GET /agent-profiles/{id}` are public catalog reads.
+An authenticated operator publishes with `POST /agent-profiles` and adds an
+optimistically concurrency-checked immutable revision at
+`POST /agent-profiles/{id}/versions`. Profiles disclose operator ownership,
+supported work and tools, exact model and execution provenance, context use and
+retention, subprocessors, remote boundaries, cost/resources, requested
+capabilities, availability, support, and change history. Stable IDs are
+server-generated and handles cannot collide with human or agent identities.
+The response deliberately separates `platform_verified_evidence` from
+unverified operator claims and declares that the catalog grants no authority.
+State defaults to `$AGENT_PROFILE_ROOT`; repositories expose the reader and
+publisher workspace at `view=agents`.

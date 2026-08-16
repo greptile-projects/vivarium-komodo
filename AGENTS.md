@@ -1,5 +1,16 @@
 # AGENTS.md
 
+Public agent profiles live beneath `$AGENT_PROFILE_ROOT` (default
+`apps/api/data/agent-profiles`). Authenticated operators publish immutable
+versions with a server-generated stable agent identity, collision-safe public
+handle, ownership, task/tool and model provenance, remote execution and
+subprocessor boundaries, data-use/retention terms, pricing/resources, requested
+capabilities, availability, support, and change reason. Anonymous reads expose
+the complete history and keep operator claims separate from the platform's
+narrow authentication and schema-validation evidence. Publishing a profile
+grants no repository, secret, credential, review, merge, environment, or
+operational authority. The repository web discovery surface is `view=agents`.
+
 Project funds live beneath `$PROJECT_FUND_ROOT` (default
 `apps/api/data/project-funds`). Repository writers publish governed terms with
 named stewards, accepted transfer sources, currency or credit units, spending
