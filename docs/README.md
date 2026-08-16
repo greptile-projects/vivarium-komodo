@@ -62,6 +62,31 @@ longer match. Durable state lives beneath `$RECOVERY_EXERCISE_ROOT`; exercises
 record evidence and do not provision environments or grant restoration or
 operational authority.
 
+Completed exercises feed accountable diagnosis through
+`/repositories/{repository}/recovery-investigations`. Collaborators and
+authenticated read-only agents correlate the frozen exercise with bounded
+code, dependency, release, configuration, ownership, and protection-plan
+references. Every observation, hypothesis, challenge, and conclusion cites the
+permitted evidence it uses and retains attribution, uncertainty, and a
+supported, disputed, or inconclusive verdict. Participant-audience evidence
+keeps the whole investigation participant-only; a changed or non-current
+exercise makes its diagnosis explicitly non-current. State lives beneath
+`$RECOVERY_INVESTIGATION_ROOT`, and no evidence record contains protected
+payloads or confers access to production state.
+
+Repository writers convert a current supported conclusion through
+`/repositories/{repository}/recovery-improvements`. The conversion creates an
+ordinary proposal and dependency-ordered human or agent tasks at an exact base
+revision; tasks may cite an already-governed session or workspace, but do not
+create credentials or start either resource. The repair record then retains
+attributable links to sessions, workspaces, pull requests, checks, integration,
+releases, policy changes, and approvals. These links are evidence only, so the
+linked resources keep their ordinary ownership, review, check, merge, release,
+and approval rules. A repair stays blocked until a distinct current exercise
+passes against a newer version of the same protection plan. Failed re-exercise
+evidence remains attached as `verification_failed` rather than hiding the
+original gap. Durable repair state lives beneath `$RECOVERY_IMPROVEMENT_ROOT`.
+
 ## Shared service objectives
 
 Authorized repository collaborators define reliability contracts through
