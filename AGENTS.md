@@ -294,6 +294,19 @@ impossible or unverified targets, unprotected or ownerless dependencies, and
 expiring or expired exceptions. The repository web surface is
 `view=continuity`; commitments grant no repository, backup, environment,
 credential, restoration, or operational authority.
+Protection plans live beneath `$PROTECTION_PLAN_ROOT` (default
+`apps/api/data/protection-plans`) and bind an exact recovery-objective version
+and its resources to repository or environment scope, snapshot or replica
+mode, encryption and key reference, access scope, authorized destinations,
+retention, checksum and validation requirements, freshness, and cost limits.
+Append-only, idempotent capture manifests retain only bounded content counts,
+versions, provenance, dependency versions, checksums, validation digests, cost,
+and responsible actor—not protected payloads or credentials. Reads derive
+current coverage and recoverability; incomplete or stale captures, changed
+plans, missing or deleted source state, corruption, unavailable keys, failed
+decryption, unauthorized destinations, missing validation evidence, and cost
+overflow remain explicit. Protection evidence grants no repository,
+environment, key, snapshot-content, restoration, or operational authority.
 
 Product feedback lives beneath `$PRODUCT_FEEDBACK_ROOT` (default
 `apps/api/data/product-feedback`). Authenticated project readers submit a need

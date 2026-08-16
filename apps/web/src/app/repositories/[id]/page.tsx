@@ -1273,6 +1273,8 @@ export default function RepositoryPage({
                               ? "locales"
                             : query.view === "reliability"
                               ? "reliability"
+                            : query.view === "continuity"
+                              ? "continuity"
                             : query.view === "experiments"
                               ? "experiments"
                             : query.view === "feedback"

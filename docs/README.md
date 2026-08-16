@@ -22,6 +22,27 @@ access, or restoration authority. Durable state lives beneath
 `$RECOVERY_OBJECTIVE_ROOT`; later protection and rehearsal work should extend
 this versioned contract rather than infer recovery promises from job status.
 
+Exact objective versions become executable protection contracts through
+`/repositories/{repository}/protection-plans`. Immutable plan versions bind
+named resources to repository or environment scope, encrypted snapshot or
+replica mode, access classes, authorized destination metadata, schedule,
+maximum age, retention, checksums, validation criteria, and cost limits.
+Writers append provider-idempotent capture manifests; manifests retain source
+versions and provenance, dependency versions, bounded object and byte counts,
+checksums, validation digests, cost, and actor attribution, but never accept or
+return protected content, encryption material, or credentials.
+
+The continuity workspace exposes coverage, freshness, validation, cost, and
+failure metadata. Recoverability is server-derived only when the exact current
+plan has every required committed resource and the manifest, checksum,
+decryption, key availability, destination authorization, validation evidence,
+freshness, and cost checks all pass. Deleted or uncommitted source state,
+partial captures, corruption, key loss, stale evidence, unauthorized storage,
+and provider-reported failure therefore remain visibly non-recoverable even if
+the capture job itself completed. Durable state lives beneath
+`$PROTECTION_PLAN_ROOT`; the contract does not grant routine access to keys,
+contents, environments, or restoration controls.
+
 ## Shared service objectives
 
 Authorized repository collaborators define reliability contracts through
