@@ -3,6 +3,25 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Continuity commitments
+
+Authorized repository collaborators define immutable recovery-objective
+versions through `/repositories/{repository}/recovery-objectives`. Each
+commitment names the repository, package, artifact, configuration,
+collaboration-record, and deployed-service state behind a user-facing
+capability, together with owners, dependencies, acceptable loss, restoration
+time, retention, jurisdictions, validation criteria, feasibility, exclusions,
+and time-bounded exceptions. Links retain the relevant service objectives,
+environments, incidents, privacy rules, and governance decisions.
+
+Repository readers inspect the complete attributable history in the
+`view=continuity` workspace. Derived blockers keep missing ownership,
+impossible or unverified targets, unprotected dependencies, and exception
+expiry visible. The contract does not create backups, credentials, environment
+access, or restoration authority. Durable state lives beneath
+`$RECOVERY_OBJECTIVE_ROOT`; later protection and rehearsal work should extend
+this versioned contract rather than infer recovery promises from job status.
+
 ## Shared service objectives
 
 Authorized repository collaborators define reliability contracts through

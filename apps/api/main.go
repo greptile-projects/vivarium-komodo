@@ -54,6 +54,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/questions"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/recoveryobjectives"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/relationships"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/reliabilityimprovements"
@@ -341,6 +342,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	recoveryObjectiveRoot := os.Getenv("RECOVERY_OBJECTIVE_ROOT")
+	if recoveryObjectiveRoot == "" {
+		recoveryObjectiveRoot = "data/recovery-objectives"
+	}
+	recoveryObjectiveStore, err := recoveryobjectives.New(recoveryObjectiveRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	reliabilityInvestigationRoot := os.Getenv("RELIABILITY_INVESTIGATION_ROOT")
 	if reliabilityInvestigationRoot == "" {
 		reliabilityInvestigationRoot = "data/reliability-investigations"
@@ -600,6 +609,7 @@ func main() {
 	registerDataCommitmentsHTTP(mux, dataCommitmentStore, repositoryCatalog, credentials)
 	registerLocalePlansHTTP(mux, localePlanStore, repositoryCatalog, credentials)
 	registerServiceObjectivesHTTP(mux, serviceObjectiveStore, repositoryCatalog, credentials)
+	registerRecoveryObjectivesHTTP(mux, recoveryObjectiveStore, repositoryCatalog, credentials)
 	registerReliabilityPoliciesHTTP(mux, reliabilityPolicyStore, serviceObjectiveStore, repositoryCatalog, credentials)
 	registerReliabilityInvestigationsHTTP(mux, reliabilityInvestigationStore, serviceObjectiveStore, repositoryCatalog, credentials)
 	registerReliabilityImprovementsHTTP(mux, reliabilityImprovementStore, reliabilityInvestigationStore, serviceObjectiveStore, proposalStore, repositoryCatalog, credentials)
