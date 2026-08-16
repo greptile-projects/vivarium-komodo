@@ -307,6 +307,19 @@ plans, missing or deleted source state, corruption, unavailable keys, failed
 decryption, unauthorized destinations, missing validation evidence, and cost
 overflow remain explicit. Protection evidence grants no repository,
 environment, key, snapshot-content, restoration, or operational authority.
+Recovery exercises live beneath `$RECOVERY_EXERCISE_ROOT` (default
+`apps/api/data/recovery-exercises`). Repository writers launch a bounded
+failure scenario against one exact recoverable capture and its protected source
+and dependency versions, with an explicit isolated environment, duration and
+cost limits, dependency-ordered restore steps, and integrity and user-journey
+checks. Exercises reject authoritative-state writes and production-secret
+availability. Attributable results retain timing, exact declared commands,
+redacted log excerpts and digests, artifact metadata, manual steps, gaps, cost,
+and achieved objective resources without retaining protected payloads or
+credentials. Reads derive passing or failed status and make historical evidence
+non-current when its protection plan, capture recoverability, or dependency
+versions change. Exercises grant no environment, secret, restoration, Git, or
+operational authority and appear in `view=continuity`.
 
 Product feedback lives beneath `$PRODUCT_FEEDBACK_ROOT` (default
 `apps/api/data/product-feedback`). Authenticated project readers submit a need

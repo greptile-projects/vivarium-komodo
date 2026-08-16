@@ -43,6 +43,25 @@ the capture job itself completed. Durable state lives beneath
 `$PROTECTION_PLAN_ROOT`; the contract does not grant routine access to keys,
 contents, environments, or restoration controls.
 
+Repository writers rehearse those inputs through
+`/repositories/{repository}/recovery-exercises`. A launch freezes a named
+failure scenario, an exact recoverable capture and resource/dependency versions,
+an isolated non-authoritative environment, duration and cost bounds,
+dependency-ordered restore commands, and repository-defined integrity and
+user-journey checks. The service rejects exercises that claim production
+secrets are available or authoritative state is writable.
+
+The result records attributable start/finish timing, the exact frozen command
+for every step and check, explicitly redacted log excerpts and content digests,
+artifact metadata, manual steps, gaps, achieved recovery-objective resources,
+and cost. It never accepts snapshot contents, credentials, or unredacted logs.
+The Continuity workspace retains passing and failed history while deriving an
+exercise as non-current whenever its protection-plan version changes, its exact
+capture stops being recoverable, or the latest captured dependency versions no
+longer match. Durable state lives beneath `$RECOVERY_EXERCISE_ROOT`; exercises
+record evidence and do not provision environments or grant restoration or
+operational authority.
+
 ## Shared service objectives
 
 Authorized repository collaborators define reliability contracts through
