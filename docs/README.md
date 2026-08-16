@@ -95,6 +95,20 @@ original impact. The durable store is `$RELIABILITY_IMPROVEMENT_ROOT`.
 Nothing in the record grants Git, review, merge, release, deployment, rollback,
 telemetry, credential, or operational authority.
 
+Repository readers can discover the complete retained repair collection at
+`GET /repositories/{repository}/reliability-improvements`. The Reliability web
+workspace combines that projection with current objectives, delivery policies,
+investigations, affected-owner requests, delivery links, failed rollout stages,
+and later recovery so a restored budget does not hide the original user impact
+or correction trail.
+
+`reliability_workflow_test.go` proves the complete released-journey-to-sustained-
+reliability loop through public HTTP and stock Git. The regression includes
+noisy burn evidence, missing dependency input, a rejected exception, policy
+containment, agent diagnosis and bounded task authority, retained compute cost,
+a failed first repair, ordinary checks and owner review, release, staged failure,
+and verified recovery with the earlier impact preserved.
+
 ## Product feedback
 
 ## Accessibility barrier reproduction

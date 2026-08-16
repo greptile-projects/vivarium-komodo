@@ -14,6 +14,17 @@ import (
 
 func registerReliabilityImprovementsHTTP(mux *http.ServeMux, store *ri.Store, investigations *reliabilityinvestigations.Store, objectives *serviceobjectives.Store, plans *proposals.Store, repos dataFlowRepositories, credentials authStore) {
 	base := "/repositories/{repository}/reliability-improvements"
+	mux.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		items, err := store.List(string(repo.ID))
+		if reliabilityImprovementError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items, "total_count": len(items)})
+	})
 	mux.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
 		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
 		if !ok {
