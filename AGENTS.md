@@ -355,8 +355,11 @@ Conflicting writes, unavailable keys, stale replicas, partial restoration,
 failed steps, and failed validation pause safely. A response becomes restored
 only after all steps and a passing validation, and grants no repository,
 snapshot, key, environment, deployment, credential, or operational authority.
-`recovery_response_workflow_test.go` is the black-box boundary for this live
-loss-to-trusted-return loop.
+Failed response steps retain append-only attempt evidence; an attributable
+resume makes only failed steps retryable without erasing the contained result.
+`recovery_workflow_test.go` is the black-box boundary for the complete
+commitment-to-trusted-return loop through public HTTP and stock Git, while
+`recovery_response_workflow_test.go` retains focused live-response containment.
 
 Product feedback lives beneath `$PRODUCT_FEEDBACK_ROOT` (default
 `apps/api/data/product-feedback`). Authenticated project readers submit a need

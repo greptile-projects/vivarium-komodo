@@ -23,22 +23,31 @@ var (
 )
 
 type Step struct {
-	ID             string     `json:"id"`
-	Title          string     `json:"title"`
-	ResourceID     string     `json:"resource_id"`
-	DependsOn      []string   `json:"depends_on"`
-	ExecutorKind   string     `json:"executor_kind"`
-	ExecutorID     string     `json:"executor_id"`
-	Command        string     `json:"command"`
-	Expected       string     `json:"expected"`
-	Destructive    bool       `json:"destructive"`
-	Status         string     `json:"status"`
-	StartedAt      *time.Time `json:"started_at,omitempty"`
-	FinishedAt     *time.Time `json:"finished_at,omitempty"`
-	EvidenceDigest string     `json:"evidence_digest,omitempty"`
-	Summary        string     `json:"summary,omitempty"`
-	ActorID        string     `json:"actor_id,omitempty"`
-	Blockers       []string   `json:"blockers"`
+	ID             string        `json:"id"`
+	Title          string        `json:"title"`
+	ResourceID     string        `json:"resource_id"`
+	DependsOn      []string      `json:"depends_on"`
+	ExecutorKind   string        `json:"executor_kind"`
+	ExecutorID     string        `json:"executor_id"`
+	Command        string        `json:"command"`
+	Expected       string        `json:"expected"`
+	Destructive    bool          `json:"destructive"`
+	Status         string        `json:"status"`
+	StartedAt      *time.Time    `json:"started_at,omitempty"`
+	FinishedAt     *time.Time    `json:"finished_at,omitempty"`
+	EvidenceDigest string        `json:"evidence_digest,omitempty"`
+	Summary        string        `json:"summary,omitempty"`
+	ActorID        string        `json:"actor_id,omitempty"`
+	Blockers       []string      `json:"blockers"`
+	Attempts       []StepAttempt `json:"attempts"`
+}
+type StepAttempt struct {
+	Status         string    `json:"status"`
+	Summary        string    `json:"summary"`
+	EvidenceDigest string    `json:"evidence_digest"`
+	ActorID        string    `json:"actor_id"`
+	CreatedAt      time.Time `json:"created_at"`
+	Blockers       []string  `json:"blockers"`
 }
 type ActivationInput struct {
 	IdempotencyKey        string   `json:"idempotency_key"`
@@ -395,6 +404,17 @@ func (s *Store) Decide(repo, id, actor string, in DecisionInput) (Response, erro
 		if actor == "" || in.Rationale == "" || (in.Kind != "pause" && in.Kind != "resume" && in.Kind != "approve_cutover" && in.Kind != "rollback" && in.Kind != "cancel") {
 			return ErrInvalid
 		}
+		if in.Kind == "resume" {
+			if s.derive(*x).State != "paused" {
+				return ErrConflict
+			}
+			for i := range x.Steps {
+				if x.Steps[i].Status == "failed" {
+					x.Steps[i].Status = "pending"
+					x.Steps[i].Blockers = nil
+				}
+			}
+		}
 		x.Decisions = append(x.Decisions, Decision{ID: newid(), Kind: in.Kind, ActorID: actor, Rationale: in.Rationale, CreatedAt: s.now().UTC()})
 		return nil
 	})
@@ -452,6 +472,7 @@ func (s *Store) UpdateStep(repo, id, step, actor string, in StepUpdate) (Respons
 					st.Blockers = append(st.Blockers, "partial_restoration")
 				}
 			}
+			st.Attempts = append(st.Attempts, StepAttempt{Status: st.Status, Summary: st.Summary, EvidenceDigest: st.EvidenceDigest, ActorID: actor, CreatedAt: now, Blockers: append([]string{}, st.Blockers...)})
 			return nil
 		}
 		return ErrNotFound
