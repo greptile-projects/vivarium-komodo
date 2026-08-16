@@ -341,6 +341,23 @@ passes against a newer version of the same repaired protection plan; failed
 verification preserves the original weakness and creates no production-state
 authority.
 
+Live recovery responses live beneath `$RECOVERY_RESPONSE_ROOT` (default
+`apps/api/data/recovery-responses`). Repository writers activate one only from
+an incident or confirmed loss event, binding an exact current protection-plan
+version and verified recovery point to one named workspace, environment,
+estimated loss, required approvers, communication channels, rollback choices,
+and dependency-ordered restoration steps. Named approvals and attributable
+pause, resume, cutover, rollback, and cancellation decisions remain immutable.
+Each human or agent may execute only a step explicitly delegated to that actor;
+destructive steps additionally require an explicit cutover decision. Reads in
+`view=continuity` derive progress, next steps, validation, and blockers.
+Conflicting writes, unavailable keys, stale replicas, partial restoration,
+failed steps, and failed validation pause safely. A response becomes restored
+only after all steps and a passing validation, and grants no repository,
+snapshot, key, environment, deployment, credential, or operational authority.
+`recovery_response_workflow_test.go` is the black-box boundary for this live
+loss-to-trusted-return loop.
+
 Product feedback lives beneath `$PRODUCT_FEEDBACK_ROOT` (default
 `apps/api/data/product-feedback`). Authenticated project readers submit a need
 against the project, an exact release, a documentation collection journey, or

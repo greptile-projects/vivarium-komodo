@@ -87,6 +87,30 @@ passes against a newer version of the same protection plan. Failed re-exercise
 evidence remains attached as `verification_failed` rather than hiding the
 original gap. Durable repair state lives beneath `$RECOVERY_IMPROVEMENT_ROOT`.
 
+## Live recovery response
+
+When normal operation is unsafe, repository writers activate a shared control
+record through `/repositories/{repository}/recovery-responses`. Activation must
+cite an incident or confirmed loss event and freezes the exact current
+protection-plan version, verified recovery point, production environment,
+estimated loss, one coordination workspace, required approvers, communication
+channels, rollback choices, and dependency-ordered steps. This is a control and
+evidence plane: it does not open protected payloads, issue keys or credentials,
+or acquire environment authority.
+
+Named approvers retain their rationale before execution can begin. Every step
+names one human or agent executor, exact command, expected result, dependencies,
+and whether it is destructive; agents cannot act outside that delegation, and
+destructive cutover requires a separate attributable decision. Optimistic
+concurrency keeps approvals, decisions, progress, communications, and
+validation coherent. Conflicting writes, an unavailable key, stale replica,
+partial restore, failed step, or failed validation becomes an explicit pause
+blocker. Completion alone enters validation; only passing evidence marks the
+response restored and safe for return. The `view=continuity` surface shows the
+active control, selected state and loss, progress, blockers, messages,
+validation, and rollback options. Durable state lives beneath
+`$RECOVERY_RESPONSE_ROOT`.
+
 ## Shared service objectives
 
 Authorized repository collaborators define reliability contracts through
