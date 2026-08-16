@@ -320,6 +320,26 @@ credentials. Reads derive passing or failed status and make historical evidence
 non-current when its protection plan, capture recoverability, or dependency
 versions change. Exercises grant no environment, secret, restoration, Git, or
 operational authority and appear in `view=continuity`.
+Revision-bound continuity diagnosis lives beneath `$RECOVERY_INVESTIGATION_ROOT`
+(default `apps/api/data/recovery-investigations`). Repository readers and
+read-only agents may investigate a completed failed or explicitly risky
+exercise using bounded repository- or participant-audience citations to the
+exercise, code, dependencies, releases, configuration, ownership, and
+protection plan. Findings retain citations, attribution, challenges, verdicts,
+and uncertainty; participant-only evidence is not projected to other readers,
+and changed or non-current exercise evidence remains explicit. Investigations
+grant no protected-state, environment, secret, restoration, Git, or operational
+authority.
+Accountable continuity repair lives beneath `$RECOVERY_IMPROVEMENT_ROOT`
+(default `apps/api/data/recovery-improvements`). A repository writer converts a
+current supported finding into an ordinary proposal with ordered human- or
+agent-owned tasks and may cite existing sessions or workspaces. Append-only
+links retain resulting pull requests, checks, integrations, releases, policy
+changes, and approvals without replacing any resource's own access or review
+controls. An improvement remains blocked until a distinct, current exercise
+passes against a newer version of the same repaired protection plan; failed
+verification preserves the original weakness and creates no production-state
+authority.
 
 Product feedback lives beneath `$PRODUCT_FEEDBACK_ROOT` (default
 `apps/api/data/product-feedback`). Authenticated project readers submit a need
