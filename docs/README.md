@@ -105,11 +105,18 @@ destructive cutover requires a separate attributable decision. Optimistic
 concurrency keeps approvals, decisions, progress, communications, and
 validation coherent. Conflicting writes, an unavailable key, stale replica,
 partial restore, failed step, or failed validation becomes an explicit pause
-blocker. Completion alone enters validation; only passing evidence marks the
+blocker. Each execution attempt remains append-only; an attributable resume
+returns failed steps to pending for a bounded retry while preserving the failed
+evidence. Completion alone enters validation; only passing evidence marks the
 response restored and safe for return. The `view=continuity` surface shows the
 active control, selected state and loss, progress, blockers, messages,
 validation, and rollback options. Durable state lives beneath
 `$RECOVERY_RESPONSE_ROOT`.
+
+`recovery_workflow_test.go` exercises the complete public-API and stock-Git
+path from continuity terms and corrupted capture containment through a failed
+regional rehearsal, agent diagnosis, ordinary reviewed repair, failed and
+passing re-verification, and a validated simulated destructive response.
 
 ## Shared service objectives
 

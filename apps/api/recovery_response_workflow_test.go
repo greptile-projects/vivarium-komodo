@@ -70,15 +70,35 @@ func TestControlledRecoveryResponseWorkflow(t *testing.T) {
 	unsafe := activate
 	unsafe.IdempotencyKey = "incident-78-response"
 	unsafe.TriggerID = "incident-78"
-	unsafe.Steps = []recoveryresponses.Step{{ID: "database", Title: "restore database", ResourceID: "database", ExecutorKind: "agent", ExecutorID: "agent", Command: "restore", Expected: "current replica"}}
+	unsafe.Steps = []recoveryresponses.Step{{ID: "database", Title: "cut over restored database", ResourceID: "database", ExecutorKind: "agent", ExecutorID: "agent", Command: "cutover", Expected: "current replica", Destructive: true}}
 	b, _ = json.Marshal(unsafe)
 	workflowJSON(t, server.URL, http.MethodPost, base, commander, string(b), 201, &response)
 	b, _ = json.Marshal(recoveryresponses.DecisionInput{ExpectedRevision: response.Revision, Kind: "approve", Rationale: "begin isolated restore"})
 	workflowJSON(t, server.URL, http.MethodPost, base+"/"+response.ID+"/approvals", approver, string(b), 201, &response)
+	b, _ = json.Marshal(recoveryresponses.DecisionInput{ExpectedRevision: response.Revision, Kind: "approve_cutover", Rationale: "verified isolated candidate may receive the simulated cutover"})
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+response.ID+"/decisions", commander, string(b), 201, &response)
+	failedRevision := response.Revision
 	b, _ = json.Marshal(recoveryresponses.StepUpdate{ExpectedRevision: response.Revision, Status: "succeeded", Summary: "replica lag detected", EvidenceDigest: "sha256:lag", KeyAvailable: true, ReplicaCurrent: false})
 	workflowJSON(t, server.URL, http.MethodPost, base+"/"+response.ID+"/steps/database", agent, string(b), 201, &response)
 	if response.State != "paused" || !containsResponseBlocker(response.Blockers, "restoration_step_failed") {
 		t.Fatalf("stale replica did not pause safely: %+v", response)
+	}
+	if err := catalog.RemoveCollaborator("commander", repo.ID, "agent"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = json.Marshal(recoveryresponses.StepUpdate{ExpectedRevision: response.Revision, Status: "succeeded", Summary: "retry after access removal", EvidenceDigest: "sha256:revoked", KeyAvailable: true, ReplicaCurrent: true})
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+response.ID+"/steps/database", agent, string(b), 404, nil)
+	b, _ = json.Marshal(recoveryresponses.DecisionInput{ExpectedRevision: failedRevision, Kind: "resume", Rationale: "stale concurrent control"})
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+response.ID+"/decisions", commander, string(b), 409, nil)
+	b, _ = json.Marshal(recoveryresponses.DecisionInput{ExpectedRevision: response.Revision, Kind: "resume", Rationale: "fresh replica is ready for a bounded retry"})
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+response.ID+"/decisions", commander, string(b), 201, &response)
+	if _, err := catalog.AddCollaborator("commander", repo.ID, "agent"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = json.Marshal(recoveryresponses.StepUpdate{ExpectedRevision: response.Revision, Status: "succeeded", Summary: "retry reached the current replica", EvidenceDigest: "sha256:retry", KeyAvailable: true, ReplicaCurrent: true})
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+response.ID+"/steps/database", agent, string(b), 201, &response)
+	if len(response.Steps[0].Attempts) != 2 || response.Steps[0].Attempts[0].Status != "failed" || response.Steps[0].Attempts[1].Status != "succeeded" {
+		t.Fatalf("failed cutover was not retained through recovery: %+v", response.Steps[0])
 	}
 }
 
