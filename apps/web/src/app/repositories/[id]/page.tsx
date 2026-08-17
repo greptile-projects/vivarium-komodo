@@ -25,6 +25,7 @@ import { ProductFeedback } from "@/components/product-feedback";
 import { SupportQuestions } from "@/components/support-questions";
 import { APIContracts } from "@/components/api-contracts";
 import { APIConsumers } from "@/components/api-consumers";
+import { APIMigrations } from "@/components/api-migrations";
 import { DataCommitments } from "@/components/data-commitments";
 import { DataFlows } from "@/components/data-flows";
 import { LocalePlans } from "@/components/locale-plans";
@@ -1821,7 +1822,7 @@ export default function RepositoryPage({
       ) : view === "support" ? (
         <SupportQuestions repository={repository.id} actor={actor} selected={query.support} />
       ) : view === "apis" ? (
-        <><APIContracts repository={repository.id} actor={actor} /><APIConsumers repository={repository.id} actor={actor} /></>
+        <><APIContracts repository={repository.id} actor={actor} /><APIConsumers repository={repository.id} actor={actor} /><APIMigrations repository={repository.id} actor={actor} /></>
       ) : view === "documentation" ? (
         <DocumentationCollections repository={repository.id} actor={actor} owner={repository.owner_id} revision={ref} />
       ) : view === "contribute" ? (

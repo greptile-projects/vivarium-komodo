@@ -13,6 +13,18 @@ import (
 func registerAPIConsumersHTTP(mux *http.ServeMux, s *apiconsumers.Store, repos dataFlowRepositories, credentials authStore) {
 	base := "/repositories/{repository}/api-consumers"
 	migrationBase := "/repositories/{repository}/api-contract-migrations"
+	mux.HandleFunc("GET "+migrationBase, func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		_, writer := repositoryPermission(a, auth.RepositoryWrite)
+		x, e := s.ListMigrations(string(repo.ID), a.UserID, writer)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": x})
+	})
 	mux.HandleFunc("POST "+migrationBase, func(w http.ResponseWriter, r *http.Request) {
 		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
 		if !ok {

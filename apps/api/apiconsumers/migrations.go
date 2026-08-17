@@ -300,6 +300,40 @@ func (s *Store) GetMigration(repo, id, actor string, producer bool) (ContractMig
 	}
 	return ContractMigration{}, ErrNotFound
 }
+
+// ListMigrations returns producer-wide or consumer-owned projections using the
+// same privacy boundary as GetMigration. Unaffected repository readers learn
+// neither application identities nor migration participation.
+func (s *Store) ListMigrations(repo, actor string, producer bool) ([]ContractMigration, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, e := s.load()
+	if e != nil {
+		return nil, e
+	}
+	now := s.now().UTC()
+	out := []ContractMigration{}
+	for _, m := range d.Migrations {
+		if m.RepositoryID != repo {
+			continue
+		}
+		if !producer {
+			visible := []AffectedApplication{}
+			for _, a := range m.Affected {
+				if a.OwnerID == actor {
+					visible = append(visible, a)
+				}
+			}
+			if len(visible) == 0 {
+				continue
+			}
+			m.Affected = visible
+		}
+		out = append(out, s.deriveMigration(m, d.Applications, now))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
 func (s *Store) mutateMigration(repo, id, application, actor string, producer bool, fn func(*ContractMigration, *AffectedApplication, time.Time) error) (ContractMigration, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
