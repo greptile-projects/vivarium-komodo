@@ -329,6 +329,19 @@ ownership transfer invalidate it; denial/revocation/expiry can re-enter the
 ordinary approval flow without erasing history. The repository web surface
 remains `view=apis`.
 
+Registered API applications connect adoption to reviewable work through
+`/integration-work` and `/verifications`. A work brief freezes the exact
+contract source, definition, SDK/example references, approved synthetic sandbox
+configuration, consumer repository revision, owner kind, and linked ordinary
+task, session, or workspace without copying a credential or granting authority.
+Verification records bind an ordinary pull request and exact candidate revision
+to producer conformance scenarios and consumer tests. They retain only
+sanitized request/response fields, logs, content-addressed artifact metadata,
+coverage, cost, inaccessible-evidence references, and authorship; agreement is
+derived only when both independently defined suites pass the same frozen
+contract. Credential-shaped content is rejected from preloads and reusable
+evidence.
+
 Repository service objectives live beneath `$SERVICE_OBJECTIVE_ROOT` (default
 `apps/api/data/service-objectives`). Repository writers publish immutable,
 optimistically concurrency-checked versions across repository, release, and

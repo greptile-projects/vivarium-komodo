@@ -140,6 +140,38 @@ func registerAPIConsumersHTTP(mux *http.ServeMux, s *apiconsumers.Store, repos d
 		}
 		writeJSON(w, 200, x)
 	})
+	mux.HandleFunc("POST "+base+"/{application}/integration-work", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in apiconsumers.WorkInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		_, writer := repositoryPermission(a, auth.RepositoryWrite)
+		x, e := s.CreateWork(string(repo.ID), r.PathValue("application"), a.UserID, writer, in)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
+	mux.HandleFunc("POST "+base+"/{application}/verifications", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in apiconsumers.VerificationInput
+		if !readJSON(w, r, &in, 2<<20) {
+			return
+		}
+		_, writer := repositoryPermission(a, auth.RepositoryWrite)
+		x, e := s.RecordVerification(string(repo.ID), r.PathValue("application"), a.UserID, writer, in)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
 	mux.HandleFunc("POST /api-sandbox/{application}/requests", func(w http.ResponseWriter, r *http.Request) {
 		token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 		var in apiconsumers.SandboxInput

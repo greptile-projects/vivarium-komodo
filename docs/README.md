@@ -39,6 +39,26 @@ reapply while their attributable event trail remains intact. These controls and
 interactive examples are presented below contracts in `view=apis`; application
 secrets entered there are not retained by the page.
 
+### Reviewable consumer integration work
+
+An application owner or producer collaborator can create a human- or
+agent-owned task, session, or workspace brief at
+`/{application}/integration-work`. The brief freezes the contract version and
+producer source revision together with the consumer repository commit, SDK and
+example references, sandbox operations/failures, and acceptance criteria. Its
+optional resource ID links ordinary governed work; the brief itself creates no
+repository access and always declares a synthetic-only sandbox with no embedded
+credential.
+
+Linked pull-request candidates record immutable attempts at
+`/{application}/verifications`. Each attempt names its exact repository and
+commit and keeps producer conformance and consumer test results distinct while
+retaining sanitized requests, responses and logs, artifact names/digests,
+coverage, cost, inaccessible-evidence references, and author. The server marks
+agreement demonstrated only when both suites pass the same frozen contract.
+Credential-shaped strings are rejected from briefs and reusable evidence;
+private payloads are represented only as inaccessible references.
+
 ## Evaluated agent onboarding
 
 Repository owners turn accepted, uncontaminated agent trials into explicit
