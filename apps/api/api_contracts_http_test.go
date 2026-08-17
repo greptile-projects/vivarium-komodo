@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/apiconsumers"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/apicontracts"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
@@ -21,8 +22,10 @@ func TestAPIContractPublicAPIAndAuthorization(t *testing.T) {
 	owner := issueAccess(t, credentials, "owner", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	reader := issueAccess(t, credentials, "reader", auth.API, auth.RepositoryRead)
 	store, _ := apicontracts.New(t.TempDir())
+	consumers, _ := apiconsumers.New(t.TempDir(), store)
 	mux := http.NewServeMux()
 	registerAPIContractsHTTP(mux, store, catalog, credentials)
+	registerAPIConsumersHTTP(mux, consumers, catalog, credentials)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	base := "/repositories/" + string(repo.ID) + "/api-contracts"
@@ -40,5 +43,12 @@ func TestAPIContractPublicAPIAndAuthorization(t *testing.T) {
 	workflowJSON(t, server.URL, http.MethodGet, base, "", "", http.StatusOK, &list)
 	if len(list.Items) != 1 {
 		t.Fatalf("public contract unavailable: %#v", list)
+	}
+	var migrations struct {
+		Items []apiconsumers.ContractMigration `json:"items"`
+	}
+	workflowJSON(t, server.URL, http.MethodGet, "/repositories/"+string(repo.ID)+"/api-contract-migrations", owner, "", http.StatusOK, &migrations)
+	if len(migrations.Items) != 0 {
+		t.Fatalf("unexpected migrations: %#v", migrations.Items)
 	}
 }

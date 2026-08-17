@@ -357,6 +357,12 @@ traffic, unresponsive ownership, revoked access, missing attestation, and an
 active final-stage exception block advancement. A final owner action retires
 only a fully ready migration; these records grant no Git, agent, team,
 credential, deployment, environment, or operational authority.
+The collection `GET` applies the same ownership projection as individual
+migration reads: repository writers see the producer-wide cohort, each
+consumer sees only its own affected application, and unrelated readers receive
+an empty collection. The `view=apis` workspace exposes proposal,
+acknowledgement, dual-version verification, bounded exception, attestation,
+stage advancement, and retirement actions against this projection.
 
 Post-adoption API support remains bound to the same application and exact
 contract version. Producers and application owners record sanitized,

@@ -125,4 +125,12 @@ func TestMigrationExceptionIsBoundedAndConsumerProjectionIsPrivate(t *testing.T)
 	if _, err = s.GetMigration("repo", m.ID, "stranger", false); err != ErrForbidden {
 		t.Fatalf("unaffected reader saw migration: %v", err)
 	}
+	consumer, err := s.ListMigrations("repo", "consumer", false)
+	if err != nil || len(consumer) != 1 || len(consumer[0].Affected) != 1 {
+		t.Fatalf("consumer migration list = %+v, %v", consumer, err)
+	}
+	stranger, err := s.ListMigrations("repo", "stranger", false)
+	if err != nil || len(stranger) != 0 {
+		t.Fatalf("unaffected reader migration list = %+v, %v", stranger, err)
+	}
 }
