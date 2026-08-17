@@ -39,8 +39,10 @@ type Question = {
     revisions: Array<{id:string;revision:number;supersedes_id?:string;author_id:string;author_kind:string;summary:string;instructions:string[];applicable_versions:string[];uncertainty?:string;claims:Array<{id:string;text:string;mode:string;uncertainty?:string;citations:Array<{kind:string;resource_id?:string;revision:string;path?:string;symbol?:string;line_start?:number;line_end?:number;label?:string}>}>}>;
     feedback: Array<{id:string;revision_id:string;claim_id?:string;kind:string;body?:string;actor_id:string}>;
   }>;
+  solutions: Array<{id:string;answer_id:string;answer_revision_id:string;verification_id:string;title:string;summary:string;applicable_versions:string[];limitations:string[];audience:string;status:string;links:Array<{kind:string;resource_id:string;label?:string}>;credits:Array<{actor_id:string;roles:string[]}>;notifications:Array<{id:string;recipient_id:string;type:string;actor_id:string}>;events:Array<{id:string;type:string;actor_id:string;reason?:string;version?:string;target_question_id?:string;target_solution_id?:string}>}>;
 };
 type Verification = { attempt: { id:string; answer_id:string; answer_revision_id:string; source_revision:string; software_version:string; created_by_id:string; state:string; result?:string; failure_reason?:string; cost_units:number; environment:{name:string;image_digest:string}; events:Array<{sequence:number;type:string;command?:string;stream?:string;message?:string;exit_code?:number}>; artifacts:Array<{path:string;sha256:string;size:number;content:string}> }; stale:boolean; stale_reasons:string[] };
+type PublishedSolution = Question["solutions"][number];
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`/api${path}`, init),
     b = await r.json().catch(() => ({}));
@@ -71,13 +73,15 @@ export function SupportQuestions({
     [error, setError] = useState(""),
     [comment, setComment] = useState(""),
     [related, setRelated] = useState<Question["related"]>([]),
-    [verifications, setVerifications] = useState<Verification[]>([]);
+    [verifications, setVerifications] = useState<Verification[]>([]),
+    [solutions,setSolutions]=useState<PublishedSolution[]>([]);
   const load = useCallback(async () => {
     try {
       const list = await api<{ items: Question[] }>(
         `/repositories/${repository}/support-questions`,
       );
       setItems(list.items);
+      setSolutions((await api<{items:PublishedSolution[]}>(`/repositories/${repository}/support-questions/solutions`)).items);
       if (selected) {
         setCurrent(
           await api(
@@ -193,6 +197,8 @@ export function SupportQuestions({
     catch(c){setError(c instanceof Error?c.message:"Could not verify answer")}
   }
   async function rerun(id:string){if(!current)return;try{await api(`/repositories/${repository}/support-questions/${current.id}/verifications/${id}/reruns`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});setTimeout(()=>void load(),250)}catch(c){setError(c instanceof Error?c.message:"Could not rerun verification")}}
+  async function publishSolution(e:FormEvent<HTMLFormElement>,v:Verification){e.preventDefault();if(!current)return;const f=new FormData(e.currentTarget),links=String(f.get("links")||"").split("\n").filter(Boolean).map(x=>{const [kind,resource_id,label]=x.split(" | ");return {kind,resource_id,label}});try{setCurrent(await api(`/repositories/${repository}/support-questions/${current.id}/solutions`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({answer_id:v.attempt.answer_id,answer_revision_id:v.attempt.answer_revision_id,verification_id:v.attempt.id,title:f.get("title"),summary:f.get("summary"),applicable_versions:String(f.get("versions")||"").split("\n").filter(Boolean),limitations:String(f.get("limitations")||"").split("\n").filter(Boolean),audience:f.get("audience"),links})}));}catch(c){setError(c instanceof Error?c.message:"Could not publish solution")}}
+  async function solutionEvent(id:string,type:string){if(!current)return;const reason=window.prompt(`Why should this solution be ${type.replaceAll("_"," ")}?`)||"";if(!reason)return;const version=type==="request_revalidation"?window.prompt("Which newer version requires verification?")||"":"";const target=type==="merge"?window.prompt("Target question ID | target solution ID")?.split(" | ")||[]:[];try{setCurrent(await api(`/repositories/${repository}/support-questions/${current.id}/solutions/${id}/events`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type,reason,version,target_question_id:target[0],target_solution_id:target[1]})}));}catch(c){setError(c instanceof Error?c.message:"Could not update solution")}}
   if (current)
     return (
       <section className="workspace">
@@ -289,6 +295,13 @@ export function SupportQuestions({
           {!verifications.length&&<p>No verification attempts yet.</p>}
         </div>
         <div className="card">
+          <h3>Reusable solutions</h3>
+          <p className="muted">Published advice remains pinned to its tested answer, evidence, versions, audience, and known limitations. Search excludes archived and merged duplicates.</p>
+          {current.solutions?.map(s=><article className="panel" key={s.id}><p><Badge>{s.status}</Badge> <Badge>{s.audience}</Badge></p><h4>{s.title}</h4><p>{s.summary}</p><p><strong>Applicable versions:</strong> {s.applicable_versions.join(", ")}<br/><strong>Limitations:</strong> {s.limitations.join(" · ")||"None declared"}</p>{s.links.map((x,i)=><p key={i}>{x.kind.replaceAll("_"," ")} · <code>{x.resource_id}</code> {x.label}</p>)}<p><strong>Attributable credit:</strong> {s.credits.map(x=>`${x.actor_id} (${x.roles.join(", ")})`).join(" · ")}</p><details><summary>Publication and lifecycle history</summary>{s.events.map(x=><p key={x.id}>{x.type.replaceAll("_"," ")} by {x.actor_id} {x.version&&`for ${x.version}`} {x.reason}</p>)}</details>{actor&&<p><Button variant="secondary" onClick={()=>void solutionEvent(s.id,"request_revalidation")}>Request revalidation</Button> <Button variant="secondary" onClick={()=>void solutionEvent(s.id,"merge")}>Merge duplicate</Button> <Button variant="secondary" onClick={()=>void solutionEvent(s.id,"archive")}>Archive obsolete advice</Button></p>}</article>)}
+          {!current.solutions?.length&&<p>No reusable solution has been published.</p>}
+          {actor&&verifications.filter(v=>v.attempt.state==="passed"&&!v.stale&&!current.solutions?.some(s=>s.answer_revision_id===v.attempt.answer_revision_id&&s.status!=="archived"&&s.status!=="merged")).map(v=><details key={v.attempt.id}><summary>Publish passed verification for {v.attempt.software_version}</summary><form className="form-stack" onSubmit={e=>void publishSolution(e,v)}><label>Reusable title<input name="title" required/></label><label>Solution summary<textarea name="summary" required/></label><label>Applicable tested versions, one per line<textarea name="versions" defaultValue={v.attempt.software_version} required/></label><label>Known limitations, one per line<textarea name="limitations"/></label><label>Audience<select name="audience" defaultValue={current.audience}><option value="repository">Repository readers</option>{current.audience==="public"&&<option value="public">Public</option>}</select></label><label>Project links: documentation/package/release/contributor_guidance | resource ID | label<textarea name="links" placeholder="documentation | docs-id | Troubleshooting"/></label><Button type="submit">Resolve and publish</Button></form></details>)}
+        </div>
+        <div className="card">
           <h3>Discussion</h3>
           {current.discussion.map((x) => (
             <p key={x.id}>
@@ -330,6 +343,7 @@ export function SupportQuestions({
           </Button>
         )}
       </div>
+      <div className="card"><h3>Tested project solutions</h3><label>Search reusable support knowledge<input onChange={async e=>{try{setSolutions((await api<{items:PublishedSolution[]}>(`/repositories/${repository}/support-questions/solutions?q=${encodeURIComponent(e.target.value)}`)).items)}catch{setSolutions([])}}}/></label>{solutions.map(s=><article className="panel" key={s.id}><p><Badge>{s.status}</Badge> <Badge>{s.audience}</Badge> {s.applicable_versions.join(", ")}</p><h4>{s.title}</h4><p>{s.summary}</p>{s.limitations.length>0&&<p><strong>Limitations:</strong> {s.limitations.join(" · ")}</p>}</article>)}{!solutions.length&&<p>No matching current solution.</p>}</div>
       {error && (
         <p className="form-error" role="alert">
           {error}
