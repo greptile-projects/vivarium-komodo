@@ -18,6 +18,8 @@ func TestDurableSchemaAndMigrationPublicContract(t *testing.T) {
 	credentials, _ := auth.New(t.TempDir())
 	repo, _ := catalog.Create("owner", repositories.Metadata{Name: "state", Visibility: repositories.Private})
 	_, _ = catalog.AddCollaborator("owner", repo.ID, "consumer")
+	consumerRepo, _ := catalog.Create("consumer", repositories.Metadata{Name: "worker", Visibility: repositories.Private})
+	_, _ = catalog.AddCollaborator("consumer", consumerRepo.ID, "owner")
 	owner := issueAccess(t, credentials, "owner", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	consumer := issueAccess(t, credentials, "consumer", auth.API, auth.RepositoryRead)
 	store, _ := durableschemas.New(t.TempDir())
@@ -44,5 +46,17 @@ func TestDurableSchemaAndMigrationPublicContract(t *testing.T) {
 	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/approvals", consumer, `{"owner_id":"consumer","decision":"approved","rationale":"dual-read window protects our consumer"}`, 201, &plan)
 	if len(plan.Blockers) != 0 || len(plan.Events) != 2 {
 		t.Fatalf("approval history missing: %+v", plan)
+	}
+	work := `{"kind":"task","phase":"compatibility","repository_id":"` + string(consumerRepo.ID) + `","resource_id":"task-worker-dual-read","owner_kind":"human","owner_id":"consumer","base_revision":"1111111111111111111111111111111111111111","allowed_paths":["worker/decoder.go"],"context":["schema:` + schema.ID + `@1..2","reads user_id until flag retirement"],"acceptance_criteria":["old and new messages decode"]}`
+	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/work-items", owner, work, 201, &plan)
+	if len(plan.WorkItems) != 1 || plan.WorkItems[0].Position != 1 || len(plan.WorkItems[0].Context) != 2 {
+		t.Fatalf("bounded cross-repository work missing: %+v", plan.WorkItems)
+	}
+	dependent := `{"kind":"workspace","phase":"verification","repository_id":"` + string(repo.ID) + `","resource_id":"workspace-coexistence","owner_kind":"agent","owner_id":"agent:compat","depends_on":["` + plan.WorkItems[0].ID + `"],"base_revision":"2222222222222222222222222222222222222222","allowed_paths":["tests/compat"],"acceptance_criteria":["mixed-version fixture passes"]}`
+	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/work-items", owner, dependent, 201, &plan)
+	contract := `{"repository_id":"` + string(consumerRepo.ID) + `","pull_request_id":"pull-worker-7","revision":"3333333333333333333333333333333333333333","work_item_ids":["` + plan.WorkItems[0].ID + `"],"old_readers":["worker@v1 reads user_id"],"new_readers":["worker@v2 reads subject_id then user_id"],"old_writers":["api@v1 writes user_id"],"new_writers":["api@v2 writes both fields"],"rollout_flags":["jobs_subject_id_dual_write"],"idempotency":"backfill keyed by message id; repeated writes are no-ops","data_transformations":["subject_id = stable account subject for user_id"],"owner_ids":["owner","consumer"],"rollback_assumptions":["keep user_id until old-reader traffic is zero"]}`
+	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/pull-contracts", owner, contract, 201, &plan)
+	if len(plan.PullContracts) != 1 || plan.PullContracts[0].Revision == "" || len(plan.Events) != 5 {
+		t.Fatalf("review contract missing: %+v", plan)
 	}
 }

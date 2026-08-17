@@ -13,7 +13,14 @@ migrations from a pull request or decision, freezing exact from/to schema
 versions and classified reads, writes, backfills, destructive operations,
 affected consumers, rollback limits, dependency-ordered steps, success
 measures, and required owners. Owner approvals or rejections are attributable
-and append-only. These records grant no database, queue, deployment,
+and append-only. Migration work items bind ordered schema, compatibility,
+backfill, verification, or cleanup tasks, agent sessions, and workspaces to an
+independently permission-checked repository, exact base revision, owner,
+allowlisted paths, bounded context, and acceptance criteria. Linked ordinary
+pull requests freeze their exact revision and old/new reader and writer
+contracts, rollout flags, idempotency, transformations, owners, and rollback
+assumptions. Neither link copies restricted schema context or grants access to
+its participant. These records grant no database, queue, deployment,
 environment, credential, review, or merge authority. The repository web surface
 is `view=state`.
 
