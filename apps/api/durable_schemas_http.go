@@ -122,6 +122,49 @@ func registerDurableSchemasHTTP(mux *http.ServeMux, s *durableschemas.Store, rep
 		}
 		writeJSON(w, 201, x)
 	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/work-items", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in durableschemas.WorkItemInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		if !durableSchemaTargetAccess(w, r, repos, c, in.RepositoryID, auth.RepositoryWrite) {
+			return
+		}
+		x, e := s.AddWorkItem(string(repo.ID), r.PathValue("migration"), a.UserID, in)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/pull-contracts", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in durableschemas.PullContractInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		if !durableSchemaTargetAccess(w, r, repos, c, in.RepositoryID, auth.RepositoryRead) {
+			return
+		}
+		x, e := s.AddPullContract(string(repo.ID), r.PathValue("migration"), a.UserID, in)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+}
+
+func durableSchemaTargetAccess(w http.ResponseWriter, r *http.Request, repos proposalRepositoryStore, c authStore, target string, scope auth.Scope) bool {
+	copy := r.Clone(r.Context())
+	copy.SetPathValue("repository", target)
+	_, _, ok := proposalRepositoryAccess(w, copy, repos, c, scope, true)
+	return ok
 }
 
 func durableSchemaError(w http.ResponseWriter, e error) bool {

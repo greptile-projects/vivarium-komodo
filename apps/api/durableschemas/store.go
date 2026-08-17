@@ -104,15 +104,87 @@ type MigrationInput struct {
 	RequiredApproverIDs []string    `json:"required_approver_ids"`
 	Summary             string      `json:"summary"`
 }
+
+// WorkItem is a migration-scoped coordination record. ResourceID points at an
+// ordinary repository task, agent session, or workspace; this record neither
+// creates credentials nor copies context from the schema definition.
+type WorkItem struct {
+	ID                 string    `json:"id"`
+	Kind               string    `json:"kind"`
+	Phase              string    `json:"phase"`
+	RepositoryID       string    `json:"repository_id"`
+	ResourceID         string    `json:"resource_id"`
+	OwnerKind          string    `json:"owner_kind"`
+	OwnerID            string    `json:"owner_id"`
+	Position           int       `json:"position"`
+	DependsOn          []string  `json:"depends_on"`
+	BaseRevision       string    `json:"base_revision"`
+	AllowedPaths       []string  `json:"allowed_paths"`
+	Context            []string  `json:"context"`
+	AcceptanceCriteria []string  `json:"acceptance_criteria"`
+	CreatedBy          string    `json:"created_by"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+type WorkItemInput struct {
+	Kind               string   `json:"kind"`
+	Phase              string   `json:"phase"`
+	RepositoryID       string   `json:"repository_id"`
+	ResourceID         string   `json:"resource_id"`
+	OwnerKind          string   `json:"owner_kind"`
+	OwnerID            string   `json:"owner_id"`
+	DependsOn          []string `json:"depends_on"`
+	BaseRevision       string   `json:"base_revision"`
+	AllowedPaths       []string `json:"allowed_paths"`
+	Context            []string `json:"context"`
+	AcceptanceCriteria []string `json:"acceptance_criteria"`
+}
+
+// PullContract freezes the coexistence assumptions reviewed with an ordinary
+// pull request. Repository permissions remain authoritative for the pull.
+type PullContract struct {
+	ID                  string    `json:"id"`
+	RepositoryID        string    `json:"repository_id"`
+	PullRequestID       string    `json:"pull_request_id"`
+	Revision            string    `json:"revision"`
+	WorkItemIDs         []string  `json:"work_item_ids"`
+	OldReaders          []string  `json:"old_readers"`
+	NewReaders          []string  `json:"new_readers"`
+	OldWriters          []string  `json:"old_writers"`
+	NewWriters          []string  `json:"new_writers"`
+	RolloutFlags        []string  `json:"rollout_flags"`
+	Idempotency         string    `json:"idempotency"`
+	DataTransformations []string  `json:"data_transformations"`
+	OwnerIDs            []string  `json:"owner_ids"`
+	RollbackAssumptions []string  `json:"rollback_assumptions"`
+	CreatedBy           string    `json:"created_by"`
+	CreatedAt           time.Time `json:"created_at"`
+}
+type PullContractInput struct {
+	RepositoryID        string   `json:"repository_id"`
+	PullRequestID       string   `json:"pull_request_id"`
+	Revision            string   `json:"revision"`
+	WorkItemIDs         []string `json:"work_item_ids"`
+	OldReaders          []string `json:"old_readers"`
+	NewReaders          []string `json:"new_readers"`
+	OldWriters          []string `json:"old_writers"`
+	NewWriters          []string `json:"new_writers"`
+	RolloutFlags        []string `json:"rollout_flags"`
+	Idempotency         string   `json:"idempotency"`
+	DataTransformations []string `json:"data_transformations"`
+	OwnerIDs            []string `json:"owner_ids"`
+	RollbackAssumptions []string `json:"rollback_assumptions"`
+}
 type Migration struct {
 	ID           string `json:"id"`
 	RepositoryID string `json:"repository_id"`
 	MigrationInput
-	CreatedBy string     `json:"created_by"`
-	CreatedAt time.Time  `json:"created_at"`
-	Approvals []Approval `json:"approvals"`
-	Events    []Event    `json:"events"`
-	Blockers  []string   `json:"blockers"`
+	CreatedBy     string         `json:"created_by"`
+	CreatedAt     time.Time      `json:"created_at"`
+	Approvals     []Approval     `json:"approvals"`
+	Events        []Event        `json:"events"`
+	WorkItems     []WorkItem     `json:"work_items"`
+	PullContracts []PullContract `json:"pull_contracts"`
+	Blockers      []string       `json:"blockers"`
 }
 
 type Store struct {
@@ -321,8 +393,93 @@ func deriveMigration(x Migration) Migration {
 			x.Blockers = append(x.Blockers, "irreversible_operation_without_rollback_limit")
 		}
 	}
+	for _, w := range x.WorkItems {
+		for _, dependency := range w.DependsOn {
+			found := false
+			for _, candidate := range x.WorkItems {
+				found = found || candidate.ID == dependency
+			}
+			if !found {
+				x.Blockers = append(x.Blockers, "work_dependency_missing:"+w.ID+":"+dependency)
+			}
+		}
+	}
 	sort.Strings(x.Blockers)
 	return x
+}
+
+func validWorkItem(in WorkItemInput, x Migration) bool {
+	if !map[string]bool{"task": true, "session": true, "workspace": true}[in.Kind] || !map[string]bool{"schema": true, "compatibility": true, "backfill": true, "verification": true, "cleanup": true}[in.Phase] || in.RepositoryID == "" || in.ResourceID == "" || !map[string]bool{"human": true, "agent": true}[in.OwnerKind] || in.OwnerID == "" || in.BaseRevision == "" || !nonempty(in.AllowedPaths, true) || !nonempty(in.AcceptanceCriteria, true) || !nonempty(in.Context, false) {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, w := range x.WorkItems {
+		seen[w.ID] = true
+		if w.RepositoryID == in.RepositoryID && w.Kind == in.Kind && w.ResourceID == in.ResourceID {
+			return false
+		}
+	}
+	for _, dependency := range in.DependsOn {
+		if !seen[dependency] {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Store) AddWorkItem(repo, migration, actor string, in WorkItemInput) (Migration, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var x Migration
+	if e := load(s.migrationPath(repo, migration), &x); e != nil {
+		return x, e
+	}
+	if !validWorkItem(in, x) {
+		return Migration{}, ErrInvalid
+	}
+	now := s.now().UTC()
+	w := WorkItem{ID: id(), Kind: in.Kind, Phase: in.Phase, RepositoryID: in.RepositoryID, ResourceID: in.ResourceID, OwnerKind: in.OwnerKind, OwnerID: in.OwnerID, Position: len(x.WorkItems) + 1, DependsOn: append([]string{}, in.DependsOn...), BaseRevision: in.BaseRevision, AllowedPaths: append([]string{}, in.AllowedPaths...), Context: append([]string{}, in.Context...), AcceptanceCriteria: append([]string{}, in.AcceptanceCriteria...), CreatedBy: actor, CreatedAt: now}
+	x.WorkItems = append(x.WorkItems, w)
+	x.Events = append(x.Events, Event{Sequence: int64(len(x.Events) + 1), Kind: "work_item_created", ActorID: actor, Detail: w.ID, CreatedAt: now})
+	return deriveMigration(x), save(s.migrationPath(repo, migration), x)
+}
+
+func validPullContract(in PullContractInput, x Migration) bool {
+	if in.RepositoryID == "" || in.PullRequestID == "" || in.Revision == "" || in.Idempotency == "" || !nonempty(in.WorkItemIDs, true) || !nonempty(in.OldReaders, true) || !nonempty(in.NewReaders, true) || !nonempty(in.OldWriters, true) || !nonempty(in.NewWriters, true) || !nonempty(in.RolloutFlags, true) || !nonempty(in.DataTransformations, true) || !nonempty(in.OwnerIDs, true) || !nonempty(in.RollbackAssumptions, true) {
+		return false
+	}
+	work := map[string]bool{}
+	for _, w := range x.WorkItems {
+		work[w.ID] = true
+	}
+	for _, wid := range in.WorkItemIDs {
+		if !work[wid] {
+			return false
+		}
+	}
+	for _, p := range x.PullContracts {
+		if p.RepositoryID == in.RepositoryID && p.PullRequestID == in.PullRequestID && p.Revision == in.Revision {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Store) AddPullContract(repo, migration, actor string, in PullContractInput) (Migration, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var x Migration
+	if e := load(s.migrationPath(repo, migration), &x); e != nil {
+		return x, e
+	}
+	if !validPullContract(in, x) {
+		return Migration{}, ErrInvalid
+	}
+	now := s.now().UTC()
+	p := PullContract{ID: id(), RepositoryID: in.RepositoryID, PullRequestID: in.PullRequestID, Revision: in.Revision, WorkItemIDs: append([]string{}, in.WorkItemIDs...), OldReaders: append([]string{}, in.OldReaders...), NewReaders: append([]string{}, in.NewReaders...), OldWriters: append([]string{}, in.OldWriters...), NewWriters: append([]string{}, in.NewWriters...), RolloutFlags: append([]string{}, in.RolloutFlags...), Idempotency: in.Idempotency, DataTransformations: append([]string{}, in.DataTransformations...), OwnerIDs: append([]string{}, in.OwnerIDs...), RollbackAssumptions: append([]string{}, in.RollbackAssumptions...), CreatedBy: actor, CreatedAt: now}
+	x.PullContracts = append(x.PullContracts, p)
+	x.Events = append(x.Events, Event{Sequence: int64(len(x.Events) + 1), Kind: "pull_contract_linked", ActorID: actor, Detail: p.ID, CreatedAt: now})
+	return deriveMigration(x), save(s.migrationPath(repo, migration), x)
 }
 func (s *Store) CreateMigration(repo, actor string, in MigrationInput) (Migration, error) {
 	s.mu.Lock()
