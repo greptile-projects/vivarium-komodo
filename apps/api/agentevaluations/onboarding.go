@@ -83,6 +83,7 @@ type Onboarding struct {
 	RevokedBy        string               `json:"revoked_by,omitempty"`
 	RevokedAt        *time.Time           `json:"revoked_at,omitempty"`
 	RevocationReason string               `json:"revocation_reason,omitempty"`
+	Trust            TrustState           `json:"trust"`
 	Preview          AuthorityPreview     `json:"authority_preview"`
 }
 
@@ -147,8 +148,9 @@ func (s *Store) CreateOnboarding(kind, scope, actor string, in OnboardingInput) 
 	if !s.validateTrials(kind, scope, in) {
 		return Onboarding{}, ErrInvalid
 	}
-	x := Onboarding{ID: id("aon_"), ScopeKind: kind, ScopeID: scope, CurrentVersion: 1, State: "draft", Versions: []OnboardingVersion{{Number: 1, OnboardingInput: in, CreatedBy: actor, CreatedAt: now}}}
+	x := Onboarding{ID: id("aon_"), ScopeKind: kind, ScopeID: scope, CurrentVersion: 1, State: "draft", Versions: []OnboardingVersion{{Number: 1, OnboardingInput: in, CreatedBy: actor, CreatedAt: now}}, Trust: newTrustState()}
 	x.Preview = s.onboardingPreview(x)
+	s.trustProjection(&x)
 	return x, s.write("onboardings", x.ID, x)
 }
 func (s *Store) ReviseOnboarding(kind, scope, oid, actor string, in OnboardingInput) (Onboarding, error) {
@@ -174,6 +176,7 @@ func (s *Store) ReviseOnboarding(kind, scope, oid, actor string, in OnboardingIn
 		x.State = "pending_upgrade"
 	}
 	x.Preview = s.onboardingPreview(x)
+	s.trustProjection(&x)
 	return x, s.write("onboardings", x.ID, x)
 }
 func (s *Store) GetOnboarding(kind, scope, oid string) (Onboarding, error) {
@@ -184,6 +187,7 @@ func (s *Store) GetOnboarding(kind, scope, oid string) (Onboarding, error) {
 		return x, ErrNotFound
 	}
 	x.Preview = s.onboardingPreview(x)
+	s.trustProjection(&x)
 	if x.State == "active" && !x.Preview.Schedule.ExpiresAt.After(s.now().UTC()) {
 		x.State = "expired"
 	}
@@ -201,6 +205,7 @@ func (s *Store) ListOnboardings(kind, scope string) ([]Onboarding, error) {
 		var x Onboarding
 		if s.read("onboardings", strings.TrimSuffix(f.Name(), ".json"), &x) == nil && x.ScopeKind == kind && x.ScopeID == scope {
 			x.Preview = s.onboardingPreview(x)
+			s.trustProjection(&x)
 			out = append(out, x)
 		}
 	}
@@ -267,6 +272,8 @@ func (s *Store) ActivateOnboarding(kind, scope, oid, actor string, version int64
 	x.Identity = fmt.Sprintf("agent:%s:%s", kind, x.ID)
 	x.ActivatedBy = actor
 	x.ActivatedAt = &now
+	x.Trust.ConsentProfileVersion = currentOnboarding(x).ProfileVersion
+	s.trustProjection(&x)
 	return x, s.write("onboardings", x.ID, x)
 }
 func (s *Store) RevokeOnboarding(kind, scope, oid, actor, reason string) (Onboarding, error) {

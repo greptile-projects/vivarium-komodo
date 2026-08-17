@@ -47,6 +47,20 @@ non-authority before activation. Activation creates a distinct scoped
 version-bound decisions and agreement, while denials, old versions, expiry,
 activation, and revocation remain visible. Financial, stewardship, governance,
 team, or organization standing never contributes implicit technical access.
+Activated onboarding trust lives with the same immutable installation record.
+Repository/organization readers see only bounded work references and sanitized
+summaries for attributable task outcomes, reviewer corrections, verification
+failures, reversions, security/policy violations, accepted contributions, cost,
+and responsiveness—never task bodies, prompts, logs, or secrets. Owners version
+periodic suite requirements and thresholds; overdue or failed reevaluation,
+violations, deteriorating results, and anomalous cost produce actionable notices.
+Optimistically checked controls narrow, suspend, resume, or revoke effective
+authority while retaining commits and evidence. Active-work replacements use
+structured, accepted handoffs between independently activated agent identities.
+Consent stays pinned to the activated profile version; comparing versions marks
+operator, model, data-use/execution, capability, and price/resource changes as
+material, requiring the ordinary fresh onboarding version, approvals, agreement,
+and activation before that newer profile governs authority.
 
 Project funds live beneath `$PROJECT_FUND_ROOT` (default
 `apps/api/data/project-funds`). Repository writers publish governed terms with
