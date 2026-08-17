@@ -89,6 +89,34 @@ credential authority. The `view=apis` workspace presents the permitted
 evidence, shared investigation, synthetic reproduction, and governed handoff
 alongside adoption history.
 
+### Governed API contract migration
+
+Repository producers coordinate a published incompatible version or
+deprecation at `/repositories/{repository}/api-contract-migrations`. The
+migration freezes its old and target contract versions, breaking, compatible,
+behavioral, or unknown change classifications, optional evolution-plan link,
+and ordered migration, dual-run, sunset, and retirement policy. Its affected
+set is derived from permitted registered applications pinned to the old
+versions, including their accountable owner and contact; consumer readers see
+only their own application record.
+
+An application owner acknowledges or requests changes and cites already
+governed evolution tasks, integration briefs, forks, agent sessions, delivery
+teams, or pull requests. They can retain old-and-new candidate test evidence,
+request an exception that cannot outlive the final stage, and attest the exact
+consumer revision and work that migrated. The producer separately approves or
+denies an exception and advances stages with optimistic version checks.
+
+Readiness is derived instead of asserted: only dual-version evidence created
+after the proposal counts, and retirement traffic must come from a shared
+usage window ending after the proposal. Missing acknowledgement, requested
+changes, failed or absent tests, missing attestation, stale or nonzero traffic,
+revoked access, deadline-unresponsive owners, and active final-stage exceptions
+remain explicit blockers. A producer therefore cannot mark retirement until
+every governed application is ready. Migration links do not create work,
+credentials, repository rights, agent authority, deployment access, or an
+ability to act for a consumer.
+
 ## Evaluated agent onboarding
 
 Repository owners turn accepted, uncontaminated agent trials into explicit

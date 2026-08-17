@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/apiconsumers"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
@@ -11,6 +12,146 @@ import (
 
 func registerAPIConsumersHTTP(mux *http.ServeMux, s *apiconsumers.Store, repos dataFlowRepositories, credentials authStore) {
 	base := "/repositories/{repository}/api-consumers"
+	migrationBase := "/repositories/{repository}/api-contract-migrations"
+	mux.HandleFunc("POST "+migrationBase, func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in apiconsumers.MigrationInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.CreateMigration(string(repo.ID), a.UserID, in)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
+	mux.HandleFunc("GET "+migrationBase+"/{migration}", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		_, writer := repositoryPermission(a, auth.RepositoryWrite)
+		x, e := s.GetMigration(string(repo.ID), r.PathValue("migration"), a.UserID, writer)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusOK, x)
+	})
+	mux.HandleFunc("POST "+migrationBase+"/{migration}/acknowledgements", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ApplicationID string                       `json:"application_id"`
+			Decision      string                       `json:"decision"`
+			Reason        string                       `json:"reason"`
+			Work          []apiconsumers.WorkReference `json:"work"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.AcknowledgeMigration(string(repo.ID), r.PathValue("migration"), in.ApplicationID, a.UserID, in.Decision, in.Reason, in.Work)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
+	mux.HandleFunc("POST "+migrationBase+"/{migration}/dual-version-tests", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ApplicationID string `json:"application_id"`
+			apiconsumers.DualVersionTest
+		}
+		if !readJSON(w, r, &in, 2<<20) {
+			return
+		}
+		x, e := s.RecordDualVersionTest(string(repo.ID), r.PathValue("migration"), in.ApplicationID, a.UserID, in.DualVersionTest)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
+	mux.HandleFunc("POST "+migrationBase+"/{migration}/exceptions", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ApplicationID string    `json:"application_id"`
+			Reason        string    `json:"reason"`
+			Scope         string    `json:"scope"`
+			ExpiresAt     time.Time `json:"expires_at"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.RequestMigrationException(string(repo.ID), r.PathValue("migration"), in.ApplicationID, a.UserID, in.Reason, in.Scope, in.ExpiresAt)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
+	mux.HandleFunc("POST "+migrationBase+"/{migration}/exceptions/{exception}/decision", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ApplicationID string `json:"application_id"`
+			Decision      string `json:"decision"`
+			Reason        string `json:"reason"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.DecideMigrationException(string(repo.ID), r.PathValue("migration"), a.UserID, in.ApplicationID, r.PathValue("exception"), in.Decision, in.Reason)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusOK, x)
+	})
+	mux.HandleFunc("POST "+migrationBase+"/{migration}/attestations", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ApplicationID string `json:"application_id"`
+			apiconsumers.MigrationAttestation
+		}
+		if !readJSON(w, r, &in, 2<<20) {
+			return
+		}
+		x, e := s.AttestMigration(string(repo.ID), r.PathValue("migration"), in.ApplicationID, a.UserID, in.MigrationAttestation)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
+	mux.HandleFunc("POST "+migrationBase+"/{migration}/advance", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64 `json:"expected_version"`
+		}
+		if !readJSON(w, r, &in, 1<<16) {
+			return
+		}
+		x, e := s.AdvanceMigration(string(repo.ID), r.PathValue("migration"), a.UserID, in.ExpectedVersion)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusOK, x)
+	})
 	mux.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
 		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
 		if !ok {
