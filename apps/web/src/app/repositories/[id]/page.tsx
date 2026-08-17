@@ -34,6 +34,7 @@ import { LocalizationVerification } from "@/components/localization-verification
 import { LocalizationDelivery } from "@/components/localization-delivery";
 import { ServiceObjectives } from "@/components/service-objectives";
 import { RecoveryObjectives } from "@/components/recovery-objectives";
+import { DurableSchemas } from "@/components/durable-schemas";
 import { AgentProfiles } from "@/components/agent-profiles";
 import { AgentDiscovery } from "@/components/agent-discovery";
 import { AgentEvaluations } from "@/components/agent-evaluations";
@@ -1283,6 +1284,8 @@ export default function RepositoryPage({
                               ? "reliability"
                             : query.view === "continuity"
                               ? "continuity"
+                            : query.view === "state"
+                              ? "state"
                             : query.view === "agents"
                               ? "agents"
                             : query.view === "experiments"
@@ -1365,6 +1368,7 @@ export default function RepositoryPage({
         view === "locales" ||
         view === "reliability" ||
         view === "continuity" ||
+        view === "state" ||
         view === "agents" ||
         view === "experiments" ||
         view === "feedback" ||
@@ -1590,6 +1594,10 @@ export default function RepositoryPage({
         </p>
       )}
       <nav className="repository-tabs" aria-label="Repository">
+        <button className={view === "state" ? "active" : ""} onClick={() => navigate({ view: "state", path: "" })}>
+          <Code size={15} />
+          State
+        </button>
         <button className={view === "apis" ? "active" : ""} onClick={() => navigate({ view: "apis", path: "" })}>
           <Code size={15} />
           APIs
@@ -1821,6 +1829,8 @@ export default function RepositoryPage({
         <Issues repository={repository.id} actor={actor} owner={repository.owner_id} selected={query.issue} />
       ) : view === "support" ? (
         <SupportQuestions repository={repository.id} actor={actor} selected={query.support} />
+      ) : view === "state" ? (
+        <DurableSchemas repository={repository.id} actor={actor} />
       ) : view === "apis" ? (
         <><APIContracts repository={repository.id} actor={actor} /><APIConsumers repository={repository.id} actor={actor} /><APIMigrations repository={repository.id} actor={actor} /></>
       ) : view === "documentation" ? (

@@ -4290,3 +4290,22 @@ operator-supplied inputs and explicit reproductions receive their own labels so
 they cannot appear to be independent first-party proof. Records live beneath
 `$AGENT_EVALUATION_ROOT` and are presented in `view=agents`; evaluation evidence
 does not itself approve, install, credential, or authorize the candidate.
+
+# Durable state and migrations
+
+Repository durable-state publications make persistent application contracts
+reviewable at `view=state`. The public API exposes versioned database, queue,
+index, object-store, cache, and event-log schemas beneath
+`/repositories/{repository}/durable-schemas`. Each immutable version retains its
+reviewed commit and definition path, field classifications, owners,
+compatibility, retention, privacy, linked services and environments, author,
+and change reason.
+
+`/repositories/{repository}/schema-migrations` opens a migration from a pull
+request or decision against exact published from/to versions. Plans enumerate
+reads, writes, backfills and destructive operations, affected consumers,
+rollback limits, dependency-ordered owner steps, success measures and required
+approvals. Each affected owner records their own attributable approval or
+rejection; publication and approval do not grant data-store, deployment,
+environment, review, merge, or credential authority. Durable records are stored
+beneath `$DURABLE_SCHEMA_ROOT` (default `apps/api/data/durable-schemas`).

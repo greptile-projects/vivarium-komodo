@@ -29,6 +29,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/dependencyupdates"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/docscollections"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/durableschemas"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/extensions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/federatedagents"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/federation"
@@ -402,6 +403,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	durableSchemaRoot := os.Getenv("DURABLE_SCHEMA_ROOT")
+	if durableSchemaRoot == "" {
+		durableSchemaRoot = "data/durable-schemas"
+	}
+	durableSchemaStore, err := durableschemas.New(durableSchemaRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	recoveryObjectiveRoot := os.Getenv("RECOVERY_OBJECTIVE_ROOT")
 	if recoveryObjectiveRoot == "" {
 		recoveryObjectiveRoot = "data/recovery-objectives"
@@ -711,6 +720,7 @@ func main() {
 	registerServiceObjectivesHTTP(mux, serviceObjectiveStore, repositoryCatalog, credentials)
 	registerAPIContractsHTTP(mux, apiContractStore, repositoryCatalog, credentials)
 	registerAPIConsumersHTTP(mux, apiConsumerStore, repositoryCatalog, credentials)
+	registerDurableSchemasHTTP(mux, durableSchemaStore, repositoryCatalog, credentials)
 	registerRecoveryObjectivesHTTP(mux, recoveryObjectiveStore, repositoryCatalog, credentials)
 	registerProtectionPlansHTTP(mux, protectionPlanStore, recoveryObjectiveStore, repositoryCatalog, credentials)
 	registerRecoveryExercisesHTTP(mux, recoveryExerciseStore, repositoryCatalog, credentials)

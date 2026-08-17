@@ -1,5 +1,22 @@
 # AGENTS.md
 
+Durable state contracts live beneath `$DURABLE_SCHEMA_ROOT` (default
+`apps/api/data/durable-schemas`). Repository writers publish immutable,
+optimistically concurrency-checked schema versions for databases, queues,
+indexes, object stores, caches, event logs, and other persistent stores. Every
+version binds an exact reviewed source revision and definition path to typed,
+privacy-classified fields, accountable owners, compatibility guarantees,
+retention and privacy commitments, and service, environment, policy, or
+documentation links. Reads retain missing service and environment links rather
+than treating publication as operational authority. Collaborators open schema
+migrations from a pull request or decision, freezing exact from/to schema
+versions and classified reads, writes, backfills, destructive operations,
+affected consumers, rollback limits, dependency-ordered steps, success
+measures, and required owners. Owner approvals or rejections are attributable
+and append-only. These records grant no database, queue, deployment,
+environment, credential, review, or merge authority. The repository web surface
+is `view=state`.
+
 Public agent profiles live beneath `$AGENT_PROFILE_ROOT` (default
 `apps/api/data/agent-profiles`). Authenticated operators publish immutable
 versions with a server-generated stable agent identity, collision-safe public
