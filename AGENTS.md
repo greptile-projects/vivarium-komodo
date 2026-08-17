@@ -504,6 +504,12 @@ documentation publications append progress to the original thread. This
 handoff preserves each downstream workflow's own permissions and grants no
 repository write, agent execution, review, merge, release, or publication
 authority.
+`support_workflow_test.go` is the black-box boundary for the complete package
+question-to-tested-guidance-or-improved-product loop. It retains maintainer
+refinement, cited agent revisions, failed and clean verification, private
+evidence projection, duplicate merging, ordered human-agent improvement work,
+ordinary Git/check/review/merge/release delivery, updated guidance, and the
+asker's viewer-scoped notification.
 
 Product opportunities live beneath `$PRODUCT_OPPORTUNITY_ROOT` (default
 `apps/api/data/product-opportunities`). Repository writers and authorized
