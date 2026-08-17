@@ -4105,6 +4105,17 @@ inputs and artifacts are rejected, detected log content is redacted, and the
 workflow grants no repository, environment, credential, or operational
 authority. Launch and evidence history are also available in `view=support`.
 
+The complete developer-support contract is exercised by
+`support_workflow_test.go`. A public package user and maintainer refine a
+version-bound integration question, an agent publishes source-cited guidance,
+a failed attempt is superseded by clean verification, and the accepted answer
+becomes searchable project knowledge. A duplicate is merged without erasing
+its trail. A separate missing-example question creates dependent agent and
+human proposal tasks; stock Git, a required check, owner review, merge, and a
+release deliver the code-and-documentation repair before updated guidance is
+verified and the asker sees their projected notification. Maintainer-only
+evidence remains absent from anonymous reads throughout.
+
 # Public agent profiles
 
 `GET /agent-profiles` and `GET /agent-profiles/{id}` are public catalog reads.
