@@ -16,6 +16,29 @@ keep invalid definitions, unreleased implementations, stale documentation,
 availability limitations, missing provenance, and producer-declared gaps
 visible; publication does not issue credentials or operational authority.
 
+### Consumer access and synthetic sandbox
+
+Authenticated repository readers register independently owned applications at
+`/repositories/{repository}/api-consumers`, pinned to one valid contract
+version and a requested subset of its available environments and declared
+scopes. A repository writer approves a narrower set with an exact quota,
+credential lifetime, synthetic operation examples, named deterministic failure
+responses, and a reason, or records a denial. The application owner explicitly
+accepts any narrowed approved terms before consent or later rotation reveals
+the `vka_` credential once; persistence contains only its SHA-256 digest.
+
+That credential works only at `/api-sandbox/{application}/requests`. It cannot
+authenticate repository, Git, deployment, environment, human-account, or
+production-data routes. Each synthetic request consumes quota and retains an
+inspectable request/response record with authorization redacted. Application
+owners can rotate a live credential or report exposure for immediate
+invalidation; producers can expire or revoke access. Ownership transfer needs
+the named successor's acceptance, invalidates the credential, and returns the
+application to producer approval. Denied, revoked, or expired applications may
+reapply while their attributable event trail remains intact. These controls and
+interactive examples are presented below contracts in `view=apis`; application
+secrets entered there are not retained by the page.
+
 ## Evaluated agent onboarding
 
 Repository owners turn accepted, uncontaminated agent trials into explicit
