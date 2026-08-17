@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-17T09:13:49Z: Added accountable support-question improvements that classify insufficient guidance, freeze only permitted context into ordinary issues, documentation tasks, proposals, or ordered human/agent work, and report delivery progress back without expanding authority or exposing restricted evidence.
+
 2026-08-17T07:24:57Z: Added answer-bound support verification in credential-free networkless workspaces with exact software/source/environment/dependency/input contracts, immutable commands, redacted logs, artifacts, costs, results, and attributable reruns. Support reads and UI now expose affected-evidence staleness while rejecting credential-like reusable inputs and artifacts.
 
 2026-08-17T06:16:47Z: Added collaboratively revised support answers with exact audience-safe source, symbol, documentation, package, release, prior-thread, and issue citations; claim-level verification/uncertainty; agent uncertainty; and attributable endorsement, challenge, clarification, and comment history. The full API suite retains the known unrelated federation TLS trust and product-experiment check-route failures; focused tests, vet, web lint, and production build pass.

@@ -493,6 +493,17 @@ dissent, verification, authorship, or prior publication. Archived and merged
 solutions leave search results but remain in thread history; publication grants
 no repository, documentation, package, release, credential, or operational
 authority.
+When guidance remains insufficient, a repository collaborator may classify the
+question as a defect, documentation gap, missing example, compatibility
+problem, or product opportunity and open an ordinary issue, documentation
+task, proposal, or ordered human/agent proposal work. The immutable improvement
+record freezes the question, goal, reproduction, affected version and
+environment, acceptance criteria, and only explicitly selected discussion—not
+attached support evidence. Pull requests, checks, previews, releases, and
+documentation publications append progress to the original thread. This
+handoff preserves each downstream workflow's own permissions and grants no
+repository write, agent execution, review, merge, release, or publication
+authority.
 
 Product opportunities live beneath `$PRODUCT_OPPORTUNITY_ROOT` (default
 `apps/api/data/product-opportunities`). Repository writers and authorized

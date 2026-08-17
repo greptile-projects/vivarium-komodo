@@ -26,3 +26,23 @@ func TestQuestionRetainsContextAndHistory(t *testing.T) {
 		t.Fatalf("status: %#v %v", v, e)
 	}
 }
+
+func TestQuestionImprovementFreezesPermittedContextAndReportsProgress(t *testing.T) {
+	s, _ := New(t.TempDir())
+	q, err := s.Create("repo", "asker", Input{Title: "Current answer is incomplete", Question: "The command fails on v2", Subject: Subject{Kind: "repository"}, SoftwareVersion: "v2", Environment: "linux", Goal: "Complete setup", AttemptedSteps: []string{"run setup"}, Urgency: "normal", Audience: "repository", Contact: Contact{Preference: "thread"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err = s.Comment("repo", q.ID, "asker", "Only this redacted reproduction may be carried forward")
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, improvement, err := s.CreateImprovement("repo", q.ID, "maintainer", "compatibility_problem", "issue", "issue-1", []string{"setup passes on v2"}, []string{q.Discussion[0].ID})
+	if err != nil || improvement.Context.SoftwareVersion != "v2" || len(improvement.Context.Discussion) != 1 {
+		t.Fatalf("improvement %#v %v", improvement, err)
+	}
+	q, err = s.AddImprovementLink("repo", q.ID, improvement.ID, "maintainer", ImprovementLink{Kind: "pull_request", ResourceID: "pull-1", State: "in_progress", Revision: "abc"})
+	if err != nil || len(q.Improvements[0].Links) != 1 || q.History[len(q.History)-1].Type != "improvement.progress" {
+		t.Fatalf("progress %#v %v", q, err)
+	}
+}

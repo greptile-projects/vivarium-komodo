@@ -15,6 +15,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/docscollections"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/issues"
 	packagecatalog "github.com/greptile-projects/vivarium-komodo/apps/api/packages"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -33,7 +34,10 @@ type supportSources struct {
 	}
 	issues interface {
 		List(string) ([]issues.Issue, error)
+		Create(issues.CreateInput) (issues.Issue, error)
 	}
+	proposals proposalStore
+	docsTasks docscollectionsStore
 }
 
 func registerSupportQuestionsHTTP(mux *http.ServeMux, s *supportquestions.Store, repos proposalRepositoryStore, credentials authStore, src supportSources, runner *supportquestions.VerificationRunner) {
@@ -70,6 +74,11 @@ func registerSupportQuestionsHTTP(mux *http.ServeMux, s *supportquestions.Store,
 				}
 			}
 			v.Solutions[i].Notifications = notices
+		}
+		if !maintainer {
+			for i := range v.Improvements {
+				v.Improvements[i].Context.Discussion = nil
+			}
 		}
 		return v
 	}
@@ -170,6 +179,188 @@ func registerSupportQuestionsHTTP(mux *http.ServeMux, s *supportquestions.Store,
 			return
 		}
 		writeJSON(w, 201, project(repo, v, a))
+	})
+	mux.HandleFunc("POST "+base+"/{question}/improvements", func(w http.ResponseWriter, r *http.Request) {
+		repo, grant, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		actor := grant.UserID
+		if !participant(repo, actor) {
+			writeJSON(w, 403, map[string]string{"error": "repository_collaborator_required"})
+			return
+		}
+		q, err := s.Get(string(repo.ID), r.PathValue("question"))
+		if err != nil || !visible(repo, q, actor) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var in struct {
+			Classification     string   `json:"classification"`
+			AcceptanceCriteria []string `json:"acceptance_criteria"`
+			DiscussionIDs      []string `json:"discussion_ids"`
+			TargetKind         string   `json:"target_kind"`
+			Title              string   `json:"title"`
+			Visibility         string   `json:"visibility"`
+			CollectionID       string   `json:"collection_id"`
+			Path               string   `json:"path"`
+			Revision           string   `json:"revision"`
+			Branch             string   `json:"branch"`
+			Work               []struct {
+				Title              string   `json:"title"`
+				OwnerKind          string   `json:"owner_kind"`
+				OwnerID            string   `json:"owner_id"`
+				AcceptanceCriteria []string `json:"acceptance_criteria"`
+				DependsOn          []int    `json:"depends_on"`
+			} `json:"work"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		if in.Title == "" || len(in.AcceptanceCriteria) == 0 {
+			writeJSON(w, 422, map[string]string{"error": "invalid_support_improvement"})
+			return
+		}
+		allowedClassification := map[string]bool{"defect": true, "documentation_gap": true, "missing_example": true, "compatibility_problem": true, "product_opportunity": true}
+		comments := map[string]bool{}
+		for _, comment := range q.Discussion {
+			comments[comment.ID] = true
+		}
+		if !allowedClassification[in.Classification] || len(in.AcceptanceCriteria) > 20 {
+			writeJSON(w, 422, map[string]string{"error": "invalid_support_improvement"})
+			return
+		}
+		for _, criterion := range in.AcceptanceCriteria {
+			if strings.TrimSpace(criterion) == "" || len(criterion) > 2000 {
+				writeJSON(w, 422, map[string]string{"error": "invalid_support_improvement"})
+				return
+			}
+		}
+		for _, id := range in.DiscussionIDs {
+			if !comments[id] {
+				writeJSON(w, 422, map[string]string{"error": "invalid_improvement_discussion"})
+				return
+			}
+		}
+		for pos, work := range in.Work {
+			if strings.TrimSpace(work.Title) == "" || len(work.AcceptanceCriteria) == 0 {
+				writeJSON(w, 422, map[string]string{"error": "invalid_improvement_work"})
+				return
+			}
+			for _, dependency := range work.DependsOn {
+				if dependency < 1 || dependency > pos {
+					writeJSON(w, 422, map[string]string{"error": "invalid_work_dependency"})
+					return
+				}
+			}
+		}
+		context := "Original question: " + q.Question + "\n\nGoal: " + q.Goal + "\nAffected version: " + q.SoftwareVersion + "\nEnvironment: " + q.Environment + "\nReproduction: " + strings.Join(q.AttemptedSteps, "; ") + "\nAcceptance criteria:\n- " + strings.Join(in.AcceptanceCriteria, "\n- ")
+		targetID := ""
+		switch in.TargetKind {
+		case "issue":
+			if in.Classification != "defect" && in.Classification != "compatibility_problem" {
+				writeJSON(w, 422, map[string]string{"error": "classification_target_mismatch"})
+				return
+			}
+			visibility := in.Visibility
+			if visibility == "" {
+				visibility = "repository"
+			}
+			environment := q.Environment
+			if environment == "" {
+				environment = "not supplied"
+			}
+			steps := q.AttemptedSteps
+			if len(steps) == 0 {
+				steps = []string{"Reproduce the unresolved support question"}
+			}
+			item, e := src.issues.Create(issues.CreateInput{RepositoryID: string(repo.ID), ReporterID: actor, Title: in.Title, ExpectedBehavior: q.Goal, ObservedBehavior: q.Question, Severity: "medium", Environment: environment, AffectedVersion: q.SoftwareVersion, ReproductionSteps: steps, Visibility: visibility})
+			if e != nil {
+				supportError(w, e)
+				return
+			}
+			targetID = item.ID
+		case "proposal":
+			item, e := src.proposals.Create(string(repo.ID), actor, in.Title, context)
+			if e != nil {
+				supportError(w, e)
+				return
+			}
+			targetID = item.ID
+			ids := []string{}
+			for pos, work := range in.Work {
+				deps := []string{}
+				for _, d := range work.DependsOn {
+					if d < 1 || d > len(ids) {
+						writeJSON(w, 422, map[string]string{"error": "invalid_work_dependency"})
+						return
+					}
+					deps = append(deps, ids[d-1])
+				}
+				task, e := src.proposals.CreateTask(string(repo.ID), item.ID, actor, proposals.TaskInput{Title: work.Title, Outcome: q.Goal, OwnerKind: work.OwnerKind, OwnerID: work.OwnerID, CompletionCriteria: work.AcceptanceCriteria, VerificationPlan: in.AcceptanceCriteria, Position: pos + 1, DependsOn: deps})
+				if e != nil {
+					supportError(w, e)
+					return
+				}
+				ids = append(ids, task.ID)
+			}
+		case "documentation_task":
+			if in.Classification != "documentation_gap" && in.Classification != "missing_example" {
+				writeJSON(w, 422, map[string]string{"error": "classification_target_mismatch"})
+				return
+			}
+			opener, yes := repos.(interface {
+				Open(storage.ID) (*storage.Repository, error)
+			})
+			if !yes {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			opened, e := opener.Open(repo.ID)
+			if e != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_documentation_revision"})
+				return
+			}
+			if _, e = opened.ReadCommit(storage.ObjectID(in.Revision)); e != nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_documentation_revision"})
+				return
+			}
+			origin := docscollections.TaskOrigin{Kind: "support_question", ResourceID: q.ID}
+			task, e := src.docsTasks.CreateTask(string(repo.ID), in.CollectionID, actor, in.Title, in.Path, in.Revision, origin, []string{"support_question:" + q.ID, context}, "branch", in.Branch)
+			if e != nil {
+				supportError(w, e)
+				return
+			}
+			targetID = task.ID
+		default:
+			writeJSON(w, 422, map[string]string{"error": "invalid_improvement_target"})
+			return
+		}
+		updated, made, e := s.CreateImprovement(string(repo.ID), q.ID, actor, in.Classification, in.TargetKind, targetID, in.AcceptanceCriteria, in.DiscussionIDs)
+		if supportError(w, e) {
+			return
+		}
+		writeJSON(w, 201, map[string]any{"question": project(repo, updated, actor), "improvement": made})
+	})
+	mux.HandleFunc("POST "+base+"/{question}/improvements/{improvement}/links", func(w http.ResponseWriter, r *http.Request) {
+		repo, grant, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		actor := grant.UserID
+		if !participant(repo, actor) {
+			writeJSON(w, 403, map[string]string{"error": "repository_collaborator_required"})
+			return
+		}
+		var in supportquestions.ImprovementLink
+		if !readJSON(w, r, &in, 32<<10) {
+			return
+		}
+		q, e := s.AddImprovementLink(string(repo.ID), r.PathValue("question"), r.PathValue("improvement"), actor, in)
+		if supportError(w, e) {
+			return
+		}
+		writeJSON(w, 201, project(repo, q, actor))
 	})
 	mux.HandleFunc("POST "+base+"/{question}/answers", func(w http.ResponseWriter, r *http.Request) {
 		repo, a, ok := access(w, r, true)
