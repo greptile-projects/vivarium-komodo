@@ -1,0 +1,142 @@
+package main
+
+import (
+	"errors"
+	"net/http"
+
+	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/durableschemas"
+)
+
+func registerDurableSchemasHTTP(mux *http.ServeMux, s *durableschemas.Store, repos dataFlowRepositories, c authStore) {
+	base := "/repositories/{repository}/durable-schemas"
+	mux.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		x, e := s.ListSchemas(string(repo.ID))
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 200, map[string]any{"items": x})
+	})
+	mux.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in durableschemas.VersionInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.CreateSchema(string(repo.ID), a.UserID, in)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("GET "+base+"/{schema}", func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		x, e := s.GetSchema(string(repo.ID), r.PathValue("schema"))
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 200, x)
+	})
+	mux.HandleFunc("POST "+base+"/{schema}/versions", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64 `json:"expected_version"`
+			durableschemas.VersionInput
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.ReviseSchema(string(repo.ID), r.PathValue("schema"), a.UserID, in.ExpectedVersion, in.VersionInput)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	migrations := "/repositories/{repository}/schema-migrations"
+	mux.HandleFunc("GET "+migrations, func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		x, e := s.ListMigrations(string(repo.ID))
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 200, map[string]any{"items": x})
+	})
+	mux.HandleFunc("POST "+migrations, func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in durableschemas.MigrationInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.CreateMigration(string(repo.ID), a.UserID, in)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("GET "+migrations+"/{migration}", func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		x, e := s.GetMigration(string(repo.ID), r.PathValue("migration"))
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 200, x)
+	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/approvals", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			OwnerID   string `json:"owner_id"`
+			Decision  string `json:"decision"`
+			Rationale string `json:"rationale"`
+		}
+		if !readJSON(w, r, &in, 1<<16) {
+			return
+		}
+		x, e := s.Approve(string(repo.ID), r.PathValue("migration"), a.UserID, in.OwnerID, in.Decision, in.Rationale)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+}
+
+func durableSchemaError(w http.ResponseWriter, e error) bool {
+	if e == nil {
+		return false
+	}
+	switch {
+	case errors.Is(e, durableschemas.ErrNotFound):
+		writeJSON(w, 404, map[string]string{"error": "durable_schema_not_found"})
+	case errors.Is(e, durableschemas.ErrInvalid):
+		writeJSON(w, 422, map[string]string{"error": "invalid_durable_schema"})
+	case errors.Is(e, durableschemas.ErrConflict):
+		writeJSON(w, 409, map[string]string{"error": "durable_schema_changed"})
+	default:
+		writeJSON(w, 500, map[string]string{"error": "internal_error"})
+	}
+	return true
+}
