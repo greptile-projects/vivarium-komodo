@@ -129,7 +129,7 @@ func registerAgentEvaluationsHTTP(m *http.ServeMux, s *agentevaluations.Store, p
 			writeJSON(w, 201, x)
 		}
 	})
-	registerAgentOnboardingHTTP(m, base+"/onboardings", "repository", s, profiles, func(w http.ResponseWriter, r *http.Request, write bool) (string, string, bool) {
+	repositoryAccess := func(w http.ResponseWriter, r *http.Request, write bool) (string, string, bool) {
 		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, map[bool]auth.Scope{true: auth.RepositoryWrite, false: auth.RepositoryRead}[write], write)
 		if !ok {
 			return "", "", false
@@ -139,8 +139,19 @@ func registerAgentEvaluationsHTTP(m *http.ServeMux, s *agentevaluations.Store, p
 			return "", "", false
 		}
 		return string(repo.ID), actor.UserID, true
-	})
-	registerAgentOnboardingHTTP(m, "/organizations/{organization}/agent-onboardings", "organization", s, profiles, func(w http.ResponseWriter, r *http.Request, write bool) (string, string, bool) {
+	}
+	operatorAccess := func(w http.ResponseWriter, r *http.Request, kind string) (string, string, bool) {
+		a, ok := authenticateRequest(w, r, credentials, auth.RepositoryWrite)
+		if !ok {
+			return "", "", false
+		}
+		if kind == "repository" {
+			return r.PathValue("repository"), a.UserID, true
+		}
+		return r.PathValue("organization"), a.UserID, true
+	}
+	registerAgentOnboardingHTTP(m, base+"/onboardings", "repository", s, profiles, repositoryAccess, operatorAccess)
+	organizationAccess := func(w http.ResponseWriter, r *http.Request, write bool) (string, string, bool) {
 		actor, ok := authenticateRequest(w, r, credentials, map[bool]auth.Scope{true: auth.RepositoryWrite, false: auth.RepositoryRead}[write])
 		if !ok {
 			return "", "", false
@@ -151,12 +162,13 @@ func registerAgentEvaluationsHTTP(m *http.ServeMux, s *agentevaluations.Store, p
 			return "", "", false
 		}
 		return id, actor.UserID, true
-	})
+	}
+	registerAgentOnboardingHTTP(m, "/organizations/{organization}/agent-onboardings", "organization", s, profiles, organizationAccess, operatorAccess)
 }
 
 type onboardingAccess func(http.ResponseWriter, *http.Request, bool) (string, string, bool)
 
-func registerAgentOnboardingHTTP(m *http.ServeMux, base, kind string, s *agentevaluations.Store, profiles *agentprofiles.Store, access onboardingAccess) {
+func registerAgentOnboardingHTTP(m *http.ServeMux, base, kind string, s *agentevaluations.Store, profiles *agentprofiles.Store, access onboardingAccess, operatorAccess func(http.ResponseWriter, *http.Request, string) (string, string, bool)) {
 	m.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
 		scope, _, ok := access(w, r, false)
 		if !ok {
@@ -225,8 +237,18 @@ func registerAgentOnboardingHTTP(m *http.ServeMux, base, kind string, s *agentev
 		}
 	})
 	m.HandleFunc("POST "+base+"/{onboarding}/operator-agreement", func(w http.ResponseWriter, r *http.Request) {
-		scope, actor, ok := access(w, r, true)
+		scope, actor, ok := operatorAccess(w, r, kind)
 		if !ok {
+			return
+		}
+		onboarding, e := s.GetOnboarding(kind, scope, r.PathValue("onboarding"))
+		if e != nil {
+			agentEvaluationError(w, e)
+			return
+		}
+		profile, e := profiles.Get(onboarding.Versions[len(onboarding.Versions)-1].ProfileID)
+		if e != nil || profile.OperatorID != actor {
+			writeJSON(w, 403, map[string]string{"error": "agent_operator_required"})
 			return
 		}
 		var in struct {

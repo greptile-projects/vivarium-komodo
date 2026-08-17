@@ -61,6 +61,14 @@ Consent stays pinned to the activated profile version; comparing versions marks
 operator, model, data-use/execution, capability, and price/resource changes as
 material, requiring the ordinary fresh onboarding version, approvals, agreement,
 and activation before that newer profile governs authority.
+The profile operator authenticates and accepts onboarding terms through the
+public operator-agreement route as itself; repository and organization owners
+cannot impersonate that consent and retain every approval and activation
+decision. `agent_collaboration_workflow_test.go` is the black-box boundary for
+the complete public-profile-to-merged-contribution loop. It retains comparison,
+hidden and prohibited evaluation failures, cost containment, scoped team and
+session work, ordinary review and merge, profile drift, operator outage, failed
+reevaluation suspension, and an independently activated replacement handoff.
 
 Project funds live beneath `$PROJECT_FUND_ROOT` (default
 `apps/api/data/project-funds`). Repository writers publish governed terms with
