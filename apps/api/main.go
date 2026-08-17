@@ -311,6 +311,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	supportVerificationRunner := supportquestions.NewVerificationRunner(supportQuestionStore, repositoryCatalog)
 	investigationRoot := os.Getenv("INVESTIGATION_ROOT")
 	if investigationRoot == "" {
 		investigationRoot = "data/investigations"
@@ -722,7 +723,7 @@ func main() {
 	registerCollaboratorsHTTP(mux, repositoryCatalog, userStore, credentials, activityStore)
 	registerProposalsHTTP(mux, proposalStore, repositoryCatalog, credentials, activityStore)
 	registerIssuesHTTP(mux, issueStore, releaseStore, repositoryCatalog, credentials, issueReproductionRunner)
-	registerSupportQuestionsHTTP(mux, supportQuestionStore, repositoryCatalog, credentials, supportSources{releases: releaseStore, packages: packageStore, docs: documentationStore, issues: issueStore})
+	registerSupportQuestionsHTTP(mux, supportQuestionStore, repositoryCatalog, credentials, supportSources{releases: releaseStore, packages: packageStore, docs: documentationStore, issues: issueStore}, supportVerificationRunner)
 	registerContributorPathwaysHTTP(mux, contributorPathwayStore, repositoryCatalog, credentials, releaseStore, issueStore, proposalStore)
 	registerDocumentationHTTP(mux, documentationStore, repositoryCatalog, credentials, releaseStore, workspaceStore, workspaceRunner, pullRequestStore)
 	registerContributionOpportunitiesHTTP(mux, contributionOpportunityStore, repositoryCatalog, credentials, issueStore, proposalStore, organizationStore, contributorPathwayStore, workspaceStore, workspaceRunner, pullRequestStore, checkRunner, releaseStore)

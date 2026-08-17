@@ -40,6 +40,7 @@ type Question = {
     feedback: Array<{id:string;revision_id:string;claim_id?:string;kind:string;body?:string;actor_id:string}>;
   }>;
 };
+type Verification = { attempt: { id:string; answer_id:string; answer_revision_id:string; source_revision:string; software_version:string; created_by_id:string; state:string; result?:string; failure_reason?:string; cost_units:number; environment:{name:string;image_digest:string}; events:Array<{sequence:number;type:string;command?:string;stream?:string;message?:string;exit_code?:number}>; artifacts:Array<{path:string;sha256:string;size:number;content:string}> }; stale:boolean; stale_reasons:string[] };
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`/api${path}`, init),
     b = await r.json().catch(() => ({}));
@@ -69,19 +70,22 @@ export function SupportQuestions({
     [creating, setCreating] = useState(false),
     [error, setError] = useState(""),
     [comment, setComment] = useState(""),
-    [related, setRelated] = useState<Question["related"]>([]);
+    [related, setRelated] = useState<Question["related"]>([]),
+    [verifications, setVerifications] = useState<Verification[]>([]);
   const load = useCallback(async () => {
     try {
       const list = await api<{ items: Question[] }>(
         `/repositories/${repository}/support-questions`,
       );
       setItems(list.items);
-      if (selected)
+      if (selected) {
         setCurrent(
           await api(
             `/repositories/${repository}/support-questions/${selected}`,
           ),
         );
+        setVerifications((await api<{items:Verification[]}>(`/repositories/${repository}/support-questions/${selected}/verifications`)).items);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Support unavailable");
     }
@@ -181,6 +185,14 @@ export function SupportQuestions({
     if(!current)return; const body=kind==="endorsement"?"":window.prompt(kind==="clarification"?"What context is missing?":"Explain your feedback")||""; if(kind!=="endorsement"&&!body)return;
     setCurrent(await api(`/repositories/${repository}/support-questions/${current.id}/answers/${answerId}/feedback`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({revision_id:revisionId,claim_id:claimId,kind,body})}));
   }
+  async function verify(e:FormEvent<HTMLFormElement>,answerId:string,revisionId:string) {
+    e.preventDefault(); if(!current)return; const f=new FormData(e.currentTarget), files=f.getAll("inputs") as File[], inputs=[];
+    for(const file of files)if(file.size)inputs.push({name:file.name,media_type:file.type||"text/plain",content:await base64(file)});
+    const dependencies=Object.fromEntries(String(f.get("dependencies")||"").split("\n").filter(Boolean).map(x=>{const [name,...version]=x.split("=");return [name.trim(),version.join("=").trim()]}));
+    try { await api(`/repositories/${repository}/support-questions/${current.id}/verifications`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({answer_id:answerId,answer_revision_id:revisionId,source_revision:f.get("source_revision"),software_version:f.get("software_version"),environment:{name:current.environment,image_digest:f.get("environment_digest"),tools:String(f.get("tools")||"").split("\n").filter(Boolean),resources:{cpu_seconds:Number(f.get("cpu")),memory_mb:Number(f.get("memory")),disk_mb:Number(f.get("disk"))}},dependencies,sanitized_inputs:inputs,artifact_paths:String(f.get("artifacts")||"").split("\n").filter(Boolean),cost_units:Number(f.get("cost")||0)})}); setTimeout(()=>void load(),250); }
+    catch(c){setError(c instanceof Error?c.message:"Could not verify answer")}
+  }
+  async function rerun(id:string){if(!current)return;try{await api(`/repositories/${repository}/support-questions/${current.id}/verifications/${id}/reruns`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});setTimeout(()=>void load(),250)}catch(c){setError(c instanceof Error?c.message:"Could not rerun verification")}}
   if (current)
     return (
       <section className="workspace">
@@ -268,6 +280,13 @@ export function SupportQuestions({
           {current.answers?.map(a=>{const r=a.revisions.find(x=>x.id===a.current_revision_id)!;return <article className="panel" key={a.id}><p><Badge>revision {r.revision}</Badge> <Badge>{r.author_kind}</Badge> by {r.author_id}</p><h4>{r.summary}</h4><p>Applies to: {r.applicable_versions.join(", ")}</p><ol>{r.instructions.map((x,i)=><li key={i}>{x}</li>)}</ol>{r.uncertainty&&<p><strong>Uncertainty:</strong> {r.uncertainty}</p>}{r.claims.map(c=><section key={c.id}><p><Badge>{c.mode}</Badge> {c.text}</p>{c.uncertainty&&<p className="muted">{c.uncertainty}</p>}<ul>{c.citations.map((x,i)=><li key={i}>{x.kind} · {x.label||x.path||x.resource_id} @ <code>{x.revision}</code>{x.line_start?` lines ${x.line_start}–${x.line_end}`:""}</li>)}</ul>{actor&&<p><Button variant="secondary" onClick={()=>void feedback(a.id,r.id,c.id,"endorsement")}>Endorse</Button> <Button variant="secondary" onClick={()=>void feedback(a.id,r.id,c.id,"challenge")}>Challenge</Button> <Button variant="secondary" onClick={()=>void feedback(a.id,r.id,c.id,"clarification")}>Request clarification</Button></p>}</section>)}{a.feedback.filter(x=>x.revision_id===r.id).map(x=><p key={x.id}><Badge>{x.kind}</Badge> {x.actor_id} {x.body}</p>)}</article>})}
           {!current.answers?.length&&<p>No answer proposed yet.</p>}
           {actor&&<details><summary>Propose grounded guidance</summary><form className="form-stack" onSubmit={answer}><label>Contributor<select name="author_kind"><option value="human">Human</option><option value="agent">Scoped agent</option></select></label><label>Answer summary<textarea name="summary" required/></label><label>Instructions, one per line<textarea name="instructions" required/></label><label>Applicable exact versions, one per line<textarea name="versions" required defaultValue={current.software_version}/></label><label>Claim mode<select name="mode"><option value="verified">Verified by cited evidence</option><option value="inference">Inference</option><option value="uncertainty">Uncertain</option></select></label><label>Claim<textarea name="claim" required/></label><label>Claim uncertainty (required for inference/uncertain)<textarea name="claim_uncertainty"/></label><label>Citation: kind | resource ID | exact revision | path | symbol | start | end | label<input name="citation" required placeholder="source | repository ID | commit | path | symbol | 10 | 20 | handler"/></label><label>Overall uncertainty (required for agents)<textarea name="uncertainty"/></label><Button type="submit">Publish answer revision</Button></form></details>}
+        </div>
+        <div className="card">
+          <h3>Independent answer verification</h3>
+          <p className="muted">Run exact guidance in a credential-free, networkless workspace. Only declared sanitized inputs, bounded logs, artifacts, and cost enter the reusable record.</p>
+          {current.answers?.map(a=>{const r=a.revisions.find(x=>x.id===a.current_revision_id)!;return actor&&<details key={a.id}><summary>Verify “{r.summary}”</summary><form className="form-stack" onSubmit={e=>void verify(e,a.id,r.id)}><label>Exact source revision<input name="source_revision" required/></label><label>Software version<input name="software_version" required defaultValue={current.software_version}/></label><label>Declared environment<input value={current.environment||""} readOnly/></label><label>Environment image digest<input name="environment_digest" required placeholder="sha256:…"/></label><label>Available tools, one per line<textarea name="tools" defaultValue="sh"/></label><label>Exact dependencies, name=version<textarea name="dependencies"/></label><label>Sanitized inputs<input name="inputs" type="file" multiple accept="text/plain,application/json,application/octet-stream"/></label><label>Artifacts to retain, one relative path per line<textarea name="artifacts"/></label><label>CPU seconds<input name="cpu" type="number" min="1" max="600" defaultValue="30" required/></label><label>Memory MiB<input name="memory" type="number" min="128" max="8192" defaultValue="256" required/></label><label>Disk MiB<input name="disk" type="number" min="128" max="5120" defaultValue="128" required/></label><label>Declared cost units<input name="cost" type="number" min="0" step="any" defaultValue="0"/></label><Button type="submit">Launch bounded verification</Button></form></details>})}
+          {verifications.map(v=><article className="panel" key={v.attempt.id}><p><Badge>{v.attempt.state}</Badge> <Badge>{v.stale?"stale":"current evidence"}</Badge> by {v.attempt.created_by_id}</p><p><code>{v.attempt.source_revision}</code> · {v.attempt.software_version} · {v.attempt.environment.name} @ <code>{v.attempt.environment.image_digest}</code> · cost {v.attempt.cost_units}</p>{v.stale_reasons.map(x=><p className="form-error" key={x}>{x.replaceAll("_"," ")}</p>)}{v.attempt.result&&<p>{v.attempt.result}</p>}{v.attempt.failure_reason&&<p className="form-error">{v.attempt.failure_reason}</p>}<details><summary>Commands, logs, outputs, and artifacts</summary>{v.attempt.events.map(x=><pre key={x.sequence}>{x.command||`${x.stream||x.type}: ${x.message||x.exit_code||""}`}</pre>)}{v.attempt.artifacts.map(x=><p key={x.path}><a download={x.path} href={`data:application/octet-stream;base64,${x.content}`}>{x.path}</a> · <code>{x.sha256}</code> · {x.size} bytes</p>)}</details>{actor&&<Button variant="secondary" onClick={()=>void rerun(v.attempt.id)}>Rerun exact record</Button>}</article>)}
+          {!verifications.length&&<p>No verification attempts yet.</p>}
         </div>
         <div className="card">
           <h3>Discussion</h3>
