@@ -101,6 +101,8 @@ type Application struct {
 	Authority            []string                  `json:"authority"`
 	IntegrationWork      []IntegrationWork         `json:"integration_work,omitempty"`
 	Verifications        []Verification            `json:"verifications,omitempty"`
+	Observations         []OperationalObservation  `json:"observations,omitempty"`
+	Investigations       []SupportInvestigation    `json:"investigations,omitempty"`
 }
 type Credential struct {
 	Secret      string      `json:"secret"`
@@ -252,6 +254,7 @@ func (s *Store) List(repo, actor string, writer bool) ([]Application, error) {
 	out := []Application{}
 	for _, a := range d.Applications {
 		if a.RepositoryID == repo && (writer || a.OwnerID == actor || a.PendingOwnerID == actor) {
+			a = projectSupport(a, writer)
 			out = append(out, a)
 		}
 	}
@@ -274,6 +277,7 @@ func (s *Store) Get(repo, id, actor string, writer bool) (Application, error) {
 			if !writer && a.OwnerID != actor && a.PendingOwnerID != actor {
 				return Application{}, ErrForbidden
 			}
+			a = projectSupport(a, writer)
 			if changed {
 				e = s.save(d)
 			}
@@ -281,6 +285,17 @@ func (s *Store) Get(repo, id, actor string, writer bool) (Application, error) {
 		}
 	}
 	return Application{}, ErrNotFound
+}
+
+func projectSupport(a Application, producer bool) Application {
+	out := make([]OperationalObservation, 0, len(a.Observations))
+	for _, x := range a.Observations {
+		if x.Audience == "shared" || (producer && x.Audience == "producer") || (!producer && x.Audience == "consumer") {
+			out = append(out, x)
+		}
+	}
+	a.Observations = out
+	return a
 }
 
 func (s *Store) expire(d *data) bool {

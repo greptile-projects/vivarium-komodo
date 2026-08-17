@@ -172,6 +172,116 @@ func registerAPIConsumersHTTP(mux *http.ServeMux, s *apiconsumers.Store, repos d
 		}
 		writeJSON(w, http.StatusCreated, x)
 	})
+	mux.HandleFunc("POST "+base+"/{application}/observations", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in apiconsumers.ObservationInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		_, writer := repositoryPermission(a, auth.RepositoryWrite)
+		x, e := s.RecordObservation(string(repo.ID), r.PathValue("application"), a.UserID, writer, in)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
+	mux.HandleFunc("POST "+base+"/{application}/investigations", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in apiconsumers.InvestigationInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		_, writer := repositoryPermission(a, auth.RepositoryWrite)
+		x, e := s.OpenInvestigation(string(repo.ID), r.PathValue("application"), a.UserID, writer, in)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
+	mux.HandleFunc("GET "+base+"/{application}/investigations/{investigation}", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		_, writer := repositoryPermission(a, auth.RepositoryWrite)
+		x, e := s.GetInvestigation(string(repo.ID), r.PathValue("application"), r.PathValue("investigation"), a.UserID, writer)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusOK, x)
+	})
+	mux.HandleFunc("POST "+base+"/{application}/investigations/{investigation}/agents", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			AgentID string `json:"agent_id"`
+		}
+		if !readJSON(w, r, &in, 1<<16) {
+			return
+		}
+		_, writer := repositoryPermission(a, auth.RepositoryWrite)
+		x, e := s.InviteAgent(string(repo.ID), r.PathValue("application"), r.PathValue("investigation"), a.UserID, writer, in.AgentID)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
+	mux.HandleFunc("POST "+base+"/{application}/investigations/{investigation}/entries", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in apiconsumers.EntryInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		_, writer := repositoryPermission(a, auth.RepositoryWrite)
+		x, e := s.AddEntry(string(repo.ID), r.PathValue("application"), r.PathValue("investigation"), a.UserID, writer, in)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
+	mux.HandleFunc("POST "+base+"/{application}/investigations/{investigation}/reproductions", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in apiconsumers.SandboxInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		_, writer := repositoryPermission(a, auth.RepositoryWrite)
+		x, e := s.Reproduce(string(repo.ID), r.PathValue("application"), r.PathValue("investigation"), a.UserID, writer, in)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
+	mux.HandleFunc("POST "+base+"/{application}/investigations/{investigation}/change-work", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in apiconsumers.RouteInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		_, writer := repositoryPermission(a, auth.RepositoryWrite)
+		x, e := s.RouteChange(string(repo.ID), r.PathValue("application"), r.PathValue("investigation"), a.UserID, writer, in)
+		if apiConsumerError(w, e) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
 	mux.HandleFunc("POST /api-sandbox/{application}/requests", func(w http.ResponseWriter, r *http.Request) {
 		token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 		var in apiconsumers.SandboxInput

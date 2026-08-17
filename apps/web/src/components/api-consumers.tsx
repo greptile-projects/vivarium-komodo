@@ -72,6 +72,19 @@ type App = {
     candidate_revision: string; agreement: string; authored_by: string;
     producer_passed: boolean; consumer_passed: boolean;
   }[];
+  observations?: {
+    id: string; kind: string; audience: string; release_id: string;
+    environment: string; operation_id?: string; summary: string;
+    contract_version: number;
+  }[];
+  investigations?: {
+    id: string; title: string; status: string; classification: string;
+    release_id: string; environment: string;
+    invitations?: { agent_id: string; scope: string }[];
+    entries?: { id: string; kind: string; body: string; author_id: string; author_kind: string }[];
+    reproductions?: { id: string; operation_id: string; inspection: Inspection }[];
+    change_routes?: { id: string; defect_owner: string; resource_kind: string; resource_id: string; revision: string }[];
+  }[];
 };
 const lines = (v: FormDataEntryValue | null) =>
   String(v || "")
@@ -202,6 +215,13 @@ export function APIConsumers({
     const f = new FormData(e.currentTarget);
     await send(`/${a.id}/verifications`, { pull_request_id: f.get("pull"), candidate_repository_id: f.get("repository"), candidate_revision: f.get("revision"), results: [{ name: "Producer conformance", kind: "producer_conformance", status: f.get("producer"), coverage: lines(f.get("producer_coverage")), logs: ["sanitized producer scenario result"], cost: 0 }, { name: "Consumer tests", kind: "consumer_test", status: f.get("consumer"), coverage: lines(f.get("consumer_coverage")), logs: ["sanitized consumer test result"], cost: 0 }] });
   }
+  async function observe(e: React.FormEvent<HTMLFormElement>, a: App) {
+    e.preventDefault(); const f = new FormData(e.currentTarget), end = new Date(), start = new Date(end.getTime() - 60 * 60 * 1000);
+    const kind=String(f.get("kind")), value=Number(f.get("value"));
+    await send(`/${a.id}/observations`, {kind,audience:f.get("audience"),release_id:f.get("release"),environment:f.get("environment"),operation_id:f.get("operation"),window_start:start.toISOString(),window_end:end.toISOString(),summary:f.get("summary"),inaccessible_evidence:lines(f.get("inaccessible")),...(kind==="availability"?{availability_percent:value}:kind==="latency"?{latency_milliseconds:value}:kind==="quota"?{quota_used:value,quota_limit:a.quota}:kind==="usage"?{usage_count:value}:kind==="schema_conformance"?{schema_conformant:value===1}:{error_code:f.get("error_code")})});
+  }
+  async function investigate(e: React.FormEvent<HTMLFormElement>, a: App) { e.preventDefault(); const f=new FormData(e.currentTarget); await send(`/${a.id}/investigations`,{title:f.get("title"),observation_ids:lines(f.get("evidence"))}) }
+  async function investigationAction(e: React.FormEvent<HTMLFormElement>, a:App, id:string, action:string) { e.preventDefault(); const f=new FormData(e.currentTarget); let body:Record<string,unknown>={}; if(action==="agents")body={agent_id:f.get("agent")}; if(action==="entries")body={kind:f.get("kind"),body:f.get("body"),classification:f.get("classification")}; if(action==="reproductions")body={operation_id:f.get("operation"),failure:f.get("failure"),body:{synthetic:true}}; if(action==="change-work")body={defect_owner:f.get("owner"),resource_kind:f.get("resource_kind"),resource_id:f.get("resource"),repository_id:f.get("repository"),revision:f.get("revision")}; await send(`/${a.id}/investigations/${id}/${action}`,body) }
   if (!actor)
     return (
       <p>
@@ -454,6 +474,18 @@ export function APIConsumers({
             </form>
           </details>
           {(a.verifications?.length || 0) > 0 && <ul>{a.verifications?.map((v) => <li key={v.id}><Badge>{v.agreement}</Badge> pull {v.pull_request_id} at <code>{v.candidate_revision}</code> — producer {v.producer_passed ? "passed" : "not passed"}, consumer {v.consumer_passed ? "passed" : "not passed"}</li>)}</ul>}
+          <details>
+            <summary>Share bounded operational evidence</summary>
+            <form className="workspace-form" onSubmit={(e)=>observe(e,a)}>
+              <select name="kind"><option>availability</option><option>latency</option><option>quota</option><option>error</option><option>schema_conformance</option><option>usage</option></select>
+              <select name="audience"><option value="shared">Shared with both owners</option><option value={a.owner_id===actor?"consumer":"producer"}>Keep on my side</option></select>
+              <input name="release" placeholder="Exact release ID" required/><select name="environment">{a.approved_environments.map(x=><option key={x}>{x}</option>)}</select>
+              <select name="operation">{a.contract_operations.map(x=><option key={x.id}>{x.id}</option>)}</select><input name="value" type="number" step="any" placeholder="Metric value (1 means conformant)"/><input name="error_code" placeholder="Sanitized error code"/>
+              <textarea name="summary" placeholder="Sanitized observation; no payloads or credentials" required/><textarea name="inaccessible" placeholder="Private evidence references, one per line"/><Button type="submit">Record evidence</Button>
+            </form>
+          </details>
+          {(a.observations?.length||0)>0&&<><h5>Permitted operational evidence</h5><ul>{a.observations?.map(o=><li key={o.id}><Badge>{o.kind}</Badge> <Badge>{o.audience}</Badge> contract v{o.contract_version} · {o.release_id} · {o.environment}{o.operation_id&&` · ${o.operation_id}`} — {o.summary} <code>{o.id}</code></li>)}</ul><details><summary>Open a shared support investigation</summary><form className="workspace-form" onSubmit={e=>investigate(e,a)}><input name="title" placeholder="Observed failure" required/><textarea name="evidence" placeholder="Visible evidence IDs, one per line" required/><Button type="submit">Open investigation</Button></form></details></>}
+          {a.investigations?.map(i=><section className="panel" key={i.id}><p><Badge>{i.status}</Badge> <Badge>{i.classification}</Badge> <strong>{i.title}</strong> · {i.release_id} / {i.environment}</p><details><summary>Invite a read-only diagnostic agent</summary><form className="workspace-form" onSubmit={e=>investigationAction(e,a,i.id,"agents")}><input name="agent" placeholder="Agent subject" required/><Button type="submit">Invite agent</Button></form></details><details><summary>Add a sanitized finding or ownership decision</summary><form className="workspace-form" onSubmit={e=>investigationAction(e,a,i.id,"entries")}><select name="kind"><option>finding</option><option>question</option><option>comment</option><option>decision</option></select><select name="classification"><option value="">No classification</option><option>service</option><option>contract</option><option>client</option><option>environment</option><option>unconfirmed</option></select><textarea name="body" required/><Button type="submit">Add to thread</Button></form></details><details><summary>Reproduce a permitted synthetic request</summary><form className="workspace-form" onSubmit={e=>investigationAction(e,a,i.id,"reproductions")}><select name="operation">{a.contract_operations.map(x=><option key={x.id}>{x.id}</option>)}</select><select name="failure"><option value="">Successful fixture</option>{a.failure_rules.map(x=><option key={x.id}>{x.id}</option>)}</select><Button type="submit">Reproduce without a credential</Button></form></details>{i.status==="confirmed"&&<details><summary>Route confirmed defect to governed work</summary><form className="workspace-form" onSubmit={e=>investigationAction(e,a,i.id,"change-work")}><select name="owner"><option>provider</option><option>consumer</option></select><select name="resource_kind"><option>issue</option><option>proposal</option><option>task</option><option>workspace</option></select><input name="resource" placeholder="Existing governed resource ID" required/><input name="repository" placeholder="Owning repository ID" required/><input name="revision" placeholder="Exact source revision" required/><Button type="submit">Link change work</Button></form></details>}<ul>{i.entries?.map(x=><li key={x.id}><Badge>{x.kind}</Badge> {x.body} — {x.author_kind} {x.author_id}</li>)}{i.reproductions?.map(x=><li key={x.id}><Badge>synthetic reproduction</Badge> {x.operation_id} → {x.inspection.response_status}</li>)}{i.change_routes?.map(x=><li key={x.id}><Badge>{x.defect_owner}</Badge> {x.resource_kind} {x.resource_id} at <code>{x.revision}</code></li>)}</ul></section>)}
           {a.inspections.length > 0 && (
             <details>
               <summary>
