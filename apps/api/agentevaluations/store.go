@@ -159,6 +159,9 @@ func New(root string) (*Store, error) {
 	if e == nil {
 		e = os.MkdirAll(filepath.Join(a, "trials"), 0750)
 	}
+	if e == nil {
+		e = os.MkdirAll(filepath.Join(a, "onboardings"), 0750)
+	}
 	return &Store{root: a, now: time.Now}, e
 }
 func id(prefix string) string {

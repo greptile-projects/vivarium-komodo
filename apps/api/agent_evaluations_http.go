@@ -7,9 +7,10 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/agentevaluations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/agentprofiles"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
 )
 
-func registerAgentEvaluationsHTTP(m *http.ServeMux, s *agentevaluations.Store, profiles *agentprofiles.Store, repos dataFlowRepositories, credentials authStore) {
+func registerAgentEvaluationsHTTP(m *http.ServeMux, s *agentevaluations.Store, profiles *agentprofiles.Store, repos dataFlowRepositories, orgs *organizations.Store, credentials authStore) {
 	base := "/repositories/{repository}/agent-evaluations"
 	m.HandleFunc("GET "+base+"/suites", func(w http.ResponseWriter, r *http.Request) {
 		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
@@ -123,6 +124,150 @@ func registerAgentEvaluationsHTTP(m *http.ServeMux, s *agentevaluations.Store, p
 			return
 		}
 		x, e := s.Decide(string(repo.ID), r.PathValue("trial"), a.UserID, in)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	registerAgentOnboardingHTTP(m, base+"/onboardings", "repository", s, func(w http.ResponseWriter, r *http.Request, write bool) (string, string, bool) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, map[bool]auth.Scope{true: auth.RepositoryWrite, false: auth.RepositoryRead}[write], write)
+		if !ok {
+			return "", "", false
+		}
+		if write && string(repo.OwnerID) != actor.UserID {
+			writeJSON(w, 403, map[string]string{"error": "repository_owner_required"})
+			return "", "", false
+		}
+		return string(repo.ID), actor.UserID, true
+	})
+	registerAgentOnboardingHTTP(m, "/organizations/{organization}/agent-onboardings", "organization", s, func(w http.ResponseWriter, r *http.Request, write bool) (string, string, bool) {
+		actor, ok := authenticateRequest(w, r, credentials, map[bool]auth.Scope{true: auth.RepositoryWrite, false: auth.RepositoryRead}[write])
+		if !ok {
+			return "", "", false
+		}
+		id := r.PathValue("organization")
+		if (write && !orgs.IsOwner(id, actor.UserID)) || (!write && !orgs.IsMember(id, actor.UserID)) {
+			writeJSON(w, 403, map[string]string{"error": "organization_owner_required"})
+			return "", "", false
+		}
+		return id, actor.UserID, true
+	})
+}
+
+type onboardingAccess func(http.ResponseWriter, *http.Request, bool) (string, string, bool)
+
+func registerAgentOnboardingHTTP(m *http.ServeMux, base, kind string, s *agentevaluations.Store, access onboardingAccess) {
+	m.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
+		scope, _, ok := access(w, r, false)
+		if !ok {
+			return
+		}
+		x, e := s.ListOnboardings(kind, scope)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 200, map[string]any{"items": x})
+		}
+	})
+	m.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in agentevaluations.OnboardingInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.CreateOnboarding(kind, scope, actor, in)
+		if !agentEvaluationError(w, e) {
+			w.Header().Set("Location", base+"/"+x.ID)
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("GET "+base+"/{onboarding}", func(w http.ResponseWriter, r *http.Request) {
+		scope, _, ok := access(w, r, false)
+		if !ok {
+			return
+		}
+		x, e := s.GetOnboarding(kind, scope, r.PathValue("onboarding"))
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 200, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{onboarding}/versions", func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in agentevaluations.OnboardingInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.ReviseOnboarding(kind, scope, r.PathValue("onboarding"), actor, in)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{onboarding}/decisions", func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Decision string `json:"decision"`
+			Note     string `json:"note"`
+			Version  int64  `json:"version"`
+		}
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		x, e := s.DecideOnboarding(kind, scope, r.PathValue("onboarding"), actor, in.Decision, in.Note, in.Version)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{onboarding}/operator-agreement", func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Terms   string `json:"terms"`
+			Version int64  `json:"version"`
+		}
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		x, e := s.AgreeOnboarding(kind, scope, r.PathValue("onboarding"), actor, in.Terms, in.Version)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{onboarding}/activation", func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Version int64 `json:"version"`
+		}
+		if !readJSON(w, r, &in, 1024) {
+			return
+		}
+		x, e := s.ActivateOnboarding(kind, scope, r.PathValue("onboarding"), actor, in.Version)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{onboarding}/revocation", func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Reason string `json:"reason"`
+		}
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		x, e := s.RevokeOnboarding(kind, scope, r.PathValue("onboarding"), actor, in.Reason)
 		if !agentEvaluationError(w, e) {
 			writeJSON(w, 201, x)
 		}
