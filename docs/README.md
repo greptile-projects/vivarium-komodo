@@ -3,6 +3,19 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Evaluated agent onboarding
+
+Repository owners turn accepted, uncontaminated agent trials into explicit
+participation through `/repositories/{repository}/agent-evaluations/onboardings`;
+organization owners use `/organizations/{organization}/agent-onboardings`.
+Each immutable version names its exact evidence and agent profile, roles,
+resources, actions, data boundaries, budget, schedule, approvers, exceptions,
+operator agreement requirement, and human sponsor boundary. Reads include an
+authority preview with activation blockers and exclusions. Activation issues a
+distinct project-agent subject, not an operator account or financial/governance
+role. Version upgrades invalidate old approvals and agreements; denials,
+expiry, activation, and revocation remain attributable and visible.
+
 ## Continuity commitments
 
 Authorized repository collaborators define immutable recovery-objective

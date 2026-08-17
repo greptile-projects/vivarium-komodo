@@ -36,6 +36,17 @@ server-derived labels distinguish repeated, reproduction, and operator-supplied
 trials from first-party evidence. Evaluation grants no durable agent,
 repository, credential, review, merge, or operational authority. The repository
 web surface remains `view=agents`.
+Evaluated-agent onboarding records live in the same store beneath repository
+`/agent-evaluations/onboardings` and organization `/agent-onboardings`
+resources. Owners bind exact clean, accepted trial and profile versions to
+roles, named resources and actions, data boundaries, budget, schedule,
+approvers, operator agreement, policy exceptions, and a human sponsor for
+consequential decisions. Preview derives every activation blocker and explicit
+non-authority before activation. Activation creates a distinct scoped
+`agent:repository:*` or `agent:organization:*` subject; upgrades require fresh
+version-bound decisions and agreement, while denials, old versions, expiry,
+activation, and revocation remain visible. Financial, stewardship, governance,
+team, or organization standing never contributes implicit technical access.
 
 Project funds live beneath `$PROJECT_FUND_ROOT` (default
 `apps/api/data/project-funds`). Repository writers publish governed terms with

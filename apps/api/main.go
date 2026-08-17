@@ -739,7 +739,7 @@ func main() {
 	registerUsersHTTP(mux, userStore, credentials)
 	registerAgentProfilesHTTP(mux, agentProfileStore, credentials, userStore)
 	registerAgentDiscoveryHTTP(mux, agentDiscoveryStore, agentProfileStore, repositoryCatalog, credentials)
-	registerAgentEvaluationsHTTP(mux, agentEvaluationStore, agentProfileStore, repositoryCatalog, credentials)
+	registerAgentEvaluationsHTTP(mux, agentEvaluationStore, agentProfileStore, repositoryCatalog, organizationStore, credentials)
 	registerExtensionsHTTP(mux, extensionStore, repositoryCatalog, organizationStore, credentials, activityStore, pullRequestStore)
 	registerFederationHTTP(mux, federationStore, credentials)
 	registerFederatedRepositoriesHTTP(mux, federationStore, repositoryCatalog, pullRequestStore, releaseStore, contributorPathwayStore, issueStore, contributionOpportunityStore, activityStore, credentials)
