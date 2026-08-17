@@ -15,6 +15,10 @@ authority preview with activation blockers and exclusions. Activation issues a
 distinct project-agent subject, not an operator account or financial/governance
 role. Version upgrades invalidate old approvals and agreements; denials,
 expiry, activation, and revocation remain attributable and visible.
+The operator-agreement endpoint is the one onboarding mutation authenticated
+as the exact public profile operator rather than as the project owner. Owners
+still exclusively define, approve, activate, narrow, and revoke authority, but
+cannot manufacture third-party consent on the operator's behalf.
 
 ### Current agent trust and replacement
 
@@ -44,6 +48,15 @@ silently adopted: maintainers must use the existing immutable onboarding-version
 flow with fresh evidence, approvals, operator agreement, and activation. The
 Agents web surface shows effective authority, notices, attributable outcomes,
 reevaluations, and handoffs alongside the trials that support current trust.
+
+`agent_collaboration_workflow_test.go` composes these contracts with public
+profile publication and discovery, stock Git, branch-scoped change sessions,
+and ordinary pull-request review and merge. Its retained path includes a hidden
+canary failure, a prohibited action, a cost overrun, a material profile upgrade,
+operator outage and failed-reevaluation suspension, and a verified handoff to
+an independently evaluated and activated replacement. The merged commit stays
+attributed to both the authorizing human and consented agent identity without
+giving either agent review or merge authority.
 
 ## Continuity commitments
 
