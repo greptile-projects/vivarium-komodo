@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -99,6 +100,49 @@ type Profile struct {
 	OperatorClaimsVerified   bool       `json:"operator_claims_verified"`
 	AuthorityGranted         bool       `json:"authority_granted"`
 }
+type VersionComparison struct {
+	FromVersion     int64    `json:"from_version"`
+	ToVersion       int64    `json:"to_version"`
+	MaterialChanges []string `json:"material_changes"`
+	RenewedConsent  bool     `json:"renewed_consent_required"`
+}
+
+// CompareVersions identifies disclosures that can change the risk or economic
+// bargain. Cosmetic/support changes remain visible in version history but do
+// not manufacture a consent requirement.
+func CompareVersions(p Profile, from, to int64) (VersionComparison, error) {
+	var a, b *Version
+	for i := range p.Versions {
+		if p.Versions[i].Number == from {
+			a = &p.Versions[i]
+		}
+		if p.Versions[i].Number == to {
+			b = &p.Versions[i]
+		}
+	}
+	if a == nil || b == nil || from >= to {
+		return VersionComparison{}, ErrInvalid
+	}
+	c := VersionComparison{FromVersion: from, ToVersion: to, MaterialChanges: []string{}}
+	if a.Ownership != b.Ownership {
+		c.MaterialChanges = append(c.MaterialChanges, "operator")
+	}
+	if !reflect.DeepEqual(a.Models, b.Models) {
+		c.MaterialChanges = append(c.MaterialChanges, "model")
+	}
+	if !reflect.DeepEqual(a.DataUse, b.DataUse) || !reflect.DeepEqual(a.Subprocessors, b.Subprocessors) || !reflect.DeepEqual(a.Execution, b.Execution) {
+		c.MaterialChanges = append(c.MaterialChanges, "data_use_or_execution")
+	}
+	if !reflect.DeepEqual(a.SupportedTasks, b.SupportedTasks) || !reflect.DeepEqual(a.Tools, b.Tools) || !reflect.DeepEqual(a.RequestedCapabilities, b.RequestedCapabilities) {
+		c.MaterialChanges = append(c.MaterialChanges, "capability")
+	}
+	if !reflect.DeepEqual(a.Pricing, b.Pricing) {
+		c.MaterialChanges = append(c.MaterialChanges, "price_or_resources")
+	}
+	c.RenewedConsent = len(c.MaterialChanges) > 0
+	return c, nil
+}
+
 type Store struct {
 	root string
 	mu   sync.Mutex

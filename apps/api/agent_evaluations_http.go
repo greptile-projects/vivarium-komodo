@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/agentevaluations"
@@ -128,7 +129,7 @@ func registerAgentEvaluationsHTTP(m *http.ServeMux, s *agentevaluations.Store, p
 			writeJSON(w, 201, x)
 		}
 	})
-	registerAgentOnboardingHTTP(m, base+"/onboardings", "repository", s, func(w http.ResponseWriter, r *http.Request, write bool) (string, string, bool) {
+	registerAgentOnboardingHTTP(m, base+"/onboardings", "repository", s, profiles, func(w http.ResponseWriter, r *http.Request, write bool) (string, string, bool) {
 		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, map[bool]auth.Scope{true: auth.RepositoryWrite, false: auth.RepositoryRead}[write], write)
 		if !ok {
 			return "", "", false
@@ -139,7 +140,7 @@ func registerAgentEvaluationsHTTP(m *http.ServeMux, s *agentevaluations.Store, p
 		}
 		return string(repo.ID), actor.UserID, true
 	})
-	registerAgentOnboardingHTTP(m, "/organizations/{organization}/agent-onboardings", "organization", s, func(w http.ResponseWriter, r *http.Request, write bool) (string, string, bool) {
+	registerAgentOnboardingHTTP(m, "/organizations/{organization}/agent-onboardings", "organization", s, profiles, func(w http.ResponseWriter, r *http.Request, write bool) (string, string, bool) {
 		actor, ok := authenticateRequest(w, r, credentials, map[bool]auth.Scope{true: auth.RepositoryWrite, false: auth.RepositoryRead}[write])
 		if !ok {
 			return "", "", false
@@ -155,7 +156,7 @@ func registerAgentEvaluationsHTTP(m *http.ServeMux, s *agentevaluations.Store, p
 
 type onboardingAccess func(http.ResponseWriter, *http.Request, bool) (string, string, bool)
 
-func registerAgentOnboardingHTTP(m *http.ServeMux, base, kind string, s *agentevaluations.Store, access onboardingAccess) {
+func registerAgentOnboardingHTTP(m *http.ServeMux, base, kind string, s *agentevaluations.Store, profiles *agentprofiles.Store, access onboardingAccess) {
 	m.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
 		scope, _, ok := access(w, r, false)
 		if !ok {
@@ -270,6 +271,132 @@ func registerAgentOnboardingHTTP(m *http.ServeMux, base, kind string, s *agentev
 		x, e := s.RevokeOnboarding(kind, scope, r.PathValue("onboarding"), actor, in.Reason)
 		if !agentEvaluationError(w, e) {
 			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("GET "+base+"/{onboarding}/profile-comparison", func(w http.ResponseWriter, r *http.Request) {
+		scope, _, ok := access(w, r, false)
+		if !ok {
+			return
+		}
+		x, e := s.GetOnboarding(kind, scope, r.PathValue("onboarding"))
+		if agentEvaluationError(w, e) {
+			return
+		}
+		p, e := profiles.Get(x.Versions[len(x.Versions)-1].ProfileID)
+		if e != nil {
+			agentEvaluationError(w, agentevaluations.ErrInvalid)
+			return
+		}
+		to := p.CurrentVersion
+		if q := r.URL.Query().Get("to_version"); q != "" {
+			if _, e := fmt.Sscan(q, &to); e != nil {
+				agentEvaluationError(w, agentevaluations.ErrInvalid)
+				return
+			}
+		}
+		c, e := agentprofiles.CompareVersions(p, x.Trust.ConsentProfileVersion, to)
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_profile_comparison"})
+			return
+		}
+		writeJSON(w, 200, c)
+	})
+	m.HandleFunc("PUT "+base+"/{onboarding}/trust-policy", func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in agentevaluations.ReevaluationPolicy
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		x, e := s.SetTrustPolicy(kind, scope, r.PathValue("onboarding"), actor, in)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 200, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{onboarding}/outcomes", func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in agentevaluations.OutcomeInput
+		if !readJSON(w, r, &in, 32768) {
+			return
+		}
+		x, e := s.RecordOutcome(kind, scope, r.PathValue("onboarding"), actor, in)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{onboarding}/reevaluations", func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			TrialID        string `json:"trial_id"`
+			ProfileVersion int64  `json:"profile_version"`
+			Result         string `json:"result"`
+			Rationale      string `json:"rationale"`
+		}
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		x, e := s.RecordReevaluation(kind, scope, r.PathValue("onboarding"), actor, in.TrialID, in.Result, in.Rationale, in.ProfileVersion)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{onboarding}/authority-controls", func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Action          string   `json:"action"`
+			Resources       []string `json:"resources"`
+			Actions         []string `json:"actions"`
+			Reason          string   `json:"reason"`
+			ExpectedVersion int64    `json:"expected_version"`
+		}
+		if !readJSON(w, r, &in, 16384) {
+			return
+		}
+		x, e := s.ControlAuthority(kind, scope, r.PathValue("onboarding"), actor, in.Action, in.Reason, in.Resources, in.Actions, in.ExpectedVersion)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{onboarding}/handoffs", func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in agentevaluations.HandoffInput
+		if !readJSON(w, r, &in, 32768) {
+			return
+		}
+		x, e := s.CreateHandoff(kind, scope, r.PathValue("onboarding"), actor, in)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{onboarding}/handoffs/{handoff}/acceptance", func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Verification    string `json:"verification"`
+			ExpectedVersion int64  `json:"expected_version"`
+		}
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		x, e := s.AcceptHandoff(kind, scope, r.PathValue("onboarding"), r.PathValue("handoff"), actor, in.Verification, in.ExpectedVersion)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 200, x)
 		}
 	})
 }

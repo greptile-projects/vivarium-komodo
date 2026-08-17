@@ -16,6 +16,35 @@ distinct project-agent subject, not an operator account or financial/governance
 role. Version upgrades invalidate old approvals and agreements; denials,
 expiry, activation, and revocation remain attributable and visible.
 
+### Current agent trust and replacement
+
+Each onboarding detail now projects a repository-owned `trust` record. Owners
+set its periodic suite, failure containment, verification-rate, and average-cost
+policy at `/trust-policy`; append privacy-safe delivered observations at
+`/outcomes`; and bind exact completed trials through `/reevaluations`. Outcome
+records accept only a bounded summary, typed work/evidence identifiers, cost,
+responsiveness, occurrence time, and attribution. They deliberately do not
+accept task content, prompts, terminal logs, artifacts, credentials, or private
+evidence payloads.
+
+Security/policy violations, deteriorating verification, anomalous cost, overdue
+evaluation, and reevaluation failure appear as retained notices with explicit
+next actions. A failed required evaluation can suspend effective authority.
+Owners use optimistic `/authority-controls` to narrow the original resource and
+action sets, suspend/resume them, or revoke the installation promptly without
+deleting legitimate outcomes or commits. `/handoffs` transfers one named active
+work item to another independently activated onboarding identity with completed
+evidence references, remaining work, verification criteria, risks, and explicit
+recipient acceptance.
+
+The activated consent remains pinned to its exact profile version. The
+`/profile-comparison` projection classifies operator, model, data-use/execution,
+capability, and price/resource changes as material. Such a newer profile is not
+silently adopted: maintainers must use the existing immutable onboarding-version
+flow with fresh evidence, approvals, operator agreement, and activation. The
+Agents web surface shows effective authority, notices, attributable outcomes,
+reevaluations, and handoffs alongside the trials that support current trust.
+
 ## Continuity commitments
 
 Authorized repository collaborators define immutable recovery-objective
