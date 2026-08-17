@@ -175,32 +175,133 @@ type ResolutionInput struct {
 	Links              []SolutionLink `json:"links"`
 }
 
-type Question struct {
-	ID              string     `json:"id"`
-	RepositoryID    string     `json:"repository_id"`
-	AuthorID        string     `json:"author_id"`
-	Title           string     `json:"title"`
-	Question        string     `json:"question"`
-	Subject         Subject    `json:"subject"`
-	SoftwareVersion string     `json:"software_version,omitempty"`
-	Environment     string     `json:"environment,omitempty"`
-	Goal            string     `json:"goal"`
-	AttemptedSteps  []string   `json:"attempted_steps"`
-	Urgency         string     `json:"urgency"`
-	Audience        string     `json:"audience"`
-	Contact         Contact    `json:"contact"`
-	Status          string     `json:"status"`
-	MissingContext  []string   `json:"missing_context"`
-	Evidence        []Evidence `json:"evidence"`
-	Discussion      []Comment  `json:"discussion"`
-	History         []Event    `json:"history"`
-	Related         []Related  `json:"related"`
-	Answers         []Answer   `json:"answers"`
-	Solutions       []Solution `json:"solutions"`
-	Version         int64      `json:"version"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+type ImprovementContext struct {
+	Question        string    `json:"question"`
+	Goal            string    `json:"goal"`
+	AttemptedSteps  []string  `json:"attempted_steps"`
+	SoftwareVersion string    `json:"software_version,omitempty"`
+	Environment     string    `json:"environment,omitempty"`
+	Discussion      []Comment `json:"discussion"`
 }
+type ImprovementLink struct {
+	Kind       string    `json:"kind"`
+	ResourceID string    `json:"resource_id"`
+	State      string    `json:"state"`
+	Revision   string    `json:"revision,omitempty"`
+	Summary    string    `json:"summary,omitempty"`
+	AddedByID  string    `json:"added_by_id"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+type Improvement struct {
+	ID                 string             `json:"id"`
+	Classification     string             `json:"classification"`
+	AcceptanceCriteria []string           `json:"acceptance_criteria"`
+	Context            ImprovementContext `json:"context"`
+	TargetKind         string             `json:"target_kind"`
+	TargetID           string             `json:"target_id"`
+	Links              []ImprovementLink  `json:"links"`
+	CreatedByID        string             `json:"created_by_id"`
+	CreatedAt          time.Time          `json:"created_at"`
+}
+
+type Question struct {
+	ID              string        `json:"id"`
+	RepositoryID    string        `json:"repository_id"`
+	AuthorID        string        `json:"author_id"`
+	Title           string        `json:"title"`
+	Question        string        `json:"question"`
+	Subject         Subject       `json:"subject"`
+	SoftwareVersion string        `json:"software_version,omitempty"`
+	Environment     string        `json:"environment,omitempty"`
+	Goal            string        `json:"goal"`
+	AttemptedSteps  []string      `json:"attempted_steps"`
+	Urgency         string        `json:"urgency"`
+	Audience        string        `json:"audience"`
+	Contact         Contact       `json:"contact"`
+	Status          string        `json:"status"`
+	MissingContext  []string      `json:"missing_context"`
+	Evidence        []Evidence    `json:"evidence"`
+	Discussion      []Comment     `json:"discussion"`
+	History         []Event       `json:"history"`
+	Related         []Related     `json:"related"`
+	Answers         []Answer      `json:"answers"`
+	Solutions       []Solution    `json:"solutions"`
+	Improvements    []Improvement `json:"improvements"`
+	Version         int64         `json:"version"`
+	CreatedAt       time.Time     `json:"created_at"`
+	UpdatedAt       time.Time     `json:"updated_at"`
+}
+
+func (s *Store) CreateImprovement(repo, question, actor, classification, targetKind, targetID string, criteria []string, discussionIDs []string) (Question, Improvement, error) {
+	classification, targetKind, targetID = strings.TrimSpace(classification), strings.TrimSpace(targetKind), strings.TrimSpace(targetID)
+	if actor == "" || targetID == "" || !map[string]bool{"defect": true, "documentation_gap": true, "missing_example": true, "compatibility_problem": true, "product_opportunity": true}[classification] || !map[string]bool{"issue": true, "documentation_task": true, "proposal": true}[targetKind] || len(criteria) == 0 || len(criteria) > 20 {
+		return Question{}, Improvement{}, ErrInvalid
+	}
+	var made Improvement
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, err := s.read(repo, question)
+	if err != nil {
+		return v, made, err
+	}
+	wanted := map[string]bool{}
+	for _, id := range discussionIDs {
+		wanted[id] = true
+	}
+	thread := []Comment{}
+	for _, comment := range v.Discussion {
+		if wanted[comment.ID] {
+			thread = append(thread, comment)
+		}
+	}
+	if len(thread) != len(wanted) {
+		return v, made, ErrInvalid
+	}
+	clean := make([]string, 0, len(criteria))
+	for _, item := range criteria {
+		item = strings.TrimSpace(item)
+		if item == "" || len(item) > 2000 {
+			return v, made, ErrInvalid
+		}
+		clean = append(clean, item)
+	}
+	now := s.now().UTC()
+	id, err := newID()
+	if err != nil {
+		return v, made, err
+	}
+	made = Improvement{ID: id, Classification: classification, AcceptanceCriteria: clean, Context: ImprovementContext{Question: v.Question, Goal: v.Goal, AttemptedSteps: append([]string{}, v.AttemptedSteps...), SoftwareVersion: v.SoftwareVersion, Environment: v.Environment, Discussion: thread}, TargetKind: targetKind, TargetID: targetID, Links: []ImprovementLink{}, CreatedByID: actor, CreatedAt: now}
+	v.Improvements = append(v.Improvements, made)
+	v.Version++
+	v.UpdatedAt = now
+	v.History = append(v.History, Event{Sequence: int64(len(v.History) + 1), Type: "improvement.created", ActorID: actor, Detail: id, CreatedAt: now})
+	return v, made, s.write(v)
+}
+
+func (s *Store) AddImprovementLink(repo, question, improvement, actor string, link ImprovementLink) (Question, error) {
+	if actor == "" || link.ResourceID == "" || !map[string]bool{"pull_request": true, "check": true, "preview": true, "release": true, "documentation_publication": true}[link.Kind] || !map[string]bool{"queued": true, "in_progress": true, "succeeded": true, "failed": true, "published": true}[link.State] {
+		return Question{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, err := s.read(repo, question)
+	if err != nil {
+		return v, err
+	}
+	for i := range v.Improvements {
+		if v.Improvements[i].ID == improvement {
+			link.AddedByID = actor
+			link.CreatedAt = s.now().UTC()
+			v.Improvements[i].Links = append(v.Improvements[i].Links, link)
+			v.Version++
+			v.UpdatedAt = link.CreatedAt
+			v.History = append(v.History, Event{Sequence: int64(len(v.History) + 1), Type: "improvement.progress", ActorID: actor, Detail: link.ResourceID, CreatedAt: link.CreatedAt})
+			return v, s.write(v)
+		}
+	}
+	return v, ErrNotFound
+}
+
 type Input struct {
 	Title           string     `json:"title"`
 	Question        string     `json:"question"`
