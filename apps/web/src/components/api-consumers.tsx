@@ -61,6 +61,17 @@ type App = {
   }[];
   inspections: Inspection[];
   events: Event[];
+  integration_work?: {
+    id: string; kind: string; owner_kind: string; owner_id: string;
+    consumer_repository_id: string; consumer_revision: string;
+    contract_source_revision: string; sdk_references?: string[];
+    example_references?: string[]; sandbox: { synthetic_only: boolean };
+  }[];
+  verifications?: {
+    id: string; pull_request_id: string; candidate_repository_id: string;
+    candidate_revision: string; agreement: string; authored_by: string;
+    producer_passed: boolean; consumer_passed: boolean;
+  }[];
 };
 const lines = (v: FormDataEntryValue | null) =>
   String(v || "")
@@ -180,6 +191,16 @@ export function APIConsumers({
       setError("");
       await load();
     }
+  }
+  async function createWork(e: React.FormEvent<HTMLFormElement>, a: App) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    await send(`/${a.id}/integration-work`, { kind: f.get("kind"), owner_kind: f.get("owner_kind"), owner_id: f.get("owner"), consumer_repository_id: f.get("repository"), consumer_revision: f.get("revision"), resource_id: f.get("resource"), sdk_references: lines(f.get("sdks")), example_references: lines(f.get("examples")), acceptance_criteria: lines(f.get("criteria")) });
+  }
+  async function verify(e: React.FormEvent<HTMLFormElement>, a: App) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    await send(`/${a.id}/verifications`, { pull_request_id: f.get("pull"), candidate_repository_id: f.get("repository"), candidate_revision: f.get("revision"), results: [{ name: "Producer conformance", kind: "producer_conformance", status: f.get("producer"), coverage: lines(f.get("producer_coverage")), logs: ["sanitized producer scenario result"], cost: 0 }, { name: "Consumer tests", kind: "consumer_test", status: f.get("consumer"), coverage: lines(f.get("consumer_coverage")), logs: ["sanitized consumer test result"], cost: 0 }] });
   }
   if (!actor)
     return (
@@ -403,6 +424,36 @@ export function APIConsumers({
               Reapply
             </Button>
           )}
+          <details>
+            <summary>Create revision-exact integration work</summary>
+            <form className="workspace-form" onSubmit={(e) => createWork(e, a)}>
+              <select name="kind"><option>task</option><option>session</option><option>workspace</option></select>
+              <select name="owner_kind"><option>human</option><option>agent</option></select>
+              <input name="owner" placeholder="Human or agent subject" required />
+              <input name="repository" placeholder="Consumer repository ID" required />
+              <input name="revision" placeholder="Exact consumer commit" required />
+              <input name="resource" placeholder="Linked task, session, or workspace ID" />
+              <textarea name="sdks" placeholder="Revision-exact SDK references, one per line" />
+              <textarea name="examples" placeholder="Revision-exact example references, one per line" />
+              <textarea name="criteria" placeholder="Acceptance criteria, one per line" required />
+              <Button type="submit">Create integration work</Button>
+            </form>
+          </details>
+          {(a.integration_work?.length || 0) > 0 && <ul>{a.integration_work?.map((w) => <li key={w.id}><Badge>{w.owner_kind}</Badge> {w.kind} for <code>{w.consumer_revision}</code>, contract <code>{w.contract_source_revision}</code> (synthetic sandbox only)</li>)}</ul>}
+          <details>
+            <summary>Attach pull-request verification</summary>
+            <form className="workspace-form" onSubmit={(e) => verify(e, a)}>
+              <input name="pull" placeholder="Linked pull request ID" required />
+              <input name="repository" placeholder="Candidate repository ID" required />
+              <input name="revision" placeholder="Exact candidate commit" required />
+              <select name="producer"><option>passed</option><option>failed</option></select>
+              <textarea name="producer_coverage" placeholder="Producer scenario coverage" required />
+              <select name="consumer"><option>passed</option><option>failed</option></select>
+              <textarea name="consumer_coverage" placeholder="Consumer test coverage" required />
+              <Button type="submit">Record sanitized verification</Button>
+            </form>
+          </details>
+          {(a.verifications?.length || 0) > 0 && <ul>{a.verifications?.map((v) => <li key={v.id}><Badge>{v.agreement}</Badge> pull {v.pull_request_id} at <code>{v.candidate_revision}</code> — producer {v.producer_passed ? "passed" : "not passed"}, consumer {v.consumer_passed ? "passed" : "not passed"}</li>)}</ul>}
           {a.inspections.length > 0 && (
             <details>
               <summary>

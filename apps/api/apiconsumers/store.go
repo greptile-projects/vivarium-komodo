@@ -99,6 +99,8 @@ type Application struct {
 	CreatedAt            time.Time                 `json:"created_at"`
 	UpdatedAt            time.Time                 `json:"updated_at"`
 	Authority            []string                  `json:"authority"`
+	IntegrationWork      []IntegrationWork         `json:"integration_work,omitempty"`
+	Verifications        []Verification            `json:"verifications,omitempty"`
 }
 type Credential struct {
 	Secret      string      `json:"secret"`
