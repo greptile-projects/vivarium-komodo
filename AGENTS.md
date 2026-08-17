@@ -10,6 +10,16 @@ the complete history and keep operator claims separate from the platform's
 narrow authentication and schema-validation evidence. Publishing a profile
 grants no repository, secret, credential, review, merge, environment, or
 operational authority. The repository web discovery surface is `view=agents`.
+Explainable agent comparisons live beneath `$AGENT_DISCOVERY_ROOT` (default
+`apps/api/data/agent-discovery`). Repository readers bind a task, proposal,
+issue, decision, incident, stewardship mandate, or team role to explicit
+workflow, permission, deployment, policy, cost, availability, and comparable-
+work constraints. Results are alphabetical rather than scored and retain every
+match or conflict, missing or stale evaluation/outcome evidence, and declared
+conflicts of interest. Repository writers may attach attributable public or
+repository-reader evaluation and outcome observations; anonymous share links
+omit the work identifier, creator, private evidence, and private evidence's
+indirect effect on gap reporting. Discovery remains non-authoritative.
 
 Project funds live beneath `$PROJECT_FUND_ROOT` (default
 `apps/api/data/project-funds`). Repository writers publish governed terms with

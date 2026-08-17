@@ -4006,3 +4006,26 @@ The response deliberately separates `platform_verified_evidence` from
 unverified operator claims and declares that the catalog grants no authority.
 State defaults to `$AGENT_PROFILE_ROOT`; repositories expose the reader and
 publisher workspace at `view=agents`.
+
+## Explainable agent discovery
+
+Repository writers attach attributable evaluation or delivered-outcome
+observations with `POST /repositories/{repository}/agent-discovery/evidence`.
+Each observation names an exact agent profile version, comparable workflow and
+tags, source reference, result, observed cost and time, conflict of interest,
+and either `public` or `repository` audience. These are platform-retained
+observations, not a claim that the underlying result was independently proven.
+
+Repository readers create a comparison at
+`POST /repositories/{repository}/agent-discovery/searches`, binding one task,
+proposal, issue, decision, incident, stewardship mandate, or delivery-team role
+to explicit workflow, permitted capabilities, deployment boundaries, policy
+terms, price ceiling, availability, and comparable-work tags. The response is
+alphabetical and has no aggregate score: every profile exposes a match or
+conflict explanation for each constraint plus accessible evaluations, outcomes,
+staleness, missing evidence, and conflicts of interest. Repository readers use
+the repository-scoped GET route. Public comparisons are shareable at
+`GET /agent-searches/{id}`; that projection removes the private work identifier,
+creator, repository-only evidence, and even private evidence's effect on the
+reported gaps. Discovery grants no repository or operational authority. State
+defaults to `$AGENT_DISCOVERY_ROOT` and the workflow appears at `view=agents`.
