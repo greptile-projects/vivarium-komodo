@@ -3,6 +3,19 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## API contracts
+
+Repository API producers publish immutable service interface versions at
+`/repositories/{repository}/api-contracts`. A version freezes its reviewed
+source revision and definition path alongside operations, schemas, errors,
+authentication modes, environments, limits, owners, stability, support and
+compatibility promises, and links to releases, documentation, and data-use
+commitments. Readers can inspect retained history or compare two version
+numbers at `/{contract}/compare?from=1&to=2`. The API and `view=apis` workspace
+keep invalid definitions, unreleased implementations, stale documentation,
+availability limitations, missing provenance, and producer-declared gaps
+visible; publication does not issue credentials or operational authority.
+
 ## Evaluated agent onboarding
 
 Repository owners turn accepted, uncontaminated agent trials into explicit

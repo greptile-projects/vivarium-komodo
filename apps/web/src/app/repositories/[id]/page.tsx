@@ -23,6 +23,7 @@ import { ProjectFunds } from "@/components/project-funds";
 import { ProductExperiments } from "@/components/product-experiments";
 import { ProductFeedback } from "@/components/product-feedback";
 import { SupportQuestions } from "@/components/support-questions";
+import { APIContracts } from "@/components/api-contracts";
 import { DataCommitments } from "@/components/data-commitments";
 import { DataFlows } from "@/components/data-flows";
 import { LocalePlans } from "@/components/locale-plans";
@@ -1288,6 +1289,8 @@ export default function RepositoryPage({
                               ? "feedback"
                             : query.view === "support"
                               ? "support"
+                            : query.view === "apis"
+                              ? "apis"
                             : query.view === "contribute"
                               ? "contribute"
                               : query.view === "documentation"
@@ -1364,6 +1367,7 @@ export default function RepositoryPage({
         view === "experiments" ||
         view === "feedback" ||
         view === "support" ||
+        view === "apis" ||
         view === "issues" ||
         view === "documentation" ||
         view === "people" ||
@@ -1584,6 +1588,10 @@ export default function RepositoryPage({
         </p>
       )}
       <nav className="repository-tabs" aria-label="Repository">
+        <button className={view === "apis" ? "active" : ""} onClick={() => navigate({ view: "apis", path: "" })}>
+          <Code size={15} />
+          APIs
+        </button>
         <button
           className={view === "support" ? "active" : ""}
           onClick={() => navigate({ view: "support", path: "" })}
@@ -1811,6 +1819,8 @@ export default function RepositoryPage({
         <Issues repository={repository.id} actor={actor} owner={repository.owner_id} selected={query.issue} />
       ) : view === "support" ? (
         <SupportQuestions repository={repository.id} actor={actor} selected={query.support} />
+      ) : view === "apis" ? (
+        <APIContracts repository={repository.id} actor={actor} />
       ) : view === "documentation" ? (
         <DocumentationCollections repository={repository.id} actor={actor} owner={repository.owner_id} revision={ref} />
       ) : view === "contribute" ? (
