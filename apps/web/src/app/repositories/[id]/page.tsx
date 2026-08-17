@@ -22,6 +22,7 @@ import { AccessibilityAssessments } from "@/components/accessibility-assessments
 import { ProjectFunds } from "@/components/project-funds";
 import { ProductExperiments } from "@/components/product-experiments";
 import { ProductFeedback } from "@/components/product-feedback";
+import { SupportQuestions } from "@/components/support-questions";
 import { DataCommitments } from "@/components/data-commitments";
 import { DataFlows } from "@/components/data-flows";
 import { LocalePlans } from "@/components/locale-plans";
@@ -1230,6 +1231,7 @@ export default function RepositoryPage({
     goal?: string;
     issue?: string;
     feedback?: string;
+    support?: string;
   }>;
 }) {
   const { id } = use(params);
@@ -1284,6 +1286,8 @@ export default function RepositoryPage({
                               ? "experiments"
                             : query.view === "feedback"
                               ? "feedback"
+                            : query.view === "support"
+                              ? "support"
                             : query.view === "contribute"
                               ? "contribute"
                               : query.view === "documentation"
@@ -1359,6 +1363,7 @@ export default function RepositoryPage({
         view === "agents" ||
         view === "experiments" ||
         view === "feedback" ||
+        view === "support" ||
         view === "issues" ||
         view === "documentation" ||
         view === "people" ||
@@ -1580,6 +1585,13 @@ export default function RepositoryPage({
       )}
       <nav className="repository-tabs" aria-label="Repository">
         <button
+          className={view === "support" ? "active" : ""}
+          onClick={() => navigate({ view: "support", path: "" })}
+        >
+          <MessageCircle size={15} />
+          Support
+        </button>
+        <button
           className={view === "feedback" ? "active" : ""}
           onClick={() => navigate({ view: "feedback", path: "" })}
         >
@@ -1797,6 +1809,8 @@ export default function RepositoryPage({
         <Extensions repository={repository.id} />
       ) : view === "issues" ? (
         <Issues repository={repository.id} actor={actor} owner={repository.owner_id} selected={query.issue} />
+      ) : view === "support" ? (
+        <SupportQuestions repository={repository.id} actor={actor} selected={query.support} />
       ) : view === "documentation" ? (
         <DocumentationCollections repository={repository.id} actor={actor} owner={repository.owner_id} revision={ref} />
       ) : view === "contribute" ? (

@@ -4047,6 +4047,27 @@ existing contracts and may be cited back as ledger events. Revoking a connected
 extension empties its effective authority without deleting the historical flow
 or correction trail. No drift resource grants data, environment, extension,
 credential, review, merge, release, or deployment authority.
+
+# Developer support questions
+
+`POST /repositories/{repository}/support-questions` opens an authenticated
+support thread against a repository, package, release, API, documentation
+journey, or error. The request records the developer's question and goal,
+software version, environment, attempted steps, urgency, public or repository
+audience, and none/thread/email contact preference. Missing version,
+environment, and attempts are returned in `missing_context` and initially place
+the thread in `needs_context`; they are not silently inferred.
+
+Attachments are limited to sanitized logs, configuration, and sample code (ten
+files, 1 MiB each and 5 MiB total) with either audience or maintainer-only
+visibility. List responses omit all attachment content. Detail reads clear
+maintainer-only content and email addresses unless the reader is the asker,
+owner, or collaborator. Suggestions compare only visible question/goal/title
+and issue summaries, never private attachment content. Detail, comment, status,
+and suggestion routes retain attributable discussion and immutable history.
+State defaults to `$SUPPORT_QUESTION_ROOT`; the repository workspace is
+`view=support`.
+
 # Public agent profiles
 
 `GET /agent-profiles` and `GET /agent-profiles/{id}` are public catalog reads.

@@ -74,6 +74,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityreports"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/serviceobjectives"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/supportquestions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/translationunits"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/users"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
@@ -299,6 +300,14 @@ func main() {
 		questionRoot = "data/questions"
 	}
 	questionStore, err := questions.New(questionRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	supportQuestionRoot := os.Getenv("SUPPORT_QUESTION_ROOT")
+	if supportQuestionRoot == "" {
+		supportQuestionRoot = "data/support-questions"
+	}
+	supportQuestionStore, err := supportquestions.New(supportQuestionRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -713,6 +722,7 @@ func main() {
 	registerCollaboratorsHTTP(mux, repositoryCatalog, userStore, credentials, activityStore)
 	registerProposalsHTTP(mux, proposalStore, repositoryCatalog, credentials, activityStore)
 	registerIssuesHTTP(mux, issueStore, releaseStore, repositoryCatalog, credentials, issueReproductionRunner)
+	registerSupportQuestionsHTTP(mux, supportQuestionStore, repositoryCatalog, credentials, supportSources{releases: releaseStore, packages: packageStore, docs: documentationStore, issues: issueStore})
 	registerContributorPathwaysHTTP(mux, contributorPathwayStore, repositoryCatalog, credentials, releaseStore, issueStore, proposalStore)
 	registerDocumentationHTTP(mux, documentationStore, repositoryCatalog, credentials, releaseStore, workspaceStore, workspaceRunner, pullRequestStore)
 	registerContributionOpportunitiesHTTP(mux, contributionOpportunityStore, repositoryCatalog, credentials, issueStore, proposalStore, organizationStore, contributorPathwayStore, workspaceStore, workspaceRunner, pullRequestStore, checkRunner, releaseStore)

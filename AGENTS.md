@@ -446,6 +446,20 @@ disables future contact without deleting the need or its history. The repository
 web surface is `view=feedback`; these records grant no repository, research,
 experiment, targeting, or follow-up authority beyond the recorded consent.
 
+Developer support questions live beneath `$SUPPORT_QUESTION_ROOT` (default
+`apps/api/data/support-questions`). Authenticated repository readers ask against
+a repository, package, release, API, documentation journey, or error with their
+goal, question, version, environment, attempted steps, urgency, audience, and
+contact preference. Missing version, environment, or attempted steps remain
+explicit diagnostic gaps rather than invented context. Bounded sanitized logs,
+configuration, and sample code have audience or maintainer-only visibility;
+contact values and restricted evidence are projected only to the asker and
+repository participants. Related support threads and issues are suggested using
+only visible titles, goals, questions, and problem summaries, never evidence
+content. Discussion, status changes, and authorship are retained in history.
+The repository web surface is `view=support`; asking grants no repository,
+credential, execution, or operational authority.
+
 Product opportunities live beneath `$PRODUCT_OPPORTUNITY_ROOT` (default
 `apps/api/data/product-opportunities`). Repository writers and authorized
 read-only agents synthesize permitted feedback, issues, exact-preview findings,
