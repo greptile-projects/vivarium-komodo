@@ -312,6 +312,23 @@ reports operation and schema changes alphabetically without assigning a score.
 Contracts grant no consumer credential, repository, deployment, or operational
 authority. The repository web surface is `view=apis`.
 
+API consumer onboarding lives beneath `$API_CONSUMER_ROOT` (default
+`apps/api/data/api-consumers`) and is always bound to one exact valid contract
+version. An authenticated repository reader registers an independently owned
+project with requested available environments, declared authentication scopes,
+contact, and maximum credential lifetime. Repository writers approve only a
+subset, set a bounded synthetic-request quota, examples, deterministic failure
+rules, and a shorter lifetime, or retain an attributable denial. The consumer
+owner must explicitly accept narrowed approved terms; consent and rotation then
+return a `vka_` secret once, and only its digest is stored. The application
+credential authenticates only `/api-sandbox/{application}/requests`, whose
+retained inspections redact authorization and contain synthetic bodies. It is
+never accepted as a human, Git, repository, deployment, environment, or
+production-data credential. Exposure reports, expiry, revocation, and accepted
+ownership transfer invalidate it; denial/revocation/expiry can re-enter the
+ordinary approval flow without erasing history. The repository web surface
+remains `view=apis`.
+
 Repository service objectives live beneath `$SERVICE_OBJECTIVE_ROOT` (default
 `apps/api/data/service-objectives`). Repository writers publish immutable,
 optimistically concurrency-checked versions across repository, release, and

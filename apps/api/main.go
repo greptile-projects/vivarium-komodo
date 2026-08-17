@@ -14,6 +14,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/agentdiscovery"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/agentevaluations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/agentprofiles"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/apiconsumers"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/apicontracts"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
@@ -393,6 +394,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	apiConsumerRoot := os.Getenv("API_CONSUMER_ROOT")
+	if apiConsumerRoot == "" {
+		apiConsumerRoot = "data/api-consumers"
+	}
+	apiConsumerStore, err := apiconsumers.New(apiConsumerRoot, apiContractStore)
+	if err != nil {
+		log.Fatal(err)
+	}
 	recoveryObjectiveRoot := os.Getenv("RECOVERY_OBJECTIVE_ROOT")
 	if recoveryObjectiveRoot == "" {
 		recoveryObjectiveRoot = "data/recovery-objectives"
@@ -701,6 +710,7 @@ func main() {
 	registerLocalePlansHTTP(mux, localePlanStore, repositoryCatalog, credentials)
 	registerServiceObjectivesHTTP(mux, serviceObjectiveStore, repositoryCatalog, credentials)
 	registerAPIContractsHTTP(mux, apiContractStore, repositoryCatalog, credentials)
+	registerAPIConsumersHTTP(mux, apiConsumerStore, repositoryCatalog, credentials)
 	registerRecoveryObjectivesHTTP(mux, recoveryObjectiveStore, repositoryCatalog, credentials)
 	registerProtectionPlansHTTP(mux, protectionPlanStore, recoveryObjectiveStore, repositoryCatalog, credentials)
 	registerRecoveryExercisesHTTP(mux, recoveryExerciseStore, repositoryCatalog, credentials)
