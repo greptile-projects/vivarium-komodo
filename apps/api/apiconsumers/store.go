@@ -115,8 +115,9 @@ type SandboxInput struct {
 	Failure     string         `json:"failure,omitempty"`
 }
 type data struct {
-	Applications []Application     `json:"applications"`
-	Credentials  map[string]string `json:"credentials"`
+	Applications []Application       `json:"applications"`
+	Credentials  map[string]string   `json:"credentials"`
+	Migrations   []ContractMigration `json:"migrations,omitempty"`
 }
 type Store struct {
 	root      string

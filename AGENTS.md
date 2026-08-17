@@ -342,6 +342,22 @@ derived only when both independently defined suites pass the same frozen
 contract. Credential-shaped content is rejected from preloads and reusable
 evidence.
 
+Incompatible API change is governed beneath
+`/repositories/{repository}/api-contract-migrations`. A producer proposal
+binds exact old and target contract versions, classified changes, an optional
+existing evolution plan, ordered acknowledgement, dual-run, sunset, and
+retirement stages, and the registered applications actually pinned to an old
+version. Consumer views contain only their own application and may acknowledge
+linked evolution tasks, forks, agent sessions, delivery teams, integration
+work, or pull requests; retain a dual-version test; request a producer-decided
+exception bounded by the final deadline; and attest the exact migrated
+revision. Server-derived readiness uses post-proposal tests and shared usage
+observations. Requested changes, missing or failed tests, stale or remaining
+traffic, unresponsive ownership, revoked access, missing attestation, and an
+active final-stage exception block advancement. A final owner action retires
+only a fully ready migration; these records grant no Git, agent, team,
+credential, deployment, environment, or operational authority.
+
 Post-adoption API support remains bound to the same application and exact
 contract version. Producers and application owners record sanitized,
 window-bounded availability, latency, quota, error, schema-conformance, and
