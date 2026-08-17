@@ -300,6 +300,18 @@ team publication without erasing accepted progress.
 
 Guidance for coding agents working in this repository.
 
+Versioned service interface publications live beneath `$API_CONTRACT_ROOT`
+(default `apps/api/data/api-contracts`). Repository writers publish immutable
+contract versions from reviewed source revisions, retaining definition format
+and validation, operations, schemas, errors, authentication, environments,
+limits, ownership, stability, support and compatibility promises, and source,
+release, documentation, and data-use links. Reads derive invalid-definition,
+unreleased-implementation, stale-documentation, unavailable-environment,
+missing-provenance, and declared gaps; `/compare?from={number}&to={number}`
+reports operation and schema changes alphabetically without assigning a score.
+Contracts grant no consumer credential, repository, deployment, or operational
+authority. The repository web surface is `view=apis`.
+
 Repository service objectives live beneath `$SERVICE_OBJECTIVE_ROOT` (default
 `apps/api/data/service-objectives`). Repository writers publish immutable,
 optimistically concurrency-checked versions across repository, release, and
