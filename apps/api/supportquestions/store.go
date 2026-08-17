@@ -119,6 +119,62 @@ type AnswerInput struct {
 	Uncertainty        string   `json:"uncertainty,omitempty"`
 }
 
+type SolutionLink struct {
+	Kind       string `json:"kind"`
+	ResourceID string `json:"resource_id,omitempty"`
+	Label      string `json:"label,omitempty"`
+}
+type SolutionCredit struct {
+	ActorID string   `json:"actor_id"`
+	Roles   []string `json:"roles"`
+}
+type SolutionNotification struct {
+	ID        string    `json:"id"`
+	Recipient string    `json:"recipient_id"`
+	Type      string    `json:"type"`
+	ActorID   string    `json:"actor_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type SolutionEvent struct {
+	ID             string    `json:"id"`
+	Type           string    `json:"type"`
+	ActorID        string    `json:"actor_id"`
+	Reason         string    `json:"reason,omitempty"`
+	TargetQuestion string    `json:"target_question_id,omitempty"`
+	TargetSolution string    `json:"target_solution_id,omitempty"`
+	Version        string    `json:"version,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+type Solution struct {
+	ID                 string                 `json:"id"`
+	AnswerID           string                 `json:"answer_id"`
+	AnswerRevisionID   string                 `json:"answer_revision_id"`
+	VerificationID     string                 `json:"verification_id"`
+	Title              string                 `json:"title"`
+	Summary            string                 `json:"summary"`
+	ApplicableVersions []string               `json:"applicable_versions"`
+	Limitations        []string               `json:"limitations"`
+	Audience           string                 `json:"audience"`
+	Links              []SolutionLink         `json:"links"`
+	Status             string                 `json:"status"`
+	Credits            []SolutionCredit       `json:"credits"`
+	Notifications      []SolutionNotification `json:"notifications"`
+	Events             []SolutionEvent        `json:"events"`
+	PublishedBy        string                 `json:"published_by"`
+	PublishedAt        time.Time              `json:"published_at"`
+}
+type ResolutionInput struct {
+	AnswerID           string         `json:"answer_id"`
+	AnswerRevisionID   string         `json:"answer_revision_id"`
+	VerificationID     string         `json:"verification_id"`
+	Title              string         `json:"title"`
+	Summary            string         `json:"summary"`
+	ApplicableVersions []string       `json:"applicable_versions"`
+	Limitations        []string       `json:"limitations"`
+	Audience           string         `json:"audience"`
+	Links              []SolutionLink `json:"links"`
+}
+
 type Question struct {
 	ID              string     `json:"id"`
 	RepositoryID    string     `json:"repository_id"`
@@ -140,6 +196,7 @@ type Question struct {
 	History         []Event    `json:"history"`
 	Related         []Related  `json:"related"`
 	Answers         []Answer   `json:"answers"`
+	Solutions       []Solution `json:"solutions"`
 	Version         int64      `json:"version"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
@@ -241,7 +298,7 @@ func (s *Store) Create(repo, actor string, in Input) (Question, error) {
 	for i := range in.Evidence {
 		in.Evidence[i].ID, _ = newID()
 	}
-	v := Question{ID: id, RepositoryID: repo, AuthorID: actor, Title: strings.TrimSpace(in.Title), Question: strings.TrimSpace(in.Question), Subject: in.Subject, SoftwareVersion: strings.TrimSpace(in.SoftwareVersion), Environment: strings.TrimSpace(in.Environment), Goal: strings.TrimSpace(in.Goal), AttemptedSteps: cleanSteps(in.AttemptedSteps), Urgency: in.Urgency, Audience: in.Audience, Contact: in.Contact, Status: status, MissingContext: gaps, Evidence: in.Evidence, Discussion: []Comment{}, History: []Event{{Sequence: 1, Type: "question.opened", ActorID: actor, CreatedAt: now}}, Related: []Related{}, Answers: []Answer{}, Version: 1, CreatedAt: now, UpdatedAt: now}
+	v := Question{ID: id, RepositoryID: repo, AuthorID: actor, Title: strings.TrimSpace(in.Title), Question: strings.TrimSpace(in.Question), Subject: in.Subject, SoftwareVersion: strings.TrimSpace(in.SoftwareVersion), Environment: strings.TrimSpace(in.Environment), Goal: strings.TrimSpace(in.Goal), AttemptedSteps: cleanSteps(in.AttemptedSteps), Urgency: in.Urgency, Audience: in.Audience, Contact: in.Contact, Status: status, MissingContext: gaps, Evidence: in.Evidence, Discussion: []Comment{}, History: []Event{{Sequence: 1, Type: "question.opened", ActorID: actor, CreatedAt: now}}, Related: []Related{}, Answers: []Answer{}, Solutions: []Solution{}, Version: 1, CreatedAt: now, UpdatedAt: now}
 	return v, s.write(v)
 }
 
@@ -351,6 +408,181 @@ func (s *Store) Feedback(repo, question, answer, revision, claim, actor, kind, b
 	v.History = append(v.History, Event{Sequence: int64(len(v.History) + 1), Type: "answer." + kind, ActorID: actor, Detail: revision, CreatedAt: now})
 	return v, s.write(v)
 }
+
+func validResolution(q Question, in ResolutionInput, verification VerificationAttempt) (*AnswerRevision, bool) {
+	if strings.TrimSpace(in.Title) == "" || strings.TrimSpace(in.Summary) == "" || len(in.Title) > 200 || len(in.Summary) > 65536 || len(cleanSteps(in.ApplicableVersions)) == 0 || len(in.ApplicableVersions) > 50 || len(in.Limitations) > 50 || len(in.Links) > 50 || !map[string]bool{"public": true, "repository": true}[in.Audience] || (q.Audience == "repository" && in.Audience == "public") || verification.State != "passed" || verification.RepositoryID != q.RepositoryID || verification.QuestionID != q.ID || verification.AnswerID != in.AnswerID || verification.AnswerRevisionID != in.AnswerRevisionID || verification.ID != in.VerificationID {
+		return nil, false
+	}
+	for _, link := range in.Links {
+		if !map[string]bool{"documentation": true, "package": true, "release": true, "contributor_guidance": true}[link.Kind] || strings.TrimSpace(link.ResourceID) == "" {
+			return nil, false
+		}
+	}
+	for i := range q.Answers {
+		if q.Answers[i].ID != in.AnswerID {
+			continue
+		}
+		if q.Answers[i].CurrentID != in.AnswerRevisionID {
+			return nil, false
+		}
+		for j := range q.Answers[i].Revisions {
+			r := &q.Answers[i].Revisions[j]
+			if r.ID == in.AnswerRevisionID {
+				allowed := map[string]bool{}
+				for _, version := range r.ApplicableVersions {
+					allowed[version] = true
+				}
+				for _, version := range cleanSteps(in.ApplicableVersions) {
+					if !allowed[version] {
+						return nil, false
+					}
+				}
+				return r, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// Resolve publishes a new immutable solution from one exact, successfully
+// verified answer revision. Later lifecycle events never rewrite this record.
+func (s *Store) Resolve(repo, question, actor string, in ResolutionInput, verification VerificationAttempt) (Question, error) {
+	if actor == "" {
+		return Question{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(repo, question)
+	if e != nil {
+		return v, e
+	}
+	revision, ok := validResolution(v, in, verification)
+	if !ok {
+		return Question{}, ErrInvalid
+	}
+	for _, solution := range v.Solutions {
+		if solution.AnswerRevisionID == in.AnswerRevisionID && solution.Status != "archived" && solution.Status != "merged" {
+			return Question{}, ErrInvalid
+		}
+	}
+	now := s.now().UTC()
+	id, _ := newID()
+	roles := map[string]map[string]bool{}
+	addRole := func(id, role string) {
+		if id == "" {
+			return
+		}
+		if roles[id] == nil {
+			roles[id] = map[string]bool{}
+		}
+		roles[id][role] = true
+	}
+	addRole(v.AuthorID, "asker")
+	addRole(revision.AuthorID, "answer_author")
+	addRole(verification.CreatedByID, "verifier")
+	for _, a := range v.Answers {
+		for _, f := range a.Feedback {
+			addRole(f.ActorID, "reviewer")
+		}
+	}
+	for _, c := range v.Discussion {
+		addRole(c.AuthorID, "participant")
+	}
+	credits, notices := []SolutionCredit{}, []SolutionNotification{}
+	for id, set := range roles {
+		r := []string{}
+		for role := range set {
+			r = append(r, role)
+		}
+		sort.Strings(r)
+		credits = append(credits, SolutionCredit{ActorID: id, Roles: r})
+		nid, _ := newID()
+		notices = append(notices, SolutionNotification{ID: nid, Recipient: id, Type: "solution.published", ActorID: actor, CreatedAt: now})
+	}
+	sort.Slice(credits, func(i, j int) bool { return credits[i].ActorID < credits[j].ActorID })
+	sort.Slice(notices, func(i, j int) bool { return notices[i].Recipient < notices[j].Recipient })
+	eid, _ := newID()
+	solution := Solution{ID: id, AnswerID: in.AnswerID, AnswerRevisionID: in.AnswerRevisionID, VerificationID: in.VerificationID, Title: strings.TrimSpace(in.Title), Summary: strings.TrimSpace(in.Summary), ApplicableVersions: cleanSteps(in.ApplicableVersions), Limitations: cleanSteps(in.Limitations), Audience: in.Audience, Links: in.Links, Status: "published", Credits: credits, Notifications: notices, Events: []SolutionEvent{{ID: eid, Type: "published", ActorID: actor, CreatedAt: now}}, PublishedBy: actor, PublishedAt: now}
+	v.Solutions = append(v.Solutions, solution)
+	v.Status, v.Version, v.UpdatedAt = "resolved", v.Version+1, now
+	v.History = append(v.History, Event{Sequence: int64(len(v.History) + 1), Type: "solution.published", ActorID: actor, Detail: id, CreatedAt: now})
+	return v, s.write(v)
+}
+
+func (s *Store) SolutionEvent(repo, question, solution, actor, kind, reason, targetQuestion, targetSolution, version string) (Question, error) {
+	if actor == "" || strings.TrimSpace(reason) == "" || len(reason) > 4000 || !map[string]bool{"archive": true, "merge": true, "request_revalidation": true}[kind] {
+		return Question{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(repo, question)
+	if e != nil {
+		return v, e
+	}
+	index := -1
+	for i := range v.Solutions {
+		if v.Solutions[i].ID == solution {
+			index = i
+		}
+	}
+	if index < 0 || (kind == "merge" && (targetQuestion == "" || targetSolution == "" || (targetQuestion == question && targetSolution == solution))) || (kind == "request_revalidation" && strings.TrimSpace(version) == "") {
+		return Question{}, ErrInvalid
+	}
+	if v.Solutions[index].Status == "archived" || v.Solutions[index].Status == "merged" {
+		return Question{}, ErrInvalid
+	}
+	now := s.now().UTC()
+	eid, _ := newID()
+	typeName := map[string]string{"archive": "archived", "merge": "merged", "request_revalidation": "revalidation_requested"}[kind]
+	ev := SolutionEvent{ID: eid, Type: typeName, ActorID: actor, Reason: strings.TrimSpace(reason), TargetQuestion: targetQuestion, TargetSolution: targetSolution, Version: strings.TrimSpace(version), CreatedAt: now}
+	v.Solutions[index].Events = append(v.Solutions[index].Events, ev)
+	if kind == "archive" || kind == "merge" {
+		v.Solutions[index].Status = typeName
+	} else {
+		v.Solutions[index].Status = "revalidation_requested"
+	}
+	seen := map[string]bool{}
+	for _, c := range v.Solutions[index].Credits {
+		seen[c.ActorID] = true
+	}
+	for recipient := range seen {
+		nid, _ := newID()
+		v.Solutions[index].Notifications = append(v.Solutions[index].Notifications, SolutionNotification{ID: nid, Recipient: recipient, Type: "solution." + typeName, ActorID: actor, CreatedAt: now})
+	}
+	v.Version++
+	v.UpdatedAt = now
+	v.History = append(v.History, Event{Sequence: int64(len(v.History) + 1), Type: "solution." + typeName, ActorID: actor, Detail: solution, CreatedAt: now})
+	return v, s.write(v)
+}
+
+func (s *Store) Solutions(repo, query, actor string, publicOnly bool) ([]Solution, error) {
+	questions, e := s.List(repo)
+	if e != nil {
+		return nil, e
+	}
+	terms := strings.Fields(strings.ToLower(query))
+	out := []Solution{}
+	for _, q := range questions {
+		for _, solution := range q.Solutions {
+			if solution.Status == "archived" || solution.Status == "merged" || (publicOnly && solution.Audience != "public") {
+				continue
+			}
+			hay := strings.ToLower(solution.Title + " " + solution.Summary + " " + strings.Join(solution.ApplicableVersions, " ") + " " + strings.Join(solution.Limitations, " "))
+			match := true
+			for _, term := range terms {
+				if !strings.Contains(hay, term) {
+					match = false
+				}
+			}
+			if match {
+				solution.Notifications = nil
+				out = append(out, solution)
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].PublishedAt.After(out[j].PublishedAt) })
+	return out, nil
+}
 func (s *Store) Get(repo, id string) (Question, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -400,7 +632,7 @@ func (s *Store) Comment(repo, id, actor, body string) (Question, error) {
 	return v, s.write(v)
 }
 func (s *Store) Status(repo, id, actor, status string) (Question, error) {
-	if !map[string]bool{"open": true, "needs_context": true, "answered": true, "closed": true}[status] {
+	if !map[string]bool{"open": true, "needs_context": true, "answered": true, "resolved": true, "closed": true}[status] {
 		return Question{}, ErrInvalid
 	}
 	s.mu.Lock()

@@ -480,6 +480,19 @@ artifacts, cost, result, attribution, and rerun lineage. Answer, source,
 software, environment, dependency, or input changes mark affected evidence
 stale. Credential-like inputs and artifacts are rejected, and verification
 grants no repository, credential, environment, or operational authority.
+The asker or a repository participant resolves a thread only by publishing an
+exact answer revision with a successful current verification. Reusable
+solutions freeze their tested versions, limitations, audience, verified answer
+and attempt, project links, publisher, and attributable participant credit;
+repository-scoped threads cannot become public solutions. Current solutions are
+searchable from `view=support` and may link validated documentation collections,
+packages, releases, and contributor guidance. Maintainers append duplicate
+merge, obsolete archive, or newer-version revalidation events and participant
+notifications without rewriting the original question, answer revisions,
+dissent, verification, authorship, or prior publication. Archived and merged
+solutions leave search results but remain in thread history; publication grants
+no repository, documentation, package, release, credential, or operational
+authority.
 
 Product opportunities live beneath `$PRODUCT_OPPORTUNITY_ROOT` (default
 `apps/api/data/product-opportunities`). Repository writers and authorized

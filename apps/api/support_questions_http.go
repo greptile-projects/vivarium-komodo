@@ -62,6 +62,15 @@ func registerSupportQuestionsHTTP(mux *http.ServeMux, s *supportquestions.Store,
 				v.Evidence[i].Content = ""
 			}
 		}
+		for i := range v.Solutions {
+			notices := []supportquestions.SolutionNotification{}
+			for _, notice := range v.Solutions[i].Notifications {
+				if notice.Recipient == actor {
+					notices = append(notices, notice)
+				}
+			}
+			v.Solutions[i].Notifications = notices
+		}
 		return v
 	}
 	mux.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
@@ -116,6 +125,17 @@ func registerSupportQuestionsHTTP(mux *http.ServeMux, s *supportquestions.Store,
 		q := strings.TrimSpace(r.URL.Query().Get("q"))
 		stub := supportquestions.Question{Title: q, Question: q, Goal: q}
 		writeJSON(w, 200, map[string]any{"items": supportSuggestions(repos, repo, a, stub, s, src.issues)})
+	})
+	mux.HandleFunc("GET "+base+"/solutions", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r, false)
+		if !ok {
+			return
+		}
+		items, e := s.Solutions(string(repo.ID), r.URL.Query().Get("q"), actor, actor == "" || !participant(repo, actor))
+		if supportError(w, e) {
+			return
+		}
+		writeJSON(w, 200, map[string]any{"items": items, "total_count": len(items)})
 	})
 	mux.HandleFunc("GET "+base+"/{question}", func(w http.ResponseWriter, r *http.Request) {
 		repo, a, ok := access(w, r, false)
@@ -290,6 +310,82 @@ func registerSupportQuestionsHTTP(mux *http.ServeMux, s *supportquestions.Store,
 		runner.Start(attempt)
 		writeJSON(w, 201, supportVerificationProjection(attempt, q, &attempt))
 	})
+	mux.HandleFunc("POST "+base+"/{question}/solutions", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		q, e := s.Get(string(repo.ID), r.PathValue("question"))
+		if e != nil || !visible(repo, q, actor) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		if actor != q.AuthorID && !participant(repo, actor) {
+			writeJSON(w, 403, map[string]string{"error": "support_participant_required"})
+			return
+		}
+		var in supportquestions.ResolutionInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		verification, e := s.GetVerification(string(repo.ID), q.ID, in.VerificationID)
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "passed_verification_required"})
+			return
+		}
+		if !validSolutionLinks(string(repo.ID), in.Links, src) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_solution_link"})
+			return
+		}
+		q, e = s.Resolve(string(repo.ID), q.ID, actor, in, verification)
+		if supportError(w, e) {
+			return
+		}
+		writeJSON(w, 201, project(repo, q, actor))
+	})
+	mux.HandleFunc("POST "+base+"/{question}/solutions/{solution}/events", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		if !participant(repo, actor) {
+			writeJSON(w, 403, map[string]string{"error": "repository_maintainer_required"})
+			return
+		}
+		q, e := s.Get(string(repo.ID), r.PathValue("question"))
+		if e != nil || !visible(repo, q, actor) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var in struct {
+			Type             string `json:"type"`
+			Reason           string `json:"reason"`
+			TargetQuestionID string `json:"target_question_id"`
+			TargetSolutionID string `json:"target_solution_id"`
+			Version          string `json:"version"`
+		}
+		if !readJSON(w, r, &in, 16<<10) {
+			return
+		}
+		if in.Type == "merge" {
+			target, er := s.Get(string(repo.ID), in.TargetQuestionID)
+			found := false
+			if er == nil {
+				for _, x := range target.Solutions {
+					found = found || x.ID == in.TargetSolutionID && x.Status != "archived" && x.Status != "merged"
+				}
+			}
+			if !found {
+				writeJSON(w, 422, map[string]string{"error": "invalid_merge_target"})
+				return
+			}
+		}
+		q, e = s.SolutionEvent(string(repo.ID), q.ID, r.PathValue("solution"), actor, in.Type, in.Reason, in.TargetQuestionID, in.TargetSolutionID, in.Version)
+		if supportError(w, e) {
+			return
+		}
+		writeJSON(w, 201, project(repo, q, actor))
+	})
 	mux.HandleFunc("PATCH "+base+"/{question}", func(w http.ResponseWriter, r *http.Request) {
 		repo, a, ok := access(w, r, true)
 		if !ok {
@@ -316,6 +412,35 @@ func registerSupportQuestionsHTTP(mux *http.ServeMux, s *supportquestions.Store,
 		}
 		writeJSON(w, 200, project(repo, v, a))
 	})
+}
+
+func validSolutionLinks(repo string, links []supportquestions.SolutionLink, src supportSources) bool {
+	for _, link := range links {
+		switch link.Kind {
+		case "documentation":
+			_, e := src.docs.Get(repo, link.ResourceID)
+			if e != nil {
+				return false
+			}
+		case "package":
+			_, e := src.packages.Get(repo, link.ResourceID)
+			if e != nil {
+				return false
+			}
+		case "release":
+			_, e := src.releases.Get(repo, link.ResourceID)
+			if e != nil {
+				return false
+			}
+		case "contributor_guidance":
+			if strings.TrimSpace(link.ResourceID) == "" {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func supportVerificationProjection(a supportquestions.VerificationAttempt, q supportquestions.Question, latest *supportquestions.VerificationAttempt) map[string]any {
