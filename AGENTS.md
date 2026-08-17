@@ -342,6 +342,24 @@ derived only when both independently defined suites pass the same frozen
 contract. Credential-shaped content is rejected from preloads and reusable
 evidence.
 
+Post-adoption API support remains bound to the same application and exact
+contract version. Producers and application owners record sanitized,
+window-bounded availability, latency, quota, error, schema-conformance, and
+usage observations against an exact release and approved environment. Each
+observation is explicitly producer-only, consumer-only, or shared; a side
+cannot publish into the other side's private audience, and private payloads,
+credentials, and raw usage are represented only by inaccessible-evidence
+references. Shared failures open attributable investigations that retain the
+evidence set, release, environment, questions, findings, and an explicit
+service, contract, client, environment, or unconfirmed classification.
+Participants may invite a named agent only for read-only sanitized evidence and
+thread participation, and may reproduce approved operations and failure rules
+through credential-free synthetic fixtures with authorization redacted. Only a
+confirmed classification can link an existing ordinary issue, proposal, task,
+or workspace at an exact repository revision; the support record grants no
+repository, credential, production-data, review, merge, deployment, or
+environment authority.
+
 Repository service objectives live beneath `$SERVICE_OBJECTIVE_ROOT` (default
 `apps/api/data/service-objectives`). Repository writers publish immutable,
 optimistically concurrency-checked versions across repository, release, and

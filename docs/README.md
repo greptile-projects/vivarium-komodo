@@ -59,6 +59,36 @@ agreement demonstrated only when both suites pass the same frozen contract.
 Credential-shaped strings are rejected from briefs and reusable evidence;
 private payloads are represented only as inaccessible references.
 
+### Post-adoption evidence and shared support
+
+The application detail accepts bounded observations at `/{application}/observations`.
+Availability, latency, quota, sanitized errors, schema conformance, and usage
+counts always freeze the application's exact contract version and source
+revision plus a release, approved environment, time window, and observer. The
+observer chooses `shared`, `producer`, or `consumer` visibility; repository
+producers cannot see consumer-private evidence, application owners cannot see
+producer-private evidence, and neither side can write into the other's private
+audience. Raw payloads, credentials, and unrelated usage do not belong in an
+observation; inaccessible private evidence remains an opaque reference.
+
+Either owner can open `/{application}/investigations` from visible evidence for
+one release and environment. The shared thread retains sanitized questions,
+findings, comments, and decisions until participants explicitly classify the
+failure as service, contract, client, environment, or unconfirmed. A named
+agent invitation grants only read access to the sanitized evidence and the
+ability to contribute to that thread. Participants can replay an approved
+operation or deterministic failure beneath `/reproductions`; this uses the
+existing synthetic configuration without revealing or requiring the
+application credential and retains a redacted inspection.
+
+After a decision confirms ownership, `/change-work` links the provider or
+consumer defect to an existing ordinary issue, proposal, task, or workspace at
+an exact repository revision. The link does not create that resource or grant
+Git, repository, review, merge, deployment, environment, production-data, or
+credential authority. The `view=apis` workspace presents the permitted
+evidence, shared investigation, synthetic reproduction, and governed handoff
+alongside adoption history.
+
 ## Evaluated agent onboarding
 
 Repository owners turn accepted, uncontaminated agent trials into explicit
