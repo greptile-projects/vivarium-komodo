@@ -1,8 +1,12 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,7 +36,7 @@ type supportSources struct {
 	}
 }
 
-func registerSupportQuestionsHTTP(mux *http.ServeMux, s *supportquestions.Store, repos proposalRepositoryStore, credentials authStore, src supportSources) {
+func registerSupportQuestionsHTTP(mux *http.ServeMux, s *supportquestions.Store, repos proposalRepositoryStore, credentials authStore, src supportSources, runner *supportquestions.VerificationRunner) {
 	base := "/repositories/{repository}/support-questions"
 	access := func(w http.ResponseWriter, r *http.Request, required bool) (repositories.Repository, string, bool) {
 		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, required)
@@ -196,6 +200,96 @@ func registerSupportQuestionsHTTP(mux *http.ServeMux, s *supportquestions.Store,
 		}
 		writeJSON(w, 201, project(repo, v, a))
 	})
+	mux.HandleFunc("POST "+base+"/{question}/verifications", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		q, e := s.Get(string(repo.ID), r.PathValue("question"))
+		if e != nil || !visible(repo, q, actor) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var in supportquestions.VerificationInputRequest
+		if !readJSON(w, r, &in, 6<<20) {
+			return
+		}
+		attempt, e := s.CreateVerification(q, actor, "", in)
+		if supportError(w, e) {
+			return
+		}
+		runner.Start(attempt)
+		writeJSON(w, 201, supportVerificationProjection(attempt, q, nil))
+	})
+	mux.HandleFunc("GET "+base+"/{question}/verifications", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r, false)
+		if !ok {
+			return
+		}
+		q, e := s.Get(string(repo.ID), r.PathValue("question"))
+		if e != nil || !visible(repo, q, actor) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		items, e := s.ListVerifications(string(repo.ID), q.ID)
+		if supportError(w, e) {
+			return
+		}
+		out := make([]map[string]any, 0, len(items))
+		var latest *supportquestions.VerificationAttempt
+		if len(items) > 0 {
+			latest = &items[len(items)-1]
+		}
+		for _, item := range items {
+			out = append(out, supportVerificationProjection(item, q, latest))
+		}
+		writeJSON(w, 200, map[string]any{"items": out, "total_count": len(out)})
+	})
+	mux.HandleFunc("GET "+base+"/{question}/verifications/{verification}", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r, false)
+		if !ok {
+			return
+		}
+		q, e := s.Get(string(repo.ID), r.PathValue("question"))
+		if e != nil || !visible(repo, q, actor) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		item, e := s.GetVerification(string(repo.ID), q.ID, r.PathValue("verification"))
+		if e != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		items, _ := s.ListVerifications(string(repo.ID), q.ID)
+		var latest *supportquestions.VerificationAttempt
+		if len(items) > 0 {
+			latest = &items[len(items)-1]
+		}
+		writeJSON(w, 200, supportVerificationProjection(item, q, latest))
+	})
+	mux.HandleFunc("POST "+base+"/{question}/verifications/{verification}/reruns", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		q, e := s.Get(string(repo.ID), r.PathValue("question"))
+		if e != nil || !visible(repo, q, actor) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		prior, e := s.GetVerification(string(repo.ID), q.ID, r.PathValue("verification"))
+		if e != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		in := supportquestions.VerificationInputRequest{AnswerID: prior.AnswerID, AnswerRevisionID: prior.AnswerRevisionID, SourceRevision: prior.SourceRevision, SoftwareVersion: prior.SoftwareVersion, Environment: prior.Environment, Dependencies: prior.Dependencies, Inputs: prior.Inputs, ArtifactPaths: prior.ArtifactPaths, CostUnits: prior.CostUnits}
+		attempt, e := s.CreateVerification(q, actor, prior.ID, in)
+		if supportError(w, e) {
+			return
+		}
+		runner.Start(attempt)
+		writeJSON(w, 201, supportVerificationProjection(attempt, q, &attempt))
+	})
 	mux.HandleFunc("PATCH "+base+"/{question}", func(w http.ResponseWriter, r *http.Request) {
 		repo, a, ok := access(w, r, true)
 		if !ok {
@@ -222,6 +316,68 @@ func registerSupportQuestionsHTTP(mux *http.ServeMux, s *supportquestions.Store,
 		}
 		writeJSON(w, 200, project(repo, v, a))
 	})
+}
+
+func supportVerificationProjection(a supportquestions.VerificationAttempt, q supportquestions.Question, latest *supportquestions.VerificationAttempt) map[string]any {
+	reasons := []string{}
+	currentAnswer, currentInstructions := false, false
+	for _, answer := range q.Answers {
+		if answer.ID == a.AnswerID && answer.CurrentID == a.AnswerRevisionID {
+			currentAnswer = true
+			for _, revision := range answer.Revisions {
+				if revision.ID == a.AnswerRevisionID {
+					currentInstructions = supportInstructionsDigest(revision.Instructions) == a.InstructionsDigest
+				}
+			}
+		}
+	}
+	if !currentAnswer {
+		reasons = append(reasons, "answer_revision_changed")
+	}
+	if !currentInstructions {
+		reasons = append(reasons, "instructions_changed")
+	}
+	if q.SoftwareVersion != "" && q.SoftwareVersion != a.SoftwareVersion {
+		reasons = append(reasons, "software_version_changed")
+	}
+	if q.Environment != "" && q.Environment != a.Environment.Name {
+		reasons = append(reasons, "environment_changed")
+	}
+	if latest != nil && latest.ID != a.ID {
+		if latest.SoftwareVersion != a.SoftwareVersion {
+			reasons = append(reasons, "software_version_changed")
+		}
+		if latest.SourceRevision != a.SourceRevision {
+			reasons = append(reasons, "source_revision_changed")
+		}
+		if latest.Environment.ImageDigest != a.Environment.ImageDigest {
+			reasons = append(reasons, "environment_dependency_changed")
+		}
+		if !supportStringMapEqual(latest.Dependencies, a.Dependencies) {
+			reasons = append(reasons, "dependencies_changed")
+		}
+		if !supportInputsEqual(latest.Inputs, a.Inputs) {
+			reasons = append(reasons, "inputs_changed")
+		}
+	}
+	return map[string]any{"attempt": a, "stale": len(reasons) > 0, "stale_reasons": reasons, "reusable_record_excludes_secrets_and_private_user_data": true, "authority": "verification grants no repository, credential, review, merge, environment, or operational authority"}
+}
+func supportInstructionsDigest(v []string) string {
+	b, _ := json.Marshal(v)
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+func supportStringMapEqual(a, b map[string]string) bool { return reflect.DeepEqual(a, b) }
+func supportInputsEqual(a, b []supportquestions.VerificationInput) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Name != b[i].Name || a[i].SHA256 != b[i].SHA256 {
+			return false
+		}
+	}
+	return true
 }
 
 func validateGuidanceCitations(repo repositories.Repository, actor string, q supportquestions.Question, in supportquestions.AnswerInput, src supportSources, questions *supportquestions.Store, repos proposalRepositoryStore) bool {

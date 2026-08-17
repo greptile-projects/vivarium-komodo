@@ -472,6 +472,14 @@ readers can endorse, challenge, comment on, or request clarification of an
 exact claim; new guidance supersedes only the current revision and retains all
 prior advice and feedback. Guidance publication grants no repository, Git,
 credential, execution, review, merge, or operational authority.
+Permitted thread participants can verify one exact answer revision in a bounded,
+credential-free, networkless workspace at an exact source and stated software
+version. Attempts freeze instructions, environment image and resources,
+dependency versions, sanitized inputs, commands, redacted logs, outputs,
+artifacts, cost, result, attribution, and rerun lineage. Answer, source,
+software, environment, dependency, or input changes mark affected evidence
+stale. Credential-like inputs and artifacts are rejected, and verification
+grants no repository, credential, environment, or operational authority.
 
 Product opportunities live beneath `$PRODUCT_OPPORTUNITY_ROOT` (default
 `apps/api/data/product-opportunities`). Repository writers and authorized

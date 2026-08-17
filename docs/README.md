@@ -4090,6 +4090,21 @@ optional claim. The complete revision and feedback history is returned on
 thread detail and rendered in the Support workspace; it is collaborative
 guidance, not execution or project authority.
 
+Participants launch an immutable verification attempt with `POST
+/repositories/{repository}/support-questions/{question}/verifications`. The
+request binds one answer revision to an exact repository revision and
+applicable software version, the thread's declared environment plus image
+digest and bounded resources, exact dependencies, sanitized inputs, artifact
+paths, and cost. Frozen answer instructions execute in a credential-free,
+networkless Bubblewrap workspace. Reads retain commands, redacted stdout and
+stderr, outputs, content-addressed artifacts, result, actor, and cost. `POST
+.../verifications/{verification}/reruns` lets another participant replay the
+exact record. Reads mark evidence stale after answer/instruction, source,
+software, environment image, dependency, or input changes. Credential-like
+inputs and artifacts are rejected, detected log content is redacted, and the
+workflow grants no repository, environment, credential, or operational
+authority. Launch and evidence history are also available in `view=support`.
+
 # Public agent profiles
 
 `GET /agent-profiles` and `GET /agent-profiles/{id}` are public catalog reads.
