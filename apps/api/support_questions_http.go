@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
@@ -12,6 +13,7 @@ import (
 	packagecatalog "github.com/greptile-projects/vivarium-komodo/apps/api/packages"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/supportquestions"
 )
 
@@ -145,6 +147,55 @@ func registerSupportQuestionsHTTP(mux *http.ServeMux, s *supportquestions.Store,
 		}
 		writeJSON(w, 201, project(repo, v, a))
 	})
+	mux.HandleFunc("POST "+base+"/{question}/answers", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		q, e := s.Get(string(repo.ID), r.PathValue("question"))
+		if e != nil || !visible(repo, q, a) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var in supportquestions.AnswerInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		if !validateGuidanceCitations(repo, a, q, in, src, s, repos) {
+			writeJSON(w, 422, map[string]string{"error": "inaccessible_or_invalid_guidance_evidence"})
+			return
+		}
+		v, e := s.ReviseAnswer(string(repo.ID), q.ID, a, in)
+		if supportError(w, e) {
+			return
+		}
+		writeJSON(w, 201, project(repo, v, a))
+	})
+	mux.HandleFunc("POST "+base+"/{question}/answers/{answer}/feedback", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		q, e := s.Get(string(repo.ID), r.PathValue("question"))
+		if e != nil || !visible(repo, q, a) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var in struct {
+			RevisionID string `json:"revision_id"`
+			ClaimID    string `json:"claim_id"`
+			Kind       string `json:"kind"`
+			Body       string `json:"body"`
+		}
+		if !readJSON(w, r, &in, 70<<10) {
+			return
+		}
+		v, e := s.Feedback(string(repo.ID), q.ID, r.PathValue("answer"), in.RevisionID, in.ClaimID, a, in.Kind, in.Body)
+		if supportError(w, e) {
+			return
+		}
+		writeJSON(w, 201, project(repo, v, a))
+	})
 	mux.HandleFunc("PATCH "+base+"/{question}", func(w http.ResponseWriter, r *http.Request) {
 		repo, a, ok := access(w, r, true)
 		if !ok {
@@ -171,6 +222,133 @@ func registerSupportQuestionsHTTP(mux *http.ServeMux, s *supportquestions.Store,
 		}
 		writeJSON(w, 200, project(repo, v, a))
 	})
+}
+
+func validateGuidanceCitations(repo repositories.Repository, actor string, q supportquestions.Question, in supportquestions.AnswerInput, src supportSources, questions *supportquestions.Store, repos proposalRepositoryStore) bool {
+	for _, claim := range in.Claims {
+		for _, c := range claim.Citations {
+			if c.Visibility != q.Audience || strings.TrimSpace(c.Revision) == "" {
+				return false
+			}
+			switch c.Kind {
+			case "source", "symbol":
+				if c.ResourceID != "" && c.ResourceID != string(repo.ID) || strings.TrimSpace(c.Path) == "" || (c.Kind == "symbol" && strings.TrimSpace(c.Symbol) == "") || c.LineStart < 0 || c.LineEnd < c.LineStart {
+					return false
+				}
+				opener, ok := repos.(interface {
+					Open(storage.ID) (*storage.Repository, error)
+				})
+				if !ok {
+					return false
+				}
+				opened, e := opener.Open(repo.ID)
+				if e != nil {
+					return false
+				}
+				commit, _, e := resolveRevision(opened, c.Revision)
+				if e != nil {
+					return false
+				}
+				if !sourceCitationExists(opened, commit, c.Path, c.LineStart, c.LineEnd) {
+					return false
+				}
+				if c.Kind == "symbol" {
+					sources, _, _, e := collectSources(opened, commit)
+					if e != nil {
+						return false
+					}
+					found := false
+					for _, symbol := range buildSymbols(opened, commit, sources, "", c.Symbol) {
+						if symbol.Name == c.Symbol && symbol.Definition.Path == c.Path {
+							found = true
+						}
+					}
+					if !found {
+						return false
+					}
+				}
+			case "documentation":
+				v, e := src.docs.Get(string(repo.ID), c.ResourceID)
+				found := false
+				for _, version := range v.History {
+					if c.Revision == strconv.FormatInt(version.Number, 10) {
+						found = true
+					}
+				}
+				if e != nil || !found {
+					return false
+				}
+			case "package":
+				v, e := src.packages.Get(string(repo.ID), c.ResourceID)
+				if e != nil || v.RepositoryID != string(repo.ID) || !(c.Revision == v.SourceCommitID || c.Revision == v.Version || c.Revision == v.ID) {
+					return false
+				}
+			case "release":
+				v, e := src.releases.Get(string(repo.ID), c.ResourceID)
+				if e != nil || v.RepositoryID != string(repo.ID) || !(c.Revision == v.CommitID || c.Revision == v.Version || c.Revision == v.ID) {
+					return false
+				}
+			case "support_question":
+				v, e := questions.Get(string(repo.ID), c.ResourceID)
+				if e != nil || c.Revision != strconv.FormatInt(v.Version, 10) || !(v.Audience == "public" && repo.Visibility == repositories.Public || v.AuthorID == actor || supportParticipant(repos, repo, actor)) {
+					return false
+				}
+			case "issue":
+				items, e := src.issues.List(string(repo.ID))
+				if e != nil {
+					return false
+				}
+				found := false
+				for _, v := range items {
+					if v.ID == c.ResourceID && c.Revision == strconv.FormatInt(v.Version, 10) && issueVisible(repos, repo, v, actor) {
+						found = true
+					}
+				}
+				if !found {
+					return false
+				}
+			default:
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func sourceCitationExists(repo *storage.Repository, commit storage.ObjectID, path string, start, end int) bool {
+	c, e := repo.ReadCommit(commit)
+	if e != nil {
+		return false
+	}
+	tree := c.Tree
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	var oid storage.ObjectID
+	for i, p := range parts {
+		t, e := repo.ReadTree(tree)
+		if e != nil {
+			return false
+		}
+		found := false
+		for _, x := range t.Entries {
+			if x.Name == p {
+				found = true
+				oid = x.ObjectID
+				if i < len(parts)-1 {
+					tree = x.ObjectID
+				}
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	o, e := repo.ReadObject(oid)
+	if e != nil {
+		return false
+	}
+	lines := strings.Count(string(o.Content), "\n") + 1
+	return start == 0 && end == 0 || start >= 1 && end >= start && end <= lines
 }
 
 func validSupportSubject(repo string, s supportquestions.Subject, src supportSources) bool {

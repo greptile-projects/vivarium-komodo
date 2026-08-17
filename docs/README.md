@@ -4068,6 +4068,28 @@ and suggestion routes retain attributable discussion and immutable history.
 State defaults to `$SUPPORT_QUESTION_ROOT`; the repository workspace is
 `view=support`.
 
+An authenticated reader proposes an answer with `POST
+/repositories/{repository}/support-questions/{question}/answers`. The first
+revision creates an answer; later revisions provide its `answer_id` and exact
+current `supersedes_id`, preventing a collaborator from silently overwriting a
+newer correction. Each revision freezes its author and human/agent kind,
+instructions, applicable versions, uncertainty, and claim-level evidence.
+Claims distinguish `verified`, `inference`, and `uncertainty`; inference and
+uncertainty require an explanation, and agent revisions additionally require
+overall uncertainty.
+
+Citations identify an exact revision and one of `source`, `symbol`,
+`documentation`, `package`, `release`, `support_question`, or `issue`. Source
+and symbol paths (and optional bounded lines) are resolved from the cited Git
+commit. Other resources must exist and be visible to the contributor. Citation
+visibility must equal the thread audience, which prevents maintainer-only or
+otherwise inaccessible evidence from becoming implicit public support.
+Participants use `POST .../answers/{answer}/feedback` to attach an endorsement,
+challenge, clarification request, or comment to an exact answer revision and
+optional claim. The complete revision and feedback history is returned on
+thread detail and rendered in the Support workspace; it is collaborative
+guidance, not execution or project authority.
+
 # Public agent profiles
 
 `GET /agent-profiles` and `GET /agent-profiles/{id}` are public catalog reads.

@@ -58,6 +58,67 @@ type Related struct {
 	Status     string `json:"status"`
 }
 
+// Guidance is intentionally claim-addressable: a reader can tell which parts
+// are supported, inferred, or still uncertain without treating an answer as a
+// single verified blob.
+type Citation struct {
+	Kind       string `json:"kind"`
+	ResourceID string `json:"resource_id,omitempty"`
+	Revision   string `json:"revision,omitempty"`
+	Path       string `json:"path,omitempty"`
+	Symbol     string `json:"symbol,omitempty"`
+	LineStart  int    `json:"line_start,omitempty"`
+	LineEnd    int    `json:"line_end,omitempty"`
+	Label      string `json:"label,omitempty"`
+	Visibility string `json:"visibility"`
+}
+type Claim struct {
+	ID          string     `json:"id"`
+	Text        string     `json:"text"`
+	Mode        string     `json:"mode"` // verified, inference, or uncertainty
+	Citations   []Citation `json:"citations"`
+	Uncertainty string     `json:"uncertainty,omitempty"`
+}
+type GuidanceComment struct {
+	ID         string    `json:"id"`
+	RevisionID string    `json:"revision_id"`
+	ClaimID    string    `json:"claim_id,omitempty"`
+	Kind       string    `json:"kind"` // comment, clarification, challenge, endorsement
+	Body       string    `json:"body,omitempty"`
+	ActorID    string    `json:"actor_id"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+type AnswerRevision struct {
+	ID                 string    `json:"id"`
+	AnswerID           string    `json:"answer_id"`
+	Revision           int64     `json:"revision"`
+	SupersedesID       string    `json:"supersedes_id,omitempty"`
+	AuthorID           string    `json:"author_id"`
+	AuthorKind         string    `json:"author_kind"`
+	Summary            string    `json:"summary"`
+	Instructions       []string  `json:"instructions"`
+	ApplicableVersions []string  `json:"applicable_versions"`
+	Claims             []Claim   `json:"claims"`
+	Uncertainty        string    `json:"uncertainty,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+type Answer struct {
+	ID        string            `json:"id"`
+	CurrentID string            `json:"current_revision_id"`
+	Revisions []AnswerRevision  `json:"revisions"`
+	Feedback  []GuidanceComment `json:"feedback"`
+}
+type AnswerInput struct {
+	AnswerID           string   `json:"answer_id,omitempty"`
+	SupersedesID       string   `json:"supersedes_id,omitempty"`
+	AuthorKind         string   `json:"author_kind"`
+	Summary            string   `json:"summary"`
+	Instructions       []string `json:"instructions"`
+	ApplicableVersions []string `json:"applicable_versions"`
+	Claims             []Claim  `json:"claims"`
+	Uncertainty        string   `json:"uncertainty,omitempty"`
+}
+
 type Question struct {
 	ID              string     `json:"id"`
 	RepositoryID    string     `json:"repository_id"`
@@ -78,6 +139,7 @@ type Question struct {
 	Discussion      []Comment  `json:"discussion"`
 	History         []Event    `json:"history"`
 	Related         []Related  `json:"related"`
+	Answers         []Answer   `json:"answers"`
 	Version         int64      `json:"version"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
@@ -179,7 +241,114 @@ func (s *Store) Create(repo, actor string, in Input) (Question, error) {
 	for i := range in.Evidence {
 		in.Evidence[i].ID, _ = newID()
 	}
-	v := Question{ID: id, RepositoryID: repo, AuthorID: actor, Title: strings.TrimSpace(in.Title), Question: strings.TrimSpace(in.Question), Subject: in.Subject, SoftwareVersion: strings.TrimSpace(in.SoftwareVersion), Environment: strings.TrimSpace(in.Environment), Goal: strings.TrimSpace(in.Goal), AttemptedSteps: cleanSteps(in.AttemptedSteps), Urgency: in.Urgency, Audience: in.Audience, Contact: in.Contact, Status: status, MissingContext: gaps, Evidence: in.Evidence, Discussion: []Comment{}, History: []Event{{Sequence: 1, Type: "question.opened", ActorID: actor, CreatedAt: now}}, Related: []Related{}, Version: 1, CreatedAt: now, UpdatedAt: now}
+	v := Question{ID: id, RepositoryID: repo, AuthorID: actor, Title: strings.TrimSpace(in.Title), Question: strings.TrimSpace(in.Question), Subject: in.Subject, SoftwareVersion: strings.TrimSpace(in.SoftwareVersion), Environment: strings.TrimSpace(in.Environment), Goal: strings.TrimSpace(in.Goal), AttemptedSteps: cleanSteps(in.AttemptedSteps), Urgency: in.Urgency, Audience: in.Audience, Contact: in.Contact, Status: status, MissingContext: gaps, Evidence: in.Evidence, Discussion: []Comment{}, History: []Event{{Sequence: 1, Type: "question.opened", ActorID: actor, CreatedAt: now}}, Related: []Related{}, Answers: []Answer{}, Version: 1, CreatedAt: now, UpdatedAt: now}
+	return v, s.write(v)
+}
+
+func validAnswer(in AnswerInput) bool {
+	if strings.TrimSpace(in.Summary) == "" || len(in.Summary) > 65536 || len(in.Instructions) == 0 || len(in.Instructions) > 100 || len(in.Claims) == 0 || len(in.Claims) > 100 || len(in.ApplicableVersions) == 0 || len(in.ApplicableVersions) > 50 {
+		return false
+	}
+	if len(cleanSteps(in.Instructions)) == 0 || len(cleanSteps(in.ApplicableVersions)) == 0 {
+		return false
+	}
+	if !map[string]bool{"human": true, "agent": true}[in.AuthorKind] || (in.AuthorKind == "agent" && strings.TrimSpace(in.Uncertainty) == "") {
+		return false
+	}
+	for _, c := range in.Claims {
+		if strings.TrimSpace(c.Text) == "" || !map[string]bool{"verified": true, "inference": true, "uncertainty": true}[c.Mode] || len(c.Citations) == 0 || (c.Mode != "verified" && strings.TrimSpace(c.Uncertainty) == "") {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Store) ReviseAnswer(repo, question, actor string, in AnswerInput) (Question, error) {
+	if actor == "" || !validAnswer(in) {
+		return Question{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(repo, question)
+	if e != nil {
+		return v, e
+	}
+	now := s.now().UTC()
+	answerIndex := -1
+	if in.AnswerID != "" {
+		for i := range v.Answers {
+			if v.Answers[i].ID == in.AnswerID {
+				answerIndex = i
+				break
+			}
+		}
+		if answerIndex < 0 {
+			return Question{}, ErrInvalid
+		}
+	}
+	if answerIndex < 0 {
+		aid, _ := newID()
+		v.Answers = append(v.Answers, Answer{ID: aid, Revisions: []AnswerRevision{}, Feedback: []GuidanceComment{}})
+		answerIndex = len(v.Answers) - 1
+	}
+	a := &v.Answers[answerIndex]
+	if len(a.Revisions) > 0 && (in.SupersedesID == "" || in.SupersedesID != a.CurrentID) {
+		return Question{}, ErrInvalid
+	}
+	rid, _ := newID()
+	for i := range in.Claims {
+		in.Claims[i].ID, _ = newID()
+	}
+	r := AnswerRevision{ID: rid, AnswerID: a.ID, Revision: int64(len(a.Revisions) + 1), SupersedesID: in.SupersedesID, AuthorID: actor, AuthorKind: in.AuthorKind, Summary: strings.TrimSpace(in.Summary), Instructions: cleanSteps(in.Instructions), ApplicableVersions: cleanSteps(in.ApplicableVersions), Claims: in.Claims, Uncertainty: strings.TrimSpace(in.Uncertainty), CreatedAt: now}
+	a.Revisions = append(a.Revisions, r)
+	a.CurrentID = rid
+	v.Version++
+	v.UpdatedAt = now
+	v.History = append(v.History, Event{Sequence: int64(len(v.History) + 1), Type: "answer.revised", ActorID: actor, Detail: rid, CreatedAt: now})
+	return v, s.write(v)
+}
+
+func (s *Store) Feedback(repo, question, answer, revision, claim, actor, kind, body string) (Question, error) {
+	if actor == "" || !map[string]bool{"comment": true, "clarification": true, "challenge": true, "endorsement": true}[kind] || (kind != "endorsement" && strings.TrimSpace(body) == "") {
+		return Question{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(repo, question)
+	if e != nil {
+		return v, e
+	}
+	var target *Answer
+	for i := range v.Answers {
+		if v.Answers[i].ID == answer {
+			target = &v.Answers[i]
+			break
+		}
+	}
+	if target == nil {
+		return Question{}, ErrInvalid
+	}
+	validRevision, validClaim := false, claim == ""
+	for _, r := range target.Revisions {
+		if r.ID == revision {
+			validRevision = true
+			for _, c := range r.Claims {
+				if c.ID == claim {
+					validClaim = true
+				}
+			}
+			break
+		}
+	}
+	if !validRevision || !validClaim {
+		return Question{}, ErrInvalid
+	}
+	id, _ := newID()
+	now := s.now().UTC()
+	target.Feedback = append(target.Feedback, GuidanceComment{ID: id, RevisionID: revision, ClaimID: claim, Kind: kind, Body: strings.TrimSpace(body), ActorID: actor, CreatedAt: now})
+	v.Version++
+	v.UpdatedAt = now
+	v.History = append(v.History, Event{Sequence: int64(len(v.History) + 1), Type: "answer." + kind, ActorID: actor, Detail: revision, CreatedAt: now})
 	return v, s.write(v)
 }
 func (s *Store) Get(repo, id string) (Question, error) {
