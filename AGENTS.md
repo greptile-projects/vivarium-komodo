@@ -459,6 +459,19 @@ only visible titles, goals, questions, and problem summaries, never evidence
 content. Discussion, status changes, and authorship are retained in history.
 The repository web surface is `view=support`; asking grants no repository,
 credential, execution, or operational authority.
+Support answers remain in the same thread as immutable revisions. Every answer
+declares applicable versions and decomposes its guidance into verified,
+inferred, or uncertain claims with citations to an exact source revision and
+lines, symbol, documentation collection, package, release, visible prior
+support thread, or known issue. The API resolves repository citations and
+validates referenced project records before publication; a citation must share
+the thread audience, so restricted context cannot silently support broader
+guidance. Agent-authored revisions require explicit overall uncertainty, and
+non-verified claims require claim-level uncertainty. Authenticated repository
+readers can endorse, challenge, comment on, or request clarification of an
+exact claim; new guidance supersedes only the current revision and retains all
+prior advice and feedback. Guidance publication grants no repository, Git,
+credential, execution, review, merge, or operational authority.
 
 Product opportunities live beneath `$PRODUCT_OPPORTUNITY_ROOT` (default
 `apps/api/data/product-opportunities`). Repository writers and authorized

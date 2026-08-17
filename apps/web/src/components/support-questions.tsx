@@ -34,6 +34,11 @@ type Question = {
     title: string;
     status: string;
   }>;
+  answers: Array<{
+    id: string; current_revision_id: string;
+    revisions: Array<{id:string;revision:number;supersedes_id?:string;author_id:string;author_kind:string;summary:string;instructions:string[];applicable_versions:string[];uncertainty?:string;claims:Array<{id:string;text:string;mode:string;uncertainty?:string;citations:Array<{kind:string;resource_id?:string;revision:string;path?:string;symbol?:string;line_start?:number;line_end?:number;label?:string}>}>}>;
+    feedback: Array<{id:string;revision_id:string;claim_id?:string;kind:string;body?:string;actor_id:string}>;
+  }>;
 };
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`/api${path}`, init),
@@ -167,6 +172,15 @@ export function SupportQuestions({
     );
     setComment("");
   }
+  async function answer(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault(); if(!current)return; const f=new FormData(e.currentTarget), parts=String(f.get("citation")||"").split(" | ");
+    try { setCurrent(await api(`/repositories/${repository}/support-questions/${current.id}/answers`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({author_kind:f.get("author_kind"),summary:f.get("summary"),instructions:String(f.get("instructions")).split("\n").filter(Boolean),applicable_versions:String(f.get("versions")).split("\n").filter(Boolean),uncertainty:f.get("uncertainty"),claims:[{text:f.get("claim"),mode:f.get("mode"),uncertainty:f.get("claim_uncertainty"),citations:[{kind:parts[0],resource_id:parts[1],revision:parts[2],path:parts[3],symbol:parts[4],line_start:Number(parts[5]||0),line_end:Number(parts[6]||0),label:parts[7],visibility:current.audience}]}]})})); e.currentTarget.reset(); }
+    catch(c){setError(c instanceof Error?c.message:"Could not publish guidance")}
+  }
+  async function feedback(answerId:string, revisionId:string, claimId:string|undefined, kind:string) {
+    if(!current)return; const body=kind==="endorsement"?"":window.prompt(kind==="clarification"?"What context is missing?":"Explain your feedback")||""; if(kind!=="endorsement"&&!body)return;
+    setCurrent(await api(`/repositories/${repository}/support-questions/${current.id}/answers/${answerId}/feedback`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({revision_id:revisionId,claim_id:claimId,kind,body})}));
+  }
   if (current)
     return (
       <section className="workspace">
@@ -247,6 +261,13 @@ export function SupportQuestions({
           <p className="muted">
             Contact preference: {current.contact.preference}
           </p>
+        </div>
+        <div className="card">
+          <h3>Grounded guidance</h3>
+          <p className="muted">Claims separate verified evidence from inference and uncertainty. Citations are checked against context visible to this thread.</p>
+          {current.answers?.map(a=>{const r=a.revisions.find(x=>x.id===a.current_revision_id)!;return <article className="panel" key={a.id}><p><Badge>revision {r.revision}</Badge> <Badge>{r.author_kind}</Badge> by {r.author_id}</p><h4>{r.summary}</h4><p>Applies to: {r.applicable_versions.join(", ")}</p><ol>{r.instructions.map((x,i)=><li key={i}>{x}</li>)}</ol>{r.uncertainty&&<p><strong>Uncertainty:</strong> {r.uncertainty}</p>}{r.claims.map(c=><section key={c.id}><p><Badge>{c.mode}</Badge> {c.text}</p>{c.uncertainty&&<p className="muted">{c.uncertainty}</p>}<ul>{c.citations.map((x,i)=><li key={i}>{x.kind} · {x.label||x.path||x.resource_id} @ <code>{x.revision}</code>{x.line_start?` lines ${x.line_start}–${x.line_end}`:""}</li>)}</ul>{actor&&<p><Button variant="secondary" onClick={()=>void feedback(a.id,r.id,c.id,"endorsement")}>Endorse</Button> <Button variant="secondary" onClick={()=>void feedback(a.id,r.id,c.id,"challenge")}>Challenge</Button> <Button variant="secondary" onClick={()=>void feedback(a.id,r.id,c.id,"clarification")}>Request clarification</Button></p>}</section>)}{a.feedback.filter(x=>x.revision_id===r.id).map(x=><p key={x.id}><Badge>{x.kind}</Badge> {x.actor_id} {x.body}</p>)}</article>})}
+          {!current.answers?.length&&<p>No answer proposed yet.</p>}
+          {actor&&<details><summary>Propose grounded guidance</summary><form className="form-stack" onSubmit={answer}><label>Contributor<select name="author_kind"><option value="human">Human</option><option value="agent">Scoped agent</option></select></label><label>Answer summary<textarea name="summary" required/></label><label>Instructions, one per line<textarea name="instructions" required/></label><label>Applicable exact versions, one per line<textarea name="versions" required defaultValue={current.software_version}/></label><label>Claim mode<select name="mode"><option value="verified">Verified by cited evidence</option><option value="inference">Inference</option><option value="uncertainty">Uncertain</option></select></label><label>Claim<textarea name="claim" required/></label><label>Claim uncertainty (required for inference/uncertain)<textarea name="claim_uncertainty"/></label><label>Citation: kind | resource ID | exact revision | path | symbol | start | end | label<input name="citation" required placeholder="source | repository ID | commit | path | symbol | 10 | 20 | handler"/></label><label>Overall uncertainty (required for agents)<textarea name="uncertainty"/></label><Button type="submit">Publish answer revision</Button></form></details>}
         </div>
         <div className="card">
           <h3>Discussion</h3>
