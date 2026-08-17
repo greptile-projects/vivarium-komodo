@@ -21,6 +21,22 @@ repository-reader evaluation and outcome observations; anonymous share links
 omit the work identifier, creator, private evidence, and private evidence's
 indirect effect on gap reporting. Discovery remains non-authoritative.
 
+Bounded project agent evaluations live beneath `$AGENT_EVALUATION_ROOT`
+(default `apps/api/data/agent-evaluations`). Repository writers publish
+optimistically concurrency-checked immutable suite versions whose sanitized
+scenarios freeze exact source revisions, expected outcomes, visible and hidden
+correctness or policy checks, budgets, prohibited actions, and human-review
+criteria. Candidate trials freeze exact suite, scenario, repository, and agent
+profile versions and always declare an isolated authority set with publish,
+secret, merge, and environment access disabled. Results retain outputs, tool
+actions, artifacts, check summaries, costs, latency, failures, contamination,
+budget and policy failures, reproducibility notes, and attributable human
+decisions. Reader projections redact hidden expectations and canaries;
+server-derived labels distinguish repeated, reproduction, and operator-supplied
+trials from first-party evidence. Evaluation grants no durable agent,
+repository, credential, review, merge, or operational authority. The repository
+web surface remains `view=agents`.
+
 Project funds live beneath `$PROJECT_FUND_ROOT` (default
 `apps/api/data/project-funds`). Repository writers publish governed terms with
 named stewards, accepted transfer sources, currency or credit units, spending

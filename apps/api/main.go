@@ -12,6 +12,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilitypolicies"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/agentdiscovery"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/agentevaluations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/agentprofiles"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
@@ -124,6 +125,14 @@ func main() {
 		agentDiscoveryRoot = "data/agent-discovery"
 	}
 	agentDiscoveryStore, err := agentdiscovery.New(agentDiscoveryRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	agentEvaluationRoot := os.Getenv("AGENT_EVALUATION_ROOT")
+	if agentEvaluationRoot == "" {
+		agentEvaluationRoot = "data/agent-evaluations"
+	}
+	agentEvaluationStore, err := agentevaluations.New(agentEvaluationRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -730,6 +739,7 @@ func main() {
 	registerUsersHTTP(mux, userStore, credentials)
 	registerAgentProfilesHTTP(mux, agentProfileStore, credentials, userStore)
 	registerAgentDiscoveryHTTP(mux, agentDiscoveryStore, agentProfileStore, repositoryCatalog, credentials)
+	registerAgentEvaluationsHTTP(mux, agentEvaluationStore, agentProfileStore, repositoryCatalog, credentials)
 	registerExtensionsHTTP(mux, extensionStore, repositoryCatalog, organizationStore, credentials, activityStore, pullRequestStore)
 	registerFederationHTTP(mux, federationStore, credentials)
 	registerFederatedRepositoriesHTTP(mux, federationStore, repositoryCatalog, pullRequestStore, releaseStore, contributorPathwayStore, issueStore, contributionOpportunityStore, activityStore, credentials)

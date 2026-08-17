@@ -32,6 +32,7 @@ import { ServiceObjectives } from "@/components/service-objectives";
 import { RecoveryObjectives } from "@/components/recovery-objectives";
 import { AgentProfiles } from "@/components/agent-profiles";
 import { AgentDiscovery } from "@/components/agent-discovery";
+import { AgentEvaluations } from "@/components/agent-evaluations";
 import { PrivacyAssessments } from "@/components/privacy-assessments";
 import {
   Book,
@@ -1824,7 +1825,7 @@ export default function RepositoryPage({
       ) : view === "continuity" ? (
         <RecoveryObjectives repository={repository.id} actor={actor} />
       ) : view === "agents" ? (
-        <><AgentDiscovery repository={id} actor={actor} /><AgentProfiles actor={actor} /></>
+        <><AgentEvaluations repository={id} actor={actor} /><AgentDiscovery repository={id} actor={actor} /><AgentProfiles actor={actor} /></>
       ) : view === "funds" ? (
         <ProjectFunds repository={repository.id} actor={actor} />
       ) : view === "experiments" ? (

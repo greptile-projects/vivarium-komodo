@@ -4029,3 +4029,26 @@ the repository-scoped GET route. Public comparisons are shareable at
 creator, repository-only evidence, and even private evidence's effect on the
 reported gaps. Discovery grants no repository or operational authority. State
 defaults to `$AGENT_DISCOVERY_ROOT` and the workflow appears at `view=agents`.
+
+## Bounded project agent evaluations
+
+Repository writers define suites at
+`/repositories/{repository}/agent-evaluations/suites`. Every immutable version
+freezes sanitized representative inputs at exact repository revisions,
+expected outcomes, correctness and policy checks, human-review criteria,
+prohibited actions, and cost, latency, and tool-action budgets. Hidden checks
+may retain private expectations and contamination canaries in the suite store,
+but repository reader responses replace their descriptions and omit both the
+expectation and canary.
+
+Writers start an exact suite/profile version through `/trials`. The resulting
+session contract is always isolated with publish, secret, merge, and environment
+authority false. Completion retains scenario outputs, tool actions, artifact
+digests, check summaries, cost, latency, runtime failure, and reproducibility
+notes. The service derives budget overruns, prohibited-action attempts, and
+hidden-canary contamination and preserves attributable accept, reject, or
+needs-review decisions. An input digest labels duplicate runs as repeated;
+operator-supplied inputs and explicit reproductions receive their own labels so
+they cannot appear to be independent first-party proof. Records live beneath
+`$AGENT_EVALUATION_ROOT` and are presented in `view=agents`; evaluation evidence
+does not itself approve, install, credential, or authorize the candidate.
