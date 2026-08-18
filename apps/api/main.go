@@ -802,7 +802,7 @@ func main() {
 	registerServiceObjectivesHTTP(mux, serviceObjectiveStore, repositoryCatalog, credentials)
 	registerAPIContractsHTTP(mux, apiContractStore, repositoryCatalog, credentials)
 	registerDesignSystemsHTTP(mux, designSystemStore, repositoryCatalog, credentials)
-	registerDesignProposalsHTTP(mux, designProposalStore, repositoryCatalog, credentials)
+	registerDesignProposalsHTTP(mux, designProposalStore, repositoryCatalog, credentials, proposalStore, pullRequestStore)
 	registerAPIConsumersHTTP(mux, apiConsumerStore, repositoryCatalog, credentials)
 	registerDurableSchemasHTTP(mux, durableSchemaStore, repositoryCatalog, credentials, deploymentStore)
 	registerInfrastructureStateHTTP(mux, infrastructureStateStore, repositoryCatalog, credentials)

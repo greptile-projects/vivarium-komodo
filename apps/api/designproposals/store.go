@@ -48,6 +48,16 @@ type Measure struct {
 	Name   string `json:"name"`
 	Target string `json:"target"`
 }
+type ComponentContract struct {
+	Name     string `json:"name"`
+	Contract string `json:"contract"`
+}
+type Breakpoint struct {
+	Name         string `json:"name"`
+	MinimumWidth int    `json:"minimum_width"`
+	MaximumWidth int    `json:"maximum_width,omitempty"`
+	Behavior     string `json:"behavior"`
+}
 type Evidence struct {
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`
@@ -57,19 +67,21 @@ type Evidence struct {
 	Audience  string `json:"audience"`
 }
 type Input struct {
-	Title              string        `json:"title"`
-	Origin             Origin        `json:"origin"`
-	UserGoal           string        `json:"user_goal"`
-	Journeys           []Journey     `json:"journeys"`
-	States             []State       `json:"states"`
-	Content            []string      `json:"content"`
-	Constraints        []Constraint  `json:"constraints"`
-	Alternatives       []Alternative `json:"alternatives"`
-	SuccessMeasures    []Measure     `json:"success_measures"`
-	AffectedComponents []string      `json:"affected_components"`
-	Evidence           []Evidence    `json:"evidence"`
-	Uncertainty        []string      `json:"uncertainty"`
-	ChangeReason       string        `json:"change_reason"`
+	Title              string              `json:"title"`
+	Origin             Origin              `json:"origin"`
+	UserGoal           string              `json:"user_goal"`
+	Journeys           []Journey           `json:"journeys"`
+	States             []State             `json:"states"`
+	Content            []string            `json:"content"`
+	Constraints        []Constraint        `json:"constraints"`
+	Alternatives       []Alternative       `json:"alternatives"`
+	SuccessMeasures    []Measure           `json:"success_measures"`
+	AffectedComponents []string            `json:"affected_components"`
+	ComponentContracts []ComponentContract `json:"component_contracts,omitempty"`
+	Breakpoints        []Breakpoint        `json:"breakpoints,omitempty"`
+	Evidence           []Evidence          `json:"evidence"`
+	Uncertainty        []string            `json:"uncertainty"`
+	ChangeReason       string              `json:"change_reason"`
 }
 type Revision struct {
 	Number int64 `json:"number"`
@@ -97,12 +109,21 @@ type Interaction struct {
 	Action  string `json:"action"`
 	Result  string `json:"result"`
 }
+type Asset struct {
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Source          string   `json:"source"`
+	AuthorID        string   `json:"author_id"`
+	License         string   `json:"license"`
+	Transformations []string `json:"transformations,omitempty"`
+}
 type ArtifactInput struct {
 	Kind             string        `json:"kind"`
 	Title            string        `json:"title"`
 	ProposalRevision int64         `json:"proposal_revision"`
 	Frames           []Frame       `json:"frames"`
 	Interactions     []Interaction `json:"interactions"`
+	Assets           []Asset       `json:"assets,omitempty"`
 	EvidenceIDs      []string      `json:"evidence_ids"`
 	Uncertainty      []string      `json:"uncertainty"`
 	ChangeReason     string        `json:"change_reason"`
@@ -141,6 +162,55 @@ type Acknowledgement struct {
 	RespondedAt      *time.Time `json:"responded_at,omitempty"`
 	Current          bool       `json:"current"`
 }
+type Requirement struct {
+	ID       string `json:"id"`
+	Kind     string `json:"kind"`
+	Subject  string `json:"subject"`
+	Expected string `json:"expected"`
+}
+type ImplementationTask struct {
+	TaskID             string   `json:"task_id"`
+	Title              string   `json:"title"`
+	OwnerKind          string   `json:"owner_kind"`
+	OwnerID            string   `json:"owner_id"`
+	Position           int      `json:"position"`
+	AcceptanceCriteria []string `json:"acceptance_criteria"`
+	ExpectedPaths      []string `json:"expected_paths"`
+	RenderedSurfaces   []string `json:"rendered_surfaces"`
+}
+type Implementation struct {
+	ID               string               `json:"id"`
+	ProposalRevision int64                `json:"proposal_revision"`
+	BaseRevision     string               `json:"base_revision"`
+	WorkProposalID   string               `json:"work_proposal_id"`
+	ArtifactVersions map[string]int64     `json:"artifact_versions"`
+	Requirements     []Requirement        `json:"requirements"`
+	Assets           []Asset              `json:"assets,omitempty"`
+	Tasks            []ImplementationTask `json:"tasks"`
+	CreatedByID      string               `json:"created_by_id"`
+	CreatedAt        time.Time            `json:"created_at"`
+}
+type Mapping struct {
+	ID               string      `json:"id"`
+	ImplementationID string      `json:"implementation_id"`
+	TaskID           string      `json:"task_id"`
+	PullRequestID    string      `json:"pull_request_id"`
+	Revision         string      `json:"revision"`
+	ChangedPaths     []string    `json:"changed_paths"`
+	RenderedSurfaces []string    `json:"rendered_surfaces"`
+	RequirementIDs   []string    `json:"requirement_ids"`
+	Deviations       []Deviation `json:"deviations,omitempty"`
+	RecordedByID     string      `json:"recorded_by_id"`
+	RecordedAt       time.Time   `json:"recorded_at"`
+}
+type Deviation struct {
+	RequirementID string     `json:"requirement_id"`
+	Reason        string     `json:"reason"`
+	Impact        string     `json:"impact"`
+	Status        string     `json:"status"`
+	ApprovedByID  string     `json:"approved_by_id,omitempty"`
+	ApprovedAt    *time.Time `json:"approved_at,omitempty"`
+}
 type Proposal struct {
 	ID                   string            `json:"id"`
 	RepositoryID         string            `json:"repository_id"`
@@ -150,6 +220,8 @@ type Proposal struct {
 	Artifacts            []Artifact        `json:"artifacts"`
 	Comments             []Comment         `json:"comments"`
 	Acknowledgements     []Acknowledgement `json:"acknowledgements"`
+	Implementations      []Implementation  `json:"implementations,omitempty"`
+	Mappings             []Mapping         `json:"implementation_mappings,omitempty"`
 	PrivateEvidenceCount int               `json:"private_evidence_count"`
 }
 type Store struct {
@@ -185,6 +257,16 @@ func validInput(in Input) bool {
 	}
 	for _, x := range in.Constraints {
 		if !map[string]bool{"accessibility": true, "technical": true, "privacy": true, "localization": true, "policy": true, "business": true}[x.Kind] || x.Requirement == "" {
+			return false
+		}
+	}
+	for _, x := range in.ComponentContracts {
+		if x.Name == "" || x.Contract == "" {
+			return false
+		}
+	}
+	for _, x := range in.Breakpoints {
+		if x.Name == "" || x.MinimumWidth < 0 || x.MaximumWidth < 0 || (x.MaximumWidth > 0 && x.MaximumWidth < x.MinimumWidth) || x.Behavior == "" {
 			return false
 		}
 	}
@@ -332,7 +414,15 @@ func (s *Store) Invite(repo, pid, actor, subject, kind, role string, evidence []
 	return s.persist(p)
 }
 func validArtifact(x ArtifactInput) bool {
-	return map[string]bool{"wireframe": true, "prototype": true}[x.Kind] && x.Title != "" && x.ChangeReason != "" && len(x.Frames) > 0
+	if !map[string]bool{"wireframe": true, "prototype": true}[x.Kind] || x.Title == "" || x.ChangeReason == "" || len(x.Frames) == 0 {
+		return false
+	}
+	for _, a := range x.Assets {
+		if a.ID == "" || a.Name == "" || a.Source == "" || a.AuthorID == "" || a.License == "" {
+			return false
+		}
+	}
+	return true
 }
 func (s *Store) AddArtifact(repo, pid, actor string, in ArtifactInput) (Proposal, error) {
 	s.mu.Lock()
@@ -436,6 +526,166 @@ func (s *Store) Respond(repo, pid, aid, actor, status, rationale string) (Propos
 			a.Rationale = rationale
 			a.RespondedAt = &now
 			return s.persist(p)
+		}
+	}
+	return Proposal{}, ErrNotFound
+}
+
+func accepted(p Proposal) bool {
+	found := false
+	for _, a := range p.Acknowledgements {
+		if a.ProposalRevision == p.CurrentRevision {
+			found = true
+			if a.Status != "acknowledged" {
+				return false
+			}
+		}
+	}
+	return found
+}
+
+// AddImplementation freezes the accepted experience contract after ordinary
+// proposal/task creation succeeds. Callers supply only server-created IDs.
+func (s *Store) AddImplementation(repo, pid, actor, base, workProposal string, tasks []ImplementationTask) (Proposal, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, e := s.read(repo, pid)
+	if e != nil {
+		return Proposal{}, e
+	}
+	if actor == "" || base == "" || workProposal == "" || len(tasks) == 0 || !accepted(p) {
+		return Proposal{}, ErrInvalid
+	}
+	versions := map[string]int64{}
+	assets := []Asset{}
+	for _, a := range p.Artifacts {
+		versions[a.ID] = a.CurrentVersion
+		r := a.Revisions[a.CurrentVersion-1]
+		if r.ProposalRevision == p.CurrentRevision {
+			assets = append(assets, r.Assets...)
+		}
+	}
+	r := p.Revisions[p.CurrentRevision-1]
+	requirements := requirementsFor(r, p.Artifacts)
+	p.Implementations = append(p.Implementations, Implementation{ID: id(), ProposalRevision: p.CurrentRevision, BaseRevision: base, WorkProposalID: workProposal, ArtifactVersions: versions, Requirements: requirements, Assets: assets, Tasks: tasks, CreatedByID: actor, CreatedAt: s.now().UTC()})
+	return s.persist(p)
+}
+
+func requirementsFor(r Revision, artifacts []Artifact) []Requirement {
+	out := []Requirement{}
+	add := func(kind, subject, expected string) {
+		out = append(out, Requirement{ID: kind + "-" + itoa(len(out)+1), Kind: kind, Subject: subject, Expected: expected})
+	}
+	for _, x := range r.Journeys {
+		add("journey", x.Name, strings.Join(x.Steps, " -> ")+" => "+x.Outcome)
+	}
+	for _, x := range r.States {
+		add("state", x.Name, x.Trigger+" => "+x.Behavior+"; "+x.Content)
+	}
+	for _, x := range r.Constraints {
+		add("constraint", x.Kind, x.Requirement)
+	}
+	for _, x := range r.ComponentContracts {
+		add("component", x.Name, x.Contract)
+	}
+	for _, x := range r.Breakpoints {
+		add("breakpoint", x.Name, itoa(x.MinimumWidth)+".."+itoa(x.MaximumWidth)+": "+x.Behavior)
+	}
+	for _, x := range r.SuccessMeasures {
+		add("acceptance", x.Name, x.Target)
+	}
+	for _, a := range artifacts {
+		ar := a.Revisions[a.CurrentVersion-1]
+		if ar.ProposalRevision == r.Number {
+			for _, f := range ar.Frames {
+				add("prototype", ar.Title+"/"+f.Name, f.Description+" ["+f.Format+"] "+f.Body)
+			}
+			for _, x := range ar.Interactions {
+				add("interaction", ar.Title, x.Trigger+" => "+x.Action+" => "+x.Result)
+			}
+		}
+	}
+	return out
+}
+func itoa(n int) string {
+	const d = "0123456789"
+	if n < 10 {
+		return string(d[n])
+	}
+	return itoa(n/10) + string(d[n%10])
+}
+
+func (s *Store) AddMapping(repo, pid, actor string, in Mapping) (Proposal, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, e := s.read(repo, pid)
+	if e != nil {
+		return Proposal{}, e
+	}
+	var imp *Implementation
+	for i := range p.Implementations {
+		if p.Implementations[i].ID == in.ImplementationID {
+			imp = &p.Implementations[i]
+		}
+	}
+	valid := imp != nil && in.TaskID != "" && in.PullRequestID != "" && in.Revision != "" && len(in.ChangedPaths) > 0 && len(in.RenderedSurfaces) > 0 && len(in.RequirementIDs) > 0
+	allowed := map[string]bool{}
+	taskAllowed := false
+	if imp != nil {
+		for _, x := range imp.Requirements {
+			allowed[x.ID] = true
+		}
+		for _, x := range imp.Tasks {
+			taskAllowed = taskAllowed || x.TaskID == in.TaskID
+		}
+	}
+	valid = valid && taskAllowed
+	for _, x := range in.RequirementIDs {
+		valid = valid && allowed[x]
+	}
+	for i := range in.Deviations {
+		d := &in.Deviations[i]
+		valid = valid && allowed[d.RequirementID] && contains(in.RequirementIDs, d.RequirementID) && d.Reason != "" && d.Impact != ""
+		d.Status = "pending"
+		d.ApprovedByID = ""
+		d.ApprovedAt = nil
+	}
+	if !valid {
+		return Proposal{}, ErrInvalid
+	}
+	in.ID = id()
+	in.RecordedByID = actor
+	in.RecordedAt = s.now().UTC()
+	p.Mappings = append(p.Mappings, in)
+	return s.persist(p)
+}
+func contains(xs []string, value string) bool {
+	for _, x := range xs {
+		if x == value {
+			return true
+		}
+	}
+	return false
+}
+func (s *Store) ApproveDeviation(repo, pid, mapping, actor, requirement string) (Proposal, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, e := s.read(repo, pid)
+	if e != nil {
+		return Proposal{}, e
+	}
+	for i := range p.Mappings {
+		if p.Mappings[i].ID == mapping {
+			for j := range p.Mappings[i].Deviations {
+				d := &p.Mappings[i].Deviations[j]
+				if d.RequirementID == requirement && d.Status == "pending" {
+					now := s.now().UTC()
+					d.Status = "approved"
+					d.ApprovedByID = actor
+					d.ApprovedAt = &now
+					return s.persist(p)
+				}
+			}
 		}
 	}
 	return Proposal{}, ErrNotFound

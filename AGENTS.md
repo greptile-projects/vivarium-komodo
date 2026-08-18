@@ -417,10 +417,19 @@ prototypes and attributable comments, support, questions, or dissent. Owner
 acknowledgements bind one proposal revision and become stale when it changes.
 Private research and inaccessible assets remain counted restricted references
 but are excluded from read projections and cannot ground an agent, artifact, or
-discussion citation. These records grant no repository, research, asset,
-implementation, review, merge, release, deployment, or operational authority.
-The repository web surface remains `view=design`, and
-`design_proposal_workflow_test.go` is the public regression boundary.
+discussion citation. A fully acknowledged current revision can freeze an
+implementation contract at an exact source commit into an ordinary proposal and
+dependency-ordered human- or agent-owned tasks. Copied task reasoning retains
+exact proposal and artifact versions, journeys, states, content, constraints,
+measures, prototype frames/interactions, and exported asset source, author,
+license, and transformation history, so existing sessions, shared workspaces,
+and pull requests preserve the intent. Revision-bound mappings connect changed
+paths and rendered surfaces to requirement IDs; deliberate deviations remain
+pending until attributable repository-owner approval. These records grant no
+repository, research, asset, fork, workspace, agent, review, merge, release,
+deployment, or operational authority. The repository web surface remains
+`view=design`, and `design_proposal_workflow_test.go` is the public regression
+boundary from review through accountable implementation handoff.
 
 Delivery teams are pre-execution contracts beneath `$DELIVERY_TEAM_ROOT`
 (default `apps/api/data/delivery-teams`). A repository collaborator forms one

@@ -1181,9 +1181,29 @@ change. The durable root is `$DESIGN_PROPOSAL_ROOT`; none of these collaboration
 records grants access to source, private research, assets, implementation,
 review, merge, release, deployment, or operations.
 
+Once every current owner acknowledgement accepts the revision, a repository
+writer posts an exact source commit and ordered implementation tasks to
+`/{proposal}/implementations`. The server creates an ordinary project proposal
+and dependency-ordered human or agent tasks; it does not assign credentials or
+start work. Each task receives the same immutable design contract: exact
+proposal and artifact versions, journeys, states, content, constraints,
+acceptance measures, prototype frames and interactions, and asset lineage. That
+context follows existing task sessions, shared workspaces, and pull requests
+under their normal repository, fork, agent, review, and merge checks.
+
+Exported prototype assets require an ID, source, author, license, and retained
+transformation list. Implementers post mappings beneath the frozen
+implementation to connect an exact candidate revision, pull request, changed
+paths, and rendered surfaces to named design requirement IDs. Any deliberate
+deviation records its reason and user impact as pending; only an ordinary
+repository owner can approve it, with attribution retained. The `view=design`
+surface presents this delivery trail beside the reasoning it implements.
+
 `design_proposal_workflow_test.go` exercises the public workflow, including
 restricted-evidence containment, grounded-agent participation, an exact-revision
-wireframe, owner dissent, and acknowledgement.
+wireframe and authored asset, owner dissent and acknowledgement, ordered mixed
+human-agent tasks, copied intent, code/surface mapping, and owner-approved
+deviation.
 
 ## Repository design systems
 
