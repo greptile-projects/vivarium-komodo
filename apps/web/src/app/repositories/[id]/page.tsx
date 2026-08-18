@@ -19,6 +19,7 @@ import { PerformanceGoals } from "@/components/performance-goals";
 import { AccessibilityCommitments } from "@/components/accessibility-commitments";
 import { AccessibilityBarriers } from "@/components/accessibility-barriers";
 import { AccessibilityAssessments } from "@/components/accessibility-assessments";
+import { InterfaceChecks } from "@/components/interface-checks";
 import { ProjectFunds } from "@/components/project-funds";
 import { ProductExperiments } from "@/components/product-experiments";
 import { ProductFeedback } from "@/components/product-feedback";
@@ -9506,8 +9507,10 @@ function PullRequestDetail({
             ? "sessions"
             : section === "checks"
               ? "checks"
-              : section === "previews"
+            : section === "previews"
                 ? "previews"
+              : section === "interface"
+                ? "interface"
               : section === "accessibility"
                 ? "accessibility"
               : "overview";
@@ -9720,6 +9723,12 @@ function PullRequestDetail({
       )}
       <nav className="pull-sections" aria-label="Pull request">
         <button
+          className={active === "interface" ? "active" : ""}
+          onClick={() => onSection("interface")}
+        >
+          Interface
+        </button>
+        <button
           className={active === "accessibility" ? "active" : ""}
           onClick={() => onSection("accessibility")}
         >
@@ -9813,6 +9822,8 @@ function PullRequestDetail({
           previews={previews}
           onChanged={() => void load()}
         />
+      ) : active === "interface" ? (
+        <InterfaceChecks repository={repository} pull={item.id} actor={actor} />
       ) : active === "accessibility" ? (
 		<><AccessibilityAssessments repository={repository} actor={actor} pull={item.id} revision={item.source_commit_id} /><PrivacyAssessments repository={repository} pull={item.id} revision={item.source_commit_id} targetRevision={item.target_commit_id} /></>
       ) : (

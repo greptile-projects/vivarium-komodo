@@ -43,6 +43,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/infrastructureplans"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/infrastructurestate"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/integrationqueue"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/interfacechecks"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/investigations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/issues"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/localeplans"
@@ -417,6 +418,14 @@ func main() {
 		designProposalRoot = "data/design-proposals"
 	}
 	designProposalStore, err := designproposals.New(designProposalRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	interfaceCheckRoot := os.Getenv("INTERFACE_CHECK_ROOT")
+	if interfaceCheckRoot == "" {
+		interfaceCheckRoot = "data/interface-checks"
+	}
+	interfaceCheckStore, err := interfacechecks.New(interfaceCheckRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -803,6 +812,7 @@ func main() {
 	registerAPIContractsHTTP(mux, apiContractStore, repositoryCatalog, credentials)
 	registerDesignSystemsHTTP(mux, designSystemStore, repositoryCatalog, credentials)
 	registerDesignProposalsHTTP(mux, designProposalStore, repositoryCatalog, credentials, proposalStore, pullRequestStore)
+	registerInterfaceChecksHTTP(mux, interfaceCheckStore, repositoryCatalog, credentials, interfaceCheckSources{pulls: pullRequestStore, repositories: repositoryCatalog, designs: designProposalStore})
 	registerAPIConsumersHTTP(mux, apiConsumerStore, repositoryCatalog, credentials)
 	registerDurableSchemasHTTP(mux, durableSchemaStore, repositoryCatalog, credentials, deploymentStore)
 	registerInfrastructureStateHTTP(mux, infrastructureStateStore, repositoryCatalog, credentials)

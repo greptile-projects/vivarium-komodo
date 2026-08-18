@@ -3,6 +3,25 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Interface fidelity checks
+
+Pull requests expose revision-exact interface evidence in `section=interface`.
+Repositories declare a version-1 `.komodo/interface-checks.json` matrix that
+binds an accepted design or implementation contract to journeys, surfaces,
+requirements, and exact input paths. Runner results compare the candidate
+across viewports, themes, content lengths, locales, interaction states, and
+assistive technologies, retaining bounded recordings, artifact digests,
+coverage, timing, performance, and visual or behavioral differences.
+
+Collaborators classify current differences as intentional, regressions, or
+false positives and retain attributable decisions. Evidence derives freshness
+from its definition and declared Git blobs, so unrelated source changes keep a
+case current while relevant design, scenario, or code changes stale only the
+dependent evidence and decisions. These records are review evidence only and
+issue no preview, Git, review, merge, release, deployment, or credential
+authority. Durable state defaults to `apps/api/data/interface-checks` and can
+be relocated with `INTERFACE_CHECK_ROOT`.
+
 ## Collaborative production debugging
 
 `/repositories/{repository}/debugging-workspaces` binds an observed failure to

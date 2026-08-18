@@ -431,6 +431,23 @@ deployment, or operational authority. The repository web surface remains
 `view=design`, and `design_proposal_workflow_test.go` is the public regression
 boundary from review through accountable implementation handoff.
 
+Revision-exact interface checks live beneath `$INTERFACE_CHECK_ROOT` (default
+`apps/api/data/interface-checks`). Each pull revision reads schema-version `1`
+`.komodo/interface-checks.json`, binding an accepted design proposal or frozen
+implementation contract to repository-defined journeys, rendered surfaces,
+requirement IDs, and exact code/scenario input blobs. Bounded results retain
+viewport, theme, content-length, locale, interaction-state, and assistive-
+technology contexts; visual and behavioral differences; recordings and
+content-addressed artifacts; coverage, timing, and performance evidence; and
+the attributable runner. Pull-request readers see current and historical runs
+in `section=interface`. Repository collaborators classify each current
+difference as intentional, regression, or false positive with rationale, while
+case decisions bind only classified differences. A changed pull revision,
+definition blob, or declared case input makes only the dependent evidence,
+differences, and decisions stale and preserves unrelated cases. Checks and
+review records grant no preview, repository, design, review, merge, release,
+deployment, credential, or operational authority.
+
 Delivery teams are pre-execution contracts beneath `$DELIVERY_TEAM_ROOT`
 (default `apps/api/data/delivery-teams`). A repository collaborator forms one
 around a proposal, initiative, decision, incident follow-up, or other planned
