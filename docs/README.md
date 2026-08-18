@@ -1159,6 +1159,27 @@ selection retains superseded editions as explicit archives while identifying
 the newest corrected guidance, preserving source, reader, reviewer, publisher,
 and repair authorship instead of rewriting the original edition.
 
+## Repository design systems
+
+Authorized repository writers publish a design system at `POST
+/repositories/{repository}/design-systems` and add immutable versions through
+`/{system}/versions` with `expected_version` optimistic concurrency. Every
+version freezes an exact reviewed source commit, definition path, and release
+revision together with tokens, components, interaction patterns, content rules,
+responsive ranges, themes, rendered examples, owners, adoption policy,
+accessibility and localization constraints, consumer implementations, rationale,
+and typed provenance. Durable state is rooted beneath `$DESIGN_SYSTEM_ROOT`.
+
+Repository readers use `GET /repositories/{repository}/design-systems` or the
+shareable `view=design` tab to inspect examples, usage guidance, constraints,
+history, and the reviewed implementation that realizes each decision. The read
+model reports `missing_owner`, `missing_provenance`, `stale_implementation`,
+`unimplemented_consumer`, and `unsupported_consumer` gaps. It also compares the
+current versions of every published system and returns disagreements over named
+tokens, components, and interaction patterns as conflicts with every system and
+value retained; it does not silently select a winner. Publication conveys no
+source, review, merge, release, deployment, or operational authority.
+
 ## Preview acceptance
 
 Repository owners publish preview acceptance requirements with `PUT

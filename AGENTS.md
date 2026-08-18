@@ -392,6 +392,19 @@ authorship, documentation check matrices, rendered review, ordinary merge and
 release provenance, archived reader editions, redacted older-version feedback,
 and an agent-authored version-specific repair published through the same policy.
 
+Repository design systems live beneath `$DESIGN_SYSTEM_ROOT` (default
+`apps/api/data/design-systems`). Repository writers publish immutable,
+optimistically concurrency-checked versions bound to exact reviewed source and
+release revisions. Versions retain design tokens, components, interaction
+patterns, content rules, responsive behavior, supported themes, rendered
+examples, accountable owners, adoption policy, accessibility and localization
+constraints, consumer implementation revisions, rationale, and provenance.
+Reads derive missing owners and provenance, stale or absent implementations,
+unsupported consumers, and conflicting current token, component, or interaction
+definitions across systems rather than selecting a canonical winner. These
+records grant no repository, review, merge, release, deployment, or operational
+authority. The repository web surface is `view=design`.
+
 Delivery teams are pre-execution contracts beneath `$DELIVERY_TEAM_ROOT`
 (default `apps/api/data/delivery-teams`). A repository collaborator forms one
 around a proposal, initiative, decision, incident follow-up, or other planned
