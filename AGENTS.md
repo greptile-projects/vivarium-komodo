@@ -2545,3 +2545,13 @@ explicit blockers. Human and agent participants may append attributable
 refinements, but replays grant no provider, production-data, secret, telemetry,
 Git, deployment, environment, credential, or operational authority. The
 repository web surface remains `view=debugging`.
+`production_debugging_workflow_test.go` is the black-box boundary for the
+complete released-user-observation-to-confirmed-repair loop. It retains user
+consent, a denied probe, redaction, noisy and corrected capture, exact code and
+deployment correlations, challenged reasoning, revoked agent access, synthetic
+reproduction, failed and passing candidate verification, agent commit
+authorship, ordinary review/check/merge/release/deployment, a paused first
+stage, and confirmed production outcome. Candidate attempts use the explicit
+`repair_verification` replay mode: unlike reproduction attempts, they may bind
+the pull's exact changed revision, but only a clean attempt where the original
+invariant is absent can satisfy runtime-repair verification.

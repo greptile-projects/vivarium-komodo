@@ -53,6 +53,7 @@ type Attempt struct {
 	Blockers              []string          `json:"blockers"`
 	Status                string            `json:"status"`
 	Reproduced            bool              `json:"reproduced"`
+	Mode                  string            `json:"mode"`
 	CreatedAt             time.Time         `json:"created_at"`
 }
 type Event struct {
@@ -117,6 +118,7 @@ type AttemptInput struct {
 	Cost                  float64           `json:"cost"`
 	ProductionDifferences []string          `json:"production_differences"`
 	Blockers              []string          `json:"blockers"`
+	Mode                  string            `json:"mode"`
 }
 type Store struct {
 	root string
@@ -260,11 +262,14 @@ func (s *Store) Attempt(repo, x, actor string, in AttemptInput) (Scenario, error
 	if !has(v.ParticipantIDs, actor) {
 		return Scenario{}, ErrForbidden
 	}
-	if !map[string]bool{"workspace": true, "preview": true}[in.TargetKind] || in.TargetID == "" || in.Revision == "" || len(in.Environment) == 0 || len(in.Commands) == 0 || in.Cost < 0 || !validateStrings(in.Commands, 30) || !validateStrings(in.Traces, 100) || !validateStrings(in.Outputs, 100) || !validateStrings(in.ProductionDifferences, 50) || !validateStrings(in.Blockers, 30) {
+	if in.Mode == "" {
+		in.Mode = "reproduction"
+	}
+	if !map[string]bool{"reproduction": true, "repair_verification": true}[in.Mode] || !map[string]bool{"workspace": true, "preview": true}[in.TargetKind] || in.TargetID == "" || in.Revision == "" || len(in.Environment) == 0 || len(in.Commands) == 0 || in.Cost < 0 || !validateStrings(in.Commands, 30) || !validateStrings(in.Traces, 100) || !validateStrings(in.Outputs, 100) || !validateStrings(in.ProductionDifferences, 50) || !validateStrings(in.Blockers, 30) {
 		return Scenario{}, ErrInvalid
 	}
 	blockers := clean(in.Blockers)
-	if in.Revision != v.Revision {
+	if in.Revision != v.Revision && in.Mode != "repair_verification" {
 		blockers = clean(append(blockers, "changed_revision"))
 	}
 	if len(v.UnsafeSideEffects) > 0 {
@@ -285,7 +290,7 @@ func (s *Store) Attempt(repo, x, actor string, in AttemptInput) (Scenario, error
 		status = "observed"
 	}
 	now := s.now().UTC()
-	a := Attempt{ID: id(), ActorID: actor, TargetKind: in.TargetKind, TargetID: in.TargetID, Revision: in.Revision, Environment: in.Environment, Commands: in.Commands, Traces: in.Traces, Outputs: in.Outputs, InvariantResults: in.InvariantResults, Cost: in.Cost, ProductionDifferences: clean(in.ProductionDifferences), Blockers: blockers, Status: status, Reproduced: reproduced, CreatedAt: now}
+	a := Attempt{ID: id(), ActorID: actor, TargetKind: in.TargetKind, TargetID: in.TargetID, Revision: in.Revision, Environment: in.Environment, Commands: in.Commands, Traces: in.Traces, Outputs: in.Outputs, InvariantResults: in.InvariantResults, Cost: in.Cost, ProductionDifferences: clean(in.ProductionDifferences), Blockers: blockers, Status: status, Reproduced: reproduced, Mode: in.Mode, CreatedAt: now}
 	v.Attempts = append(v.Attempts, a)
 	s.event(&v, "attempt."+status, actor, a.ID)
 	s.derive(&v)
@@ -295,7 +300,7 @@ func (s *Store) derive(v *Scenario) {
 	v.RepeatedPassingAttempts = 0
 	v.Blockers = nil
 	for _, a := range v.Attempts {
-		if a.Reproduced {
+		if a.Reproduced && a.Mode != "repair_verification" {
 			v.RepeatedPassingAttempts++
 		}
 		v.Blockers = append(v.Blockers, a.Blockers...)

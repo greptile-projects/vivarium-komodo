@@ -107,7 +107,7 @@ func registerRuntimeRepairsHTTP(mux *http.ServeMux, store *rr.Store, debugging *
 		scenario, _ := replays.Get(string(repo.ID), repair.ReplayID)
 		replayPassed := false
 		for _, attempt := range scenario.Attempts {
-			replayPassed = replayPassed || (attempt.ID == in.ReplayAttemptID && attempt.Revision == in.Revision && attempt.Status == "not_reproduced" && !attempt.Reproduced && len(attempt.Blockers) == 0)
+			replayPassed = replayPassed || (attempt.ID == in.ReplayAttemptID && attempt.Revision == in.Revision && attempt.Mode == "repair_verification" && attempt.Status == "not_reproduced" && !attempt.Reproduced && len(attempt.Blockers) == 0)
 		}
 		checksPassed := len(in.RequiredCheckRunIDs) > 0
 		for _, id := range in.RequiredCheckRunIDs {

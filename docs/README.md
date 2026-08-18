@@ -4567,6 +4567,13 @@ without replacing the original scenario or gaining Git, preview, environment,
 production-data, or operational authority. Durable state defaults to
 `$RUNTIME_REPLAY_ROOT`; the complete trail appears in `view=debugging`.
 
+An attempt defaults to `mode=reproduction`, which requires the affected source
+revision. Repair candidates use `mode=repair_verification` against the exact
+pull revision; this is the only changed-revision attempt accepted by runtime
+repair verification, and it must cleanly report the original invariant as not
+observed. The mode does not grant code, workspace, preview, or deployment
+authority.
+
 ### Runtime-informed repair delivery
 
 Repository writers create governed repair work with `POST
@@ -4588,3 +4595,9 @@ must select `pause`, `restore_known_good`, or `reopen_diagnosis`, retaining the
 original impact and failed result without performing the operational action.
 State defaults to `$RUNTIME_REPAIR_ROOT` and remains visible through
 `view=debugging`.
+
+`production_debugging_workflow_test.go` exercises the complete public-HTTP and
+stock-Git path from a consented intermittent released-user report through
+bounded/redacted collection, challenged human-agent diagnosis, revoked agent
+access, privacy-safe replay, failed-first candidate evidence, ordinary reviewed
+delivery, a contained staged failure, and confirmed production recovery.
