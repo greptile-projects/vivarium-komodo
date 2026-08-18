@@ -357,6 +357,86 @@ func registerDurableSchemasHTTP(mux *http.ServeMux, s *durableschemas.Store, rep
 		}
 		writeJSON(w, 201, x)
 	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/executions/{execution}/recovery-points", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in durableschemas.RecoveryPointInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.RecordRecoveryPoint(string(repo.ID), r.PathValue("migration"), r.PathValue("execution"), a.UserID, in)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/executions/{execution}/recoveries", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in durableschemas.RecoveryActionInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.RecoverExecution(string(repo.ID), r.PathValue("migration"), r.PathValue("execution"), a.UserID, in)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/retirement", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in durableschemas.RetirementInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.OpenRetirement(string(repo.ID), r.PathValue("migration"), a.UserID, in)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/retirement/approvals", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedRevision int64  `json:"expected_revision"`
+			OwnerID          string `json:"owner_id"`
+			Decision         string `json:"decision"`
+			Rationale        string `json:"rationale"`
+		}
+		if !readJSON(w, r, &in, 1<<16) {
+			return
+		}
+		x, e := s.ApproveRetirement(string(repo.ID), r.PathValue("migration"), a.UserID, in.OwnerID, in.Decision, in.Rationale, in.ExpectedRevision)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/retirement/complete", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in durableschemas.RetirementCompletionInput
+		if !readJSON(w, r, &in, 2<<20) {
+			return
+		}
+		x, e := s.CompleteRetirement(string(repo.ID), r.PathValue("migration"), a.UserID, in)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
 }
 
 func durableSchemaTargetAccess(w http.ResponseWriter, r *http.Request, repos proposalRepositoryStore, c authStore, target string, scope auth.Scope) bool {

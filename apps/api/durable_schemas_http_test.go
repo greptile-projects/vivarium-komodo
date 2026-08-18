@@ -92,6 +92,16 @@ func TestDurableSchemaAndMigrationPublicContract(t *testing.T) {
 		t.Fatalf("governed live execution missing: %+v", plan.Executions)
 	}
 	execution := plan.Executions[0]
+	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/approvals", consumer, `{"owner_id":"consumer","decision":"rejected","rationale":"revoke while a conflicting writer is investigated"}`, 201, &plan)
+	execution = plan.Executions[0]
+	if execution.State != "paused" || execution.SafetyPoint == nil || !slices.Contains(execution.SafetyPoint.Reasons, "approval_revoked:consumer") {
+		t.Fatalf("revoked approval did not force an attributable safety pause: %+v", execution)
+	}
+	workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/controls", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"resume","reason":"must not bypass revoked approval"}`, 422, nil)
+	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/approvals", consumer, `{"owner_id":"consumer","decision":"approved","rationale":"conflicting writer stopped; approval restored"}`, 201, &plan)
+	execution = plan.Executions[0]
+	workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/controls", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"resume","reason":"owner approval restored"}`, 201, &plan)
+	execution = plan.Executions[0]
 	observe := func(progress float64, passed bool, deploymentID string) {
 		body := `{"expected_revision":` + fmt.Sprint(execution.Revision) + `,"progress":` + fmt.Sprint(progress) + `,"lag":2,"lag_unit":"seconds","invariants":[{"name":"identity preserved","passed":` + fmt.Sprint(passed) + `,"detail":"aggregate old/new identities agree"}],"service_health":[{"service":"worker","status":"healthy","detail":"error rate within objective"}],"privacy_status":"compliant","privacy_detail":"aggregate metrics only","incremental_cost":1.5,"summary":"phase observation"`
 		if deploymentID != "" {
@@ -102,14 +112,21 @@ func TestDurableSchemaAndMigrationPublicContract(t *testing.T) {
 		execution = plan.Executions[0]
 	}
 	observe(40, false, "")
-	if len(execution.Blockers) == 0 || slices.Contains(execution.NextActions, "advance_to:deploy") {
+	if execution.State != "paused" || execution.SafetyPoint == nil || len(execution.Blockers) == 0 || slices.Contains(execution.NextActions, "advance_to:deploy") {
 		t.Fatalf("failed invariant did not block: %+v", execution)
+	}
+	workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/recoveries", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"open_repair","evidence":["observation:`+execution.SafetyPoint.ObservationID+`"],"reason":"trace conflicting legacy writer","repair_kind":"task","repair_id":"task-reconcile-writer","owner_id":"owner"}`, 201, &plan)
+	execution = plan.Executions[0]
+	if len(execution.RecoveryActions) != 1 || execution.RecoveryActions[0].RepairID != "task-reconcile-writer" || execution.State != "paused" {
+		t.Fatalf("connected repair did not retain the safety evidence: %+v", execution)
 	}
 	workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/controls", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"pause","reason":"inspect identity mismatch"}`, 201, &plan)
 	execution = plan.Executions[0]
 	workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/controls", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"throttle","throttle":25,"reason":"bound database load"}`, 201, &plan)
 	execution = plan.Executions[0]
 	workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/controls", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"resume","reason":"aggregate mismatch resolved"}`, 201, &plan)
+	execution = plan.Executions[0]
+	workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/recovery-points", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"schema_version":2,"artifact_digest":"sha256:recovery-expand-40","attestation":"aggregate snapshot verified by restore rehearsal","counts":{"jobs":1000}}`, 201, &plan)
 	execution = plan.Executions[0]
 	for phase := 0; phase < 5; phase++ {
 		if execution.Phase == "cutover" {
@@ -123,8 +140,14 @@ func TestDurableSchemaAndMigrationPublicContract(t *testing.T) {
 		workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/advance", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`}`, 201, &plan)
 		execution = plan.Executions[0]
 	}
-	if execution.State != "completed" || execution.Phase != "contract" || execution.Cost != 9 || len(execution.Controls) != 3 || execution.Throttle != 25 {
+	if execution.State != "completed" || execution.Phase != "contract" || execution.Cost != 9 || len(execution.Controls) != 4 || execution.Throttle != 25 {
 		t.Fatalf("live migration did not retain ordered evidence and controls: %+v", execution)
+	}
+	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/retirement", owner, `{"execution_id":"`+execution.ID+`","compatibility_code":["worker dual-read flag"],"obsolete_fields":["jobs.user_id"],"success_evidence":["observation:zero-old-reads-24h"],"observation_started_at":"2020-01-01T00:00:00Z","observation_ends_at":"2020-01-02T00:00:00Z","required_owner_ids":["consumer"]}`, 201, &plan)
+	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/retirement/approvals", consumer, `{"expected_revision":1,"owner_id":"consumer","decision":"approved","rationale":"observation window proves old reads drained"}`, 201, &plan)
+	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/retirement/complete", owner, `{"expected_revision":2,"retained_data":["1000 job payloads and subject identifiers"],"deleted_data":["1000 legacy user_id values"],"deletion_evidence":["sha256:deletion-report"],"irreversible_decisions":["jobs.user_id physically removed"],"exceptions":["archived sanitized aggregate report retained"],"environments":[{"environment_id":"`+environment.ID+`","environment_name":"Production","schema_version":2,"definition_digest":"sha256:jobs-v2"}],"cost":3,"currency":"USD"}`, 201, &plan)
+	if plan.Retirement == nil || plan.Retirement.Completion == nil || len(plan.Retirement.Completion.Environments) != 1 || len(execution.Observations) != 6 {
+		t.Fatalf("verified retirement did not preserve execution evidence: %+v", plan.Retirement)
 	}
 	_, err := store.StartExecution(string(repo.ID), plan.ID, "agent:unassigned", durableschemas.StartExecutionInput{EnvironmentID: environment.ID, EnvironmentName: environment.Name, ActiveRevision: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", ControllerKind: "agent", ControllerID: "agent:unassigned", CompatibilityEndsAt: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC), MaximumCost: 10, Currency: "USD", PrivacyConstraints: []string{"aggregate evidence only"}})
 	if err != durableschemas.ErrInvalid {
