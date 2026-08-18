@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Badge, Button } from "@/components/ui";
 import { RuntimeInvestigations } from "@/components/runtime-investigations";
+import { RuntimeReplays } from "@/components/runtime-replays";
 type Binding = {
   kind: string;
   resource_id?: string;
@@ -636,6 +637,7 @@ export function DebuggingWorkspaces({
             participants={w.participant_ids.includes(actor)}
             probes={probes[w.id] || []}
           />
+          <RuntimeReplays repository={repository} workspace={w.id} revision={w.source_revision} participant={w.participant_ids.includes(actor)} evidence={(probes[w.id]||[]).flatMap(p=>p.captures.map(c=>c.id))}/>
           <h4>Hypotheses</h4>
           {w.hypotheses.map((x) => (
             <p key={x.id}>

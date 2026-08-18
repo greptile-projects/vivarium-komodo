@@ -2517,3 +2517,18 @@ cited claims; guidance, pause, resume, expiry, and revocation remain
 attributable. Investigations and agents receive no secret, provider, telemetry,
 Git, repository mutation, deployment, environment, or operational authority.
 The repository web surface remains `view=debugging`.
+Privacy-safe runtime replays live beneath `$RUNTIME_REPLAY_ROOT` (default
+`apps/api/data/runtime-replays`) and remain beneath one exact production-
+debugging workspace. Participants derive a minimized synthetic or privacy-
+preserving scenario only from permitted sanitized capture or investigation
+evidence, retaining transformations rather than protected source values.
+Scenarios bind commands and invariants to the affected revision and run only
+against a named isolated workspace or preview. Append-only attempts retain the
+environment, commands, sanitized traces and outputs, invariant results, cost,
+and production differences. Two clean matching attempts are required for the
+derived reproduced state; changed revisions, nondeterminism, missing
+dependencies, unsafe side effects, and irreducible production conditions remain
+explicit blockers. Human and agent participants may append attributable
+refinements, but replays grant no provider, production-data, secret, telemetry,
+Git, deployment, environment, credential, or operational authority. The
+repository web surface remains `view=debugging`.
