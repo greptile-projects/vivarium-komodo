@@ -77,6 +77,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/roadmapdelivery"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/roadmapvalidations"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/runtimeprobes"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityreports"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/serviceobjectives"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -495,6 +496,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	runtimeProbeRoot := os.Getenv("RUNTIME_PROBE_ROOT")
+	if runtimeProbeRoot == "" {
+		runtimeProbeRoot = "data/runtime-probes"
+	}
+	runtimeProbeStore, err := runtimeprobes.New(runtimeProbeRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	reliabilityPolicyRoot := os.Getenv("RELIABILITY_POLICY_ROOT")
 	if reliabilityPolicyRoot == "" {
 		reliabilityPolicyRoot = "data/reliability-policies"
@@ -760,6 +769,7 @@ func main() {
 	registerReliabilityPoliciesHTTP(mux, reliabilityPolicyStore, serviceObjectiveStore, repositoryCatalog, credentials)
 	registerReliabilityInvestigationsHTTP(mux, reliabilityInvestigationStore, serviceObjectiveStore, repositoryCatalog, credentials)
 	registerDebuggingWorkspacesHTTP(mux, debuggingWorkspaceStore, repositoryCatalog, credentials, releaseStore)
+	registerRuntimeProbesHTTP(mux, runtimeProbeStore, debuggingWorkspaceStore, repositoryCatalog, credentials)
 	registerReliabilityImprovementsHTTP(mux, reliabilityImprovementStore, reliabilityInvestigationStore, serviceObjectiveStore, proposalStore, repositoryCatalog, credentials)
 	registerTranslationUnitsHTTP(mux, translationUnitStore, repositoryCatalog, credentials, translationUnitSources{pulls: pullRequestStore, repositories: repositoryCatalog, plans: localePlanStore})
 	registerLocalizationVerificationHTTP(mux, localizationVerificationStore, repositoryCatalog, credentials, localizationVerificationSources{pulls: pullRequestStore, repositories: repositoryCatalog, translations: translationUnitStore, previews: previewStore})

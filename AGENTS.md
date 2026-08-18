@@ -2483,3 +2483,19 @@ hypotheses and status/access changes retain attributable history. The workspace
 stores no runtime evidence or secrets and grants no repository mutation,
 credential, deployment, environment, or operational authority. The repository
 web surface is `view=debugging`.
+
+Privacy-safe runtime probes live beneath `$RUNTIME_PROBE_ROOT` (default
+`apps/api/data/runtime-probes`) and always bind one production-debugging
+workspace and its affected environment. A participant requests a logs, traces,
+profile, state-snapshot, or exact-source repository diagnostic probe for at
+most 24 hours with bounded scope, purpose, consent actors, and a preview of
+data categories, cost, load, sampling, retention, privacy/security policy, and
+audience. A named workspace owner separately approves or denies collection.
+Append-only captures retain collector provenance, timing, expected and captured
+counts, explicit gaps, completeness, transformations, and sanitized bounded
+records; secret- and user-data-shaped fields are redacted before persistence.
+Expiry, owner revocation, overload, and consent revocation stop collection,
+while narrowing remains explicit and partial captures are always labeled
+incomplete. Probe requests, approvals, evidence, and controls issue no provider,
+environment, deployment, credential, data, repository-mutation, or operational
+authority. The repository web surface remains `view=debugging`.

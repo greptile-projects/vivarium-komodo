@@ -3,6 +3,28 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Collaborative production debugging
+
+`/repositories/{repository}/debugging-workspaces` binds an observed failure to
+one immutable running release, exact source and package/configuration/
+infrastructure context, environment, time window, audience, and participants.
+Runtime collection is a separate approval boundary beneath each workspace at
+`/{workspace}/probes`. Participants may request a bounded logs, traces, profile,
+state snapshot, or repository-defined diagnostic probe only when that evidence
+kind was permitted by the workspace. The request previews categories, cost,
+load, audience, sampling, retention, and governing privacy/security policy;
+repository diagnostics must point to the workspace's exact source revision.
+
+An affected workspace owner approves or denies the environment-scoped request.
+Accepted capture submissions are sanitized before persistence and retain
+provenance, timing, expected/captured counts, transformations, and gaps.
+Incomplete attempts stay explicitly partial. Probes last no more than 24 hours,
+and expiry, overload, owner revocation, or a named actor's consent revocation
+prevents later capture. These records coordinate inspectable evidence and never
+act as a provider connection, reusable credential, production-data grant, or
+deployment/environment authority. Durable probe state is rooted at
+`$RUNTIME_PROBE_ROOT`.
+
 ## API contracts
 
 Repository API producers publish immutable service interface versions at
