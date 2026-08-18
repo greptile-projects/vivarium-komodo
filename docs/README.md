@@ -4423,3 +4423,27 @@ visible blockers even after every executable check passes. A changed pull
 revision, definition, observation, provider, or policy makes attached evidence
 non-current. Rehearsals provide reviewable evidence only and grant no provider,
 credential, deployment, environment, approval, or production authority.
+
+### Authoritative infrastructure execution
+
+After a pull request merges, its owner can apply the exact reviewed plan at
+`/repositories/{repository}/pull-requests/{pull}/infrastructure-plans/{plan}/executions`.
+Creation is rejected unless the candidate revision is the merged pull source,
+the plan and observation inputs remain current, every affected resource owner
+has acknowledged, every policy effect is satisfied, and at least one current
+rehearsal passes without blockers. The run binds the merge revision to an
+existing governed deployment environment, its approval count, a credential
+reference expiring within 24 hours, explicit provider scopes, and a cost
+ceiling. No credential value is accepted or returned.
+
+Execution steps follow the plan's dependency order and retain the responsible
+controller, sanitized provider response, health, incremental cost, blockers,
+next action, and whether intervention is currently safe. Environment writers
+can record required approvals; the repository owner starts, pauses, resumes, or
+cancels at declared safety points. A delegated agent may apply only its exact
+named step before both delegation and provider lease expire, and cannot apply a
+destroy step. Budget exhaustion, expired credentials, unhealthy provider state,
+and failed steps remain explicit blockers. The Infrastructure web workspace
+opens the exact plan, applies it, and follows cost, health, progress, and safe
+controls without granting secret, approval, destructive, unrelated-provider,
+repository, or deployment authority.

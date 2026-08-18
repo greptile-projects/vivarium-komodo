@@ -429,6 +429,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	infrastructurePlanStore.ConfigureExecutionAuthority(infrastructureExecutionEnvironments{deploymentStore})
 	recoveryObjectiveRoot := os.Getenv("RECOVERY_OBJECTIVE_ROOT")
 	if recoveryObjectiveRoot == "" {
 		recoveryObjectiveRoot = "data/recovery-objectives"

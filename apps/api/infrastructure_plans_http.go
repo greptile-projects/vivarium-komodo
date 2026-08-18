@@ -15,6 +15,17 @@ func (p infrastructurePlanPulls) CurrentRevision(repo, pull string) (string, err
 	v, e := p.store.Get(repo, pull)
 	return v.SourceCommitID, e
 }
+func (p infrastructurePlanPulls) MergedRevision(repo, pull string) (string, string, bool, error) {
+	v, e := p.store.Get(repo, pull)
+	return v.SourceCommitID, v.MergeCommitID, v.Status == pullrequests.Merged, e
+}
+
+type infrastructureExecutionEnvironments struct{ store deploymentStore }
+
+func (e infrastructureExecutionEnvironments) ExecutionEnvironment(repo, environment string) (int, bool) {
+	v, err := e.store.GetEnvironment(repo, environment)
+	return v.RequiredApprovals, err == nil
+}
 
 func registerInfrastructurePlansHTTP(mux *http.ServeMux, s *infrastructureplans.Store, repos dataFlowRepositories, c authStore) {
 	base := "/repositories/{repository}/pull-requests/{pull}/infrastructure-plans"
@@ -159,6 +170,71 @@ func registerInfrastructurePlansHTTP(mux *http.ServeMux, s *infrastructureplans.
 		v, e := s.RecordRehearsalAttempt(repo, r.PathValue("pull"), r.PathValue("plan"), r.PathValue("rehearsal"), actor, in)
 		if !infraPlanError(w, e) {
 			writeJSON(w, 201, v)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{plan}/executions", func(w http.ResponseWriter, r *http.Request) {
+		catalog, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		repo, actor := string(catalog.ID), a.UserID
+		if catalog.OwnerID != actor {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var in infrastructureplans.ExecutionInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.StartExecution(repo, r.PathValue("pull"), r.PathValue("plan"), actor, in)
+		if !infraPlanError(w, e) {
+			writeJSON(w, 201, v)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{plan}/executions/{execution}/approvals", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		v, e := s.ApproveExecution(repo, r.PathValue("pull"), r.PathValue("plan"), r.PathValue("execution"), actor)
+		if !infraPlanError(w, e) {
+			writeJSON(w, 200, v)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{plan}/executions/{execution}/control", func(w http.ResponseWriter, r *http.Request) {
+		catalog, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		repo, actor := string(catalog.ID), a.UserID
+		if catalog.OwnerID != actor {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var in struct {
+			Action string `json:"action"`
+			Reason string `json:"reason"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		v, e := s.ControlExecution(repo, r.PathValue("pull"), r.PathValue("plan"), r.PathValue("execution"), actor, in.Action, in.Reason)
+		if !infraPlanError(w, e) {
+			writeJSON(w, 200, v)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{plan}/executions/{execution}/steps/{step}", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in infrastructureplans.StepUpdate
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		v, e := s.UpdateExecutionStep(repo, r.PathValue("pull"), r.PathValue("plan"), r.PathValue("execution"), r.PathValue("step"), actor, in)
+		if !infraPlanError(w, e) {
+			writeJSON(w, 200, v)
 		}
 	})
 }

@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-18T07:21:47Z: Added authoritative exact-merged infrastructure executions gated by current plans, rehearsals, owner acknowledgements, satisfying policy, governed environment approvals, short-lived scoped provider references, and cost ceilings. Dependency-ordered provider/health/cost progress, safe owner controls, and exact-step non-destructive agent delegation are available through the public API and Infrastructure web workspace.
+
 2026-08-18T04:59:47Z: Added immutable exact-pull-revision infrastructure change plans with inventory/observation inputs, dependency-ordered create/change/replace/destroy actions, six-domain risks, policy effects, rollback limits, read-scoped collaboration and affected-owner acknowledgements. Source, definition, observed-state, provider, or policy changes now visibly stale plans and approvals without granting execution authority.
 
 2026-08-18T00:01:42Z: Added bounded migration rehearsals on synthetic or privacy-preserving representative state with exact application/schema/migration/check/data-shape/dependency inputs, sanitized aggregate correctness, performance, artifact, cost, rollback and failure-injection evidence, attributable investigation and attestations, and affected-input-only staleness in the `view=state` surface.
