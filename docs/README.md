@@ -4309,3 +4309,19 @@ approvals. Each affected owner records their own attributable approval or
 rejection; publication and approval do not grant data-store, deployment,
 environment, review, merge, or credential authority. Durable records are stored
 beneath `$DURABLE_SCHEMA_ROOT` (default `apps/api/data/durable-schemas`).
+
+Each migration can contain bounded rehearsals at its `/rehearsals` resource.
+A rehearsal declares only synthetic or privacy-preserving representative data
+metadata—never fixture rows or production data—and freezes exact application,
+migration, repository check-definition, schema, data-shape, and dependency
+identities. Its repository-defined checks cover upgrade, old/new reads and
+writes, backfill, validation, rollback where supported, and injected failure.
+Attempts are append-only and retain redacted logs, aggregate row and object
+counts, invariants, performance, artifact digests, duration, cost, and a runner
+attestation within declared limits. Repository readers and scoped agents can
+publish cited findings and uncertainty, while collaborators append human
+acceptance or rejection. Each check declares its own input keys, so a changed
+application, definition, data shape, migration, or dependency invalidates only
+the evidence that consumed it. The `view=state` surface exposes current and
+stale attempts without granting data, runner, environment, credential,
+deployment, or migration authority.

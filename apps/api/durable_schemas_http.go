@@ -158,6 +158,92 @@ func registerDurableSchemasHTTP(mux *http.ServeMux, s *durableschemas.Store, rep
 		}
 		writeJSON(w, 201, x)
 	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/rehearsals", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in durableschemas.RehearsalInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.CreateRehearsal(string(repo.ID), r.PathValue("migration"), a.UserID, in)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/rehearsals/{rehearsal}/inputs", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion      int64             `json:"expected_version"`
+			ApplicationRevisions map[string]string `json:"application_revisions"`
+			Dependencies         map[string]string `json:"dependencies"`
+			MigrationRevision    string            `json:"migration_revision"`
+			DefinitionDigest     string            `json:"definition_digest"`
+			DataShapeDigest      string            `json:"data_shape_digest"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.UpdateRehearsalInputs(string(repo.ID), r.PathValue("migration"), r.PathValue("rehearsal"), a.UserID, in.ExpectedVersion, in.ApplicationRevisions, in.Dependencies, in.MigrationRevision, in.DefinitionDigest, in.DataShapeDigest)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/rehearsals/{rehearsal}/attempts", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in durableschemas.AttemptInput
+		if !readJSON(w, r, &in, 2<<20) {
+			return
+		}
+		x, e := s.RecordAttempt(string(repo.ID), r.PathValue("migration"), r.PathValue("rehearsal"), a.UserID, in)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/rehearsals/{rehearsal}/attestations", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			AttemptID string `json:"attempt_id"`
+			Decision  string `json:"decision"`
+			Rationale string `json:"rationale"`
+		}
+		if !readJSON(w, r, &in, 1<<16) {
+			return
+		}
+		x, e := s.AttestRehearsal(string(repo.ID), r.PathValue("migration"), r.PathValue("rehearsal"), a.UserID, in.AttemptID, in.Decision, in.Rationale)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/rehearsals/{rehearsal}/investigation", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in durableschemas.InvestigationNote
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.AddInvestigation(string(repo.ID), r.PathValue("migration"), r.PathValue("rehearsal"), a.UserID, in)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
 }
 
 func durableSchemaTargetAccess(w http.ResponseWriter, r *http.Request, repos proposalRepositoryStore, c authStore, target string, scope auth.Scope) bool {

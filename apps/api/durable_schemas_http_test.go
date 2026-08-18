@@ -59,4 +59,32 @@ func TestDurableSchemaAndMigrationPublicContract(t *testing.T) {
 	if len(plan.PullContracts) != 1 || plan.PullContracts[0].Revision == "" || len(plan.Events) != 5 {
 		t.Fatalf("review contract missing: %+v", plan)
 	}
+	rehearsal := `{"title":"Queue identity migration rehearsal","application_revisions":{"api":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","worker":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"migration_revision":"cccccccccccccccccccccccccccccccccccccccc","definition_path":".komodo/migration-checks.json","definition_digest":"sha256:checks-v1","dataset":{"kind":"privacy_preserving_representative","generator":"fixtures/jobs-v2.go","shape_digest":"sha256:shape-v1","privacy_method":"irreversible tokenization and rare-value suppression","row_count":1000,"object_count":1000,"byte_count":64000},"dependencies":{"postgres":"16.4"},"checks":[{"id":"upgrade","kind":"upgrade","command":"go test ./migrations -run Upgrade","input_keys":["migration","definition","data_shape","dependency:postgres"],"expected":["1000 rows upgraded"],"rollback_possible":true},{"id":"dual-read","kind":"dual_read","command":"go test ./compat -run DualRead","input_keys":["application:worker","definition","data_shape"],"expected":["old and new rows preserve subject meaning"]},{"id":"dual-write","kind":"dual_write","command":"go test ./compat -run DualWrite","input_keys":["application:api","definition","data_shape"],"expected":["both identifiers agree"]},{"id":"backfill","kind":"backfill","command":"go test ./migrations -run Backfill","input_keys":["migration","data_shape"],"expected":["backfill is idempotent"]},{"id":"validate","kind":"validation","command":"go test ./migrations -run Validate","input_keys":["application:worker","migration","data_shape"],"expected":["all invariants pass"]},{"id":"rollback","kind":"rollback","command":"go test ./migrations -run Rollback","input_keys":["migration","data_shape"],"expected":["pre-cutover state restored"],"rollback_possible":true},{"id":"failure","kind":"failure_injection","command":"go test ./migrations -run InterruptedBackfill","input_keys":["migration","dependency:postgres","data_shape"],"expected":["retry resumes without duplicate writes"]}],"maximum_duration_seconds":120,"maximum_cost":5,"currency":"USD"}`
+	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/rehearsals", owner, rehearsal, 201, &plan)
+	if len(plan.Rehearsals) != 1 || plan.Rehearsals[0].Authority == nil || plan.Rehearsals[0].Dataset.Kind != "privacy_preserving_representative" {
+		t.Fatalf("bounded rehearsal missing: %+v", plan.Rehearsals)
+	}
+	rh := plan.Rehearsals[0]
+	results := `{"expected_version":1,"input_digests":{"application:api":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","application:worker":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","migration":"cccccccccccccccccccccccccccccccccccccccc","definition":"sha256:checks-v1","data_shape":"sha256:shape-v1","dependency:postgres":"16.4"},"results":[` +
+		`{"check_id":"upgrade","status":"passed","sanitized_log":"authorization: Bearer should-not-survive\n1000 rows upgraded","counts":[{"name":"jobs","before":1000,"after":1000}],"invariants":[{"name":"row identity","passed":true,"detail":"all representative identities preserved"}],"performance":[{"name":"upgrade","value":810,"unit":"ms","limit":2000}],"artifacts":[{"name":"upgrade-report.json","digest":"sha256:upgrade","media_type":"application/json","size":240}],"duration_ms":810,"cost":0.2},` +
+		`{"check_id":"dual-read","status":"passed","sanitized_log":"both versions read 1000 rows","duration_ms":120,"cost":0.1},{"check_id":"dual-write","status":"passed","sanitized_log":"both versions wrote compatible rows","duration_ms":130,"cost":0.1},{"check_id":"backfill","status":"passed","sanitized_log":"second pass changed zero rows","duration_ms":400,"cost":0.1},{"check_id":"validate","status":"passed","sanitized_log":"meaning preserved","duration_ms":90,"cost":0.1},{"check_id":"rollback","status":"passed","sanitized_log":"rollback restored old reader state","duration_ms":310,"cost":0.1},{"check_id":"failure","status":"passed","sanitized_log":"interruption resumed at cursor 500","duration_ms":510,"cost":0.2}],"attestation":"isolated networkless runner; no production credentials or authority"}`
+	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/rehearsals/"+rh.ID+"/attempts", owner, results, 201, &plan)
+	rh = plan.Rehearsals[0]
+	if len(rh.Blockers) != 0 || !rh.Attempts[0].Results[0].Redacted || strings.Contains(rh.Attempts[0].Results[0].SanitizedLog, "Bearer") {
+		t.Fatalf("sanitized current rehearsal evidence missing: %+v", rh)
+	}
+	attemptID := rh.Attempts[0].ID
+	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/rehearsals/"+rh.ID+"/investigation", consumer, `{"actor_kind":"human","attempt_id":"`+attemptID+`","check_id":"failure","body":"Resume cursor remained stable after dependency interruption","evidence":["artifact:sha256:upgrade","check:failure"],"uncertainty":"does not model multi-region latency"}`, 201, &plan)
+	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/rehearsals/"+rh.ID+"/attestations", consumer, `{"attempt_id":"`+attemptID+`","decision":"accepted","rationale":"counts, invariants, rollback, and injected failure are reviewable"}`, 201, &plan)
+	rh = plan.Rehearsals[0]
+	change := `{"expected_version":4,"application_revisions":{"api":"dddddddddddddddddddddddddddddddddddddddd","worker":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}`
+	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/rehearsals/"+rh.ID+"/inputs", owner, change, 201, &plan)
+	rh = plan.Rehearsals[0]
+	stale := map[string]bool{}
+	for _, result := range rh.Attempts[0].Results {
+		stale[result.CheckID] = result.Stale
+	}
+	if !stale["dual-write"] || stale["upgrade"] || stale["dual-read"] || len(rh.Investigation) != 1 || len(rh.Attestations) != 1 || !rh.Attestations[0].Stale {
+		t.Fatalf("affected-only invalidation or public collaboration missing: stale=%v rehearsal=%+v", stale, rh)
+	}
 }
