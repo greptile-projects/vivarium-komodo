@@ -24,6 +24,7 @@ import { ProductExperiments } from "@/components/product-experiments";
 import { ProductFeedback } from "@/components/product-feedback";
 import { SupportQuestions } from "@/components/support-questions";
 import { APIContracts } from "@/components/api-contracts";
+import { DesignSystems } from "@/components/design-systems";
 import { APIConsumers } from "@/components/api-consumers";
 import { APIMigrations } from "@/components/api-migrations";
 import { DataCommitments } from "@/components/data-commitments";
@@ -1303,6 +1304,8 @@ export default function RepositoryPage({
                               ? "support"
                             : query.view === "apis"
                               ? "apis"
+                            : query.view === "design"
+                              ? "design"
                             : query.view === "contribute"
                               ? "contribute"
                               : query.view === "documentation"
@@ -1383,6 +1386,7 @@ export default function RepositoryPage({
         view === "feedback" ||
         view === "support" ||
         view === "apis" ||
+        view === "design" ||
         view === "issues" ||
         view === "documentation" ||
         view === "people" ||
@@ -1619,6 +1623,10 @@ export default function RepositoryPage({
           <Code size={15} />
           APIs
         </button>
+        <button className={view === "design" ? "active" : ""} onClick={() => navigate({ view: "design", path: "" })}>
+          <Sparkles size={15} />
+          Design
+        </button>
         <button
           className={view === "support" ? "active" : ""}
           onClick={() => navigate({ view: "support", path: "" })}
@@ -1854,6 +1862,8 @@ export default function RepositoryPage({
         <DebuggingWorkspaces repository={repository.id} actor={actor} />
       ) : view === "apis" ? (
         <><APIContracts repository={repository.id} actor={actor} /><APIConsumers repository={repository.id} actor={actor} /><APIMigrations repository={repository.id} actor={actor} /></>
+      ) : view === "design" ? (
+        <DesignSystems repository={repository.id} actor={actor} />
       ) : view === "documentation" ? (
         <DocumentationCollections repository={repository.id} actor={actor} owner={repository.owner_id} revision={ref} />
       ) : view === "contribute" ? (
