@@ -25,6 +25,26 @@ act as a provider connection, reusable credential, production-data grant, or
 deployment/environment authority. Durable probe state is rooted at
 `$RUNTIME_PROBE_ROOT`.
 
+Participants turn selected sanitized captures into a shared explanation at
+`/{workspace}/investigations`. Opening an investigation pins the workspace's
+source revision, validates capture provenance and audience, resolves cited code
+paths at that commit, and records explicit correlations to symbols, commits,
+dependencies, configuration, infrastructure, deployments, and known issues.
+Claims at `/{investigation}/claims` must cite retained evidence, correlations,
+or earlier claims. Challenges derive disputes, inaccessible evidence derives
+blockers, and code-revision movement derives staleness; append-only updates
+stream through `/{investigation}/events?after={sequence}`.
+
+Participants request attributable code, service, privacy, or security owner
+input at `/{investigation}/owner-requests`. Repository writers may create a
+read-only agent session at `/{investigation}/agents`, selecting only the
+evidence and correlations it may inspect. The shown-once credential works only
+at `/runtime-investigation-agent/context` and `/claims`, expires within 24
+hours, and can be guided, paused, resumed, or revoked by participant controls.
+It provides no secrets, provider access, Git, deployment, environment, or
+mutation authority. Durable explanation state is rooted at
+`$RUNTIME_INVESTIGATION_ROOT`; the live web canvas remains `view=debugging`.
+
 ## API contracts
 
 Repository API producers publish immutable service interface versions at
