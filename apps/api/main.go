@@ -29,6 +29,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/dependencyinventory"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/dependencyupdates"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/designgovernance"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/designproposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/designsystems"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/docscollections"
@@ -429,6 +430,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	designGovernanceRoot := os.Getenv("DESIGN_GOVERNANCE_ROOT")
+	if designGovernanceRoot == "" {
+		designGovernanceRoot = "data/design-governance"
+	}
+	designGovernanceStore, err := designgovernance.New(designGovernanceRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	apiConsumerRoot := os.Getenv("API_CONSUMER_ROOT")
 	if apiConsumerRoot == "" {
 		apiConsumerRoot = "data/api-consumers"
@@ -813,6 +822,7 @@ func main() {
 	registerDesignSystemsHTTP(mux, designSystemStore, repositoryCatalog, credentials)
 	registerDesignProposalsHTTP(mux, designProposalStore, repositoryCatalog, credentials, proposalStore, pullRequestStore)
 	registerInterfaceChecksHTTP(mux, interfaceCheckStore, repositoryCatalog, credentials, interfaceCheckSources{pulls: pullRequestStore, repositories: repositoryCatalog, designs: designProposalStore})
+	registerDesignGovernanceHTTP(mux, designGovernanceStore, interfaceCheckStore, repositoryCatalog, organizationStore, credentials, pullRequestStore)
 	registerAPIConsumersHTTP(mux, apiConsumerStore, repositoryCatalog, credentials)
 	registerDurableSchemasHTTP(mux, durableSchemaStore, repositoryCatalog, credentials, deploymentStore)
 	registerInfrastructureStateHTTP(mux, infrastructureStateStore, repositoryCatalog, credentials)
@@ -860,7 +870,7 @@ func main() {
 	registerContributionOpportunitiesHTTP(mux, contributionOpportunityStore, repositoryCatalog, credentials, issueStore, proposalStore, organizationStore, contributorPathwayStore, workspaceStore, workspaceRunner, pullRequestStore, checkRunner, releaseStore)
 	registerIssueRepairsHTTP(mux, issueStore, proposalStore, pullRequestStore, repositoryCatalog, credentials, issueReproductionRunner, checkRunStore)
 	registerProposalTaskSessionsHTTP(mux, proposalStore, changeSessionStore, repositoryCatalog, credentials, activityStore, pullRequestStore, checkRunner)
-	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore, previewStore, federationStore, performanceGoalStore, accessibilityPolicyStore, accessibilityAssessmentStore, privacyVerificationStore, localizationDeliveryStore, localizationVerificationStore)
+	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore, previewStore, federationStore, performanceGoalStore, accessibilityPolicyStore, accessibilityAssessmentStore, privacyVerificationStore, localizationDeliveryStore, localizationVerificationStore, designGovernanceStore, interfaceCheckStore)
 	registerPreviewsHTTP(mux, previewStore, previewRunner, pullRequestStore, repositoryCatalog, credentials, previewSources{issues: issueStore, decisions: decisionStore, proposals: proposalStore}, previewRepairStores{plans: proposalStore, sessions: changeSessionStore, workspaces: workspaceStore, workspaceRunner: workspaceRunner})
 	registerReleasesHTTP(mux, releaseStore, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials)
 	registerPackagesHTTP(mux, packageStore, releaseStore, checkRunStore, repositoryCatalog, credentials)
