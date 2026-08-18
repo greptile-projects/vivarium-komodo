@@ -2499,3 +2499,21 @@ while narrowing remains explicit and partial captures are always labeled
 incomplete. Probe requests, approvals, evidence, and controls issue no provider,
 environment, deployment, credential, data, repository-mutation, or operational
 authority. The repository web surface remains `view=debugging`.
+Shared live-behavior investigations live beneath `$RUNTIME_INVESTIGATION_ROOT`
+(default `apps/api/data/runtime-investigations`) and remain beneath one exact
+production-debugging workspace. Participants select sanitized probe captures
+and correlate them with exact-revision symbols, commits, dependencies,
+configuration, infrastructure, deployments, and known issues. Every hypothesis,
+reproducible query, finding, challenge, support statement, and uncertainty is
+attributable and cites retained evidence, a correlation, or another claim;
+derived projections expose proposed, supported, disputed, stale, and
+inaccessible-evidence-blocked claims. Code paths resolve against the affected
+commit, participant-only evidence cannot enter a repository-audience
+investigation, and code, service, privacy, and security owner-input requests
+remain advisory. SSE events stream the append-only explanation. A delegated
+agent receives one shown-once, at-most-24-hour credential limited to selected
+investigation evidence and correlations and may only read that context and add
+cited claims; guidance, pause, resume, expiry, and revocation remain
+attributable. Investigations and agents receive no secret, provider, telemetry,
+Git, repository mutation, deployment, environment, or operational authority.
+The repository web surface remains `view=debugging`.
