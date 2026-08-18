@@ -32,6 +32,8 @@ type Execution struct {
 	NextActions        []string            `json:"next_actions"`
 	SafeControls       []string            `json:"safe_controls"`
 	NonAuthority       []string            `json:"non_authority"`
+	Verifications      []ApplyVerification `json:"verifications"`
+	Monitoring         []DriftAssessment   `json:"monitoring"`
 }
 type ExecutionCredential struct {
 	Reference      string    `json:"reference"`

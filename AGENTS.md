@@ -62,6 +62,20 @@ unrelated provider, repository, deployment, or broader operational authority.
 The public API is beneath each plan's `/executions` resource and the repository
 web surface remains `view=infrastructure`.
 
+Completed infrastructure applies do not imply convergence. Append-only
+verifications beneath an execution bind permitted post-apply observations,
+compare every planned resource, and separately retain service, security,
+privacy, cost, and continuity outcomes. Partial and failed attempts remain
+visible and move the execution to diverged; only complete matching evidence is
+verified convergence. Permission-aware monitoring binds later observations and
+derives configuration drift, unmanaged changes, failed cleanup, provider loss,
+and credential expiry alongside attributable causes. Owners may link incidents
+or exceptions and human- or agent-owned repair, adopt legitimate divergence
+through an exact-revision ordinary review, or request restoration with explicit
+environment policy. These records never rewrite external changes or grant
+provider, credential, incident, exception, review, merge, deployment, repair,
+or environment authority.
+
 Durable state contracts live beneath `$DURABLE_SCHEMA_ROOT` (default
 `apps/api/data/durable-schemas`). Repository writers publish immutable,
 optimistically concurrency-checked schema versions for databases, queues,

@@ -237,6 +237,52 @@ func registerInfrastructurePlansHTTP(mux *http.ServeMux, s *infrastructureplans.
 			writeJSON(w, 200, v)
 		}
 	})
+	mux.HandleFunc("POST "+base+"/{plan}/executions/{execution}/verifications", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in infrastructureplans.VerificationInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.VerifyExecution(repo, r.PathValue("pull"), r.PathValue("plan"), r.PathValue("execution"), actor, in)
+		if !infraPlanError(w, e) {
+			writeJSON(w, 201, v)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{plan}/executions/{execution}/monitoring", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r, false)
+		if !ok {
+			return
+		}
+		var in infrastructureplans.DriftInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.MonitorExecution(repo, r.PathValue("pull"), r.PathValue("plan"), r.PathValue("execution"), actor, in)
+		if !infraPlanError(w, e) {
+			writeJSON(w, 201, v)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{plan}/executions/{execution}/monitoring/{assessment}/actions", func(w http.ResponseWriter, r *http.Request) {
+		catalog, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if catalog.OwnerID != a.UserID {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var in infrastructureplans.DriftActionInput
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		v, e := s.OpenDriftAction(string(catalog.ID), r.PathValue("pull"), r.PathValue("plan"), r.PathValue("execution"), r.PathValue("assessment"), a.UserID, in)
+		if !infraPlanError(w, e) {
+			writeJSON(w, 201, v)
+		}
+	})
 }
 func infraPlanError(w http.ResponseWriter, e error) bool {
 	if e == nil {

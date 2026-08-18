@@ -4447,3 +4447,29 @@ and failed steps remain explicit blockers. The Infrastructure web workspace
 opens the exact plan, applies it, and follows cost, health, progress, and safe
 controls without granting secret, approval, destructive, unrelated-provider,
 repository, or deployment authority.
+
+#### Convergence verification and drift response
+
+A provider-successful run is only an apply, not proof that reviewed intent was
+achieved. Writers append attempts at `/{execution}/verifications`, binding
+permitted provider observations and a comparison for every planned resource.
+Each attempt also reports evidence-backed service, security, privacy, cost, and
+continuity measures. Missing, partial, or failed evidence is retained as
+`not_converged` and marks the execution diverged; an execution becomes verified
+only when every resource matches and all five outcome classes pass.
+
+Repository readers and scoped read-only agents can append observation-bound
+assessments at `/{execution}/monitoring`. Sanitized findings distinguish
+configuration drift, unmanaged changes, failed cleanup, and provider loss,
+retain an available cause without requiring one, and derive expiring or expired
+execution credentials without exposing them. Monitoring never contacts or
+changes the provider.
+
+Only the repository owner may add `/{assessment}/actions`. An incident,
+exception, or human- or agent-owned repair links accountable work; an adoption binds an exact candidate
+revision in `pending_review`, and restoration binds the applicable environment
+policy in `pending_environment_approval`. Work may name a human or agent owner,
+but the link grants neither authority. Adoption therefore proceeds through an
+ordinary reviewed infrastructure definition change, while restoration remains
+subject to the environment's own approval and execution policy. Neither path
+rewrites the observed external change or silently claims convergence.
