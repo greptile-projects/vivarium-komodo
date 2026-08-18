@@ -85,6 +85,7 @@ type Probe = {
     created_at: string;
   }[];
 };
+type Repair = { id:string; workspace_id:string; title:string; owner_kind:string; owner_id:string; affected_revision:string; state:string; proposal_id:string; task_id:string; acceptance_criteria:string[]; regression_criteria:string[]; validations:{id:string;stage:string;state:string;required_action:string}[] };
 const csv = (v: string) =>
   v
     .split(",")
@@ -100,6 +101,7 @@ export function DebuggingWorkspaces({
   const root = `/api/repositories/${repository}/debugging-workspaces`,
     [items, setItems] = useState<W[]>([]),
     [probes, setProbes] = useState<Record<string, Probe[]>>({}),
+    [repairs, setRepairs] = useState<Repair[]>([]),
     [error, setError] = useState("");
   const load = useCallback(async () => {
     const r = await fetch(root);
@@ -116,8 +118,10 @@ export function DebuggingWorkspaces({
         }),
       );
       setProbes(Object.fromEntries(entries));
+      const repairsResponse = await fetch(`/api/repositories/${repository}/runtime-repairs`);
+      if (repairsResponse.ok) setRepairs(((await repairsResponse.json()) as {items:Repair[]}).items);
     }
-  }, [root]);
+  }, [root, repository]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -638,6 +642,8 @@ export function DebuggingWorkspaces({
             probes={probes[w.id] || []}
           />
           <RuntimeReplays repository={repository} workspace={w.id} revision={w.source_revision} participant={w.participant_ids.includes(actor)} evidence={(probes[w.id]||[]).flatMap(p=>p.captures.map(c=>c.id))}/>
+          <h4>Governed repairs and production validation</h4>
+          {repairs.filter((repair)=>repair.workspace_id===w.id).length ? repairs.filter((repair)=>repair.workspace_id===w.id).map((repair)=><div className="card" key={repair.id}><p><Badge>{repair.state}</Badge> <strong>{repair.title}</strong> · {repair.owner_kind} {repair.owner_id} · affected <code>{repair.affected_revision.slice(0,12)}</code></p><p>Ordinary proposal <code>{repair.proposal_id}</code> · task <code>{repair.task_id}</code></p><p><strong>Acceptance:</strong> {repair.acceptance_criteria.join("; ")}<br/><strong>Regression:</strong> {repair.regression_criteria.join("; ")}</p>{repair.validations.map((v)=><p key={v.id}><Badge>{v.state}</Badge> {v.stage} · {v.required_action}</p>)}</div>) : <p>No diagnosis-backed repair has been opened.</p>}
           <h4>Hypotheses</h4>
           {w.hypotheses.map((x) => (
             <p key={x.id}>

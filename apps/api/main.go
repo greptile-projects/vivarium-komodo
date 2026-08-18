@@ -79,6 +79,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/roadmapvalidations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/runtimeinvestigations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/runtimeprobes"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/runtimerepairs"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/runtimereplays"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityreports"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/serviceobjectives"
@@ -522,6 +523,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	runtimeRepairRoot := os.Getenv("RUNTIME_REPAIR_ROOT")
+	if runtimeRepairRoot == "" {
+		runtimeRepairRoot = "data/runtime-repairs"
+	}
+	runtimeRepairStore, err := runtimerepairs.New(runtimeRepairRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	reliabilityPolicyRoot := os.Getenv("RELIABILITY_POLICY_ROOT")
 	if reliabilityPolicyRoot == "" {
 		reliabilityPolicyRoot = "data/reliability-policies"
@@ -790,6 +799,7 @@ func main() {
 	registerRuntimeProbesHTTP(mux, runtimeProbeStore, debuggingWorkspaceStore, repositoryCatalog, credentials)
 	registerRuntimeInvestigationsHTTP(mux, runtimeInvestigationStore, debuggingWorkspaceStore, runtimeProbeStore, repositoryCatalog, credentials)
 	registerRuntimeReplaysHTTP(mux, runtimeReplayStore, debuggingWorkspaceStore, runtimeProbeStore, runtimeInvestigationStore, workspaceStore, previewStore, repositoryCatalog, credentials)
+	registerRuntimeRepairsHTTP(mux, runtimeRepairStore, debuggingWorkspaceStore, runtimeReplayStore, runtimeInvestigationStore, proposalStore, pullRequestStore, checkRunStore, releaseStore, deploymentStore, repositoryCatalog, credentials)
 	registerReliabilityImprovementsHTTP(mux, reliabilityImprovementStore, reliabilityInvestigationStore, serviceObjectiveStore, proposalStore, repositoryCatalog, credentials)
 	registerTranslationUnitsHTTP(mux, translationUnitStore, repositoryCatalog, credentials, translationUnitSources{pulls: pullRequestStore, repositories: repositoryCatalog, plans: localePlanStore})
 	registerLocalizationVerificationHTTP(mux, localizationVerificationStore, repositoryCatalog, credentials, localizationVerificationSources{pulls: pullRequestStore, repositories: repositoryCatalog, translations: translationUnitStore, previews: previewStore})

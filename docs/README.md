@@ -4566,3 +4566,25 @@ two clean matching attempts. Participants can append attributable refinements
 without replacing the original scenario or gaining Git, preview, environment,
 production-data, or operational authority. Durable state defaults to
 `$RUNTIME_REPLAY_ROOT`; the complete trail appears in `view=debugging`.
+
+### Runtime-informed repair delivery
+
+Repository writers create governed repair work with `POST
+/repositories/{repository}/runtime-repairs`. The request names one debugging
+workspace, its twice-observed minimized replay, a current supported causal claim,
+the affected revision, a human or agent owner, and separate acceptance and
+regression criteria. The server creates an ordinary proposal task whose context
+retains those exact inputs; ownership does not add Git, review, merge, release,
+deployment, telemetry, or environment authority.
+
+For every pull revision, `POST .../runtime-repairs/{repair}/verifications`
+requires the task-linked pull request, a same-commit replay attempt where the
+original invariant is no longer observed, and named successful ordinary check
+runs at that commit. Changed revisions cannot reuse either kind of evidence.
+After ordinary review, integration, and release, `POST .../{repair}/validations`
+binds sanitized production-derived measures to the actual release, deployment,
+revision, and rollout stage. Passing measures continue rollout; failed measures
+must select `pause`, `restore_known_good`, or `reopen_diagnosis`, retaining the
+original impact and failed result without performing the operational action.
+State defaults to `$RUNTIME_REPAIR_ROOT` and remains visible through
+`view=debugging`.
