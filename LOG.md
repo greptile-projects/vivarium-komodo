@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-18T04:59:47Z: Added immutable exact-pull-revision infrastructure change plans with inventory/observation inputs, dependency-ordered create/change/replace/destroy actions, six-domain risks, policy effects, rollback limits, read-scoped collaboration and affected-owner acknowledgements. Source, definition, observed-state, provider, or policy changes now visibly stale plans and approvals without granting execution authority.
+
 2026-08-18T00:01:42Z: Added bounded migration rehearsals on synthetic or privacy-preserving representative state with exact application/schema/migration/check/data-shape/dependency inputs, sanitized aggregate correctness, performance, artifact, cost, rollback and failure-injection evidence, attributable investigation and attestations, and affected-input-only staleness in the `view=state` surface.
 
 2026-08-17T21:01:38Z: Added governed API contract migrations that discover version-pinned applications, connect existing evolution/fork/agent/team work, and gate staged retirement on consumer acknowledgement, current dual-version tests, bounded exceptions, exact migration attestations, shared zero-traffic evidence, responsive ownership, and live access without granting operational authority.
