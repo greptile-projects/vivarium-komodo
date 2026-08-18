@@ -80,6 +80,39 @@ func TestExecutionBindsMergedPlanEnvironmentAuthorityAndSafeAgentSteps(t *testin
 	if err != nil || p.Executions[0].State != "paused" {
 		t.Fatalf("safe pause failed: %v %+v", err, p.Executions[0])
 	}
+	p, _ = s.ControlExecution("repo", "pull", p.ID, x.ID, "owner", "resume", "continue after inspection")
+	p, err = s.UpdateExecutionStep("repo", "pull", p.ID, x.ID, "service", "owner", StepUpdate{State: "succeeded", ProviderResponse: "provider accepted service change", Health: "healthy", Cost: 3, NextAction: "verify reviewed outcomes", SafetyPoint: true})
+	if err != nil || p.Executions[0].State != "succeeded" {
+		t.Fatalf("apply did not retain successful provider completion: %v %+v", err, p.Executions[0])
+	}
+	defs.value.Observations = []infrastructurestate.Observation{{ID: "post-apply", ObservationInput: infrastructurestate.ObservationInput{DefinitionVersion: 1, SourceRevision: "candidate", EnvironmentID: "production", Provider: "cloud", ProviderAccessible: true, EvidenceReference: "provider:snapshot-1", ObservedAt: now, ValidUntil: now.Add(time.Hour), Resources: []infrastructurestate.ObservedResource{{ResourceID: "network", ProviderResource: "network/main", Kind: "network", Status: "ready", ConfigurationState: "matching"}, {ResourceID: "service", ProviderResource: "service/api", Kind: "service", Status: "degraded", ConfigurationState: "drifted"}}}}}
+	measures := []OutcomeMeasure{}
+	for _, kind := range []string{"service", "security", "privacy", "cost", "continuity"} {
+		status := "passed"
+		if kind == "service" {
+			status = "failed"
+		}
+		measures = append(measures, OutcomeMeasure{Kind: kind, Status: status, EvidenceReference: "check:" + kind, Detail: kind + " outcome checked"})
+	}
+	p, err = s.VerifyExecution("repo", "pull", p.ID, x.ID, "owner", VerificationInput{ObservationIDs: []string{"post-apply"}, Resources: []ResourceComparison{{ResourceID: "network", ObservationID: "post-apply", ExpectedAction: "change", ObservedState: "ready", Status: "matched", EvidenceReference: "provider:snapshot-1", Detail: "route matches"}, {ResourceID: "service", ObservationID: "post-apply", ExpectedAction: "change", ObservedState: "degraded", Status: "failed", EvidenceReference: "provider:snapshot-1", Detail: "health check failed"}}, Measures: measures})
+	if err != nil || p.Executions[0].State != "diverged" || p.Executions[0].Verifications[0].Converged {
+		t.Fatalf("failed verification claimed convergence: %v %+v", err, p.Executions[0])
+	}
+	measures[0].Status = "passed"
+	defs.value.Observations = append(defs.value.Observations, infrastructurestate.Observation{ID: "post-recovery", ObservationInput: infrastructurestate.ObservationInput{DefinitionVersion: 1, SourceRevision: "candidate", EnvironmentID: "production", Provider: "cloud", ProviderAccessible: true, EvidenceReference: "provider:snapshot-2", ObservedAt: now.Add(2 * time.Minute), ValidUntil: now.Add(time.Hour), Resources: []infrastructurestate.ObservedResource{{ResourceID: "network", ProviderResource: "network/main", Kind: "network", Status: "ready", ConfigurationState: "matching"}, {ResourceID: "service", ProviderResource: "service/api", Kind: "service", Status: "ready", ConfigurationState: "matching"}}}})
+	p, err = s.VerifyExecution("repo", "pull", p.ID, x.ID, "owner", VerificationInput{ObservationIDs: []string{"post-recovery"}, Resources: []ResourceComparison{{ResourceID: "network", ObservationID: "post-recovery", ExpectedAction: "change", ObservedState: "ready", Status: "matched", EvidenceReference: "provider:snapshot-2", Detail: "route matches"}, {ResourceID: "service", ObservationID: "post-recovery", ExpectedAction: "change", ObservedState: "ready", Status: "matched", EvidenceReference: "provider:snapshot-2", Detail: "service recovered"}}, Measures: measures})
+	if err != nil || p.Executions[0].State != "verified" || !p.Executions[0].Verifications[1].Converged {
+		t.Fatalf("passing evidence did not prove convergence: %v %+v", err, p.Executions[0])
+	}
+	p, err = s.MonitorExecution("repo", "pull", p.ID, x.ID, "reader", DriftInput{ObservationIDs: []string{"post-apply"}, Findings: []DriftFinding{{Kind: "configuration_drift", ResourceID: "service", Status: "open", Cause: "provider console change by external operator", Evidence: "provider:audit-2", Detail: "replica count differs"}}})
+	if err != nil || p.Executions[0].State != "diverged" || p.Executions[0].Monitoring[0].State != "drifted" {
+		t.Fatalf("drift was not retained: %v %+v", err, p.Executions[0])
+	}
+	a := p.Executions[0].Monitoring[0]
+	p, err = s.OpenDriftAction("repo", "pull", p.ID, x.ID, a.ID, "owner", DriftActionInput{Kind: "adopt", OwnerKind: "human", OwnerID: "owner", Reference: "pull:adopt-replicas", SourceRevision: "review-candidate", Rationale: "review legitimate emergency capacity"})
+	if err != nil || p.Executions[0].Monitoring[0].Actions[0].State != "pending_review" {
+		t.Fatalf("ordinary-review adoption was not linked: %v %+v", err, p.Executions[0].Monitoring[0])
+	}
 }
 
 func (f *fakeDefinitions) Get(string, string) (infrastructurestate.Definition, error) {
