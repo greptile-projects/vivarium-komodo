@@ -24,6 +24,19 @@ its participant. These records grant no database, queue, deployment,
 environment, credential, review, or merge authority. The repository web surface
 is `view=state`.
 
+Migration rehearsals remain beneath the migration record in
+`$DURABLE_SCHEMA_ROOT`. Repository writers bind synthetic or explicitly
+privacy-preserving representative dataset metadata to exact application,
+schema, migration-definition, data-shape, and dependency revisions plus bounded
+duration and cost. Repository-defined upgrade, dual-read/write, backfill,
+validation, rollback, and failure-injection checks retain only sanitized logs,
+aggregate row/object counts, invariants, performance, artifact digests, costs,
+and runner attestations. Readers and scoped agents may add cited investigation
+notes and humans may attest an attempt; these actions grant no execution or
+operational authority. Rebinding one input marks only results whose declared
+input keys include it stale, preserving unaffected evidence and all prior
+attempts.
+
 Public agent profiles live beneath `$AGENT_PROFILE_ROOT` (default
 `apps/api/data/agent-profiles`). Authenticated operators publish immutable
 versions with a server-generated stable agent identity, collision-safe public
