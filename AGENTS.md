@@ -2517,6 +2517,19 @@ cited claims; guidance, pause, resume, expiry, and revocation remain
 attributable. Investigations and agents receive no secret, provider, telemetry,
 Git, repository mutation, deployment, environment, or operational authority.
 The repository web surface remains `view=debugging`.
+Runtime-informed repairs live beneath `$RUNTIME_REPAIR_ROOT` (default
+`apps/api/data/runtime-repairs`). Repository writers create ordinary human- or
+agent-owned proposal tasks only from one reproduced workspace replay and a
+current supported causal claim, freezing the workspace, replay, cause,
+affected revision, and acceptance and regression criteria. Exact pull-revision
+verification requires a candidate replay attempt that no longer observes the
+failure plus every named ordinary required check at that same commit. Staged
+production validation binds an actual release and deployment and retains
+sanitized signals comparing the original behavior with the delivered result.
+Failed signals derive only pause, known-good restoration, or diagnosis reopening;
+these records grant no Git, review, merge, release, deployment, environment,
+telemetry, credential, rollback, or operational authority. The repository web
+surface remains `view=debugging`.
 Privacy-safe runtime replays live beneath `$RUNTIME_REPLAY_ROOT` (default
 `apps/api/data/runtime-replays`) and remain beneath one exact production-
 debugging workspace. Participants derive a minimized synthetic or privacy-
