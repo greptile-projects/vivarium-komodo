@@ -4544,3 +4544,25 @@ narrow participants at `/{workspace}/controls`. Every action remains in the
 history and grants no code mutation, production, credential, or deployment
 authority. The web application exposes the complete starting context at
 `view=debugging`; state defaults to `$DEBUGGING_WORKSPACE_ROOT`.
+
+### Privacy-safe failure replay
+
+Participants derive a replay with `POST
+.../debugging-workspaces/{workspace}/replays` from permitted sanitized probe
+captures or accessible investigation evidence. The scenario freezes the
+affected source revision, synthetic or privacy-preserving inputs, every
+transformation from the selected evidence, bounded setup and commands,
+invariants, audience, and any unsafe side effects. Credential-shaped or
+protected values are rejected; the production capture itself is never copied.
+
+Attempts at `/{replay}/attempts` name an existing isolated workspace or preview
+and retain its revision, credential-free environment, commands, sanitized
+traces and outputs, invariant results, cost, and differences from production.
+The server adds a `changed_revision` blocker when the target does not match the
+affected revision and never calls an attempt with nondeterminism, a missing
+dependency, unsafe effects, or an irreducible production condition reproduced.
+One observation is insufficient: the scenario derives `reproduced` only after
+two clean matching attempts. Participants can append attributable refinements
+without replacing the original scenario or gaining Git, preview, environment,
+production-data, or operational authority. Durable state defaults to
+`$RUNTIME_REPLAY_ROOT`; the complete trail appears in `view=debugging`.

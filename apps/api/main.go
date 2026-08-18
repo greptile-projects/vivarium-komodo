@@ -79,6 +79,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/roadmapvalidations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/runtimeinvestigations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/runtimeprobes"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/runtimereplays"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityreports"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/serviceobjectives"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -513,6 +514,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	runtimeReplayRoot := os.Getenv("RUNTIME_REPLAY_ROOT")
+	if runtimeReplayRoot == "" {
+		runtimeReplayRoot = "data/runtime-replays"
+	}
+	runtimeReplayStore, err := runtimereplays.New(runtimeReplayRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	reliabilityPolicyRoot := os.Getenv("RELIABILITY_POLICY_ROOT")
 	if reliabilityPolicyRoot == "" {
 		reliabilityPolicyRoot = "data/reliability-policies"
@@ -780,6 +789,7 @@ func main() {
 	registerDebuggingWorkspacesHTTP(mux, debuggingWorkspaceStore, repositoryCatalog, credentials, releaseStore)
 	registerRuntimeProbesHTTP(mux, runtimeProbeStore, debuggingWorkspaceStore, repositoryCatalog, credentials)
 	registerRuntimeInvestigationsHTTP(mux, runtimeInvestigationStore, debuggingWorkspaceStore, runtimeProbeStore, repositoryCatalog, credentials)
+	registerRuntimeReplaysHTTP(mux, runtimeReplayStore, debuggingWorkspaceStore, runtimeProbeStore, runtimeInvestigationStore, workspaceStore, previewStore, repositoryCatalog, credentials)
 	registerReliabilityImprovementsHTTP(mux, reliabilityImprovementStore, reliabilityInvestigationStore, serviceObjectiveStore, proposalStore, repositoryCatalog, credentials)
 	registerTranslationUnitsHTTP(mux, translationUnitStore, repositoryCatalog, credentials, translationUnitSources{pulls: pullRequestStore, repositories: repositoryCatalog, plans: localePlanStore})
 	registerLocalizationVerificationHTTP(mux, localizationVerificationStore, repositoryCatalog, credentials, localizationVerificationSources{pulls: pullRequestStore, repositories: repositoryCatalog, translations: translationUnitStore, previews: previewStore})
