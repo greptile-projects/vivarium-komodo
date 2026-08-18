@@ -186,6 +186,7 @@ type Migration struct {
 	PullContracts []PullContract `json:"pull_contracts"`
 	Rehearsals    []Rehearsal    `json:"rehearsals"`
 	Executions    []Execution    `json:"executions"`
+	Retirement    *Retirement    `json:"retirement,omitempty"`
 	Blockers      []string       `json:"blockers"`
 }
 
@@ -377,16 +378,18 @@ func validMigration(in MigrationInput, schema Schema) bool {
 }
 func deriveMigration(x Migration) Migration {
 	x.Blockers = nil
-	approved := map[string]bool{}
+	if x.Retirement != nil {
+		r := deriveRetirement(*x.Retirement, time.Now().UTC())
+		x.Retirement = &r
+	}
+	decisions := map[string]string{}
 	for _, a := range x.Approvals {
-		if a.Decision == "approved" {
-			approved[a.OwnerID] = true
-		} else if a.Decision == "rejected" {
-			x.Blockers = append(x.Blockers, "approval_rejected:"+a.OwnerID)
-		}
+		decisions[a.OwnerID] = a.Decision
 	}
 	for _, o := range x.RequiredApproverIDs {
-		if !approved[o] {
+		if decisions[o] == "rejected" {
+			x.Blockers = append(x.Blockers, "approval_revoked:"+o)
+		} else if decisions[o] != "approved" {
 			x.Blockers = append(x.Blockers, "approval_required:"+o)
 		}
 	}
@@ -541,13 +544,28 @@ func (s *Store) Approve(repo, migration, actor, owner, decision, rationale strin
 	if !required {
 		return Migration{}, ErrInvalid
 	}
-	for _, a := range x.Approvals {
-		if a.OwnerID == owner {
-			return Migration{}, ErrConflict
+	for i := len(x.Approvals) - 1; i >= 0; i-- {
+		if x.Approvals[i].OwnerID == owner {
+			if x.Approvals[i].Decision == decision {
+				return Migration{}, ErrConflict
+			}
+			break
 		}
 	}
 	now := s.now().UTC()
 	x.Approvals = append(x.Approvals, Approval{OwnerID: owner, Decision: decision, Rationale: rationale, ActorID: actor, CreatedAt: now})
+	if decision == "rejected" {
+		for i := range x.Executions {
+			q := x.Executions[i]
+			if q.State == "running" {
+				q.State = "paused"
+				q.Revision++
+				q.UpdatedAt = now
+				q.SafetyPoint = &SafetyPoint{Phase: q.Phase, Progress: q.Progress, Reasons: []string{"approval_revoked:" + owner}, CreatedAt: now}
+				x.Executions[i] = deriveExecution(q)
+			}
+		}
+	}
 	x.Events = append(x.Events, Event{Sequence: int64(len(x.Events) + 1), Kind: "approval_" + decision, ActorID: actor, Detail: rationale, CreatedAt: now})
 	return deriveMigration(x), save(s.migrationPath(repo, migration), x)
 }

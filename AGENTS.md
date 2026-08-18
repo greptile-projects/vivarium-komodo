@@ -47,6 +47,15 @@ invariants, service health, privacy status, cost, deployment evidence, blockers,
 next actions, and attributable controls. Writers can pause, resume, throttle, or
 abort only before irreversible cutover; agents cannot infer database,
 deployment, destructive, or broader repository authority from the run.
+Failures pause at a captured phase, progress, and observation. Attested
+aggregate recovery points and append-only actions distinguish idempotent retry,
+restore, compatibility-window traffic rollback, and connected human- or
+agent-owned repair; agents cannot restore or redirect traffic. Revoked owner
+approval also pauses active work. Completed runs retire temporary compatibility
+code and obsolete fields through a separately versioned, observation-period and
+owner-approved record. Verified completion inventories retained and deleted
+data, deletion evidence, irreversible choices, exceptions, cost, and the exact
+current schema in every declared environment without rewriting failed attempts.
 
 Public agent profiles live beneath `$AGENT_PROFILE_ROOT` (default
 `apps/api/data/agent-profiles`). Authenticated operators publish immutable

@@ -37,6 +37,7 @@ type LiveObservation struct {
 	IncrementalCost float64         `json:"incremental_cost"`
 	Summary         string          `json:"summary"`
 	DeploymentID    string          `json:"deployment_id,omitempty"`
+	FailureKinds    []string        `json:"failure_kinds,omitempty"`
 	CreatedAt       time.Time       `json:"created_at"`
 }
 
@@ -77,6 +78,9 @@ type Execution struct {
 	NextActions         []string          `json:"next_actions"`
 	Observations        []LiveObservation `json:"observations"`
 	Controls            []LiveControl     `json:"controls"`
+	SafetyPoint         *SafetyPoint      `json:"safety_point,omitempty"`
+	RecoveryPoints      []RecoveryPoint   `json:"recovery_points"`
+	RecoveryActions     []RecoveryAction  `json:"recovery_actions"`
 	StartedBy           string            `json:"started_by"`
 	StartedAt           time.Time         `json:"started_at"`
 	UpdatedAt           time.Time         `json:"updated_at"`
@@ -107,6 +111,7 @@ type ObservationInput struct {
 	IncrementalCost  float64         `json:"incremental_cost"`
 	Summary          string          `json:"summary"`
 	DeploymentID     string          `json:"deployment_id"`
+	FailureKinds     []string        `json:"failure_kinds"`
 }
 
 type ControlInput struct {
@@ -169,9 +174,9 @@ func deriveExecution(x Execution) Execution {
 			x.NextActions = append(x.NextActions, "abort")
 		}
 	case "paused":
-		x.NextActions = []string{"resume", "throttle"}
+		x.NextActions = []string{"retry_idempotently", "restore_attested_recovery_point", "open_repair", "throttle"}
 		if x.PhaseIndex < 3 {
-			x.NextActions = append(x.NextActions, "abort")
+			x.NextActions = append(x.NextActions, "roll_back_application_traffic", "abort")
 		}
 	}
 	return x
@@ -260,7 +265,13 @@ func (s *Store) ObserveExecution(repo, migration, execution, actor string, in Ob
 		}
 	}
 	now := s.now().UTC()
-	o := LiveObservation{ID: id(), Phase: q.Phase, ActorID: actor, Progress: in.Progress, Lag: in.Lag, LagUnit: in.LagUnit, Invariants: in.Invariants, ServiceHealth: in.ServiceHealth, PrivacyStatus: in.PrivacyStatus, PrivacyDetail: in.PrivacyDetail, IncrementalCost: in.IncrementalCost, Summary: in.Summary, DeploymentID: in.DeploymentID, CreatedAt: now}
+	validFailures := map[string]bool{"invariant_failure": true, "service_regression": true, "conflicting_writes": true, "capacity_exhaustion": true, "interrupted_backfill": true}
+	for _, failure := range in.FailureKinds {
+		if !validFailures[failure] {
+			return Migration{}, ErrInvalid
+		}
+	}
+	o := LiveObservation{ID: id(), Phase: q.Phase, ActorID: actor, Progress: in.Progress, Lag: in.Lag, LagUnit: in.LagUnit, Invariants: in.Invariants, ServiceHealth: in.ServiceHealth, PrivacyStatus: in.PrivacyStatus, PrivacyDetail: in.PrivacyDetail, IncrementalCost: in.IncrementalCost, Summary: in.Summary, DeploymentID: in.DeploymentID, FailureKinds: in.FailureKinds, CreatedAt: now}
 	q.Revision++
 	q.Progress = in.Progress
 	q.Lag = in.Lag
@@ -270,6 +281,20 @@ func (s *Store) ObserveExecution(repo, migration, execution, actor string, in Ob
 	q.PrivacyStatus = in.PrivacyStatus
 	q.Cost += in.IncrementalCost
 	q.Observations = append(q.Observations, o)
+	if len(in.FailureKinds) > 0 || slicesContainFailed(in.Invariants) || servicesRegressed(in.ServiceHealth) || q.Cost > q.MaximumCost {
+		q.State = "paused"
+		reasons := append([]string(nil), in.FailureKinds...)
+		if slicesContainFailed(in.Invariants) {
+			reasons = append(reasons, "invariant_failure")
+		}
+		if servicesRegressed(in.ServiceHealth) {
+			reasons = append(reasons, "service_regression")
+		}
+		if q.Cost > q.MaximumCost {
+			reasons = append(reasons, "capacity_exhaustion")
+		}
+		q.SafetyPoint = &SafetyPoint{Phase: q.Phase, Progress: q.Progress, ObservationID: o.ID, Reasons: reasons, CreatedAt: now}
+	}
 	q.UpdatedAt = now
 	q = deriveExecution(q)
 	x.Executions[i] = q
@@ -298,7 +323,10 @@ func (s *Store) ControlExecution(repo, migration, execution, actor string, in Co
 	if in.Reason == "" || !map[string]bool{"pause": true, "resume": true, "throttle": true, "abort": true}[in.Kind] {
 		return Migration{}, ErrInvalid
 	}
-	if in.Kind == "pause" && q.State != "running" || in.Kind == "resume" && q.State != "paused" || in.Kind == "throttle" && (q.State != "running" && q.State != "paused") || in.Kind == "abort" && (q.State == "completed" || q.State == "aborted" || q.PhaseIndex >= 3) {
+	if in.Kind == "pause" && q.State != "running" && q.State != "paused" || in.Kind == "resume" && q.State != "paused" || in.Kind == "throttle" && (q.State != "running" && q.State != "paused") || in.Kind == "abort" && (q.State == "completed" || q.State == "aborted" || q.PhaseIndex >= 3) {
+		return Migration{}, ErrInvalid
+	}
+	if in.Kind == "resume" && len(deriveMigration(x).Blockers) != 0 {
 		return Migration{}, ErrInvalid
 	}
 	if in.Kind == "throttle" && (in.Throttle < 1 || in.Throttle > 100) {
