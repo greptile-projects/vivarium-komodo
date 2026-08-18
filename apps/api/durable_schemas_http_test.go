@@ -1,12 +1,16 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/durableschemas"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -23,8 +27,10 @@ func TestDurableSchemaAndMigrationPublicContract(t *testing.T) {
 	owner := issueAccess(t, credentials, "owner", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	consumer := issueAccess(t, credentials, "consumer", auth.API, auth.RepositoryRead)
 	store, _ := durableschemas.New(t.TempDir())
+	deploymentStore, _ := deployments.New(t.TempDir())
+	environment, _ := deploymentStore.PutEnvironment(string(repo.ID), "", "owner", deployments.EnvironmentInput{Name: "Production", Position: 1, Command: "deploy", Concurrency: 2})
 	mux := http.NewServeMux()
-	registerDurableSchemasHTTP(mux, store, catalog, credentials)
+	registerDurableSchemasHTTP(mux, store, catalog, credentials, deploymentStore)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	base := "/repositories/" + string(repo.ID) + "/durable-schemas"
@@ -77,6 +83,53 @@ func TestDurableSchemaAndMigrationPublicContract(t *testing.T) {
 	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/rehearsals/"+rh.ID+"/investigation", consumer, `{"actor_kind":"human","attempt_id":"`+attemptID+`","check_id":"failure","body":"Resume cursor remained stable after dependency interruption","evidence":["artifact:sha256:upgrade","check:failure"],"uncertainty":"does not model multi-region latency"}`, 201, &plan)
 	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/rehearsals/"+rh.ID+"/attestations", consumer, `{"attempt_id":"`+attemptID+`","decision":"accepted","rationale":"counts, invariants, rollback, and injected failure are reviewable"}`, 201, &plan)
 	rh = plan.Rehearsals[0]
+	deployment, _ := deploymentStore.Create(deployments.CreateDeployment{RepositoryID: string(repo.ID), EnvironmentID: environment.ID, ReleaseID: "release-v2", SourceCommitID: "dddddddddddddddddddddddddddddddddddddddd", ActorID: "owner"})
+	deployment, _ = deploymentStore.Start(string(repo.ID), deployment.ID)
+	deployment, _ = deploymentStore.Complete(string(repo.ID), deployment.ID, true, "healthy rollout")
+	executionBase := "/repositories/" + string(repo.ID) + "/schema-migrations/" + plan.ID + "/executions"
+	workflowJSON(t, server.URL, http.MethodPost, executionBase, owner, `{"environment_id":"`+environment.ID+`","active_revision":"dddddddddddddddddddddddddddddddddddddddd","controller_kind":"human","controller_id":"owner","compatibility_ends_at":"2099-01-01T00:00:00Z","maximum_cost":100,"currency":"USD","privacy_constraints":["EU residency","no raw identifiers in observations"]}`, 201, &plan)
+	if len(plan.Executions) != 1 || plan.Executions[0].Phase != "expand" || plan.Executions[0].EnvironmentName != "Production" || plan.Executions[0].ControllerID != "owner" {
+		t.Fatalf("governed live execution missing: %+v", plan.Executions)
+	}
+	execution := plan.Executions[0]
+	observe := func(progress float64, passed bool, deploymentID string) {
+		body := `{"expected_revision":` + fmt.Sprint(execution.Revision) + `,"progress":` + fmt.Sprint(progress) + `,"lag":2,"lag_unit":"seconds","invariants":[{"name":"identity preserved","passed":` + fmt.Sprint(passed) + `,"detail":"aggregate old/new identities agree"}],"service_health":[{"service":"worker","status":"healthy","detail":"error rate within objective"}],"privacy_status":"compliant","privacy_detail":"aggregate metrics only","incremental_cost":1.5,"summary":"phase observation"`
+		if deploymentID != "" {
+			body += `,"deployment_id":"` + deploymentID + `"`
+		}
+		body += `}`
+		workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/observations", owner, body, 201, &plan)
+		execution = plan.Executions[0]
+	}
+	observe(40, false, "")
+	if len(execution.Blockers) == 0 || slices.Contains(execution.NextActions, "advance_to:deploy") {
+		t.Fatalf("failed invariant did not block: %+v", execution)
+	}
+	workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/controls", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"pause","reason":"inspect identity mismatch"}`, 201, &plan)
+	execution = plan.Executions[0]
+	workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/controls", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"throttle","throttle":25,"reason":"bound database load"}`, 201, &plan)
+	execution = plan.Executions[0]
+	workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/controls", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"resume","reason":"aggregate mismatch resolved"}`, 201, &plan)
+	execution = plan.Executions[0]
+	for phase := 0; phase < 5; phase++ {
+		if execution.Phase == "cutover" {
+			workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/controls", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"abort","reason":"must not pretend irreversible cutover can be undone"}`, 422, nil)
+		}
+		deploymentID := ""
+		if execution.Phase == "deploy" {
+			deploymentID = deployment.ID
+		}
+		observe(100, true, deploymentID)
+		workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/advance", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`}`, 201, &plan)
+		execution = plan.Executions[0]
+	}
+	if execution.State != "completed" || execution.Phase != "contract" || execution.Cost != 9 || len(execution.Controls) != 3 || execution.Throttle != 25 {
+		t.Fatalf("live migration did not retain ordered evidence and controls: %+v", execution)
+	}
+	_, err := store.StartExecution(string(repo.ID), plan.ID, "agent:unassigned", durableschemas.StartExecutionInput{EnvironmentID: environment.ID, EnvironmentName: environment.Name, ActiveRevision: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", ControllerKind: "agent", ControllerID: "agent:unassigned", CompatibilityEndsAt: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC), MaximumCost: 10, Currency: "USD", PrivacyConstraints: []string{"aggregate evidence only"}})
+	if err != durableschemas.ErrInvalid {
+		t.Fatalf("unassigned agent acquired live authority: %v", err)
+	}
 	change := `{"expected_version":4,"application_revisions":{"api":"dddddddddddddddddddddddddddddddddddddddd","worker":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}`
 	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/rehearsals/"+rh.ID+"/inputs", owner, change, 201, &plan)
 	rh = plan.Rehearsals[0]
@@ -86,5 +139,9 @@ func TestDurableSchemaAndMigrationPublicContract(t *testing.T) {
 	}
 	if !stale["dual-write"] || stale["upgrade"] || stale["dual-read"] || len(rh.Investigation) != 1 || len(rh.Attestations) != 1 || !rh.Attestations[0].Stale {
 		t.Fatalf("affected-only invalidation or public collaboration missing: stale=%v rehearsal=%+v", stale, rh)
+	}
+	_, err = store.StartExecution(string(repo.ID), plan.ID, "owner", durableschemas.StartExecutionInput{EnvironmentID: environment.ID, EnvironmentName: environment.Name, ActiveRevision: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", ControllerKind: "human", ControllerID: "owner", CompatibilityEndsAt: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC), MaximumCost: 10, Currency: "USD", PrivacyConstraints: []string{"aggregate evidence only"}})
+	if err != durableschemas.ErrInvalid {
+		t.Fatalf("stale rehearsal authorized production execution: %v", err)
 	}
 }

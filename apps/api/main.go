@@ -720,7 +720,7 @@ func main() {
 	registerServiceObjectivesHTTP(mux, serviceObjectiveStore, repositoryCatalog, credentials)
 	registerAPIContractsHTTP(mux, apiContractStore, repositoryCatalog, credentials)
 	registerAPIConsumersHTTP(mux, apiConsumerStore, repositoryCatalog, credentials)
-	registerDurableSchemasHTTP(mux, durableSchemaStore, repositoryCatalog, credentials)
+	registerDurableSchemasHTTP(mux, durableSchemaStore, repositoryCatalog, credentials, deploymentStore)
 	registerRecoveryObjectivesHTTP(mux, recoveryObjectiveStore, repositoryCatalog, credentials)
 	registerProtectionPlansHTTP(mux, protectionPlanStore, recoveryObjectiveStore, repositoryCatalog, credentials)
 	registerRecoveryExercisesHTTP(mux, recoveryExerciseStore, repositoryCatalog, credentials)
