@@ -56,6 +56,13 @@ code and obsolete fields through a separately versioned, observation-period and
 owner-approved record. Verified completion inventories retained and deleted
 data, deletion evidence, irreversible choices, exceptions, cost, and the exact
 current schema in every declared environment without rewriting failed attempts.
+`schema_migration_workflow_test.go` is the black-box regression boundary for
+the complete proposal-to-verified-cleanup loop. It retains reviewed schema and
+privacy intent, bounded human-agent work, failed and accepted safe-state
+rehearsals, conflicting legacy writes, invariant and interrupted-backfill
+safety pauses, forward recovery after cutover, governed deployment evidence,
+and owner-approved deletion without granting agents hidden operational
+authority.
 
 Public agent profiles live beneath `$AGENT_PROFILE_ROOT` (default
 `apps/api/data/agent-profiles`). Authenticated operators publish immutable
