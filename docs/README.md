@@ -4399,3 +4399,27 @@ writer-recorded source, provider, policy, or observation invalidations make the
 plan and its acknowledgements visibly stale. A replacement plan is required;
 the old record is retained. None of these records grants provider, credential,
 deployment, environment, policy, review, approval, or execution authority.
+
+### Isolated infrastructure plan rehearsals
+
+Repository writers define a rehearsal beneath a current plan at
+`/repositories/{repository}/pull-requests/{pull}/infrastructure-plans/{plan}/rehearsals`.
+The definition binds an isolated or policy-approved ephemeral environment, an
+expiring provider credential reference with explicit provider scopes and an
+environment allowlist, and synthetic or expressly permitted privacy-preserving
+state. Credential values and production data are rejected and never retained.
+Every changed resource is classified as supported, unsupported, or an
+untestable destructive effect; a destructive plan action cannot be described as
+safely exercised.
+
+Repository-defined checks cover provisioning, connectivity, access boundaries,
+policy, service journeys, failure behavior, cost estimation, teardown, and
+recovery. An authorized writer records runner attempts at the rehearsal's
+`/attempts` resource with sanitized check logs, content-addressed artifacts,
+timing, a resource graph, cost, runner/teardown/recovery attestations, and
+attributable agent actions. Missing or failed checks, teardown, or recovery fail
+the attempt. Unsupported resources and untestable destructive effects remain
+visible blockers even after every executable check passes. A changed pull
+revision, definition, observation, provider, or policy makes attached evidence
+non-current. Rehearsals provide reviewable evidence only and grant no provider,
+credential, deployment, environment, approval, or production authority.

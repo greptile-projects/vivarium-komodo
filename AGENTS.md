@@ -32,6 +32,21 @@ invalidation makes the plan and all acknowledgements stale. Plans and
 collaboration grant no provider, credential, deployment, environment, policy,
 approval, or execution authority.
 
+Infrastructure plan rehearsals remain beneath the immutable plan. Repository
+writers bind an isolated or policy-approved ephemeral environment, expiring
+provider credential reference and least-privilege scope, synthetic or expressly
+permitted privacy-preserving state, every planned resource's supported,
+unsupported, or untestable-destructive classification, and repository-defined
+provisioning, connectivity, access-boundary, policy, service-journey,
+failure-behavior, cost, teardown, and recovery checks. Attempts retain only
+sanitized logs, content-addressed artifacts, timing, resource graphs, cost,
+runner and teardown/recovery attestations, and attributable agent actions.
+Changed plan inputs make evidence non-current; failed teardown or recovery,
+failed checks, unsupported resources, and destructive effects that cannot be
+safely tested remain explicit blockers rather than rehearsed success. No secret
+credential value or production data is retained, and rehearsal evidence grants
+no provider, deployment, environment, approval, or production authority.
+
 Durable state contracts live beneath `$DURABLE_SCHEMA_ROOT` (default
 `apps/api/data/durable-schemas`). Repository writers publish immutable,
 optimistically concurrency-checked schema versions for databases, queues,
