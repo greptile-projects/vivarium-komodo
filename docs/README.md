@@ -1159,6 +1159,32 @@ selection retains superseded editions as explicit archives while identifying
 the newest corrected guidance, preserving source, reader, reviewer, publisher,
 and repair authorship instead of rewriting the original edition.
 
+## Product design proposals
+
+The `view=design` workspace first gives product behavior a reviewable form at
+`/repositories/{repository}/design-proposals`. A collaborator opens a proposal
+from an exact feedback, issue, roadmap outcome, accessibility finding, or pull
+request and records the user goal, journeys, states, content, constraints,
+alternatives, success measures, affected components, evidence, and uncertainty.
+`POST /{proposal}/revisions` publishes an immutable optimistic revision.
+
+Invited designers, developers, users, and grounded agents are retained beneath
+`/{proposal}/participants`. Agents must name readable proposal evidence; private
+research and inaccessible assets are counted as restricted context but omitted
+from API and web projections and cannot be cited by artifacts or discussion.
+Wireframes and prototypes live beneath `/{proposal}/artifacts`, retain their own
+revision history, and bind the exact proposal revision they evaluate. Comments
+bind an exact proposal or artifact revision and distinguish support, dissent,
+questions, uncertainty, and ordinary discussion. Owner acknowledgement requests
+and responses also bind one proposal revision and become visibly stale after a
+change. The durable root is `$DESIGN_PROPOSAL_ROOT`; none of these collaboration
+records grants access to source, private research, assets, implementation,
+review, merge, release, deployment, or operations.
+
+`design_proposal_workflow_test.go` exercises the public workflow, including
+restricted-evidence containment, grounded-agent participation, an exact-revision
+wireframe, owner dissent, and acknowledgement.
+
 ## Repository design systems
 
 Authorized repository writers publish a design system at `POST

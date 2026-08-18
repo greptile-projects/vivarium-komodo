@@ -405,6 +405,23 @@ definitions across systems rather than selecting a canonical winner. These
 records grant no repository, review, merge, release, deployment, or operational
 authority. The repository web surface is `view=design`.
 
+Pre-implementation product design proposals live beneath
+`$DESIGN_PROPOSAL_ROOT` (default `apps/api/data/design-proposals`). Repository
+collaborators open one from exact feedback, issue, roadmap-outcome,
+accessibility-finding, or pull-request context and publish immutable optimistic
+revisions defining the user goal, journeys, states, content, constraints,
+alternatives, success measures, affected components, accessible project
+evidence, and declared uncertainty. Designers, developers, invited users, and
+evidence-grounded agents attach revision-bound wireframes or interactive
+prototypes and attributable comments, support, questions, or dissent. Owner
+acknowledgements bind one proposal revision and become stale when it changes.
+Private research and inaccessible assets remain counted restricted references
+but are excluded from read projections and cannot ground an agent, artifact, or
+discussion citation. These records grant no repository, research, asset,
+implementation, review, merge, release, deployment, or operational authority.
+The repository web surface remains `view=design`, and
+`design_proposal_workflow_test.go` is the public regression boundary.
+
 Delivery teams are pre-execution contracts beneath `$DELIVERY_TEAM_ROOT`
 (default `apps/api/data/delivery-teams`). A repository collaborator forms one
 around a proposal, initiative, decision, incident follow-up, or other planned
