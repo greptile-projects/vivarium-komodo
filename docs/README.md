@@ -4359,3 +4359,20 @@ verified schema in every environment. `schema_migration_workflow_test.go`
 proves the public proposal-to-cleanup path, including a failed rehearsal,
 conflicting old writer, invariant breach, interrupted backfill, and point-of-no-
 return containment.
+# Versioned infrastructure state
+
+Repository infrastructure definitions are immutable inventories rooted at
+`$INFRASTRUCTURE_STATE_ROOT`. Each version is pinned to reviewed project source
+and maps named environments and releases to a dependency graph of services,
+networks, identities, data stores, compute, and external providers. Owners and
+cost, capacity, security, privacy, reliability, continuity, and region
+commitments travel with the graph instead of living only in a cloud console.
+
+Sanitized observations are append-only and validity-bounded. They may describe
+provider access, resource health, region, coarse capacity, and whether declared
+configuration matches, drifts, is unknown, or is redacted. Secret-backed values
+are represented only as boundaries. Reader projections keep unmanaged
+resources, inaccessible providers, stale evidence, missing/conflicting owners,
+and release/environment mappings explicit; neither publication nor observation
+grants cloud or deployment authority. Use the repository
+`view=infrastructure` surface or `/repositories/{repository}/infrastructure-definitions`.

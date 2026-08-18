@@ -1,5 +1,22 @@
 # AGENTS.md
 
+Versioned infrastructure inventories live beneath `$INFRASTRUCTURE_STATE_ROOT`
+(default `apps/api/data/infrastructure-state`). Repository writers publish
+immutable definitions pinned to an exact source revision and path, describing
+environments and their release mappings plus services, networks, identities,
+data stores, compute, and external dependencies. Resources retain accountable
+owners, providers, dependency edges, configuration boundaries, and cost,
+capacity, security, privacy, reliability, continuity, and regional commitments.
+Append-only provider observations bind one definition version, source revision,
+environment, optional release, evidence reference, and validity window to only
+sanitized resource status, region, capacity, and configuration-state metadata.
+Reads explicitly derive missing or conflicting ownership, secret-backed
+boundaries, missing or stale observations, inaccessible providers, and unmanaged
+resources. No credential or sensitive configuration value is accepted or
+exposed, and definitions and observations grant no provider, deployment,
+environment, credential, or operational authority. The repository web surface
+is `view=infrastructure`.
+
 Durable state contracts live beneath `$DURABLE_SCHEMA_ROOT` (default
 `apps/api/data/durable-schemas`). Repository writers publish immutable,
 optimistically concurrency-checked schema versions for databases, queues,

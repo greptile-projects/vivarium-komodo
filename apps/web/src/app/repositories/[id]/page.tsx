@@ -35,6 +35,7 @@ import { LocalizationDelivery } from "@/components/localization-delivery";
 import { ServiceObjectives } from "@/components/service-objectives";
 import { RecoveryObjectives } from "@/components/recovery-objectives";
 import { DurableSchemas } from "@/components/durable-schemas";
+import { InfrastructureState } from "@/components/infrastructure-state";
 import { AgentProfiles } from "@/components/agent-profiles";
 import { AgentDiscovery } from "@/components/agent-discovery";
 import { AgentEvaluations } from "@/components/agent-evaluations";
@@ -1286,6 +1287,8 @@ export default function RepositoryPage({
                               ? "continuity"
                             : query.view === "state"
                               ? "state"
+                            : query.view === "infrastructure"
+                              ? "infrastructure"
                             : query.view === "agents"
                               ? "agents"
                             : query.view === "experiments"
@@ -1369,6 +1372,7 @@ export default function RepositoryPage({
         view === "reliability" ||
         view === "continuity" ||
         view === "state" ||
+        view === "infrastructure" ||
         view === "agents" ||
         view === "experiments" ||
         view === "feedback" ||
@@ -1594,6 +1598,10 @@ export default function RepositoryPage({
         </p>
       )}
       <nav className="repository-tabs" aria-label="Repository">
+        <button className={view === "infrastructure" ? "active" : ""} onClick={() => navigate({ view: "infrastructure", path: "" })}>
+          <Code size={15} />
+          Infrastructure
+        </button>
         <button className={view === "state" ? "active" : ""} onClick={() => navigate({ view: "state", path: "" })}>
           <Code size={15} />
           State
@@ -1831,6 +1839,8 @@ export default function RepositoryPage({
         <SupportQuestions repository={repository.id} actor={actor} selected={query.support} />
       ) : view === "state" ? (
         <DurableSchemas repository={repository.id} actor={actor} />
+      ) : view === "infrastructure" ? (
+        <InfrastructureState repository={repository.id} actor={actor} />
       ) : view === "apis" ? (
         <><APIContracts repository={repository.id} actor={actor} /><APIConsumers repository={repository.id} actor={actor} /><APIMigrations repository={repository.id} actor={actor} /></>
       ) : view === "documentation" ? (
