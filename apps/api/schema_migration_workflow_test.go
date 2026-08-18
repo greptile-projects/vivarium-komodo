@@ -16,7 +16,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
 
-func TestDurableSchemaAndMigrationPublicContract(t *testing.T) {
+func TestSchemaMigrationWorkflow(t *testing.T) {
 	git, _ := storage.New(t.TempDir())
 	catalog, _ := repositories.New(t.TempDir(), git)
 	credentials, _ := auth.New(t.TempDir())
@@ -71,15 +71,22 @@ func TestDurableSchemaAndMigrationPublicContract(t *testing.T) {
 		t.Fatalf("bounded rehearsal missing: %+v", plan.Rehearsals)
 	}
 	rh := plan.Rehearsals[0]
-	results := `{"expected_version":1,"input_digests":{"application:api":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","application:worker":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","migration":"cccccccccccccccccccccccccccccccccccccccc","definition":"sha256:checks-v1","data_shape":"sha256:shape-v1","dependency:postgres":"16.4"},"results":[` +
+	failedResults := `{"expected_version":1,"input_digests":{"application:api":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","application:worker":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","migration":"cccccccccccccccccccccccccccccccccccccccc","definition":"sha256:checks-v1","data_shape":"sha256:shape-v1","dependency:postgres":"16.4"},"results":[{"check_id":"upgrade","status":"failed","sanitized_log":"representative identity count diverged","invariants":[{"name":"row identity","passed":false,"detail":"999 of 1000 identities preserved"}],"duration_ms":700,"cost":0.2}],"attestation":"isolated networkless runner; no production credentials or authority"}`
+	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/rehearsals/"+rh.ID+"/attempts", owner, failedResults, 201, &plan)
+	rh = plan.Rehearsals[0]
+	if len(rh.Blockers) == 0 || rh.Attempts[0].Results[0].Status != "failed" {
+		t.Fatalf("failed rehearsal did not contain migration readiness: %+v", rh)
+	}
+	workflowJSON(t, server.URL, http.MethodPost, executionURL(string(repo.ID), plan.ID), owner, `{"environment_id":"`+environment.ID+`","active_revision":"dddddddddddddddddddddddddddddddddddddddd","controller_kind":"human","controller_id":"owner","compatibility_ends_at":"2099-01-01T00:00:00Z","maximum_cost":100,"currency":"USD","privacy_constraints":["EU residency"]}`, 422, nil)
+	results := `{"expected_version":2,"input_digests":{"application:api":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","application:worker":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","migration":"cccccccccccccccccccccccccccccccccccccccc","definition":"sha256:checks-v1","data_shape":"sha256:shape-v1","dependency:postgres":"16.4"},"results":[` +
 		`{"check_id":"upgrade","status":"passed","sanitized_log":"authorization: Bearer should-not-survive\n1000 rows upgraded","counts":[{"name":"jobs","before":1000,"after":1000}],"invariants":[{"name":"row identity","passed":true,"detail":"all representative identities preserved"}],"performance":[{"name":"upgrade","value":810,"unit":"ms","limit":2000}],"artifacts":[{"name":"upgrade-report.json","digest":"sha256:upgrade","media_type":"application/json","size":240}],"duration_ms":810,"cost":0.2},` +
 		`{"check_id":"dual-read","status":"passed","sanitized_log":"both versions read 1000 rows","duration_ms":120,"cost":0.1},{"check_id":"dual-write","status":"passed","sanitized_log":"both versions wrote compatible rows","duration_ms":130,"cost":0.1},{"check_id":"backfill","status":"passed","sanitized_log":"second pass changed zero rows","duration_ms":400,"cost":0.1},{"check_id":"validate","status":"passed","sanitized_log":"meaning preserved","duration_ms":90,"cost":0.1},{"check_id":"rollback","status":"passed","sanitized_log":"rollback restored old reader state","duration_ms":310,"cost":0.1},{"check_id":"failure","status":"passed","sanitized_log":"interruption resumed at cursor 500","duration_ms":510,"cost":0.2}],"attestation":"isolated networkless runner; no production credentials or authority"}`
 	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/rehearsals/"+rh.ID+"/attempts", owner, results, 201, &plan)
 	rh = plan.Rehearsals[0]
-	if len(rh.Blockers) != 0 || !rh.Attempts[0].Results[0].Redacted || strings.Contains(rh.Attempts[0].Results[0].SanitizedLog, "Bearer") {
+	if len(rh.Blockers) != 0 || !rh.Attempts[1].Results[0].Redacted || strings.Contains(rh.Attempts[1].Results[0].SanitizedLog, "Bearer") {
 		t.Fatalf("sanitized current rehearsal evidence missing: %+v", rh)
 	}
-	attemptID := rh.Attempts[0].ID
+	attemptID := rh.Attempts[1].ID
 	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/rehearsals/"+rh.ID+"/investigation", consumer, `{"actor_kind":"human","attempt_id":"`+attemptID+`","check_id":"failure","body":"Resume cursor remained stable after dependency interruption","evidence":["artifact:sha256:upgrade","check:failure"],"uncertainty":"does not model multi-region latency"}`, 201, &plan)
 	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/rehearsals/"+rh.ID+"/attestations", consumer, `{"attempt_id":"`+attemptID+`","decision":"accepted","rationale":"counts, invariants, rollback, and injected failure are reviewable"}`, 201, &plan)
 	rh = plan.Rehearsals[0]
@@ -102,18 +109,21 @@ func TestDurableSchemaAndMigrationPublicContract(t *testing.T) {
 	execution = plan.Executions[0]
 	workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/controls", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"resume","reason":"owner approval restored"}`, 201, &plan)
 	execution = plan.Executions[0]
-	observe := func(progress float64, passed bool, deploymentID string) {
+	observe := func(progress float64, passed bool, deploymentID string, failures ...string) {
 		body := `{"expected_revision":` + fmt.Sprint(execution.Revision) + `,"progress":` + fmt.Sprint(progress) + `,"lag":2,"lag_unit":"seconds","invariants":[{"name":"identity preserved","passed":` + fmt.Sprint(passed) + `,"detail":"aggregate old/new identities agree"}],"service_health":[{"service":"worker","status":"healthy","detail":"error rate within objective"}],"privacy_status":"compliant","privacy_detail":"aggregate metrics only","incremental_cost":1.5,"summary":"phase observation"`
 		if deploymentID != "" {
 			body += `,"deployment_id":"` + deploymentID + `"`
+		}
+		if len(failures) > 0 {
+			body += `,"failure_kinds":["` + strings.Join(failures, `","`) + `"]`
 		}
 		body += `}`
 		workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/observations", owner, body, 201, &plan)
 		execution = plan.Executions[0]
 	}
-	observe(40, false, "")
-	if execution.State != "paused" || execution.SafetyPoint == nil || len(execution.Blockers) == 0 || slices.Contains(execution.NextActions, "advance_to:deploy") {
-		t.Fatalf("failed invariant did not block: %+v", execution)
+	observe(40, false, "", "conflicting_writes")
+	if execution.State != "paused" || execution.SafetyPoint == nil || len(execution.Blockers) == 0 || !slices.Contains(execution.SafetyPoint.Reasons, "conflicting_writes") || slices.Contains(execution.NextActions, "advance_to:deploy") {
+		t.Fatalf("concurrent old writer and failed invariant did not block: %+v", execution)
 	}
 	workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/recoveries", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"open_repair","evidence":["observation:`+execution.SafetyPoint.ObservationID+`"],"reason":"trace conflicting legacy writer","repair_kind":"task","repair_id":"task-reconcile-writer","owner_id":"owner"}`, 201, &plan)
 	execution = plan.Executions[0]
@@ -129,8 +139,20 @@ func TestDurableSchemaAndMigrationPublicContract(t *testing.T) {
 	workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/recovery-points", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"schema_version":2,"artifact_digest":"sha256:recovery-expand-40","attestation":"aggregate snapshot verified by restore rehearsal","counts":{"jobs":1000}}`, 201, &plan)
 	execution = plan.Executions[0]
 	for phase := 0; phase < 5; phase++ {
+		if execution.Phase == "backfill" {
+			observe(45, true, "", "interrupted_backfill")
+			if execution.State != "paused" || execution.SafetyPoint == nil || !slices.Contains(execution.SafetyPoint.Reasons, "interrupted_backfill") {
+				t.Fatalf("interrupted backfill did not retain its cursor safety point: %+v", execution)
+			}
+			workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/recoveries", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"retry","evidence":["observation:`+execution.SafetyPoint.ObservationID+`"],"reason":"resume idempotently from the retained cursor"}`, 201, &plan)
+			execution = plan.Executions[0]
+		}
 		if execution.Phase == "cutover" {
-			workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/controls", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"abort","reason":"must not pretend irreversible cutover can be undone"}`, 422, nil)
+			workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/controls", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"pause","reason":"verify the declared point of no return"}`, 201, &plan)
+			execution = plan.Executions[0]
+			workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/recoveries", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"traffic_rollback","evidence":["phase:cutover"],"reason":"attempt rollback after point of no return"}`, 422, nil)
+			workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/controls", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`,"kind":"resume","reason":"continue forward because rollback is no longer safe"}`, 201, &plan)
+			execution = plan.Executions[0]
 		}
 		deploymentID := ""
 		if execution.Phase == "deploy" {
@@ -140,24 +162,24 @@ func TestDurableSchemaAndMigrationPublicContract(t *testing.T) {
 		workflowJSON(t, server.URL, http.MethodPost, executionBase+"/"+execution.ID+"/advance", owner, `{"expected_revision":`+fmt.Sprint(execution.Revision)+`}`, 201, &plan)
 		execution = plan.Executions[0]
 	}
-	if execution.State != "completed" || execution.Phase != "contract" || execution.Cost != 9 || len(execution.Controls) != 4 || execution.Throttle != 25 {
+	if execution.State != "completed" || execution.Phase != "contract" || execution.Cost != 10.5 || len(execution.Controls) != 6 || execution.Throttle != 25 {
 		t.Fatalf("live migration did not retain ordered evidence and controls: %+v", execution)
 	}
 	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/retirement", owner, `{"execution_id":"`+execution.ID+`","compatibility_code":["worker dual-read flag"],"obsolete_fields":["jobs.user_id"],"success_evidence":["observation:zero-old-reads-24h"],"observation_started_at":"2020-01-01T00:00:00Z","observation_ends_at":"2020-01-02T00:00:00Z","required_owner_ids":["consumer"]}`, 201, &plan)
 	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/retirement/approvals", consumer, `{"expected_revision":1,"owner_id":"consumer","decision":"approved","rationale":"observation window proves old reads drained"}`, 201, &plan)
 	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/retirement/complete", owner, `{"expected_revision":2,"retained_data":["1000 job payloads and subject identifiers"],"deleted_data":["1000 legacy user_id values"],"deletion_evidence":["sha256:deletion-report"],"irreversible_decisions":["jobs.user_id physically removed"],"exceptions":["archived sanitized aggregate report retained"],"environments":[{"environment_id":"`+environment.ID+`","environment_name":"Production","schema_version":2,"definition_digest":"sha256:jobs-v2"}],"cost":3,"currency":"USD"}`, 201, &plan)
-	if plan.Retirement == nil || plan.Retirement.Completion == nil || len(plan.Retirement.Completion.Environments) != 1 || len(execution.Observations) != 6 {
+	if plan.Retirement == nil || plan.Retirement.Completion == nil || len(plan.Retirement.Completion.Environments) != 1 || len(execution.Observations) != 7 {
 		t.Fatalf("verified retirement did not preserve execution evidence: %+v", plan.Retirement)
 	}
 	_, err := store.StartExecution(string(repo.ID), plan.ID, "agent:unassigned", durableschemas.StartExecutionInput{EnvironmentID: environment.ID, EnvironmentName: environment.Name, ActiveRevision: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", ControllerKind: "agent", ControllerID: "agent:unassigned", CompatibilityEndsAt: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC), MaximumCost: 10, Currency: "USD", PrivacyConstraints: []string{"aggregate evidence only"}})
 	if err != durableschemas.ErrInvalid {
 		t.Fatalf("unassigned agent acquired live authority: %v", err)
 	}
-	change := `{"expected_version":4,"application_revisions":{"api":"dddddddddddddddddddddddddddddddddddddddd","worker":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}`
+	change := `{"expected_version":5,"application_revisions":{"api":"dddddddddddddddddddddddddddddddddddddddd","worker":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}`
 	workflowJSON(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/schema-migrations/"+plan.ID+"/rehearsals/"+rh.ID+"/inputs", owner, change, 201, &plan)
 	rh = plan.Rehearsals[0]
 	stale := map[string]bool{}
-	for _, result := range rh.Attempts[0].Results {
+	for _, result := range rh.Attempts[1].Results {
 		stale[result.CheckID] = result.Stale
 	}
 	if !stale["dual-write"] || stale["upgrade"] || stale["dual-read"] || len(rh.Investigation) != 1 || len(rh.Attestations) != 1 || !rh.Attestations[0].Stale {
@@ -167,4 +189,8 @@ func TestDurableSchemaAndMigrationPublicContract(t *testing.T) {
 	if err != durableschemas.ErrInvalid {
 		t.Fatalf("stale rehearsal authorized production execution: %v", err)
 	}
+}
+
+func executionURL(repository, migration string) string {
+	return "/repositories/" + repository + "/schema-migrations/" + migration + "/executions"
 }

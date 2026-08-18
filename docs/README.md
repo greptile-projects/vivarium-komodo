@@ -4348,3 +4348,14 @@ backfill, cutover, and contract order only after 100% unblocked evidence.
 Optimistic revisions and append-only observations, controls, and migration
 events keep concurrent steering and prior partial progress visible in
 `view=state`; abort is unavailable once cutover begins.
+
+Recovery points retain aggregate counts and runner attestations. Failed live
+observations pause at their exact phase and progress for an idempotent retry,
+attested restore, pre-cutover traffic rollback, or linked repair; traffic
+rollback is rejected after cutover. Completed runs use a separately versioned,
+owner-approved retirement record to inventory retained and deleted data,
+deletion evidence, irreversible decisions, exceptions, total cost, and the
+verified schema in every environment. `schema_migration_workflow_test.go`
+proves the public proposal-to-cleanup path, including a failed rehearsal,
+conflicting old writer, invariant breach, interrupted backfill, and point-of-no-
+return containment.
