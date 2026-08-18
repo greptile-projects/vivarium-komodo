@@ -4325,3 +4325,26 @@ application, definition, data shape, migration, or dependency invalidates only
 the evidence that consumed it. The `view=state` surface exposes current and
 stale attempts without granting data, runner, environment, credential,
 deployment, or migration authority.
+
+### Governed live migrations
+
+Once required owners have approved and a current passing rehearsal has an
+accepted attestation, a repository writer starts a live run at
+`POST /repositories/{repository}/schema-migrations/{migration}/executions`.
+The run binds the exact active application revision, an existing governed
+deployment environment, a controller, compatibility deadline, cost ceiling,
+currency, and privacy constraints. An agent controller must match an explicitly
+delegated agent-owned schema work item; this record grants no database,
+deployment, credential, environment, or destructive authority.
+
+Aggregate, sanitized production observations are appended at
+`/{execution}/observations`. They expose phase progress, lag, invariants,
+service health, privacy status, incremental cost, and an optional successful
+ordinary deployment reference. Failed invariants, degraded services, privacy
+violations, expired compatibility, and excess cost become current blockers.
+Writers use `/{execution}/controls` to pause, resume, throttle, or abort
+reversible work and `/{execution}/advance` to move in strict expand, deploy,
+backfill, cutover, and contract order only after 100% unblocked evidence.
+Optimistic revisions and append-only observations, controls, and migration
+events keep concurrent steering and prior partial progress visible in
+`view=state`; abort is unavailable once cutover begins.

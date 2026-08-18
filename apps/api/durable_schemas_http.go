@@ -5,10 +5,20 @@ import (
 	"net/http"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/durableschemas"
 )
 
-func registerDurableSchemasHTTP(mux *http.ServeMux, s *durableschemas.Store, repos dataFlowRepositories, c authStore) {
+type durableDeploymentStore interface {
+	GetEnvironment(string, string) (deployments.Environment, error)
+	GetDeployment(string, string) (deployments.Deployment, error)
+}
+
+func registerDurableSchemasHTTP(mux *http.ServeMux, s *durableschemas.Store, repos dataFlowRepositories, c authStore, deploymentStores ...durableDeploymentStore) {
+	var deploymentStore durableDeploymentStore
+	if len(deploymentStores) > 0 {
+		deploymentStore = deploymentStores[0]
+	}
 	base := "/repositories/{repository}/durable-schemas"
 	mux.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
 		repo, _, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryRead, false)
@@ -239,6 +249,109 @@ func registerDurableSchemasHTTP(mux *http.ServeMux, s *durableschemas.Store, rep
 			return
 		}
 		x, e := s.AddInvestigation(string(repo.ID), r.PathValue("migration"), r.PathValue("rehearsal"), a.UserID, in)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/executions", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in durableschemas.StartExecutionInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		if deploymentStore == nil {
+			writeJSON(w, 422, map[string]string{"error": "deployment_environment_required"})
+			return
+		}
+		env, e := deploymentStore.GetEnvironment(string(repo.ID), in.EnvironmentID)
+		if e != nil {
+			writeJSON(w, 422, map[string]string{"error": "deployment_environment_required"})
+			return
+		}
+		in.EnvironmentName = env.Name
+		x, e := s.StartExecution(string(repo.ID), r.PathValue("migration"), a.UserID, in)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/executions/{execution}/observations", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in durableschemas.ObservationInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		migration, e := s.GetMigration(string(repo.ID), r.PathValue("migration"))
+		if e != nil {
+			durableSchemaError(w, e)
+			return
+		}
+		var execution *durableschemas.Execution
+		for i := range migration.Executions {
+			if migration.Executions[i].ID == r.PathValue("execution") {
+				execution = &migration.Executions[i]
+				break
+			}
+		}
+		if execution == nil {
+			writeJSON(w, 404, map[string]string{"error": "durable_schema_not_found"})
+			return
+		}
+		if execution.Phase == "deploy" && in.DeploymentID == "" {
+			writeJSON(w, 422, map[string]string{"error": "deployment_observation_required"})
+			return
+		}
+		if in.DeploymentID != "" {
+			if deploymentStore == nil {
+				writeJSON(w, 422, map[string]string{"error": "deployment_observation_invalid"})
+				return
+			}
+			deployment, e := deploymentStore.GetDeployment(string(repo.ID), in.DeploymentID)
+			if e != nil || deployment.State != "succeeded" || deployment.EnvironmentID != execution.EnvironmentID || deployment.SourceCommitID != execution.ActiveRevision {
+				writeJSON(w, 422, map[string]string{"error": "deployment_observation_invalid"})
+				return
+			}
+		}
+		x, e := s.ObserveExecution(string(repo.ID), r.PathValue("migration"), r.PathValue("execution"), a.UserID, in)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/executions/{execution}/controls", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in durableschemas.ControlInput
+		if !readJSON(w, r, &in, 1<<16) {
+			return
+		}
+		x, e := s.ControlExecution(string(repo.ID), r.PathValue("migration"), r.PathValue("execution"), a.UserID, in)
+		if durableSchemaError(w, e) {
+			return
+		}
+		writeJSON(w, 201, x)
+	})
+	mux.HandleFunc("POST "+migrations+"/{migration}/executions/{execution}/advance", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedRevision int64 `json:"expected_revision"`
+		}
+		if !readJSON(w, r, &in, 1<<16) {
+			return
+		}
+		x, e := s.AdvanceExecution(string(repo.ID), r.PathValue("migration"), r.PathValue("execution"), a.UserID, in.ExpectedRevision)
 		if durableSchemaError(w, e) {
 			return
 		}

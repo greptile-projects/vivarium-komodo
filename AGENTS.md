@@ -37,6 +37,17 @@ operational authority. Rebinding one input marks only results whose declared
 input keys include it stale, preserving unaffected evidence and all prior
 attempts.
 
+Live schema migrations remain beneath the migration record. Repository writers
+may start one only after every required owner approval and a current passing,
+accepted rehearsal, binding an exact active revision and an established governed
+release environment to a human controller or an agent's exact delegated schema
+work item. Runs advance in order through expand, deploy, backfill, cutover, and
+contract with optimistic revisions and retain aggregate progress, lag,
+invariants, service health, privacy status, cost, deployment evidence, blockers,
+next actions, and attributable controls. Writers can pause, resume, throttle, or
+abort only before irreversible cutover; agents cannot infer database,
+deployment, destructive, or broader repository authority from the run.
+
 Public agent profiles live beneath `$AGENT_PROFILE_ROOT` (default
 `apps/api/data/agent-profiles`). Authenticated operators publish immutable
 versions with a server-generated stable agent identity, collision-safe public

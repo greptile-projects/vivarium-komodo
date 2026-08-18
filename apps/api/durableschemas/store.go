@@ -185,6 +185,7 @@ type Migration struct {
 	WorkItems     []WorkItem     `json:"work_items"`
 	PullContracts []PullContract `json:"pull_contracts"`
 	Rehearsals    []Rehearsal    `json:"rehearsals"`
+	Executions    []Execution    `json:"executions"`
 	Blockers      []string       `json:"blockers"`
 }
 
@@ -407,6 +408,9 @@ func deriveMigration(x Migration) Migration {
 	}
 	for i := range x.Rehearsals {
 		x.Rehearsals[i] = deriveRehearsal(x.Rehearsals[i])
+	}
+	for i := range x.Executions {
+		x.Executions[i] = deriveExecution(x.Executions[i])
 	}
 	sort.Strings(x.Blockers)
 	return x
