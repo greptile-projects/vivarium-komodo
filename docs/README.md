@@ -4376,3 +4376,26 @@ resources, inaccessible providers, stale evidence, missing/conflicting owners,
 and release/environment mappings explicit; neither publication nor observation
 grants cloud or deployment authority. Use the repository
 `view=infrastructure` surface or `/repositories/{repository}/infrastructure-definitions`.
+
+## Pull-request infrastructure change plans
+
+Operational changes become reviewable contributions at
+`/repositories/{repository}/pull-requests/{pull}/infrastructure-plans`. A
+repository writer publishes an immutable plan only against the pull request's
+exact current source revision. The plan freezes exact infrastructure definition
+versions and permitted observation IDs, classifies resources as `create`,
+`change`, `replace`, or `destroy`, and derives deterministic dependency order.
+Every change names affected environments and owners, rollback limits, and any
+availability, security, privacy, continuity, cost, or data risks. Versioned
+policy effects state whether the candidate satisfies, violates, requires an
+exception from, or has unknown effect on policy.
+
+Repository readers, including read-only agents using existing repository
+credentials, may append cited assumptions, impact notes, investigations, and
+concerns and request acknowledgements from declared affected owners. Only the
+named owner can record an acknowledgement or concern. Pull source changes,
+new infrastructure definition versions, newer observed environment state, and
+writer-recorded source, provider, policy, or observation invalidations make the
+plan and its acknowledgements visibly stale. A replacement plan is required;
+the old record is retained. None of these records grants provider, credential,
+deployment, environment, policy, review, approval, or execution authority.

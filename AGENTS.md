@@ -17,6 +17,21 @@ exposed, and definitions and observations grant no provider, deployment,
 environment, credential, or operational authority. The repository web surface
 is `view=infrastructure`.
 
+Pull-request infrastructure change plans live beneath `$INFRASTRUCTURE_PLAN_ROOT`
+(default `apps/api/data/infrastructure-plans`). Repository writers create an
+immutable plan only for the pull request's exact current source revision and
+bind exact infrastructure definition versions and permitted observation IDs.
+Plans classify each resource as create, change, replace, or destroy; derive a
+dependency order; retain availability, security, privacy, continuity, cost,
+and data risks, policy effects, assumptions, affected owners, and rollback
+limits. Repository readers and read-only agents may add attributable assumption,
+impact, investigation, and concern annotations and request resource-owner
+acknowledgements through the pull request. A changed pull revision, definition,
+latest observed state, or attributable source/provider/policy/observation
+invalidation makes the plan and all acknowledgements stale. Plans and
+collaboration grant no provider, credential, deployment, environment, policy,
+approval, or execution authority.
+
 Durable state contracts live beneath `$DURABLE_SCHEMA_ROOT` (default
 `apps/api/data/durable-schemas`). Repository writers publish immutable,
 optimistically concurrency-checked schema versions for databases, queues,
