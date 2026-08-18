@@ -29,6 +29,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/dependencyinventory"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/dependencyupdates"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deployments"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/designproposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/designsystems"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/docscollections"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/durableschemas"
@@ -408,6 +409,14 @@ func main() {
 		designSystemRoot = "data/design-systems"
 	}
 	designSystemStore, err := designsystems.New(designSystemRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	designProposalRoot := os.Getenv("DESIGN_PROPOSAL_ROOT")
+	if designProposalRoot == "" {
+		designProposalRoot = "data/design-proposals"
+	}
+	designProposalStore, err := designproposals.New(designProposalRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -793,6 +802,7 @@ func main() {
 	registerServiceObjectivesHTTP(mux, serviceObjectiveStore, repositoryCatalog, credentials)
 	registerAPIContractsHTTP(mux, apiContractStore, repositoryCatalog, credentials)
 	registerDesignSystemsHTTP(mux, designSystemStore, repositoryCatalog, credentials)
+	registerDesignProposalsHTTP(mux, designProposalStore, repositoryCatalog, credentials)
 	registerAPIConsumersHTTP(mux, apiConsumerStore, repositoryCatalog, credentials)
 	registerDurableSchemasHTTP(mux, durableSchemaStore, repositoryCatalog, credentials, deploymentStore)
 	registerInfrastructureStateHTTP(mux, infrastructureStateStore, repositoryCatalog, credentials)
