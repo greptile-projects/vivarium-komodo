@@ -4482,3 +4482,23 @@ ordinary reviewed agent repair. The same trail preserves a stale plan, denied
 owner acknowledgement, failed teardown, expired lease, over-budget update,
 provider failure, and partial apply as contained evidence rather than authority
 or success.
+
+# Production debugging workspaces
+
+Repository readers open shared runtime context with `POST
+/repositories/{repository}/debugging-workspaces` and inspect the visible list or
+individual record with `GET` on the same resource. Creation accepts an issue,
+incident, support thread, deployment, service objective, trace, or manual
+observation and requires a real immutable release whose commit exactly matches
+the source revision. It also freezes the environment, observation window, user
+journey, owners, severity, and available or explicitly unavailable package,
+configuration, and infrastructure bindings.
+
+Permitted evidence records are audience and access declarations, not copied
+logs, traces, credentials, or provider access. Repository-audience readers do
+not receive participant-only evidence metadata. Participants append attributed
+hypotheses at `/{workspace}/hypotheses`; repository writers change status or
+narrow participants at `/{workspace}/controls`. Every action remains in the
+history and grants no code mutation, production, credential, or deployment
+authority. The web application exposes the complete starting context at
+`view=debugging`; state defaults to `$DEBUGGING_WORKSPACE_ROOT`.

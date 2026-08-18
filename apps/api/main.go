@@ -23,6 +23,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/contributorpathways"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/datacommitments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/dataflows"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/debuggingworkspaces"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/decisions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/deliveryteams"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/dependencyinventory"
@@ -486,6 +487,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	debuggingWorkspaceRoot := os.Getenv("DEBUGGING_WORKSPACE_ROOT")
+	if debuggingWorkspaceRoot == "" {
+		debuggingWorkspaceRoot = "data/debugging-workspaces"
+	}
+	debuggingWorkspaceStore, err := debuggingworkspaces.New(debuggingWorkspaceRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	reliabilityPolicyRoot := os.Getenv("RELIABILITY_POLICY_ROOT")
 	if reliabilityPolicyRoot == "" {
 		reliabilityPolicyRoot = "data/reliability-policies"
@@ -750,6 +759,7 @@ func main() {
 	registerRecoveryResponsesHTTP(mux, recoveryResponseStore, repositoryCatalog, credentials)
 	registerReliabilityPoliciesHTTP(mux, reliabilityPolicyStore, serviceObjectiveStore, repositoryCatalog, credentials)
 	registerReliabilityInvestigationsHTTP(mux, reliabilityInvestigationStore, serviceObjectiveStore, repositoryCatalog, credentials)
+	registerDebuggingWorkspacesHTTP(mux, debuggingWorkspaceStore, repositoryCatalog, credentials, releaseStore)
 	registerReliabilityImprovementsHTTP(mux, reliabilityImprovementStore, reliabilityInvestigationStore, serviceObjectiveStore, proposalStore, repositoryCatalog, credentials)
 	registerTranslationUnitsHTTP(mux, translationUnitStore, repositoryCatalog, credentials, translationUnitSources{pulls: pullRequestStore, repositories: repositoryCatalog, plans: localePlanStore})
 	registerLocalizationVerificationHTTP(mux, localizationVerificationStore, repositoryCatalog, credentials, localizationVerificationSources{pulls: pullRequestStore, repositories: repositoryCatalog, translations: translationUnitStore, previews: previewStore})

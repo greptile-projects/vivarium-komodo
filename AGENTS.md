@@ -2470,3 +2470,16 @@ there from outside the checkout — as a symlink or a read-only bind mount — a
 is gitignored for that reason. Read it for context on what is being built, but
 never edit it, `git add` it, or delete it, and do not treat its presence as
 uncommitted work.
+
+Durable production-debugging starting context lives beneath
+`$DEBUGGING_WORKSPACE_ROOT` (default `apps/api/data/debugging-workspaces`). An
+authorized collaborator opens a workspace from an issue, incident, support
+thread, deployment, service objective, trace, or manual observation. It binds
+the affected immutable release and exact Git commit, environment, time window,
+user journey, severity, owners, package, configuration, and infrastructure
+revisions, and audience-scoped permitted evidence references. Unavailable
+context remains an explicit reasoned gap. Participants add attributable
+hypotheses and status/access changes retain attributable history. The workspace
+stores no runtime evidence or secrets and grants no repository mutation,
+credential, deployment, environment, or operational authority. The repository
+web surface is `view=debugging`.
