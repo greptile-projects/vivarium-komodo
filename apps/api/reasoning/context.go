@@ -44,4 +44,32 @@ type Context struct {
 	Verification     []string          `json:"verification,omitempty"`
 	Evidence         []Evidence        `json:"evidence,omitempty"`
 	Acknowledgements []Acknowledgement `json:"acknowledgements,omitempty"`
+	Design           *DesignContract   `json:"design_contract,omitempty"`
+}
+
+// DesignContract is the immutable, review-safe experience specification copied
+// into ordinary tasks, workspaces, and pull requests. It deliberately contains
+// references and authored metadata, never restricted research or asset bytes.
+type DesignContract struct {
+	ProposalID       string              `json:"proposal_id"`
+	ProposalRevision int64               `json:"proposal_revision"`
+	ArtifactVersions map[string]int64    `json:"artifact_versions"`
+	Requirements     []DesignRequirement `json:"requirements"`
+	Assets           []DesignAsset       `json:"assets,omitempty"`
+}
+
+type DesignRequirement struct {
+	ID       string `json:"id"`
+	Kind     string `json:"kind"`
+	Subject  string `json:"subject"`
+	Expected string `json:"expected"`
+}
+
+type DesignAsset struct {
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Source          string   `json:"source"`
+	AuthorID        string   `json:"author_id"`
+	License         string   `json:"license"`
+	Transformations []string `json:"transformations,omitempty"`
 }
