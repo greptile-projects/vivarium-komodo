@@ -22,6 +22,27 @@ issue no preview, Git, review, merge, release, deployment, or credential
 authority. Durable state defaults to `apps/api/data/interface-checks` and can
 be relocated with `INTERFACE_CHECK_ROOT`.
 
+## Design acceptance and system evolution
+
+Repository and organization owners can publish immutable design-governance
+policies targeted by branch and component, journey, path, or risk class. A gate
+names the design-owner, accessibility, content, localization, and invited-user
+roles whose acceptance must bind the exact candidate revision and preview.
+Repository readiness inherits organization policies and evaluates them beside
+ordinary checks and owner review; the merge path independently repeats the same
+assessment. Release candidates use `/design-governance/release-readiness`.
+
+Current interface-check inputs determine preview freshness and unresolved
+deviations. Repositories may publish schema-version `1`
+`.komodo/design-usage.json` with `component_id`, `version`, `path`, and
+`obsolete` fields so obsolete shared components remain explicit. Exceptions
+must name an owner, ordinary issue/proposal/task follow-up, and future expiry;
+those expiring within 30 days remain called out even when readiness is allowed.
+Approved system changes and shipped feedback/regressions can create migration
+or repair work with affected repository, documentation, owner, source, and
+acceptance criteria. The work is coordination metadata only and grants no code,
+review, merge, release, deployment, credential, or operational authority.
+
 ## Collaborative production debugging
 
 `/repositories/{repository}/debugging-workspaces` binds an observed failure to

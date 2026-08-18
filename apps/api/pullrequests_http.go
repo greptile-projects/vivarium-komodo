@@ -24,8 +24,10 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/designgovernance"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/federation"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/integrationqueue"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/interfacechecks"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/localizationdelivery"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/localizationverification"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/performancegoals"
@@ -86,6 +88,8 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	var privacyVerification *privacyverification.Store
 	var localizationDelivery *localizationdelivery.Store
 	var localizationEvidence *localizationverification.Store
+	var designGovernance *designgovernance.Store
+	var interfaceEvidence *interfacechecks.Store
 	for _, extra := range extras {
 		switch value := extra.(type) {
 		case activityStore:
@@ -112,6 +116,10 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 			localizationDelivery = value
 		case *localizationverification.Store:
 			localizationEvidence = value
+		case *designgovernance.Store:
+			designGovernance = value
+		case *interfacechecks.Store:
+			interfaceEvidence = value
 		}
 	}
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests", createPullRequest(store, proposalStore, repositories, credentials, activity, checks))
@@ -126,8 +134,8 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/reviews/me", putPullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("DELETE /repositories/{repository}/pull-requests/{pull_request}/reviews/me", deletePullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
-	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults, previewAcceptance, performance, accessibilityPolicy, accessibilityEvidence, privacyVerification, localizationDelivery, localizationEvidence))
-	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequestWithFederation(store, proposalStore, repositories, credentials, activity, checkResults, previewAcceptance, federationStore, performance, accessibilityPolicy, accessibilityEvidence, privacyVerification, localizationDelivery, localizationEvidence))
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults, previewAcceptance, performance, accessibilityPolicy, accessibilityEvidence, privacyVerification, localizationDelivery, localizationEvidence, designGovernance, interfaceEvidence))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequestWithFederation(store, proposalStore, repositories, credentials, activity, checkResults, previewAcceptance, federationStore, performance, accessibilityPolicy, accessibilityEvidence, privacyVerification, localizationDelivery, localizationEvidence, designGovernance, interfaceEvidence))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/queue", enqueuePullRequest(store, repositories, credentials, activity, checkResults, checks, queue))
 	mux.HandleFunc("GET /repositories/{repository}/integration-queue/entries", listIntegrationQueueEntries(repositories, credentials, checkResults, queue))
 	mux.HandleFunc("PATCH /repositories/{repository}/integration-queue/entries/{entry}", operateIntegrationQueueEntry(repositories, credentials, activity, checks, queue))
@@ -614,6 +622,7 @@ type readinessResponse struct {
 	Accessibility *accessibilitypolicies.Assessment      `json:"accessibility,omitempty"`
 	Privacy       *privacyverification.Assessment        `json:"privacy,omitempty"`
 	Localization  *localizationdelivery.Assessment       `json:"localization,omitempty"`
+	Design        *designgovernance.Assessment           `json:"design,omitempty"`
 	Blockers      []readinessBlocker                     `json:"blockers"`
 }
 
@@ -638,6 +647,8 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 	var privacyVerification *privacyverification.Store
 	var localizationDelivery *localizationdelivery.Store
 	var localizationEvidence *localizationverification.Store
+	var designGovernance *designgovernance.Store
+	var interfaceEvidence *interfacechecks.Store
 	for _, x := range extras {
 		if v, ok := x.(*previews.Store); ok {
 			acceptance = v
@@ -659,6 +670,12 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 		}
 		if v, ok := x.(*localizationverification.Store); ok {
 			localizationEvidence = v
+		}
+		if v, ok := x.(*designgovernance.Store); ok {
+			designGovernance = v
+		}
+		if v, ok := x.(*interfacechecks.Store); ok {
+			interfaceEvidence = v
 		}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -872,6 +889,60 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 				}
 			}
 		}
+		if designGovernance != nil && interfaceEvidence != nil {
+			changes, e := filesBetweenRepositories(sourceOpened, targetOpened, storage.ObjectID(item.SourceCommitID), storage.ObjectID(item.TargetCommitID))
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			paths := make([]string, len(changes))
+			for i := range changes {
+				paths[i] = changes[i].Path
+			}
+			policies, e := designGovernance.ListPolicies("repository", string(repository.ID))
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			if repository.OrganizationID != "" {
+				inherited, er := designGovernance.ListPolicies("organization", repository.OrganizationID)
+				if er != nil {
+					writeJSON(w, 500, map[string]string{"error": "internal_error"})
+					return
+				}
+				policies = append(policies, inherited...)
+			}
+			iruns, e := interfaceEvidence.List(string(repository.ID), item.ID)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			for i := range iruns {
+				cfg, _, _ := interfaceCheckBlob(sourceOpened, item.SourceCommitID, iruns[i].ConfigPath)
+				blobs := map[string]string{}
+				for _, cs := range iruns[i].Cases {
+					for _, in := range cs.Inputs {
+						oid, _, ok := interfaceCheckBlob(sourceOpened, item.SourceCommitID, in.Path)
+						if ok {
+							blobs[in.Path] = oid
+						}
+					}
+				}
+				interfacechecks.DeriveCurrent(&iruns[i], item.SourceCommitID, cfg, blobs)
+			}
+			uses := designUsages(sourceOpened, item.SourceCommitID)
+			assessment, e := designGovernance.Assess(string(repository.ID), item.ID, item.SourceCommitID, item.TargetBranch, designSelector(paths, iruns, uses), policies, iruns, uses)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			response.Design = &assessment
+			for _, req := range assessment.Requirements {
+				if req.Blocking {
+					addBlocker("design_"+req.Kind, req.Detail)
+				}
+			}
+		}
 
 		if response.SourceBranch.Exists && response.SourceBranch.MatchesPullRequest && response.TargetBranch.Exists {
 			hasConflicts, err := mergeHasConflictsAcross(r.Context(), targetOpened, sourceOpened, storage.ObjectID(response.TargetBranch.CommitID), storage.ObjectID(response.SourceBranch.CommitID))
@@ -975,6 +1046,8 @@ func mergePullRequestWithFederation(store pullRequestStore, proposalStore propos
 	var privacyVerification *privacyverification.Store
 	var localizationDelivery *localizationdelivery.Store
 	var localizationEvidence *localizationverification.Store
+	var designGovernance *designgovernance.Store
+	var interfaceEvidence *interfacechecks.Store
 	for _, x := range extras {
 		if v, ok := x.(*accessibilitypolicies.Store); ok {
 			accessibilityPolicy = v
@@ -990,6 +1063,12 @@ func mergePullRequestWithFederation(store pullRequestStore, proposalStore propos
 		}
 		if v, ok := x.(*localizationverification.Store); ok {
 			localizationEvidence = v
+		}
+		if v, ok := x.(*designgovernance.Store); ok {
+			designGovernance = v
+		}
+		if v, ok := x.(*interfacechecks.Store); ok {
+			interfaceEvidence = v
 		}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -1177,6 +1256,58 @@ func mergePullRequestWithFederation(store pullRequestStore, proposalStore propos
 			}
 			if !a.Ready {
 				writeJSON(w, http.StatusConflict, map[string]any{"error": "pull_request_not_ready", "privacy": a})
+				return
+			}
+		}
+		if designGovernance != nil && interfaceEvidence != nil {
+			changes, e := filesBetweenRepositories(sourceOpened, opened, source, target)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			paths := make([]string, len(changes))
+			for i := range changes {
+				paths[i] = changes[i].Path
+			}
+			policies, e := designGovernance.ListPolicies("repository", string(repository.ID))
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			if repository.OrganizationID != "" {
+				inherited, er := designGovernance.ListPolicies("organization", repository.OrganizationID)
+				if er != nil {
+					writeJSON(w, 500, map[string]string{"error": "internal_error"})
+					return
+				}
+				policies = append(policies, inherited...)
+			}
+			iruns, e := interfaceEvidence.List(string(repository.ID), item.ID)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			for i := range iruns {
+				cfg, _, _ := interfaceCheckBlob(sourceOpened, item.SourceCommitID, iruns[i].ConfigPath)
+				blobs := map[string]string{}
+				for _, cs := range iruns[i].Cases {
+					for _, in := range cs.Inputs {
+						oid, _, ok := interfaceCheckBlob(sourceOpened, item.SourceCommitID, in.Path)
+						if ok {
+							blobs[in.Path] = oid
+						}
+					}
+				}
+				interfacechecks.DeriveCurrent(&iruns[i], item.SourceCommitID, cfg, blobs)
+			}
+			uses := designUsages(sourceOpened, item.SourceCommitID)
+			a, e := designGovernance.Assess(string(repository.ID), item.ID, item.SourceCommitID, item.TargetBranch, designSelector(paths, iruns, uses), policies, iruns, uses)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			if !a.Ready {
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "pull_request_not_ready", "design": a})
 				return
 			}
 		}

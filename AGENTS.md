@@ -448,6 +448,22 @@ differences, and decisions stale and preserves unrelated cases. Checks and
 review records grant no preview, repository, design, review, merge, release,
 deployment, credential, or operational authority.
 
+Design acceptance and system-evolution policy lives beneath
+`$DESIGN_GOVERNANCE_ROOT` (default `apps/api/data/design-governance`).
+Repository owners and organization owners publish immutable gates targeted by
+branch plus component, journey, path, or risk class and requiring current
+design-owner, accessibility, content, localization, or invited-user acceptance.
+Acceptances bind the exact pull revision and preview. Merge and release
+readiness compose inherited organization and repository gates with ordinary
+checks and reviews, revision-derived interface evidence, unresolved deviations,
+and schema-version `1` `.komodo/design-usage.json` obsolete-component inventory.
+Owner exceptions require an accountable owner, governed follow-up, and expiry;
+near-term expiry remains visible. Approved design-system changes create
+attributable repository and documentation migration work, while feedback and
+observed regressions create connected repair work. These records always report
+`grants_authority=false` and grant no repository, review, merge, release,
+deployment, participant, credential, or operational authority.
+
 Delivery teams are pre-execution contracts beneath `$DELIVERY_TEAM_ROOT`
 (default `apps/api/data/delivery-teams`). A repository collaborator forms one
 around a proposal, initiative, decision, incident follow-up, or other planned
