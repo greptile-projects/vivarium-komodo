@@ -47,6 +47,21 @@ safely tested remain explicit blockers rather than rehearsed success. No secret
 credential value or production data is retained, and rehearsal evidence grants
 no provider, deployment, environment, approval, or production authority.
 
+Authoritative infrastructure executions remain beneath the exact merged plan.
+Only a repository owner may bind a current plan, current passing rehearsal,
+every affected owner acknowledgement, satisfying policy effects, and a governed
+deployment environment to a provider credential reference that expires within
+24 hours, explicit provider scopes, controller, and cost ceiling. Environment
+approval requirements gate start. Runs expose the candidate and merge
+revisions, dependency-ordered resource states, active controller, sanitized
+provider responses, health, cost, blockers, next actions, and an append-only
+event history. Owner controls may start, pause, resume, or cancel only at
+declared safety points. A delegated agent may update only its named unexpired
+step, can never perform a destroy step, and receives no secret value, approval,
+unrelated provider, repository, deployment, or broader operational authority.
+The public API is beneath each plan's `/executions` resource and the repository
+web surface remains `view=infrastructure`.
+
 Durable state contracts live beneath `$DURABLE_SCHEMA_ROOT` (default
 `apps/api/data/durable-schemas`). Repository writers publish immutable,
 optimistically concurrency-checked schema versions for databases, queues,

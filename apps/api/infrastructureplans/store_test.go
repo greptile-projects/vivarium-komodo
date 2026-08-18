@@ -7,12 +7,79 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/infrastructurestate"
 )
 
-type fakePull struct{ revision string }
+type fakePull struct {
+	revision, merge string
+	merged          bool
+}
 
 func (f *fakePull) CurrentRevision(string, string) (string, error) { return f.revision, nil }
+func (f *fakePull) MergedRevision(string, string) (string, string, bool, error) {
+	return f.revision, f.merge, f.merged, nil
+}
+
+type fakeEnvironments struct{ approvals int }
+
+func (f fakeEnvironments) ExecutionEnvironment(string, string) (int, bool) { return f.approvals, true }
 
 type fakeDefinitions struct {
 	value infrastructurestate.Definition
+}
+
+func TestExecutionBindsMergedPlanEnvironmentAuthorityAndSafeAgentSteps(t *testing.T) {
+	now := time.Now().UTC()
+	pulls := &fakePull{revision: "candidate", merge: "merged", merged: true}
+	defs := &fakeDefinitions{value: infrastructurestate.Definition{ID: "inventory", CurrentVersion: 1, Versions: []infrastructurestate.Version{{Number: 1}}}}
+	s, _ := New(t.TempDir(), pulls, defs)
+	s.now = func() time.Time { return now }
+	s.ConfigureExecutionAuthority(fakeEnvironments{approvals: 1})
+	risks := []Risk{}
+	for _, kind := range []string{"availability", "security", "privacy", "continuity", "cost", "data"} {
+		risks = append(risks, Risk{Kind: kind, Level: "low", Detail: "bounded"})
+	}
+	p, err := s.Create("repo", "pull", "author", Input{Revision: "candidate", Definitions: []DefinitionRef{{ID: "inventory", Version: 1}}, Changes: []Change{{ResourceID: "network", Action: "change", EnvironmentIDs: []string{"production"}, OwnerIDs: []string{"owner"}, Summary: "update network", RollbackLimit: "restore route", Risks: risks}, {ResourceID: "service", Action: "change", EnvironmentIDs: []string{"production"}, OwnerIDs: []string{"owner"}, DependsOn: []string{"network"}, Summary: "update service", RollbackLimit: "restore service"}}, PolicyEffects: []PolicyEffect{{PolicyID: "environment", Revision: "1", Effect: "satisfy", Detail: "approved change window"}}, Assumptions: []string{"capacity exists"}, RollbackLimits: []string{"restore before contract"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ = s.Request("repo", "pull", p.ID, "reviewer", "owner", []string{"network", "service"})
+	p, _ = s.Decide("repo", "pull", p.ID, p.Acknowledgements[0].ID, "owner", "acknowledged", "ready")
+	checks := []RehearsalCheck{}
+	for kind := range checkKinds {
+		checks = append(checks, RehearsalCheck{ID: kind, Kind: kind, Command: "check", Expected: "pass", ResourceIDs: []string{"network", "service"}})
+	}
+	p, err = s.CreateRehearsal("repo", "pull", p.ID, "operator", RehearsalInput{Title: "safe rehearsal", Environment: RehearsalEnvironment{ID: "ephemeral", Kind: "isolated", NetworkBoundary: "isolated"}, Credential: CredentialBoundary{Reference: "lease:rehearsal", Provider: "cloud", Scope: []string{"read"}, EnvironmentIDs: []string{"ephemeral"}, ExpiresAt: now.Add(time.Hour)}, State: StateBoundary{Kind: "synthetic", Reference: "fixture"}, Resources: []RehearsalResource{{ResourceID: "network", Support: "supported"}, {ResourceID: "service", Support: "supported"}}, Checks: checks, MaximumDurationSeconds: 60, MaximumCost: 5, Currency: "USD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := []CheckResult{}
+	for _, c := range checks {
+		results = append(results, CheckResult{CheckID: c.ID, Status: "passed", Summary: "ok", DurationMillis: 1})
+	}
+	p, err = s.RecordRehearsalAttempt("repo", "pull", p.ID, p.Rehearsals[0].ID, "operator", AttemptInput{RunnerAttestation: "runner", StartedAt: now, CompletedAt: now.Add(time.Minute), Results: results, TeardownStatus: "passed", TeardownAttestation: "empty", RecoveryStatus: "passed", RecoveryAttestation: "restored"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = s.StartExecution("repo", "pull", p.ID, "owner", ExecutionInput{EnvironmentID: "production", ControllerID: "owner", Credential: ExecutionCredential{Reference: "lease:production", Provider: "cloud", Scopes: []string{"network:change", "service:change"}, EnvironmentID: "production", ExpiresAt: now.Add(time.Hour)}, Budget: ExecutionBudget{MaximumCost: 10, Currency: "USD"}, Delegations: []StepDelegation{{StepID: "network", AgentID: "agent", Actions: []string{"apply", "observe"}, ExpiresAt: now.Add(30 * time.Minute)}}})
+	if err != nil {
+		t.Fatalf("%v plan=%+v", err, p)
+	}
+	x := p.Executions[0]
+	if x.MergedRevision != "merged" || x.State != "awaiting_approvals" || x.Steps[0].ResourceID != "network" {
+		t.Fatalf("bad execution: %+v", x)
+	}
+	p, _ = s.ApproveExecution("repo", "pull", p.ID, x.ID, "approver")
+	p, _ = s.ControlExecution("repo", "pull", p.ID, x.ID, "owner", "start", "begin approved window")
+	p, err = s.UpdateExecutionStep("repo", "pull", p.ID, x.ID, "network", "agent", StepUpdate{State: "succeeded", ProviderResponse: "provider accepted change", Health: "healthy", Cost: 2, NextAction: "apply service", SafetyPoint: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.UpdateExecutionStep("repo", "pull", p.ID, x.ID, "service", "agent", StepUpdate{State: "succeeded", ProviderResponse: "provider accepted", Health: "healthy", Cost: 2, NextAction: "verify", SafetyPoint: true})
+	if err != ErrInvalid {
+		t.Fatalf("agent gained unrelated step authority: %v", err)
+	}
+	p, err = s.ControlExecution("repo", "pull", p.ID, x.ID, "owner", "pause", "inspect provider response")
+	if err != nil || p.Executions[0].State != "paused" {
+		t.Fatalf("safe pause failed: %v %+v", err, p.Executions[0])
+	}
 }
 
 func (f *fakeDefinitions) Get(string, string) (infrastructurestate.Definition, error) {

@@ -24,6 +24,12 @@ var (
 type Pull interface {
 	CurrentRevision(repository, pull string) (string, error)
 }
+type PullOutcome interface {
+	MergedRevision(repository, pull string) (sourceRevision, mergeRevision string, merged bool, err error)
+}
+type EnvironmentAuthority interface {
+	ExecutionEnvironment(repository, environment string) (requiredApprovals int, exists bool)
+}
 type Definitions interface {
 	Get(repository, definition string) (infrastructurestate.Definition, error)
 }
@@ -101,16 +107,24 @@ type Plan struct {
 	Acknowledgements []Acknowledgement `json:"acknowledgements"`
 	Invalidations    []Invalidation    `json:"invalidations"`
 	Rehearsals       []Rehearsal       `json:"rehearsals"`
+	Executions       []Execution       `json:"executions"`
 	Stale            bool              `json:"stale"`
 	StaleReasons     []string          `json:"stale_reasons"`
 	NonAuthority     []string          `json:"non_authority"`
 }
 type Store struct {
-	root        string
-	pulls       Pull
-	definitions Definitions
-	mu          sync.Mutex
-	now         func() time.Time
+	root         string
+	pulls        Pull
+	definitions  Definitions
+	mu           sync.Mutex
+	now          func() time.Time
+	environments EnvironmentAuthority
+}
+
+// ConfigureExecutionAuthority binds execution to the repository's established
+// release environments. Plans remain usable without it, but cannot execute.
+func (s *Store) ConfigureExecutionAuthority(environments EnvironmentAuthority) {
+	s.environments = environments
 }
 
 func New(root string, pulls Pull, definitions Definitions) (*Store, error) {
@@ -321,6 +335,9 @@ func (s *Store) derive(p Plan) Plan {
 	}
 	for x := range p.Rehearsals {
 		deriveRehearsal(&p.Rehearsals[x], p.Stale)
+	}
+	for x := range p.Executions {
+		deriveExecution(&p.Executions[x], s.now().UTC())
 	}
 	return p
 }
