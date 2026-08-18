@@ -100,6 +100,7 @@ type Plan struct {
 	Annotations      []Annotation      `json:"annotations"`
 	Acknowledgements []Acknowledgement `json:"acknowledgements"`
 	Invalidations    []Invalidation    `json:"invalidations"`
+	Rehearsals       []Rehearsal       `json:"rehearsals"`
 	Stale            bool              `json:"stale"`
 	StaleReasons     []string          `json:"stale_reasons"`
 	NonAuthority     []string          `json:"non_authority"`
@@ -317,6 +318,9 @@ func (s *Store) derive(p Plan) Plan {
 	p.NonAuthority = []string{"plan and collaboration grant no provider, credential, deployment, environment, policy, approval, or execution authority"}
 	for x := range p.Acknowledgements {
 		p.Acknowledgements[x].Current = !p.Stale
+	}
+	for x := range p.Rehearsals {
+		deriveRehearsal(&p.Rehearsals[x], p.Stale)
 	}
 	return p
 }

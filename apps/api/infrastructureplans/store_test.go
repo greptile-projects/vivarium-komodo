@@ -73,3 +73,48 @@ func TestPlanRejectsCyclesAndUnboundObservations(t *testing.T) {
 		t.Fatalf("expected invalid, got %v", err)
 	}
 }
+
+func TestRehearsalRetainsBoundedEvidenceAndNamesUntestableEffects(t *testing.T) {
+	now := time.Now().UTC()
+	pulls := &fakePull{revision: "revision"}
+	defs := &fakeDefinitions{value: infrastructurestate.Definition{ID: "inventory", CurrentVersion: 1, Versions: []infrastructurestate.Version{{Number: 1}}}}
+	s, _ := New(t.TempDir(), pulls, defs)
+	s.now = func() time.Time { return now }
+	risks := []Risk{}
+	for _, kind := range []string{"availability", "security", "privacy", "continuity", "cost", "data"} {
+		risks = append(risks, Risk{Kind: kind, Level: "medium", Detail: kind + " is bounded"})
+	}
+	p, err := s.Create("repo", "pull", "author", Input{Revision: "revision", Definitions: []DefinitionRef{{ID: "inventory", Version: 1}}, Changes: []Change{{ResourceID: "network", Action: "create", EnvironmentIDs: []string{"test"}, Summary: "create isolated network", RollbackLimit: "remove network", Risks: risks}, {ResourceID: "database", Action: "destroy", EnvironmentIDs: []string{"production"}, Summary: "retire old database", RollbackLimit: "data deletion is irreversible"}}, PolicyEffects: []PolicyEffect{{PolicyID: "policy", Revision: "1", Effect: "satisfy", Detail: "ephemeral only"}}, Assumptions: []string{"capacity exists"}, RollbackLimits: []string{"destruction cannot be tested"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checks := []RehearsalCheck{}
+	for kind := range checkKinds {
+		checks = append(checks, RehearsalCheck{ID: kind, Kind: kind, Command: "checks/" + kind, Expected: "bounded result", ResourceIDs: []string{"network"}})
+	}
+	p, err = s.CreateRehearsal("repo", "pull", p.ID, "operator", RehearsalInput{Title: "candidate rehearsal", Environment: RehearsalEnvironment{ID: "ephemeral-42", Kind: "isolated", Regions: []string{"test-1"}, NetworkBoundary: "deny production routes"}, Credential: CredentialBoundary{Reference: "lease:42", Provider: "example", Scope: []string{"network:create", "network:delete"}, EnvironmentIDs: []string{"ephemeral-42"}, ExpiresAt: now.Add(time.Hour)}, State: StateBoundary{Kind: "synthetic", Reference: "fixture:42"}, Resources: []RehearsalResource{{ResourceID: "network", Support: "supported"}, {ResourceID: "database", Support: "untestable_destructive", Reason: "irreversible deletion is not simulated"}}, Checks: checks, MaximumDurationSeconds: 600, MaximumCost: 10, Currency: "USD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := p.Rehearsals[0]
+	if r.Ready || len(r.UntestableEffects) != 1 || r.Credential.SecretRetained {
+		t.Fatalf("unsafe rehearsal projection: %+v", r)
+	}
+	results := []CheckResult{}
+	for _, c := range checks {
+		results = append(results, CheckResult{CheckID: c.ID, Status: "passed", Summary: "passed", SanitizedLog: "credential redacted", ArtifactDigests: []string{"sha256:" + c.ID}, DurationMillis: 4})
+	}
+	p, err = s.RecordRehearsalAttempt("repo", "pull", p.ID, r.ID, "operator", AttemptInput{RunnerAttestation: "runner:isolated-42", StartedAt: now, CompletedAt: now.Add(time.Minute), Results: results, ResourceGraph: []ResourceGraphEdge{{From: "network", To: "service"}}, AgentActions: []AgentAction{{AgentID: "agent-1", Action: "diagnose", ResourceID: "network", Summary: "verified denied production route"}}, EstimatedCost: 2.5, TeardownStatus: "passed", TeardownAttestation: "provider reports zero retained ephemeral resources", RecoveryStatus: "not_applicable", RecoveryAttestation: "no authoritative state changed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r = p.Rehearsals[0]
+	if !r.Attempts[0].Passed || r.Ready || len(r.Blockers) != 1 || r.Blockers[0] != "untestable_destructive_effects" {
+		t.Fatalf("attempt evidence misrepresented: %+v", r)
+	}
+	pulls.revision = "changed"
+	p, _ = s.Get("repo", "pull", p.ID)
+	if p.Rehearsals[0].Current || p.Rehearsals[0].Blockers[0] != "plan_stale" {
+		t.Fatalf("stale evidence remained current: %+v", p.Rehearsals[0])
+	}
+}

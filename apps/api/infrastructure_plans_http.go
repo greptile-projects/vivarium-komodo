@@ -133,6 +133,34 @@ func registerInfrastructurePlansHTTP(mux *http.ServeMux, s *infrastructureplans.
 			writeJSON(w, 201, v)
 		}
 	})
+	mux.HandleFunc("POST "+base+"/{plan}/rehearsals", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in infrastructureplans.RehearsalInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.CreateRehearsal(repo, r.PathValue("pull"), r.PathValue("plan"), actor, in)
+		if !infraPlanError(w, e) {
+			writeJSON(w, 201, v)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{plan}/rehearsals/{rehearsal}/attempts", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in infrastructureplans.AttemptInput
+		if !readJSON(w, r, &in, 2<<20) {
+			return
+		}
+		v, e := s.RecordRehearsalAttempt(repo, r.PathValue("pull"), r.PathValue("plan"), r.PathValue("rehearsal"), actor, in)
+		if !infraPlanError(w, e) {
+			writeJSON(w, 201, v)
+		}
+	})
 }
 func infraPlanError(w http.ResponseWriter, e error) bool {
 	if e == nil {
