@@ -46,3 +46,12 @@ func TestReplayRejectsProtectedFixtureAndAllowsAttributableRefinement(t *testing
 		t.Fatalf("refinement = %#v %v", v, e)
 	}
 }
+
+func TestRepairVerificationCanReplayAgainstCandidateRevision(t *testing.T) {
+	s, _ := New(t.TempDir())
+	v := scenario(t, s)
+	v, e := s.Attempt("repo", v.ID, "alice", AttemptInput{Mode: "repair_verification", TargetKind: "workspace", TargetID: "candidate", Revision: "fixed", Environment: map[string]string{"network": "disabled"}, Commands: []string{"go test ./..."}, InvariantResults: map[string]bool{"retry-loses-state": false}, Cost: .02})
+	if e != nil || v.Attempts[0].Status != "not_reproduced" || len(v.Attempts[0].Blockers) != 0 || v.Attempts[0].Mode != "repair_verification" {
+		t.Fatalf("candidate replay = %#v, %v", v, e)
+	}
+}
