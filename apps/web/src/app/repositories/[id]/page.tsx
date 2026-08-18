@@ -36,6 +36,7 @@ import { ServiceObjectives } from "@/components/service-objectives";
 import { RecoveryObjectives } from "@/components/recovery-objectives";
 import { DurableSchemas } from "@/components/durable-schemas";
 import { InfrastructureState } from "@/components/infrastructure-state";
+import { DebuggingWorkspaces } from "@/components/debugging-workspaces";
 import { AgentProfiles } from "@/components/agent-profiles";
 import { AgentDiscovery } from "@/components/agent-discovery";
 import { AgentEvaluations } from "@/components/agent-evaluations";
@@ -1237,6 +1238,7 @@ export default function RepositoryPage({
     issue?: string;
     feedback?: string;
     support?: string;
+    debugging?: string;
   }>;
 }) {
   const { id } = use(params);
@@ -1289,6 +1291,8 @@ export default function RepositoryPage({
                               ? "state"
                             : query.view === "infrastructure"
                               ? "infrastructure"
+                            : query.view === "debugging"
+                              ? "debugging"
                             : query.view === "agents"
                               ? "agents"
                             : query.view === "experiments"
@@ -1373,6 +1377,7 @@ export default function RepositoryPage({
         view === "continuity" ||
         view === "state" ||
         view === "infrastructure" ||
+        view === "debugging" ||
         view === "agents" ||
         view === "experiments" ||
         view === "feedback" ||
@@ -1598,6 +1603,10 @@ export default function RepositoryPage({
         </p>
       )}
       <nav className="repository-tabs" aria-label="Repository">
+        <button className={view === "debugging" ? "active" : ""} onClick={() => navigate({ view: "debugging", path: "" })}>
+          <MessageCircle size={15} />
+          Debugging
+        </button>
         <button className={view === "infrastructure" ? "active" : ""} onClick={() => navigate({ view: "infrastructure", path: "" })}>
           <Code size={15} />
           Infrastructure
@@ -1841,6 +1850,8 @@ export default function RepositoryPage({
         <DurableSchemas repository={repository.id} actor={actor} />
       ) : view === "infrastructure" ? (
         <InfrastructureState repository={repository.id} actor={actor} />
+      ) : view === "debugging" ? (
+        <DebuggingWorkspaces repository={repository.id} actor={actor} />
       ) : view === "apis" ? (
         <><APIContracts repository={repository.id} actor={actor} /><APIConsumers repository={repository.id} actor={actor} /><APIMigrations repository={repository.id} actor={actor} /></>
       ) : view === "documentation" ? (
