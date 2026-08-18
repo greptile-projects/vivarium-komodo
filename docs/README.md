@@ -4473,3 +4473,12 @@ but the link grants neither authority. Adoption therefore proceeds through an
 ordinary reviewed infrastructure definition change, while restoration remains
 subject to the environment's own approval and execution policy. Neither path
 rewrites the observed external change or silently claims convergence.
+
+The complete collaboration boundary is retained in
+`infrastructure_workflow_test.go`. It follows application and infrastructure
+code through one exact pull request, owner-reviewed planning, isolated rehearsal,
+protected execution, five-domain verification, detected console drift, and an
+ordinary reviewed agent repair. The same trail preserves a stale plan, denied
+owner acknowledgement, failed teardown, expired lease, over-budget update,
+provider failure, and partial apply as contained evidence rather than authority
+or success.

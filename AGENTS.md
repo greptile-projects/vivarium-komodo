@@ -75,6 +75,13 @@ through an exact-revision ordinary review, or request restoration with explicit
 environment policy. These records never rewrite external changes or grant
 provider, credential, incident, exception, review, merge, deployment, repair,
 or environment authority.
+`infrastructure_workflow_test.go` is the black-box regression boundary for the
+complete proposal-to-reconciled-infrastructure loop. It retains application and
+infrastructure code in one pull request, exact plans, security and service-owner
+decisions, scoped agent analysis and execution, failed teardown, stale evidence,
+expired credentials, budget and provider containment, partial-apply recovery,
+five-domain convergence evidence, out-of-band drift, and an ordinary reviewed
+agent repair without granting hidden provider or environment authority.
 
 Durable state contracts live beneath `$DURABLE_SCHEMA_ROOT` (default
 `apps/api/data/durable-schemas`). Repository writers publish immutable,
