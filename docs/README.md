@@ -4850,3 +4850,11 @@ work. The `view=quality` workspace shows the complete matrix. Quality evidence
 does not grant Git, review, merge, queue, release, environment, deployment,
 credential, tester, agent, or operational authority. Durable state defaults to
 `$QUALITY_GATE_ROOT` (`apps/api/data/quality-gates`).
+
+`collaborative_test_engineering_workflow_test.go` proves the complete public-API
+and stock-Git path from reviewed product and design expectations through a
+cross-platform reusable scenario, bounded tester-agent preview exploration, a
+minimized regression repair, exact pull/merge/release gates, and retained
+post-release verification. The boundary also proves that unsafe fixtures,
+affected stale exploration, a failed first repair, missing and flaky platforms,
+and an invalid override remain visible blockers until corrected.

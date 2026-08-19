@@ -2717,3 +2717,10 @@ or reopen its quality risk with evidence and follow-up work. These records
 expose confidence but grant no Git, tester, agent, merge-queue, release,
 environment, credential, deployment, or operational authority. The repository
 web surface remains `view=quality`.
+`collaborative_test_engineering_workflow_test.go` is the black-box regression
+boundary for the complete expectation-to-sustained-quality loop. It retains
+product and design intent, reviewed cross-platform scenarios, unsafe-fixture
+rejection, bounded human-agent preview exploration, targeted stale evidence, a
+minimized finding and agent-authored repair, failed-first and durable regression
+proof, missing and flaky platform containment, rejected risk bypass, exact pull,
+merge-queue, and release matrices, and attributable post-release verification.
