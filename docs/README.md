@@ -4749,3 +4749,26 @@ exceptions. The `view=quality` workspace supports publication and review; no
 quality-plan record grants Git, review, merge, release, deployment, environment,
 credential, or operational authority. Durable state is stored beneath
 `$QUALITY_PLAN_ROOT` (default `apps/api/data/quality-plans`).
+
+# Reusable test scenarios
+
+`/repositories/{repository}/test-scenarios` turns expected behavior into an
+immutable, reviewable executable contract. A scenario binds a repository path
+and exact source revision to accessible, revision-exact issue, reproduction,
+design, API contract, documentation, or journey rationale. Its parameters,
+given-style preconditions, actions and bounded commands, assertions, fixtures,
+and isolated environment requirements make both proof and rerun conditions
+visible without reverse-engineering an opaque script.
+
+Every version retains its ordinary branch, workspace, or pull-request
+contribution, contributor kind, exact revision, and changed paths. Agent
+contributions additionally require an explicit path scope. Generated cases
+must name the generator and expose assumptions and provenance. Fixture
+admission rejects secret-bearing or production-personal data, inaccessible
+sources, and non-synthetic material without declared transformations; fixture
+metadata never grants access to its source. Durable state lives beneath
+`$TEST_SCENARIO_ROOT` (default `apps/api/data/test-scenarios`), and the
+`view=quality` workspace presents the rationale, executable steps, safe data,
+environment, and immutable history. These assets grant no Git, workspace,
+pull-request, secret, production-data, credential, environment, review, merge,
+or execution authority.
