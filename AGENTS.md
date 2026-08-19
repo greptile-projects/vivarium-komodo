@@ -2634,3 +2634,19 @@ stage, and confirmed production outcome. Candidate attempts use the explicit
 `repair_verification` replay mode: unlike reproduction attempts, they may bind
 the pull's exact changed revision, but only a clean attempt where the original
 invariant is absent can satisfy runtime-repair verification.
+
+Versioned repository quality plans live beneath `$QUALITY_PLAN_ROOT` (default
+`apps/api/data/quality-plans`). Repository writers publish immutable,
+optimistically concurrency-checked agreements covering repository, release,
+journey, interface, and supported-environment scopes. Versions retain risks,
+expected and explicitly untestable behaviors, test levels, representative-data
+descriptions and privacy classes, coverage goals, accountable owners and
+judges, schedules, release thresholds, expiring exceptions, and change reasons.
+Requirement links distinguish issue, decision, design, accessibility, privacy,
+performance, and reliability rationale; automated and manual evidence remains
+attributable and revision-aware. Reads derive missing ownership and judges,
+contradictory expectations for one subject, untestable claims, absent or
+expired evidence, and expired or soon-expiring exceptions rather than treating
+a passing suite as complete quality. Plans grant no repository, review, merge,
+release, deployment, environment, credential, or operational authority. The
+repository web surface is `view=quality`.

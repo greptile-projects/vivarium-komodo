@@ -67,6 +67,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/protectionplans"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/qualityplans"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/questions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/recoveryexercises"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/recoveryimprovements"
@@ -411,6 +412,14 @@ func main() {
 		designSystemRoot = "data/design-systems"
 	}
 	designSystemStore, err := designsystems.New(designSystemRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	qualityPlanRoot := os.Getenv("QUALITY_PLAN_ROOT")
+	if qualityPlanRoot == "" {
+		qualityPlanRoot = "data/quality-plans"
+	}
+	qualityPlanStore, err := qualityplans.New(qualityPlanRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -820,6 +829,7 @@ func main() {
 	registerServiceObjectivesHTTP(mux, serviceObjectiveStore, repositoryCatalog, credentials)
 	registerAPIContractsHTTP(mux, apiContractStore, repositoryCatalog, credentials)
 	registerDesignSystemsHTTP(mux, designSystemStore, repositoryCatalog, credentials)
+	registerQualityPlansHTTP(mux, qualityPlanStore, repositoryCatalog, credentials)
 	registerDesignProposalsHTTP(mux, designProposalStore, repositoryCatalog, credentials, proposalStore, pullRequestStore)
 	registerInterfaceChecksHTTP(mux, interfaceCheckStore, repositoryCatalog, credentials, interfaceCheckSources{pulls: pullRequestStore, repositories: repositoryCatalog, designs: designProposalStore})
 	registerDesignGovernanceHTTP(mux, designGovernanceStore, interfaceCheckStore, repositoryCatalog, organizationStore, credentials, pullRequestStore)

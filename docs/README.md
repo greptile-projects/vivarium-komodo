@@ -4729,3 +4729,23 @@ stock-Git path from a consented intermittent released-user report through
 bounded/redacted collection, challenged human-agent diagnosis, revoked agent
 access, privacy-safe replay, failed-first candidate evidence, ordinary reviewed
 delivery, a contained staged failure, and confirmed production recovery.
+
+# Versioned quality plans
+
+`/repositories/{repository}/quality-plans` gives repository collaborators an
+immutable shared account of the behaviors that need protection and the people
+who will judge them. Each optimistic version can cover repository, release,
+journey, interface, and environment scopes and records risks, expected outcomes,
+test levels, supported environments, privacy-classified representative data,
+coverage goals, schedules, release thresholds, owners, and release judges.
+
+Requirements retain typed issue, decision, design, accessibility, privacy,
+performance, or reliability references and rationale. Existing automated and
+manual evidence binds named behaviors with attribution, revision, observation,
+status, and optional expiry. Reader projections preserve version history and
+derive missing owners or judges, competing outcomes for the same subject,
+untestable claims, missing or expired evidence, and expired or soon-expiring
+exceptions. The `view=quality` workspace supports publication and review; no
+quality-plan record grants Git, review, merge, release, deployment, environment,
+credential, or operational authority. Durable state is stored beneath
+`$QUALITY_PLAN_ROOT` (default `apps/api/data/quality-plans`).
