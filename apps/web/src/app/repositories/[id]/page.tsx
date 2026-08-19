@@ -27,6 +27,7 @@ import { SupportQuestions } from "@/components/support-questions";
 import { APIContracts } from "@/components/api-contracts";
 import { DesignSystems } from "@/components/design-systems";
 import { DesignProposals } from "@/components/design-proposals";
+import { QualityPlans } from "@/components/quality-plans";
 import { APIConsumers } from "@/components/api-consumers";
 import { APIMigrations } from "@/components/api-migrations";
 import { DataCommitments } from "@/components/data-commitments";
@@ -1250,7 +1251,9 @@ export default function RepositoryPage({
   const revision = query.ref ?? "";
   const path = query.path ?? "";
   const view =
-    query.view === "commits"
+    query.view === "quality"
+      ? "quality"
+      : query.view === "commits"
       ? "commits"
       : query.view === "proposals"
         ? "proposals"
@@ -1609,6 +1612,10 @@ export default function RepositoryPage({
         </p>
       )}
       <nav className="repository-tabs" aria-label="Repository">
+        <button className={view === "quality" ? "active" : ""} onClick={() => navigate({ view: "quality", path: "" })}>
+          <Sparkles size={15} />
+          Quality
+        </button>
         <button className={view === "debugging" ? "active" : ""} onClick={() => navigate({ view: "debugging", path: "" })}>
           <MessageCircle size={15} />
           Debugging
@@ -1848,7 +1855,9 @@ export default function RepositoryPage({
           </button>
         )}
       </nav>
-      {view === "governance" ? (
+      {view === "quality" ? (
+        <QualityPlans repository={repository.id} actor={actor} />
+      ) : view === "governance" ? (
         <GovernanceCharter scope="repositories" id={repository.id} canManage={actor===repository.owner_id} />
       ) : view === "extensions" ? (
         <Extensions repository={repository.id} />
