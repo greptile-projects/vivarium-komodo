@@ -108,7 +108,7 @@ func (s *Store) SetTriage(repo, id, actor string, expected int64, triage Triage)
 	return v, s.write(v)
 }
 func (s *Store) AddRelationship(repo, id, actor string, link Relationship) (Issue, error) {
-	allowed := map[string]bool{"code": true, "dependency": true, "release": true, "deployment": true, "incident": true, "proposal": true, "pull_request": true, "decision": true, "investigation": true}
+	allowed := map[string]bool{"code": true, "dependency": true, "release": true, "deployment": true, "incident": true, "proposal": true, "pull_request": true, "decision": true, "investigation": true, "exploratory_finding": true, "review": true, "quality_plan": true, "test_scenario": true, "check_run": true}
 	link.Kind = strings.TrimSpace(link.Kind)
 	link.ResourceID = strings.TrimSpace(link.ResourceID)
 	if actor == "" || !allowed[link.Kind] || link.ResourceID == "" || len(link.Note) > 2000 {

@@ -4803,3 +4803,21 @@ budgets, timeline, uncertainty, staleness, and findings together. Durable state
 defaults to `$EXPLORATORY_SESSION_ROOT`; no record grants Git, preview, data,
 environment, credential, review, merge, release, deployment, or operational
 authority.
+
+A confirmed current finding can be converted at
+`POST .../{session}/findings/{finding}/delivery`. The operation opens a linked
+repository issue and assigns an ordinary human- or agent-owned proposal task,
+preloading the exact base candidate, only the selected permitted timeline
+events, a minimized reproduction, and acceptance criteria. It grants no code or
+delivery authority. The `/verification` child resolves delivered work only
+when one pull request names distinct failing base and passing repair evidence,
+an attributable review, an exact quality-plan version, and a versioned reusable
+regression scenario. The issue retains links back to the exploratory session
+and repair proposal, while the finding retains the issue, task, pull, commits,
+review, plan, and scenario.
+
+Findings that should not enter repair use the `/resolution` child and must
+choose `flaky`, `duplicate`, `environment_specific`, or `not_reproducible` with
+an attributable rationale. Duplicate targets, affected environments, and flaky
+follow-up work are mandatory where applicable, keeping these outcomes visible
+instead of silently removing them from coverage.
