@@ -2650,3 +2650,18 @@ expired evidence, and expired or soon-expiring exceptions rather than treating
 a passing suite as complete quality. Plans grant no repository, review, merge,
 release, deployment, environment, credential, or operational authority. The
 repository web surface is `view=quality`.
+
+Reusable test scenarios live beneath `$TEST_SCENARIO_ROOT` (default
+`apps/api/data/test-scenarios`). Repository writers publish immutable,
+optimistically concurrency-checked versions from ordinary branches, workspaces,
+or pull requests. Each version binds its repository definition path and source
+revision to accessible exact-revision issue, reproduction, design, API-contract,
+documentation, or journey rationale; typed parameters; readable preconditions,
+actions, assertions, fixtures; and isolated environment requirements. Generated
+cases retain their generator, assumptions, and provenance, while scoped-agent
+contributions declare their changed paths and allowlist. Reusable fixtures are
+rejected when they contain secrets or production personal data, depend on
+inaccessible evidence, or use non-synthetic source material without explicit
+transformations. Scenario records grant no Git, workspace, pull-request, secret,
+production-data, environment, credential, review, merge, or execution authority.
+The repository web surface remains `view=quality`.
