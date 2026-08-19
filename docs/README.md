@@ -4821,3 +4821,32 @@ choose `flaky`, `duplicate`, `environment_specific`, or `not_reproducible` with
 an attributable rationale. Duplicate targets, affected environments, and flaky
 follow-up work are mandatory where applicable, keeping these outcomes visible
 instead of silently removing them from coverage.
+
+# Revision-exact quality delivery gates
+
+`/repositories/{repository}/quality-gates` turns an exact quality-plan version
+into the release-confidence matrix maintainers use for pull requests, merge
+queues, and releases. A versioned policy selects requirements by branch, path,
+journey, risk class, locale, platform, and release, and requires a named
+scenario, exploratory sign-off, or test result in a specific environment with
+an accountable owner.
+
+Opening `/candidates` freezes the target reference and revision. Attempts added
+beneath a candidate retain status (`passed`, `failed`, `flaky`, or
+`quarantined`), scenario version, exact environment and dimensions, code inputs,
+dependency revisions, bounded evidence, actor, and time. The reader projection
+derives a requirement-by-environment matrix, missing proof, current failures,
+owner acknowledgement, active risk acceptance, and an overall `ready` value.
+Posting a changed candidate to `/revisions` invalidates only attempts whose
+declared paths or dependency revisions intersect the change; owner decisions
+and overrides stay bound to their original revision.
+
+Owners acknowledge each current requirement through `/acknowledgements`.
+`/overrides` can accept only named gaps, must explain the decision, expires at a
+declared time, identifies its actor, and requires linked follow-up work. After a
+release, `/post-release-signals` retains sampled verification or reopens the
+specific quality risk; reopening likewise requires rationale and follow-up
+work. The `view=quality` workspace shows the complete matrix. Quality evidence
+does not grant Git, review, merge, queue, release, environment, deployment,
+credential, tester, agent, or operational authority. Durable state defaults to
+`$QUALITY_GATE_ROOT` (`apps/api/data/quality-gates`).

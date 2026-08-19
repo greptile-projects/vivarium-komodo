@@ -2699,3 +2699,21 @@ follow-up disposition. Neither path silently excludes evidence or grants Git,
 agent, review, merge, environment, credential, or execution authority.
 `exploratory_finding_repair_workflow_test.go` is the black-box boundary from a
 confirmed finding through assigned repair and durable regression linkage.
+
+Revision-exact quality delivery gates live beneath `$QUALITY_GATE_ROOT`
+(default `apps/api/data/quality-gates`). Repository writers publish immutable,
+optimistically checked policies binding an exact quality-plan version to
+required scenario, exploratory, and test evidence selected by branch, path,
+journey, risk class, locale, platform, and release. Pull-request, merge-queue,
+and release candidates freeze one policy version and exact revision into a
+matrix retaining attempts, failures, flakes, quarantines, gaps, and current
+owner acknowledgements. Every attempt declares its behavior, scenario version,
+environment, dimensions, code inputs, dependency revisions, evidence, and
+actor. Candidate changes stale only intersecting code- or dependency-bound
+attempts; acknowledgements and overrides never cross revisions. Overrides are
+scoped to named requirements, expiring, attributable, reasoned, and require
+linked follow-up work. Post-release sampled signals either verify a requirement
+or reopen its quality risk with evidence and follow-up work. These records
+expose confidence but grant no Git, tester, agent, merge-queue, release,
+environment, credential, deployment, or operational authority. The repository
+web surface remains `view=quality`.
