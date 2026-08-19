@@ -58,3 +58,32 @@ func TestSessionContainsAgentAndBudgetAuthority(t *testing.T) {
 		t.Fatalf("paused append = %v", err)
 	}
 }
+
+func TestConfirmedFindingDeliveryVerificationAndExplicitResolution(t *testing.T) {
+	s, _ := New(t.TempDir())
+	x, _ := s.Create("repo", "lead", input(time.Now().UTC()))
+	x, _ = s.Append("repo", x.ID, "agent-1", x.Revision, EventInput{Kind: "observation", CharterID: "retry", Route: "/checkout", BehaviorIDs: []string{"one-order"}, Observation: "two orders", AgentAction: true})
+	eid := x.Events[0].ID
+	x, _ = s.AddFinding("repo", x.ID, "agent-1", x.Revision, FindingInput{CharterID: "retry", Title: "duplicate", Description: "two orders", EventIDs: []string{eid}, ReproductionSteps: []string{"retry"}})
+	fid := x.Findings[0].ID
+	x, _ = s.UpdateFinding("repo", x.ID, fid, "lead", x.Revision, FindingUpdate{Classification: "defect", Reproduction: "reproduced", Rationale: "stable"})
+	x, err := s.LinkDelivery("repo", x.ID, fid, "lead", x.Revision, DeliveryLinkInput{IssueID: "issue", ProposalID: "proposal", TaskID: "task", OwnerKind: "agent", OwnerID: "agent-1", AcceptanceCriteria: []string{"one order"}, PermittedEventIDs: []string{eid}, MinimizedReproduction: []string{"retry once"}})
+	if err != nil || x.Findings[0].Delivery.BaseRevision != "commit-a" {
+		t.Fatalf("delivery = %#v, %v", x, err)
+	}
+	if _, err = s.VerifyDelivery("repo", x.ID, fid, "lead", x.Revision, VerificationInput{PullRequestID: "pull", BaseRevision: "wrong", RepairRevision: "fixed", FailingEvidenceID: "fail", PassingEvidenceID: "pass", ReviewID: "review", QualityPlanID: "quality", QualityPlanVersion: 1, ScenarioID: "scenario", ScenarioVersion: 1}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("wrong base = %v", err)
+	}
+	x, err = s.VerifyDelivery("repo", x.ID, fid, "lead", x.Revision, VerificationInput{PullRequestID: "pull", BaseRevision: "commit-a", RepairRevision: "commit-b", FailingEvidenceID: "base-run", PassingEvidenceID: "repair-run", ReviewID: "review", QualityPlanID: "quality", QualityPlanVersion: 2, ScenarioID: "scenario", ScenarioVersion: 1})
+	if err != nil || x.Findings[0].Status != "resolved" || x.Findings[0].Delivery.ScenarioID != "scenario" {
+		t.Fatalf("verification = %#v, %v", x, err)
+	}
+
+	y, _ := s.Create("repo", "lead", input(time.Now().UTC()))
+	y, _ = s.Append("repo", y.ID, "agent-1", y.Revision, EventInput{Kind: "observation", CharterID: "retry", Route: "/checkout", Observation: "timing varied", AgentAction: true})
+	y, _ = s.AddFinding("repo", y.ID, "agent-1", y.Revision, FindingInput{CharterID: "retry", Title: "timing", Description: "varied", EventIDs: []string{y.Events[0].ID}, ReproductionSteps: []string{"repeat"}})
+	y, err = s.ResolveWithoutDelivery("repo", y.ID, y.Findings[0].ID, "lead", y.Revision, ResolutionInput{Kind: "flaky", Rationale: "one in ten", FollowUp: "quarantine with expiry and rerun budget"})
+	if err != nil || y.Findings[0].Resolution.Kind != "flaky" {
+		t.Fatalf("resolution = %#v, %v", y, err)
+	}
+}

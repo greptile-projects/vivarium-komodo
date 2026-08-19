@@ -2684,3 +2684,18 @@ propagates staleness to dependent findings. Sessions grant no Git, preview,
 secret, production-data, review, merge, release, deployment, environment,
 credential, or operational authority. The repository web surface remains
 `view=quality`.
+
+Confirmed, current exploratory findings extend beneath their session into a
+governed delivery link. An authorized collaborator creates a repository issue
+and assigned ordinary human- or agent-owned proposal task while freezing the
+exact candidate, an explicit permitted subset of timeline events, a minimized
+reproduction, and immutable acceptance criteria. Delivery requires one pull
+request to retain distinct failure evidence against that exact base and passing
+evidence at its repaired revision, attributable review, an exact quality-plan
+version, and a versioned reusable regression scenario. Flaky, duplicate,
+environment-specific, and non-reproducible findings instead require an
+attributable rationale and their applicable duplicate, environment, or
+follow-up disposition. Neither path silently excludes evidence or grants Git,
+agent, review, merge, environment, credential, or execution authority.
+`exploratory_finding_repair_workflow_test.go` is the black-box boundary from a
+confirmed finding through assigned repair and durable regression linkage.

@@ -116,15 +116,48 @@ type FindingInput struct {
 type Finding struct {
 	ID string `json:"id"`
 	FindingInput
-	AuthorID          string    `json:"author_id"`
-	Status            string    `json:"status"`
-	Classification    string    `json:"classification"`
-	Reproduction      string    `json:"reproduction"`
-	Rationale         string    `json:"rationale,omitempty"`
-	CandidateRevision string    `json:"candidate_revision"`
-	Stale             bool      `json:"stale"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	AuthorID          string             `json:"author_id"`
+	Status            string             `json:"status"`
+	Classification    string             `json:"classification"`
+	Reproduction      string             `json:"reproduction"`
+	Rationale         string             `json:"rationale,omitempty"`
+	CandidateRevision string             `json:"candidate_revision"`
+	Stale             bool               `json:"stale"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
+	Delivery          *Delivery          `json:"delivery,omitempty"`
+	Resolution        *FindingResolution `json:"resolution,omitempty"`
+}
+type Delivery struct {
+	IssueID               string     `json:"issue_id"`
+	ProposalID            string     `json:"proposal_id"`
+	TaskID                string     `json:"task_id"`
+	OwnerKind             string     `json:"owner_kind"`
+	OwnerID               string     `json:"owner_id"`
+	AcceptanceCriteria    []string   `json:"acceptance_criteria"`
+	PermittedEventIDs     []string   `json:"permitted_event_ids"`
+	MinimizedReproduction []string   `json:"minimized_reproduction"`
+	PullRequestID         string     `json:"pull_request_id,omitempty"`
+	BaseRevision          string     `json:"base_revision"`
+	RepairRevision        string     `json:"repair_revision,omitempty"`
+	FailingEvidenceID     string     `json:"failing_evidence_id,omitempty"`
+	PassingEvidenceID     string     `json:"passing_evidence_id,omitempty"`
+	ReviewID              string     `json:"review_id,omitempty"`
+	QualityPlanID         string     `json:"quality_plan_id,omitempty"`
+	QualityPlanVersion    int64      `json:"quality_plan_version,omitempty"`
+	ScenarioID            string     `json:"regression_scenario_id,omitempty"`
+	ScenarioVersion       int64      `json:"regression_scenario_version,omitempty"`
+	CreatedAt             time.Time  `json:"created_at"`
+	VerifiedAt            *time.Time `json:"verified_at,omitempty"`
+}
+type FindingResolution struct {
+	Kind               string    `json:"kind"`
+	Rationale          string    `json:"rationale"`
+	DuplicateFindingID string    `json:"duplicate_finding_id,omitempty"`
+	Environment        string    `json:"environment,omitempty"`
+	FollowUp           string    `json:"follow_up,omitempty"`
+	ActorID            string    `json:"actor_id"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 type Control struct {
 	ID        string    `json:"id"`
@@ -528,4 +561,141 @@ func (s *Store) UpdateCandidate(repo, sid, actor string, expected int64, in Cand
 	x.UpdatedAt = s.now().UTC()
 	e = s.save(x)
 	return x, e
+}
+
+type DeliveryLinkInput struct {
+	IssueID, ProposalID, TaskID, OwnerKind, OwnerID              string
+	AcceptanceCriteria, PermittedEventIDs, MinimizedReproduction []string
+}
+
+func (s *Store) LinkDelivery(repo, sid, fid, actor string, expected int64, in DeliveryLinkInput) (Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, sid)
+	if e != nil {
+		return x, e
+	}
+	if _, ok := participant(x, actor); !ok || expected != x.Revision {
+		return x, ErrConflict
+	}
+	if in.IssueID == "" || in.ProposalID == "" || in.TaskID == "" || !allowed(in.OwnerKind, "human", "agent") || in.OwnerID == "" || len(in.AcceptanceCriteria) == 0 || len(in.PermittedEventIDs) == 0 || len(in.MinimizedReproduction) == 0 {
+		return x, ErrInvalid
+	}
+	events := map[string]bool{}
+	for _, ev := range x.Events {
+		events[ev.ID] = !ev.Stale
+	}
+	for _, eid := range in.PermittedEventIDs {
+		if !events[eid] {
+			return x, ErrInvalid
+		}
+	}
+	n := s.now().UTC()
+	for i := range x.Findings {
+		if x.Findings[i].ID == fid {
+			f := &x.Findings[i]
+			if f.Stale || f.Classification == "unclassified" || f.Classification == "duplicate" || f.Classification == "false_positive" || f.Reproduction != "reproduced" || f.Delivery != nil || f.Resolution != nil {
+				return x, ErrConflict
+			}
+			f.Delivery = &Delivery{IssueID: in.IssueID, ProposalID: in.ProposalID, TaskID: in.TaskID, OwnerKind: in.OwnerKind, OwnerID: in.OwnerID, AcceptanceCriteria: in.AcceptanceCriteria, PermittedEventIDs: in.PermittedEventIDs, MinimizedReproduction: in.MinimizedReproduction, BaseRevision: f.CandidateRevision, CreatedAt: n}
+			f.Status = "classified"
+			f.UpdatedAt = n
+			x.Revision++
+			x.UpdatedAt = n
+			return x, s.save(x)
+		}
+	}
+	return x, ErrNotFound
+}
+
+type VerificationInput struct {
+	PullRequestID      string `json:"pull_request_id"`
+	BaseRevision       string `json:"base_revision"`
+	RepairRevision     string `json:"repair_revision"`
+	FailingEvidenceID  string `json:"failing_evidence_id"`
+	PassingEvidenceID  string `json:"passing_evidence_id"`
+	ReviewID           string `json:"review_id"`
+	QualityPlanID      string `json:"quality_plan_id"`
+	QualityPlanVersion int64  `json:"quality_plan_version"`
+	ScenarioID         string `json:"regression_scenario_id"`
+	ScenarioVersion    int64  `json:"regression_scenario_version"`
+}
+
+func (s *Store) VerifyDelivery(repo, sid, fid, actor string, expected int64, in VerificationInput) (Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, sid)
+	if e != nil {
+		return x, e
+	}
+	if _, ok := participant(x, actor); !ok || expected != x.Revision {
+		return x, ErrConflict
+	}
+	if in.PullRequestID == "" || in.BaseRevision == "" || in.RepairRevision == "" || in.BaseRevision == in.RepairRevision || in.FailingEvidenceID == "" || in.PassingEvidenceID == "" || in.FailingEvidenceID == in.PassingEvidenceID || in.ReviewID == "" || in.QualityPlanID == "" || in.QualityPlanVersion < 1 || in.ScenarioID == "" || in.ScenarioVersion < 1 {
+		return x, ErrInvalid
+	}
+	n := s.now().UTC()
+	for i := range x.Findings {
+		if x.Findings[i].ID == fid {
+			d := x.Findings[i].Delivery
+			if d == nil || d.BaseRevision != in.BaseRevision || d.VerifiedAt != nil {
+				return x, ErrConflict
+			}
+			d.PullRequestID = in.PullRequestID
+			d.RepairRevision = in.RepairRevision
+			d.FailingEvidenceID = in.FailingEvidenceID
+			d.PassingEvidenceID = in.PassingEvidenceID
+			d.ReviewID = in.ReviewID
+			d.QualityPlanID = in.QualityPlanID
+			d.QualityPlanVersion = in.QualityPlanVersion
+			d.ScenarioID = in.ScenarioID
+			d.ScenarioVersion = in.ScenarioVersion
+			d.VerifiedAt = &n
+			x.Findings[i].Status = "resolved"
+			x.Findings[i].UpdatedAt = n
+			x.Revision++
+			x.UpdatedAt = n
+			return x, s.save(x)
+		}
+	}
+	return x, ErrNotFound
+}
+
+type ResolutionInput struct {
+	Kind               string `json:"kind"`
+	Rationale          string `json:"rationale"`
+	DuplicateFindingID string `json:"duplicate_finding_id"`
+	Environment        string `json:"environment"`
+	FollowUp           string `json:"follow_up"`
+}
+
+func (s *Store) ResolveWithoutDelivery(repo, sid, fid, actor string, expected int64, in ResolutionInput) (Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, sid)
+	if e != nil {
+		return x, e
+	}
+	if _, ok := participant(x, actor); !ok || expected != x.Revision {
+		return x, ErrConflict
+	}
+	if !allowed(in.Kind, "flaky", "duplicate", "environment_specific", "not_reproducible") || strings.TrimSpace(in.Rationale) == "" || (in.Kind == "duplicate" && in.DuplicateFindingID == "") || (in.Kind == "environment_specific" && in.Environment == "") || (in.Kind == "flaky" && in.FollowUp == "") {
+		return x, ErrInvalid
+	}
+	n := s.now().UTC()
+	for i := range x.Findings {
+		if x.Findings[i].ID == fid {
+			f := &x.Findings[i]
+			if f.Delivery != nil || f.Resolution != nil {
+				return x, ErrConflict
+			}
+			f.Resolution = &FindingResolution{Kind: in.Kind, Rationale: in.Rationale, DuplicateFindingID: in.DuplicateFindingID, Environment: in.Environment, FollowUp: in.FollowUp, ActorID: actor, CreatedAt: n}
+			f.Status = "resolved"
+			f.UpdatedAt = n
+			x.Revision++
+			x.UpdatedAt = n
+			return x, s.save(x)
+		}
+	}
+	return x, ErrNotFound
 }
