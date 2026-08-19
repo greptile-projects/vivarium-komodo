@@ -463,6 +463,13 @@ attributable repository and documentation migration work, while feedback and
 observed regressions create connected repair work. These records always report
 `grants_authority=false` and grant no repository, review, merge, release,
 deployment, participant, credential, or operational authority.
+`interface_design_workflow_test.go` is the black-box regression boundary for
+the complete feedback-to-shipped-interface loop. It retains designer,
+invited-user, and evidence-grounded agent comparison; a missing-state prototype
+revision; responsive, localization, interaction, and accessibility evidence;
+a rejected visual regression and corrected exact-candidate acceptance; design
+token history; connected repair work; and downstream consumer migration without
+granting hidden delivery or operational authority.
 
 Delivery teams are pre-execution contracts beneath `$DELIVERY_TEAM_ROOT`
 (default `apps/api/data/delivery-teams`). A repository collaborator forms one
