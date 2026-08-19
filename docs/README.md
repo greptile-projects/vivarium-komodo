@@ -3,6 +3,27 @@
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 
+## Collaborative interface delivery
+
+The Design repository view and pull-request Interface section form one
+inspectable workflow. Feedback-grounded design proposals retain human and agent
+alternatives, invited-user participation, complete journey states, responsive
+behavior, accessible content, prototype revisions, asset lineage, dissent, and
+owner acceptance. Accepted intent becomes ordinary dependency-ordered human or
+agent tasks and pull requests with requirement-to-path and rendered-surface
+mappings; a deliberate deviation remains pending until an owner decides it.
+
+Exact pull revisions then run the repository's interface matrix across visual,
+interaction, localization, responsive, content-length, and assistive-technology
+contexts. Design-governance policies require the applicable disciplines and
+invited users to accept the exact preview, while rejected acceptance, stale
+prototype or input evidence, missing states, unresolved regressions, and
+obsolete design-system usage remain release blockers. Corrected evidence and
+acceptance preserve the failed history. Shared token changes retain their
+consumer and documentation migration work, and shipped regressions retain a
+connected repair record; neither record grants code, review, merge, release, or
+operational authority.
+
 ## Interface fidelity checks
 
 Pull requests expose revision-exact interface evidence in `section=interface`.

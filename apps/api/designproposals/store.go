@@ -414,7 +414,7 @@ func (s *Store) Invite(repo, pid, actor, subject, kind, role string, evidence []
 	return s.persist(p)
 }
 func validArtifact(x ArtifactInput) bool {
-	if !map[string]bool{"wireframe": true, "prototype": true}[x.Kind] || x.Title == "" || x.ChangeReason == "" || len(x.Frames) == 0 {
+	if !map[string]bool{"wireframe": true, "prototype": true, "interactive_prototype": true}[x.Kind] || x.Title == "" || x.ChangeReason == "" || len(x.Frames) == 0 {
 		return false
 	}
 	for _, a := range x.Assets {
