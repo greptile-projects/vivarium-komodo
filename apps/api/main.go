@@ -34,6 +34,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/designsystems"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/docscollections"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/durableschemas"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/exploratorysessions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/extensions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/federatedagents"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/federation"
@@ -429,6 +430,14 @@ func main() {
 		testScenarioRoot = "data/test-scenarios"
 	}
 	testScenarioStore, err := testscenarios.New(testScenarioRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	exploratorySessionRoot := os.Getenv("EXPLORATORY_SESSION_ROOT")
+	if exploratorySessionRoot == "" {
+		exploratorySessionRoot = "data/exploratory-sessions"
+	}
+	exploratorySessionStore, err := exploratorysessions.New(exploratorySessionRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -840,6 +849,7 @@ func main() {
 	registerDesignSystemsHTTP(mux, designSystemStore, repositoryCatalog, credentials)
 	registerQualityPlansHTTP(mux, qualityPlanStore, repositoryCatalog, credentials)
 	registerTestScenariosHTTP(mux, testScenarioStore, repositoryCatalog, credentials)
+	registerExploratorySessionsHTTP(mux, exploratorySessionStore, repositoryCatalog, credentials)
 	registerDesignProposalsHTTP(mux, designProposalStore, repositoryCatalog, credentials, proposalStore, pullRequestStore)
 	registerInterfaceChecksHTTP(mux, interfaceCheckStore, repositoryCatalog, credentials, interfaceCheckSources{pulls: pullRequestStore, repositories: repositoryCatalog, designs: designProposalStore})
 	registerDesignGovernanceHTTP(mux, designGovernanceStore, interfaceCheckStore, repositoryCatalog, organizationStore, credentials, pullRequestStore)

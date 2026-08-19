@@ -4772,3 +4772,34 @@ metadata never grants access to its source. Durable state lives beneath
 environment, and immutable history. These assets grant no Git, workspace,
 pull-request, secret, production-data, credential, environment, review, merge,
 or execution authority.
+
+# Revision-exact exploratory testing
+
+`/repositories/{repository}/exploratory-sessions` lets an authorized tester
+open a shared investigation from a pull-request preview, release candidate,
+issue, or quality plan. The opening record freezes the exact candidate and
+origin, session expiry, isolated environment, permitted route and command
+prefixes, privacy-classified synthetic or transformed data, approved human and
+agent participants, and time, cost, and agent-action budgets. Each risk charter
+names its mission, risk level, covered behaviors and routes, techniques, and a
+single accountable assignee.
+
+`POST .../{session}/timeline` appends an optimistic, attributable account of
+the behavior actually exercised: routes, inputs, observations, screenshots,
+traces, commands, coverage, uncertainty, cost, and exact candidate revision.
+Artifacts are admitted only as sanitized content-addressed references. Agent
+events consume the declared action budget and must fit both the session and
+their assigned charter; route, command, cost, expiry, approval, and paused-state
+violations are rejected.
+
+Evidence-linked findings are created at `POST .../{session}/findings` and can
+be classified, reproduced, resolved, or discarded through their `PATCH`
+resource without rewriting the timeline. Leads guide, pause, resume, or close
+through `/controls`. When the candidate changes, a lead posts its new exact
+revision plus affected routes and behavior IDs to `/candidate-revisions`; only
+intersecting observations and findings become stale, while unaffected evidence
+remains current. The `view=quality` workspace presents boundaries, charters,
+budgets, timeline, uncertainty, staleness, and findings together. Durable state
+defaults to `$EXPLORATORY_SESSION_ROOT`; no record grants Git, preview, data,
+environment, credential, review, merge, release, deployment, or operational
+authority.
