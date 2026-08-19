@@ -2665,3 +2665,22 @@ inaccessible evidence, or use non-synthetic source material without explicit
 transformations. Scenario records grant no Git, workspace, pull-request, secret,
 production-data, environment, credential, review, merge, or execution authority.
 The repository web surface remains `view=quality`.
+
+Revision-exact exploratory test sessions live beneath
+`$EXPLORATORY_SESSION_ROOT` (default `apps/api/data/exploratory-sessions`).
+Repository writers open a bounded session from a pull-request preview, release
+candidate, issue, or quality plan and bind its exact candidate revision,
+isolated environment, permitted route and command prefixes, expiring access,
+privacy-classified synthetic or explicitly transformed test data, and time,
+cost, and agent-action ceilings. Risk-based charters name behaviors, routes,
+techniques, and one human or approved-agent owner. Append-only shared timeline
+events retain exercised routes, inputs, observations, commands, coverage,
+uncertainty, sanitized content-addressed screenshots and traces, actor, cost,
+and candidate revision. Participants may guide or pause work and classify,
+reproduce, resolve, or discard evidence-linked findings; only the session lead
+may change session state or candidate bindings. A changed candidate marks only
+events whose route or behavior intersects its declared affected scope stale and
+propagates staleness to dependent findings. Sessions grant no Git, preview,
+secret, production-data, review, merge, release, deployment, environment,
+credential, or operational authority. The repository web surface remains
+`view=quality`.

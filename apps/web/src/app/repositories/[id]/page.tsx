@@ -29,6 +29,7 @@ import { DesignSystems } from "@/components/design-systems";
 import { DesignProposals } from "@/components/design-proposals";
 import { QualityPlans } from "@/components/quality-plans";
 import { TestScenarios } from "@/components/test-scenarios";
+import { ExploratorySessions } from "@/components/exploratory-sessions";
 import { APIConsumers } from "@/components/api-consumers";
 import { APIMigrations } from "@/components/api-migrations";
 import { DataCommitments } from "@/components/data-commitments";
@@ -1857,7 +1858,7 @@ export default function RepositoryPage({
         )}
       </nav>
       {view === "quality" ? (
-        <><QualityPlans repository={repository.id} actor={actor} /><TestScenarios repository={repository.id} actor={actor} /></>
+        <><QualityPlans repository={repository.id} actor={actor} /><TestScenarios repository={repository.id} actor={actor} /><ExploratorySessions repository={repository.id} actor={actor} /></>
       ) : view === "governance" ? (
         <GovernanceCharter scope="repositories" id={repository.id} canManage={actor===repository.owner_id} />
       ) : view === "extensions" ? (
