@@ -4790,6 +4790,25 @@ removal or operational authority. Durable state lives beneath
 `$CAPABILITY_INVENTORY_ROOT` (default
 `apps/api/data/capability-inventories`).
 
+# Versioned project assurance programs
+
+`/repositories/{repository}/assurance-programs` lets repository writers turn
+selected exact regulatory, contractual, and organization requirements into an
+inspectable project program. Immutable optimistic versions retain each source,
+applicability decision, attributable interpretation, inherited source, scope,
+control objective and claim, accountable owners, review period, exception, and
+evidence criterion. Each control points to exact repository, policy, data-flow,
+infrastructure, environment, release, and operational-procedure revisions.
+
+Catalog and detail reads derive conflicting interpretations, missing control
+owners, inherited and unmapped obligations, claims without exact mappings or
+evidence criteria, and expired or 30-day expiring exceptions. These gaps remain
+attributed and visible in `view=assurance`; they are not collapsed into a score
+or badge. State lives beneath `$ASSURANCE_PROGRAM_ROOT` (default
+`apps/api/data/assurance-programs`) and grants no Git, policy, evidence,
+approval, release, deployment, credential, environment, or operational
+authority.
+
 # Acknowledged capability retirement contracts
 
 `/repositories/{repository}/capability-retirements` lets repository writers

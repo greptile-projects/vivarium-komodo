@@ -32,6 +32,7 @@ import { CapabilityInventories } from "@/components/capability-inventories";
 import { CapabilityRetirements } from "@/components/capability-retirements";
 import { CapabilityProofs } from "@/components/capability-proofs";
 import { CapabilityRemovals } from "@/components/capability-removals";
+import { AssurancePrograms } from "@/components/assurance-programs";
 import { SecurityExpectations } from "@/components/security-expectations";
 import { ThreatModels } from "@/components/threat-models";
 import { SecurityScenarios } from "@/components/security-scenarios";
@@ -1261,7 +1262,9 @@ export default function RepositoryPage({
   const revision = query.ref ?? "";
   const path = query.path ?? "";
   const view =
-    query.view === "security"
+    query.view === "assurance"
+      ? "assurance"
+      : query.view === "security"
       ? "security"
       : query.view === "capabilities"
       ? "capabilities"
@@ -1626,6 +1629,10 @@ export default function RepositoryPage({
         </p>
       )}
       <nav className="repository-tabs" aria-label="Repository">
+        <button className={view === "assurance" ? "active" : ""} onClick={() => navigate({ view: "assurance", path: "" })}>
+          <Check size={15} />
+          Assurance
+        </button>
         <button className={view === "capabilities" ? "active" : ""} onClick={() => navigate({ view: "capabilities", path: "" })}>
           <Code size={15} />
           Capabilities
@@ -1877,7 +1884,9 @@ export default function RepositoryPage({
           </button>
         )}
       </nav>
-      {view === "capabilities" ? (
+      {view === "assurance" ? (
+        <AssurancePrograms repository={repository.id} actor={actor} />
+      ) : view === "capabilities" ? (
         <><CapabilityInventories repository={repository.id} actor={actor} /><CapabilityRetirements repository={repository.id} actor={actor} /><CapabilityProofs repository={repository.id} actor={actor} /><CapabilityRemovals repository={repository.id} actor={actor} /></>
       ) : view === "security" ? (
         <><SecurityExpectations repository={repository.id} actor={actor} /><ThreatModels repository={repository.id} actor={actor} /><SecurityScenarios repository={repository.id} actor={actor} /></>
