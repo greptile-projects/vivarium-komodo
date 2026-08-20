@@ -239,6 +239,22 @@ every governed application is ready. Migration links do not create work,
 credentials, repository rights, agent authority, deployment access, or an
 ability to act for a consumer.
 
+## Pull-request agent candidate evaluation
+
+`/repositories/{repository}/pull-requests/{pull}/agent-candidates` assembles an
+immutable candidate only when the requested revision is the pull request's
+current source revision and the behavior contract is published for that same
+revision. The server derives exact prompt, instruction, tool, model, knowledge,
+scenario, and judge inputs rather than trusting caller-supplied provenance.
+Attempts are isolated and input-scoped, retain traces/actions/outputs/artifacts,
+evaluator decisions and repeated measurements, and expose means with 95%
+limits across success, policy, correction, uncertainty, latency, and cost.
+Contamination and observed nondeterminism stay visible. Supplying a prior
+candidate as the baseline carries forward only attempts whose declared input
+keys still have identical revisions. The pull request's Agent behavior section
+shows retained candidates and exact baseline comparisons; none of these records
+grants execution, Git, review, merge, release, service, or environment access.
+
 ## Evaluated agent onboarding
 
 Repository owners turn accepted, uncontaminated agent trials into explicit

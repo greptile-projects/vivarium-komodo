@@ -1,17 +1,30 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/agentevaluations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/agentprofiles"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/agentprojects"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 )
 
-func registerAgentEvaluationsHTTP(m *http.ServeMux, s *agentevaluations.Store, profiles *agentprofiles.Store, repos dataFlowRepositories, orgs *organizations.Store, credentials authStore) {
+type agentEvaluationSources struct {
+	projects *agentprojects.Store
+	pulls    interface {
+		Get(string, string) (pullrequests.PullRequest, error)
+	}
+}
+
+func registerAgentEvaluationsHTTP(m *http.ServeMux, s *agentevaluations.Store, profiles *agentprofiles.Store, repos dataFlowRepositories, orgs *organizations.Store, credentials authStore, optional ...agentEvaluationSources) {
 	base := "/repositories/{repository}/agent-evaluations"
 	m.HandleFunc("GET "+base+"/suites", func(w http.ResponseWriter, r *http.Request) {
 		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
@@ -164,6 +177,184 @@ func registerAgentEvaluationsHTTP(m *http.ServeMux, s *agentevaluations.Store, p
 		return id, actor.UserID, true
 	}
 	registerAgentOnboardingHTTP(m, "/organizations/{organization}/agent-onboardings", "organization", s, profiles, organizationAccess, operatorAccess)
+	if len(optional) > 0 && optional[0].projects != nil && optional[0].pulls != nil {
+		registerAgentCandidateHTTP(m, s, repos, credentials, optional[0])
+	}
+}
+
+func contractVersion(p agentprojects.Project, n int64) (agentprojects.Version, bool) {
+	for _, v := range p.Versions {
+		if v.Number == n {
+			return v, true
+		}
+	}
+	return agentprojects.Version{}, false
+}
+func revisionValue(v any) string {
+	b, _ := json.Marshal(v)
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
+func assembledInputs(v agentprojects.Version, selections []agentevaluations.SuiteSelection, s *agentevaluations.Store, repo string) ([]agentevaluations.BoundInput, error) {
+	out := []agentevaluations.BoundInput{{Key: "contract", Revision: strconv.FormatInt(v.Number, 10)}}
+	for _, x := range v.Prompts {
+		out = append(out, agentevaluations.BoundInput{Key: "prompt:" + x.ID, Revision: x.Revision})
+	}
+	for _, x := range v.Instructions {
+		out = append(out, agentevaluations.BoundInput{Key: "instruction:" + x.ID, Revision: x.Revision})
+	}
+	for _, x := range v.Tools {
+		out = append(out, agentevaluations.BoundInput{Key: "tool:" + x.Name, Revision: x.Revision})
+	}
+	for _, x := range v.Models {
+		out = append(out, agentevaluations.BoundInput{Key: "model:" + x.Provider + "/" + x.Name, Revision: x.Revision})
+	}
+	for _, x := range v.KnowledgeSources {
+		out = append(out, agentevaluations.BoundInput{Key: "knowledge:" + x.Reference, Revision: x.Revision})
+	}
+	for _, sel := range selections {
+		suite, e := s.GetSuite(repo, sel.SuiteID, true)
+		if e != nil {
+			return nil, e
+		}
+		var sv *agentevaluations.SuiteVersion
+		for i := range suite.Versions {
+			if suite.Versions[i].Number == sel.SuiteVersion {
+				sv = &suite.Versions[i]
+			}
+		}
+		if sv == nil {
+			return nil, agentevaluations.ErrInvalid
+		}
+		wanted := map[string]bool{}
+		for _, id := range sel.ScenarioIDs {
+			wanted[id] = true
+		}
+		for _, q := range sv.Scenarios {
+			if wanted[q.ID] {
+				out = append(out, agentevaluations.BoundInput{Key: "scenario:" + sel.SuiteID + ":" + q.ID, Revision: q.RepositoryRevision})
+				for _, j := range q.Checks {
+					out = append(out, agentevaluations.BoundInput{Key: "judge:" + sel.SuiteID + ":" + q.ID + ":" + j.ID, Revision: revisionValue(j)})
+				}
+				delete(wanted, q.ID)
+			}
+		}
+		if len(wanted) > 0 {
+			return nil, agentevaluations.ErrInvalid
+		}
+	}
+	return out, nil
+}
+func registerAgentCandidateHTTP(m *http.ServeMux, s *agentevaluations.Store, repos dataFlowRepositories, credentials authStore, src agentEvaluationSources) {
+	base := "/repositories/{repository}/pull-requests/{pull}/agent-candidates"
+	access := func(w http.ResponseWriter, r *http.Request, write bool) (string, string, pullrequests.PullRequest, bool) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, map[bool]auth.Scope{true: auth.RepositoryWrite, false: auth.RepositoryRead}[write], write)
+		if !ok {
+			return "", "", pullrequests.PullRequest{}, false
+		}
+		p, e := src.pulls.Get(string(repo.ID), r.PathValue("pull"))
+		if e != nil {
+			writeJSON(w, 404, map[string]string{"error": "pull_request_not_found"})
+			return "", "", p, false
+		}
+		return string(repo.ID), a.UserID, p, true
+	}
+	m.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
+		repo, _, _, ok := access(w, r, false)
+		if !ok {
+			return
+		}
+		x, e := s.ListCandidates(repo, r.PathValue("pull"))
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 200, map[string]any{"items": x})
+		}
+	})
+	m.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, p, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in agentevaluations.CandidateInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		in.PullRequestID = p.ID
+		if in.Revision != p.SourceCommitID {
+			writeJSON(w, 422, map[string]string{"error": "exact_pull_revision_required"})
+			return
+		}
+		project, e := src.projects.Get(repo, in.AgentProjectID)
+		if e != nil {
+			agentEvaluationError(w, agentevaluations.ErrInvalid)
+			return
+		}
+		v, ok := contractVersion(project, in.AgentProjectVersion)
+		if !ok || v.RepositoryRevision != in.Revision {
+			writeJSON(w, 422, map[string]string{"error": "exact_behavior_contract_required"})
+			return
+		}
+		in.Inputs, e = assembledInputs(v, in.Suites, s, repo)
+		if e != nil {
+			agentEvaluationError(w, e)
+			return
+		}
+		x, e := s.CreateCandidate(repo, actor, in)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("GET "+base+"/{candidate}", func(w http.ResponseWriter, r *http.Request) {
+		repo, _, _, ok := access(w, r, false)
+		if !ok {
+			return
+		}
+		x, e := s.GetCandidate(repo, r.PathValue("candidate"))
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 200, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{candidate}/attempts", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, p, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		x, e := s.GetCandidate(repo, r.PathValue("candidate"))
+		if e != nil {
+			agentEvaluationError(w, e)
+			return
+		}
+		if x.PullRequestID != p.ID || x.Revision != p.SourceCommitID {
+			writeJSON(w, 422, map[string]string{"error": "candidate_revision_stale"})
+			return
+		}
+		var in agentevaluations.CandidateAttemptInput
+		if !readJSON(w, r, &in, 4<<20) {
+			return
+		}
+		x, e = s.RecordCandidateAttempt(repo, x.ID, actor, in)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("GET "+base+"/{candidate}/comparison", func(w http.ResponseWriter, r *http.Request) {
+		repo, _, p, ok := access(w, r, false)
+		if !ok {
+			return
+		}
+		candidate, e := s.GetCandidate(repo, r.PathValue("candidate"))
+		if e != nil {
+			agentEvaluationError(w, e)
+			return
+		}
+		if candidate.Revision != p.SourceCommitID {
+			writeJSON(w, 409, map[string]string{"error": "candidate_revision_stale"})
+			return
+		}
+		x, e := s.CompareCandidates(repo, r.URL.Query().Get("baseline"), candidate.ID)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 200, x)
+		}
+	})
 }
 
 type onboardingAccess func(http.ResponseWriter, *http.Request, bool) (string, string, bool)

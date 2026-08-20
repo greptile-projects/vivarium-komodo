@@ -354,6 +354,19 @@ server-derived labels distinguish repeated, reproduction, and operator-supplied
 trials from first-party evidence. Evaluation grants no durable agent,
 repository, credential, review, merge, or operational authority. The repository
 web surface remains `view=agents`.
+Pull-request agent candidates live in the same store and are assembled only for
+the pull's exact current source revision from one exact agent-project behavior
+contract plus selected immutable suite scenarios. The candidate digest binds
+prompt, instruction, tool, model, knowledge, scenario, and judge revisions as
+independently keyed inputs. Isolated attempts declare the exact input subset,
+bounded environment, and simulated or permitted services and retain sanitized
+traces, tool actions, outputs, artifacts, evaluator decisions, repeated metric
+samples, 95% limits, contamination, and nondeterminism. A successor candidate
+may reuse an attempt only when every input key that attempt declared is
+unchanged; affected evidence remains attributable on the prior candidate.
+Pull-request `section=agent-evaluations` compares a current candidate with an
+explicit baseline across task success, policy adherence, human corrections,
+uncertainty, latency, and cost without converting an aggregate into authority.
 Evaluated-agent onboarding records live in the same store beneath repository
 `/agent-evaluations/onboardings` and organization `/agent-onboardings`
 resources. Owners bind exact clean, accepted trial and profile versions to
