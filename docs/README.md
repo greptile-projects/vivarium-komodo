@@ -4940,3 +4940,14 @@ only the sanitized summary and affected input keys and grants neither its
 producer nor an agent disclosure, repository, merge, release, deployment,
 environment, credential, or production authority. Durable state defaults to
 `$SECURITY_DELIVERY_ROOT` (`apps/api/data/security-delivery`).
+
+`security_assurance_workflow_test.go` proves the complete public-API and
+stock-Git path from a privileged-workflow expectation through agent-assisted
+threat modeling, revision-bound redesign, executable abuse evidence, ordinary
+review, integration, release, staged deployment, and post-release control
+restoration. The boundary deliberately retains a false positive, stale model,
+unsafe test, inaccessible dependency, rejected exception, and failed first
+repair. A changed assumption opens a private connected repair, and only a new
+model, reviewed scenario version, exact passing attempt, and sanitized staged
+signal establish restored protection; no old security result is silently
+promoted to the new revision.
