@@ -255,6 +255,30 @@ keys still have identical revisions. The pull request's Agent behavior section
 shows retained candidates and exact baseline comparisons; none of these records
 grants execution, Git, review, merge, release, service, or environment access.
 
+## Candidate collaboration pilots
+
+Repository owners publish an exact pull-request agent candidate at
+`/repositories/{repository}/agent-evaluations/pilots` for selected repository
+IDs, roles, named participants, tasks, expected outcomes, expiry, currency, and
+cost ceiling. The API rejects every action except `read` and `draft`; its
+effective-authority projection always keeps merge, deployment, disclosure, and
+authoritative mutation false.
+
+An invited repository collaborator accepts or revokes their own consent before
+delegating a permitted session. Session events retain guidance, draft output,
+escalations, policy denials, unsafe behavior, stops, and incremental cost.
+Feedback and corrections must name both a pilot session and the pilot's exact
+candidate revision, and can compare the observed result with its published
+expected outcome. The Agents web workspace exposes that access, live evidence,
+cost, denials, and comparison before maintainers consider durable onboarding.
+
+Expiry, budget exhaustion, revoked consent, unsafe behavior, an owner pause, or
+movement of the candidate pull revision derives a paused pilot. Prior sessions,
+drafts, feedback, corrections, costs, and denials remain attributable; resuming
+cannot erase unresolved safety, consent, budget, expiry, or candidate-drift
+blockers. A pilot grants no agent identity, Git write, review, merge, release,
+deployment, disclosure, credential, environment, or operational authority.
+
 ## Evaluated agent onboarding
 
 Repository owners turn accepted, uncontaminated agent trials into explicit
