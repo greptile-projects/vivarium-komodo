@@ -2763,6 +2763,17 @@ write, consumer access, approval impersonation, merge, release, deployment,
 credential, environment, or operational authority. The repository web surface
 is `view=capabilities`.
 
+Retirement migration work remains beneath the exact plan. Provider writers may
+define dependency-ordered human- or agent-owned tasks only for a named
+repository and freeze the legacy and replacement contract revisions,
+acceptance criteria, documentation changes, and rollout stage. Only a writer
+of that task repository may report its sessions, workspaces, forks, pull
+requests, revisions, blockers, review, or completion. Repository readers may
+report a newly discovered consumer with cited evidence; it becomes an
+attributable plan blocker until the inventory and migration scope are revised.
+Linked work and progress never grant the retiring provider authority in the
+consumer repository.
+
 Reusable test scenarios live beneath `$TEST_SCENARIO_ROOT` (default
 `apps/api/data/test-scenarios`). Repository writers publish immutable,
 optimistically concurrency-checked versions from ordinary branches, workspaces,

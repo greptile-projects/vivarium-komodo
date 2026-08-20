@@ -4814,6 +4814,24 @@ beneath `$CAPABILITY_RETIREMENT_ROOT` (default
 `apps/api/data/capability-retirements`) and grants no removal, Git, release,
 deployment, credential, environment, consumer, or operational authority.
 
+### Consumer-owned replacement work
+
+Plan writers can add ordered migration tasks through
+`POST /repositories/{repository}/capability-retirements/{plan}/tasks`. Every
+task freezes the exact old and replacement contract reference and revision,
+the responsible human or agent, task repository, acceptance criteria,
+documentation changes, rollout stage, and earlier task dependencies. The plan
+derives readiness from completed dependencies.
+
+Progress is append-only at `.../tasks/{task}/progress` and can link ordinary
+tasks, sessions, workspaces, independently owned forks, and pull requests with
+their repository and exact revision. The caller must independently hold write
+access to the task repository; provider ownership of the retirement plan is
+insufficient and private consumer repositories remain concealed. Readers can
+report cited newly discovered consumers at `.../consumer-discoveries`. Those
+reports return to the plan as attributable blockers rather than silently
+narrowing scope, preserving why inventory and migration work must change.
+
 # Reusable test scenarios
 
 `/repositories/{repository}/test-scenarios` turns expected behavior into an

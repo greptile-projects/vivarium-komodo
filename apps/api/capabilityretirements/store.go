@@ -126,6 +126,58 @@ type PolicyDecision struct {
 	OwnerID   string    `json:"owner_id"`
 	CreatedAt time.Time `json:"created_at"`
 }
+type ContractReference struct {
+	Kind      string `json:"kind"`
+	Reference string `json:"reference"`
+	Revision  string `json:"revision"`
+}
+type WorkLink struct {
+	Kind         string `json:"kind"`
+	ID           string `json:"id"`
+	RepositoryID string `json:"repository_id"`
+	Revision     string `json:"revision,omitempty"`
+}
+type Progress struct {
+	ID        string    `json:"id"`
+	State     string    `json:"state"`
+	Summary   string    `json:"summary"`
+	ActorID   string    `json:"actor_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type MigrationTaskInput struct {
+	RepositoryID         string            `json:"repository_id"`
+	OwnerKind            string            `json:"owner_kind"`
+	OwnerID              string            `json:"owner_id"`
+	Title                string            `json:"title"`
+	OldContract          ContractReference `json:"old_contract"`
+	ReplacementContract  ContractReference `json:"replacement_contract"`
+	AcceptanceCriteria   []string          `json:"acceptance_criteria"`
+	DependsOn            []string          `json:"depends_on"`
+	DocumentationChanges []string          `json:"documentation_changes"`
+	RolloutStageID       string            `json:"rollout_stage_id"`
+}
+type MigrationTask struct {
+	ID          string             `json:"id"`
+	Position    int                `json:"position"`
+	Input       MigrationTaskInput `json:"input"`
+	Status      string             `json:"status"`
+	Ready       bool               `json:"ready"`
+	BlockedBy   []string           `json:"blocked_by"`
+	Work        []WorkLink         `json:"work"`
+	Progress    []Progress         `json:"progress"`
+	CreatedByID string             `json:"created_by_id"`
+	CreatedAt   time.Time          `json:"created_at"`
+}
+type ConsumerDiscovery struct {
+	ID                string    `json:"id"`
+	ConsumerID        string    `json:"consumer_id"`
+	RepositoryID      string    `json:"repository_id,omitempty"`
+	Revision          string    `json:"revision,omitempty"`
+	EvidenceReference string    `json:"evidence_reference"`
+	Summary           string    `json:"summary"`
+	AuthorID          string    `json:"author_id"`
+	CreatedAt         time.Time `json:"created_at"`
+}
 type Blocker struct {
 	Kind                 string `json:"kind"`
 	Subject              string `json:"subject"`
@@ -134,17 +186,19 @@ type Blocker struct {
 	ResolvedByDecisionID string `json:"resolved_by_decision_id,omitempty"`
 }
 type Plan struct {
-	ID              string           `json:"id"`
-	RepositoryID    string           `json:"repository_id"`
-	Input           Input            `json:"input"`
-	CreatedByID     string           `json:"created_by_id"`
-	CreatedAt       time.Time        `json:"created_at"`
-	Assessments     []Assessment     `json:"assessments"`
-	Approvals       []Approval       `json:"approvals"`
-	PolicyDecisions []PolicyDecision `json:"policy_decisions"`
-	Blockers        []Blocker        `json:"blockers"`
-	Ready           bool             `json:"ready"`
-	NonAuthority    []string         `json:"non_authority"`
+	ID              string              `json:"id"`
+	RepositoryID    string              `json:"repository_id"`
+	Input           Input               `json:"input"`
+	CreatedByID     string              `json:"created_by_id"`
+	CreatedAt       time.Time           `json:"created_at"`
+	Assessments     []Assessment        `json:"assessments"`
+	Approvals       []Approval          `json:"approvals"`
+	PolicyDecisions []PolicyDecision    `json:"policy_decisions"`
+	Tasks           []MigrationTask     `json:"tasks"`
+	Discoveries     []ConsumerDiscovery `json:"consumer_discoveries"`
+	Blockers        []Blocker           `json:"blockers"`
+	Ready           bool                `json:"ready"`
+	NonAuthority    []string            `json:"non_authority"`
 }
 type Store struct {
 	root        string
@@ -228,7 +282,7 @@ func (s *Store) Create(repo, actor string, in Input) (Plan, error) {
 		return Plan{}, ErrInvalid
 	}
 	now := s.now().UTC()
-	p := Plan{ID: identifier(), RepositoryID: repo, Input: in, CreatedByID: actor, CreatedAt: now, Assessments: []Assessment{}, PolicyDecisions: []PolicyDecision{}, NonAuthority: []string{"repository write", "consumer access", "approval impersonation", "merge", "release", "deployment", "credential", "environment", "operational authority"}}
+	p := Plan{ID: identifier(), RepositoryID: repo, Input: in, CreatedByID: actor, CreatedAt: now, Assessments: []Assessment{}, PolicyDecisions: []PolicyDecision{}, Tasks: []MigrationTask{}, Discoveries: []ConsumerDiscovery{}, NonAuthority: []string{"repository write", "consumer access", "approval impersonation", "merge", "release", "deployment", "credential", "environment", "operational authority"}}
 	for _, r := range in.RequiredApprovals {
 		p.Approvals = append(p.Approvals, Approval{OwnerID: r.OwnerID, Scope: r.Scope, Deadline: r.Deadline})
 	}
@@ -238,6 +292,12 @@ func (s *Store) Create(repo, actor string, in Input) (Plan, error) {
 	return p, s.save(p)
 }
 func (s *Store) derive(p Plan, inv capabilityinventories.Inventory, now time.Time) Plan {
+	if p.Tasks == nil {
+		p.Tasks = []MigrationTask{}
+	}
+	if p.Discoveries == nil {
+		p.Discoveries = []ConsumerDiscovery{}
+	}
 	b := []Blocker{}
 	add := func(k, s, d, a string) { b = append(b, Blocker{Kind: k, Subject: s, Detail: d, AttributedTo: a}) }
 	if inv.CurrentVersion != p.Input.InventoryVersion {
@@ -265,6 +325,22 @@ func (s *Store) derive(p Plan, inv capabilityinventories.Inventory, now time.Tim
 		if x.Kind == "challenge" {
 			add("cited_challenge", x.ID, x.Body+" ("+x.EvidenceReference+")", x.AuthorID)
 		}
+	}
+	for _, x := range p.Discoveries {
+		add("new_consumer", x.ConsumerID, x.Summary+" ("+x.EvidenceReference+")", x.AuthorID)
+	}
+	completed := map[string]bool{}
+	for _, t := range p.Tasks {
+		completed[t.ID] = t.Status == "completed"
+	}
+	for i := range p.Tasks {
+		p.Tasks[i].BlockedBy = []string{}
+		for _, d := range p.Tasks[i].Input.DependsOn {
+			if !completed[d] {
+				p.Tasks[i].BlockedBy = append(p.Tasks[i].BlockedBy, d)
+			}
+		}
+		p.Tasks[i].Ready = len(p.Tasks[i].BlockedBy) == 0 && p.Tasks[i].Status == "planned"
 	}
 	for _, a := range p.Approvals {
 		if a.Decision == "rejected" {
@@ -295,6 +371,112 @@ func (s *Store) derive(p Plan, inv capabilityinventories.Inventory, now time.Tim
 		}
 	}
 	return p
+}
+
+func validContract(c ContractReference) bool {
+	return allowed(c.Kind, "interface", "package", "service", "workflow", "documentation", "schema", "configuration") && strings.TrimSpace(c.Reference) != "" && strings.TrimSpace(c.Revision) != ""
+}
+func (s *Store) CreateMigrationTask(repo, id, actor string, in MigrationTaskInput) (Plan, error) {
+	if actor == "" || in.RepositoryID == "" || !allowed(in.OwnerKind, "human", "agent") || in.OwnerID == "" || in.Title == "" || !validContract(in.OldContract) || !validContract(in.ReplacementContract) || len(in.AcceptanceCriteria) == 0 || in.RolloutStageID == "" {
+		return Plan{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, e := s.read(repo, id)
+	if e != nil {
+		return Plan{}, e
+	}
+	inv, e := s.inventories.Get(repo, p.Input.InventoryID)
+	if e != nil {
+		return Plan{}, ErrInvalid
+	}
+	permitted := map[string]bool{repo: true}
+	for _, v := range inv.Versions {
+		if v.Number == p.Input.InventoryVersion {
+			for _, c := range v.Consumers {
+				permitted[c.Reference] = true
+			}
+		}
+	}
+	if !permitted[in.RepositoryID] {
+		return Plan{}, ErrForbidden
+	}
+	stage := false
+	for _, x := range p.Input.Stages {
+		stage = stage || x.ID == in.RolloutStageID
+	}
+	if !stage {
+		return Plan{}, ErrInvalid
+	}
+	known := map[string]bool{}
+	for _, x := range p.Tasks {
+		known[x.ID] = true
+	}
+	for _, x := range in.DependsOn {
+		if !known[x] {
+			return Plan{}, ErrInvalid
+		}
+	}
+	for _, x := range in.AcceptanceCriteria {
+		if strings.TrimSpace(x) == "" {
+			return Plan{}, ErrInvalid
+		}
+	}
+	now := s.now().UTC()
+	p.Tasks = append(p.Tasks, MigrationTask{ID: identifier(), Position: len(p.Tasks) + 1, Input: in, Status: "planned", Work: []WorkLink{}, Progress: []Progress{}, CreatedByID: actor, CreatedAt: now})
+	p = s.derive(p, inv, now)
+	return p, s.save(p)
+}
+func (s *Store) ReportTask(repo, id, taskID, actor, state, summary string, links []WorkLink) (Plan, error) {
+	if actor == "" || !allowed(state, "accepted", "in_progress", "blocked", "review", "completed") || strings.TrimSpace(summary) == "" {
+		return Plan{}, ErrInvalid
+	}
+	for _, x := range links {
+		if !allowed(x.Kind, "task", "session", "workspace", "fork", "pull_request") || x.ID == "" || x.RepositoryID == "" {
+			return Plan{}, ErrInvalid
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, e := s.read(repo, id)
+	if e != nil {
+		return Plan{}, e
+	}
+	found := false
+	now := s.now().UTC()
+	for i := range p.Tasks {
+		if p.Tasks[i].ID == taskID {
+			found = true
+			if state != "blocked" && len(p.Tasks[i].BlockedBy) > 0 {
+				return Plan{}, ErrConflict
+			}
+			p.Tasks[i].Status = state
+			p.Tasks[i].Work = append(p.Tasks[i].Work, links...)
+			p.Tasks[i].Progress = append(p.Tasks[i].Progress, Progress{identifier(), state, summary, actor, now})
+		}
+	}
+	if !found {
+		return Plan{}, ErrNotFound
+	}
+	inv, _ := s.inventories.Get(repo, p.Input.InventoryID)
+	p = s.derive(p, inv, now)
+	return p, s.save(p)
+}
+func (s *Store) DiscoverConsumer(repo, id, actor, consumer, targetRepo, revision, evidence, summary string) (Plan, error) {
+	if actor == "" || consumer == "" || evidence == "" || summary == "" || (targetRepo == "") != (revision == "") {
+		return Plan{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, e := s.read(repo, id)
+	if e != nil {
+		return Plan{}, e
+	}
+	now := s.now().UTC()
+	p.Discoveries = append(p.Discoveries, ConsumerDiscovery{identifier(), consumer, targetRepo, revision, evidence, summary, actor, now})
+	inv, _ := s.inventories.Get(repo, p.Input.InventoryID)
+	p = s.derive(p, inv, now)
+	return p, s.save(p)
 }
 func (s *Store) save(p Plan) error {
 	if e := os.MkdirAll(filepath.Dir(s.path(p.RepositoryID, p.ID)), 0750); e != nil {
