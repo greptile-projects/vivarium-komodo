@@ -4809,6 +4809,27 @@ or badge. State lives beneath `$ASSURANCE_PROGRAM_ROOT` (default
 approval, release, deployment, credential, environment, or operational
 authority.
 
+## Continuous, permission-aware control evidence
+
+Each program exposes
+`/repositories/{repository}/assurance-programs/{program}/evidence`. Named
+control owners add queries at `/queries` for review, check, access, dependency,
+build, release, deployment, incident, continuity, security, privacy, or
+governance records. A query freezes the exact control version, source selector,
+collection schedule, freshness window, audience, and transformations.
+
+Collection at `/packages` binds metadata-only source records to one assessment
+period. Records carry a source identity, exact revision, digest, observation
+time, and source attestation. Each immutable package receives a canonical
+SHA-256 hash and collector attestation and reports coverage, freshness, missing
+or inaccessible evidence, and contradictions instead of a compliance score.
+Credential- and personal-data-bearing inputs are rejected. Public and
+repository projections expose only accessible, non-embargoed records permitted
+for that audience while retaining package-level gaps and provenance. State
+lives beneath `$ASSURANCE_EVIDENCE_ROOT` (default
+`apps/api/data/assurance-evidence`) and grants no source-system or operational
+authority.
+
 # Acknowledged capability retirement contracts
 
 `/repositories/{repository}/capability-retirements` lets repository writers

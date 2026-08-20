@@ -2743,6 +2743,19 @@ presenting a compliance badge. Programs grant no repository, policy, evidence,
 review, security approval, release, deployment, credential, environment, or
 operational authority. The repository web surface is `view=assurance`.
 
+Continuous assurance evidence lives beneath `$ASSURANCE_EVIDENCE_ROOT` (default
+`apps/api/data/assurance-evidence`). Named control owners define queries for
+review, check, access, dependency, build, release, deployment, incident,
+continuity, security, privacy, and governance records, binding schedules,
+freshness, transformations, audiences, exact control versions, and assessment
+periods. Immutable packages retain SHA-256 hashes, collector and source
+attestations, revisions, coverage, freshness, gaps, and contradictions.
+Credential- or personal-data-bearing records are rejected; embargoed,
+inaccessible, and broader-audience records are omitted from least-privilege
+projections without hiding their gaps. Evidence grants no repository,
+source-system, credential, approval, release, deployment, environment, or
+operational authority. The repository web surface remains `view=assurance`.
+
 Versioned capability inventories live beneath `$CAPABILITY_INVENTORY_ROOT`
 (default `apps/api/data/capability-inventories`). Repository writers bind a
 named product capability and repository definition path to an exact source
