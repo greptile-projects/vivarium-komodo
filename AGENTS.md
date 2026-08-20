@@ -16,6 +16,18 @@ repository write, secret, credential, security approval, review, merge,
 release, deployment, environment, provider, or operational authority. The
 repository web surface is `view=security`.
 
+Named threat-model owners classify cited findings as confirmed, suspected
+duplicates, false positives, or accepted risks and select an owners-only,
+repository, public, or embargoed audience. Only confirmed current findings may
+open ordinary human- or agent-owned proposal tasks, preloaded with the exact
+threat revision, abuse paths, audience-permitted citations, and acceptance
+criteria. Verification links a distinct repair pull revision, design changes,
+commits, review, mitigation coverage, and an approved security scenario whose
+attempt history demonstrates failure on the exact base and containment on the
+repair. Duplicate, false-positive, accepted-risk, embargoed, and failed-repair
+paths remain attributable; none grants implicit Git, secret, environment,
+review, or merge authority.
+
 Executable abuse and defense scenarios live beneath `$SECURITY_SCENARIO_ROOT`
 (default `apps/api/data/security-scenarios`). Repository readers translate one
 exact threat-model abuse path into immutable reviewed versions with attacker

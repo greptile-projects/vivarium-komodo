@@ -4890,3 +4890,24 @@ audience-safe citations, while affected owners record acknowledgements. Input
 drift remains visible as stale analysis instead of becoming an opaque security
 verdict. Threat-model collaboration confers no implementation or operational
 authority and never projects embargoed or restricted evidence.
+
+Named model owners carry findings into remediation through the finding's
+`/classification`, `/delivery`, `/verification`, and `/resolution` children.
+Classification chooses `confirmed`, `suspected_duplicate`, `false_positive`,
+or `accepted_risk` and an `owners`, `repository`, `public`, or `embargoed`
+audience; owners-only and embargoed findings are omitted from non-owner reads.
+Only a confirmed finding can create its ordinary human- or agent-owned proposal
+task. That task freezes the exact threat and candidate revisions, selected abuse
+paths, only citations permitted for the audience, and owner acceptance
+criteria. Its reasoning context and verification plan follow into normal change
+sessions, workspaces, pull requests, checks, review, and merge governance
+without granting any of those authorities.
+
+Delivery verification requires a pull request whose repair revision differs
+from the affected base, design-change and commit references, attributable
+review, explicit mitigation coverage, and an owner-approved security scenario.
+The scenario retains a failed attempt against the exact base and a complete
+passing containment attempt against the pull candidate. Suspected duplicates,
+false positives, accepted risks, embargoes, and failed repairs retain named
+owner rationale and follow-up context rather than disappearing or becoming
+success.

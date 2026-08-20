@@ -885,7 +885,7 @@ func main() {
 	registerDesignSystemsHTTP(mux, designSystemStore, repositoryCatalog, credentials)
 	registerQualityPlansHTTP(mux, qualityPlanStore, repositoryCatalog, credentials)
 	registerSecurityExpectationsHTTP(mux, securityExpectationStore, repositoryCatalog, credentials)
-	registerThreatModelsHTTP(mux, threatModelStore, repositoryCatalog, credentials, threatModelSources{pulls: pullRequestStore})
+	registerThreatModelsHTTP(mux, threatModelStore, repositoryCatalog, credentials, threatModelSources{pulls: pullRequestStore, plans: proposalStore, scenarios: securityScenarioStore})
 	registerSecurityScenariosHTTP(mux, securityScenarioStore, threatModelStore, repositoryCatalog, credentials, pullRequestStore, previewStore)
 	registerQualityGatesHTTP(mux, qualityGateStore, repositoryCatalog, credentials)
 	registerTestScenariosHTTP(mux, testScenarioStore, repositoryCatalog, credentials)
