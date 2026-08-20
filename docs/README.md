@@ -4877,6 +4877,32 @@ environment, production, approval, merge, release, deployment, or operational
 authority. State lives beneath `$INDEPENDENT_ASSESSMENT_ROOT` (default
 `apps/api/data/independent-assessments`).
 
+## Finding remediation and verifiable assurance statements
+
+An owner converts an attributable assessment finding at
+`POST .../independent-assessments/{assessment}/findings/{finding}/remediations`.
+The immutable origin preloads the exact control, permitted selected evidence,
+affected revision, deadline, and acceptance criteria into ordered human- or
+agent-owned tasks, sessions, workspaces, pull requests, policy changes, or
+operational work. Progress links the ordinary governed resource and revision
+back to the finding; completing later work before its predecessor is rejected.
+Closure requires every item, a passing current verification with a SHA-256
+evidence digest, and an explicit owner or credentialed assessor disposition.
+Changed affected revisions and reopened findings make the remediation and any
+dependent claim non-current without removing earlier work or decisions.
+
+`/repositories/{repository}/assurance-statements` publishes an Ed25519-signed
+claim for one exact assurance-program version, release and revision, bounded
+scope and period, controls, exceptions, evidence packages and digest,
+remediations, audience, and expiry. Public reads omit repository-audience
+statements. Revocation, expiry, or remediation drift derives `revoked`,
+`expired`, or `changed` status while retaining the original signed payload,
+key, signature, and payload digest. A statement is a verifiable bounded project
+claim, not a score or certification, and grants no Git, work-resource, policy,
+evidence, approval, merge, release, deployment, credential, environment, or
+operational authority. State lives beneath `$ASSURANCE_DELIVERY_ROOT` (default
+`apps/api/data/assurance-delivery`) and is managed in `view=assurance`.
+
 # Acknowledged capability retirement contracts
 
 `/repositories/{repository}/capability-retirements` lets repository writers
