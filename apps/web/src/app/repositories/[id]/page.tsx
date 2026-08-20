@@ -59,6 +59,7 @@ import { AgentDiscovery } from "@/components/agent-discovery";
 import { AgentEvaluations } from "@/components/agent-evaluations";
 import { AgentProjects } from "@/components/agent-projects";
 import { AgentScenarios } from "@/components/agent-scenarios";
+import { AgentCandidateEvaluations } from "@/components/agent-candidate-evaluations";
 import { PrivacyAssessments } from "@/components/privacy-assessments";
 import {
   Book,
@@ -9559,6 +9560,8 @@ function PullRequestDetail({
                 ? "previews"
               : section === "interface"
                 ? "interface"
+              : section === "agent-evaluations"
+                ? "agent-evaluations"
               : section === "accessibility"
                 ? "accessibility"
               : "overview";
@@ -9771,6 +9774,12 @@ function PullRequestDetail({
       )}
       <nav className="pull-sections" aria-label="Pull request">
         <button
+          className={active === "agent-evaluations" ? "active" : ""}
+          onClick={() => onSection("agent-evaluations")}
+        >
+          Agent behavior
+        </button>
+        <button
           className={active === "interface" ? "active" : ""}
           onClick={() => onSection("interface")}
         >
@@ -9872,6 +9881,8 @@ function PullRequestDetail({
         />
       ) : active === "interface" ? (
         <InterfaceChecks repository={repository} pull={item.id} actor={actor} />
+      ) : active === "agent-evaluations" ? (
+        <AgentCandidateEvaluations repository={repository} pull={item.id} actor={actor} />
       ) : active === "accessibility" ? (
 		<><AccessibilityAssessments repository={repository} actor={actor} pull={item.id} revision={item.source_commit_id} /><PrivacyAssessments repository={repository} pull={item.id} revision={item.source_commit_id} targetRevision={item.target_commit_id} /></>
       ) : (
