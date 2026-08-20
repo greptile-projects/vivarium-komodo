@@ -4476,6 +4476,31 @@ creator, repository-only evidence, and even private evidence's effect on the
 reported gaps. Discovery grants no repository or operational authority. State
 defaults to `$AGENT_DISCOVERY_ROOT` and the workflow appears at `view=agents`.
 
+## Domain-authored agent scenarios
+
+Repository writers create reusable behavior cases at
+`/repositories/{repository}/agent-scenarios`. Each immutable version binds an
+exact agent-project version, repository revision, and definition path to cited
+issues, support threads, tasks, incidents, decisions, or sanitized prior
+sessions. It records inputs, permitted context, expected outcomes, rubric,
+unsafe behavior, budgets, uncertainty, required human judgment, domain owners,
+source provenance and licenses, and an explicit allowed-use list. Contributions
+retain their ordinary branch or workspace revision, changed paths, author kind,
+and an allowlist for scoped agents. Named domain owners and the exact scoped
+agent append attributable approve, request-changes, or comment reviews; approval
+applies only to the reviewed version.
+
+Cases may be `public` or `protected`. Anonymous repository reads replace a
+protected inputs, source references and provenance, answer set, review rationale,
+hidden rubric, and hidden context with explicit redaction markers. Personal data,
+unsanitized prior sessions, inaccessible or unlicensed
+sources, and embargoed or protected material in a public case are rejected.
+Every context item independently declares permitted uses, and allowing
+`scenario_evaluation` does not allow training or broader evaluation. The web
+surface is `view=agents`; publishing or reviewing a case grants no Git,
+workspace, evaluation, training, deployment, or operational authority. Durable
+state defaults to `$AGENT_SCENARIO_ROOT`.
+
 ## Bounded project agent evaluations
 
 Repository writers define suites at
