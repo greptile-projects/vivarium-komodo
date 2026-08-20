@@ -287,6 +287,19 @@ safety pauses, forward recovery after cutover, governed deployment evidence,
 and owner-approved deletion without granting agents hidden operational
 authority.
 
+Revision-exact agent behavior contracts live beneath `$AGENT_PROJECT_ROOT`
+(default `apps/api/data/agent-projects`). Repository writers publish immutable,
+optimistically concurrency-checked versions linking reviewed prompts,
+instructions, tools, models, knowledge sources, dependencies, memory and data-use
+policy, tasks, outputs, prohibited actions, budgets, owners, escalation rules,
+and deployment boundaries to one exact repository revision and definition path.
+Reads derive effective declared tool capabilities plus attributable missing
+owners, inaccessible dependencies and knowledge, conflicting prompt/instruction
+content, and unsupported model guarantees. Publication is reviewable intent only:
+it grants no agent identity, repository, tool, model, knowledge, secret,
+credential, evaluation, deployment, environment, merge, release, or operational
+authority. The repository web surface is `view=agents`.
+
 Public agent profiles live beneath `$AGENT_PROFILE_ROOT` (default
 `apps/api/data/agent-profiles`). Authenticated operators publish immutable
 versions with a server-generated stable agent identity, collision-safe public

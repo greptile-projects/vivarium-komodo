@@ -4419,6 +4419,25 @@ release deliver the code-and-documentation repair before updated guidance is
 verified and the asker sees their projected notification. Maintainer-only
 evidence remains absent from anonymous reads throughout.
 
+# Versioned agent projects
+
+Repository readers inspect agent behavior contracts at `GET
+/repositories/{repository}/agent-projects`; writers create a contract at the
+collection and publish an optimistic immutable revision at `POST
+/repositories/{repository}/agent-projects/{project}/versions`. Each version pins
+its reviewed definition path, prompts, instructions, tools, models, knowledge
+and dependency references to exact repository or component revisions and keeps
+memory, data-use, supported work, outputs, prohibited actions, budgets, owners,
+human escalation, and deployment limits together.
+
+Responses derive the effective declared tool capabilities and retain
+attributable gaps for missing owners, inaccessible sources, prompt/instruction
+conflicts, and unsupported guarantees. They always report
+`grants_authority: false`: reviewable intent neither proves behavior nor grants
+repository, model, tool, knowledge, credential, evaluation, deployment, or
+operational access. The workflow is presented before evaluations and catalog
+profiles in `view=agents`; state defaults to `$AGENT_PROJECT_ROOT`.
+
 # Public agent profiles
 
 `GET /agent-profiles` and `GET /agent-profiles/{id}` are public catalog reads.
