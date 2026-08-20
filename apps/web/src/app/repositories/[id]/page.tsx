@@ -28,6 +28,7 @@ import { APIContracts } from "@/components/api-contracts";
 import { DesignSystems } from "@/components/design-systems";
 import { DesignProposals } from "@/components/design-proposals";
 import { QualityPlans } from "@/components/quality-plans";
+import { CapabilityInventories } from "@/components/capability-inventories";
 import { SecurityExpectations } from "@/components/security-expectations";
 import { ThreatModels } from "@/components/threat-models";
 import { SecurityScenarios } from "@/components/security-scenarios";
@@ -1259,6 +1260,8 @@ export default function RepositoryPage({
   const view =
     query.view === "security"
       ? "security"
+      : query.view === "capabilities"
+      ? "capabilities"
       : query.view === "quality"
       ? "quality"
       : query.view === "commits"
@@ -1620,6 +1623,10 @@ export default function RepositoryPage({
         </p>
       )}
       <nav className="repository-tabs" aria-label="Repository">
+        <button className={view === "capabilities" ? "active" : ""} onClick={() => navigate({ view: "capabilities", path: "" })}>
+          <Code size={15} />
+          Capabilities
+        </button>
         <button className={view === "security" ? "active" : ""} onClick={() => navigate({ view: "security", path: "" })}>
           <Sparkles size={15} />
           Security
@@ -1867,7 +1874,9 @@ export default function RepositoryPage({
           </button>
         )}
       </nav>
-      {view === "security" ? (
+      {view === "capabilities" ? (
+        <CapabilityInventories repository={repository.id} actor={actor} />
+      ) : view === "security" ? (
         <><SecurityExpectations repository={repository.id} actor={actor} /><ThreatModels repository={repository.id} actor={actor} /><SecurityScenarios repository={repository.id} actor={actor} /></>
       ) : view === "quality" ? (
         <><QualityGates repository={repository.id} actor={actor} /><QualityPlans repository={repository.id} actor={actor} /><TestScenarios repository={repository.id} actor={actor} /><ExploratorySessions repository={repository.id} actor={actor} /></>
