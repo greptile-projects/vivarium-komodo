@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-20T00:35:28Z: Added revision-bound design-time threat models with structured attack paths, alternatives, audience-safe cited reader/agent collaboration, owner acknowledgements, explicit non-authority, and affected-input staleness in the Security workspace. Focused API tests, vet, web lint, and production build pass; the full API suite retains the known unrelated federation TLS trust and product-experiment check-route failures.
+
 2026-08-19T23:43:12Z: Added immutable versioned security expectations with protected assets, trust boundaries, actor capabilities, abuse cases, controls, severity policy, bounded exceptions, six-domain commitments, attributable derived gaps, and a dedicated repository Security API/web workspace.
 
 2026-08-18T07:21:47Z: Added authoritative exact-merged infrastructure executions gated by current plans, rehearsals, owner acknowledgements, satisfying policy, governed environment approvals, short-lived scoped provider references, and cost ceilings. Dependency-ordered provider/health/cost progress, safe owner controls, and exact-step non-destructive agent delegation are available through the public API and Infrastructure web workspace.

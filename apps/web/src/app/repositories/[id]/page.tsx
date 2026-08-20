@@ -29,6 +29,7 @@ import { DesignSystems } from "@/components/design-systems";
 import { DesignProposals } from "@/components/design-proposals";
 import { QualityPlans } from "@/components/quality-plans";
 import { SecurityExpectations } from "@/components/security-expectations";
+import { ThreatModels } from "@/components/threat-models";
 import { QualityGates } from "@/components/quality-gates";
 import { TestScenarios } from "@/components/test-scenarios";
 import { ExploratorySessions } from "@/components/exploratory-sessions";
@@ -1866,7 +1867,7 @@ export default function RepositoryPage({
         )}
       </nav>
       {view === "security" ? (
-        <SecurityExpectations repository={repository.id} actor={actor} />
+        <><SecurityExpectations repository={repository.id} actor={actor} /><ThreatModels repository={repository.id} actor={actor} /></>
       ) : view === "quality" ? (
         <><QualityGates repository={repository.id} actor={actor} /><QualityPlans repository={repository.id} actor={actor} /><TestScenarios repository={repository.id} actor={actor} /><ExploratorySessions repository={repository.id} actor={actor} /></>
       ) : view === "governance" ? (

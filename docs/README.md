@@ -4877,3 +4877,16 @@ minimized regression repair, exact pull/merge/release gates, and retained
 post-release verification. The boundary also proves that unsafe fixtures,
 affected stale exploration, a failed first repair, missing and flaky platforms,
 and an invalid override remain visible blockers until corrected.
+
+## Design-time threat models
+
+Repository threat models are immutable analysis records under
+`/repositories/{repository}/threat-models`. They bind one exact proposal,
+pull-request, API/schema evolution, infrastructure plan, or experiment revision
+plus explicit code, architecture, dependency, and trust-boundary versions.
+Readers can inspect plausible attack paths and compare mitigations and design
+alternatives; repository readers and read-only agents can add attributable,
+audience-safe citations, while affected owners record acknowledgements. Input
+drift remains visible as stale analysis instead of becoming an opaque security
+verdict. Threat-model collaboration confers no implementation or operational
+authority and never projects embargoed or restricted evidence.
