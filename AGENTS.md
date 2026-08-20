@@ -17,6 +17,25 @@ records grant no Git, evidence, exception, approval, merge, release, deployment,
 credential, environment, or operational authority. The repository web surface
 is `view=assurance`.
 
+Bounded independent reviews live beneath `$INDEPENDENT_ASSESSMENT_ROOT`
+(default `apps/api/data/independent-assessments`). Repository owners open one
+time-bounded assessment against an exact assurance-program version, named
+controls, systems, releases, period, and immutable evidence-package IDs, then
+issue an identified internal or external assessor a separately expiring
+credential. The credential opens only `/independent-assessor/context` and its
+attributable event append: questions, samples, walkthrough requests,
+attestation verification, evidence requests, findings, disagreements, and
+appeals. Owners answer and resolve through the repository assessment resource;
+conflict disclosures, unavailable selected evidence, scope-change history,
+contested findings, and appeal decisions remain explicit. A scope change
+invalidates every existing invitation so the owner must deliberately re-invite
+the assessor. Evidence projection exposes only selected repository-audience
+sanitized records and reports inaccessible packages without identifying
+restricted resources. Assessment access grants no repository, Git, secret,
+credential, production, environment, approval, merge, release, deployment, or
+operational authority. Owner management remains in `view=assurance`; the
+credential-only external web surface is `/assessments`.
+
 Revision-bound design-time threat models live beneath `$THREAT_MODEL_ROOT`
 (default `apps/api/data/threat-models`). Repository readers open models from an
 exact design proposal, pull request, API or schema evolution, infrastructure

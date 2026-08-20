@@ -336,3 +336,22 @@ func (s *Store) Catalog(repo, program, audience string) (Catalog, error) {
 	}
 	return out, nil
 }
+
+// Package returns one immutable package projected to the requested audience.
+func (s *Store) Package(repo, program, id, audience string) (Package, error) {
+	if !audiences[audience] {
+		return Package{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, program)
+	if e != nil {
+		return Package{}, e
+	}
+	for _, p := range x.Packages {
+		if p.ID == id {
+			return project(p, audience), nil
+		}
+	}
+	return Package{}, ErrNotFound
+}
