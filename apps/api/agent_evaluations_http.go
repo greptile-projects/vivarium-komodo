@@ -166,6 +166,7 @@ func registerAgentEvaluationsHTTP(m *http.ServeMux, s *agentevaluations.Store, p
 	}
 	registerAgentOnboardingHTTP(m, base+"/onboardings", "repository", s, profiles, repositoryAccess, operatorAccess)
 	registerAgentPilotHTTP(m, base+"/pilots", s, repos, credentials, repositoryAccess, optional)
+	registerAgentReleaseHTTP(m, base+"/releases", s, repositoryAccess)
 	organizationAccess := func(w http.ResponseWriter, r *http.Request, write bool) (string, string, bool) {
 		actor, ok := authenticateRequest(w, r, credentials, map[bool]auth.Scope{true: auth.RepositoryWrite, false: auth.RepositoryRead}[write])
 		if !ok {
@@ -182,6 +183,120 @@ func registerAgentEvaluationsHTTP(m *http.ServeMux, s *agentevaluations.Store, p
 	if len(optional) > 0 && optional[0].projects != nil && optional[0].pulls != nil {
 		registerAgentCandidateHTTP(m, s, repos, credentials, optional[0])
 	}
+}
+
+func registerAgentReleaseHTTP(m *http.ServeMux, base string, s *agentevaluations.Store, access onboardingAccess) {
+	m.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
+		scope, _, ok := access(w, r, false)
+		if !ok {
+			return
+		}
+		xs, e := s.ListReleases(scope)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 200, map[string]any{"items": xs})
+		}
+	})
+	m.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in agentevaluations.AgentReleaseInput
+		if !readJSON(w, r, &in, 32768) {
+			return
+		}
+		x, e := s.CreateRelease(scope, actor, in)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("GET "+base+"/{release}", func(w http.ResponseWriter, r *http.Request) {
+		scope, _, ok := access(w, r, false)
+		if !ok {
+			return
+		}
+		x, e := s.GetRelease(scope, r.PathValue("release"))
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 200, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{release}/decisions", func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Kind      string `json:"kind"`
+			Decision  string `json:"decision"`
+			Rationale string `json:"rationale"`
+		}
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		x, e := s.DecideRelease(scope, r.PathValue("release"), actor, in.Kind, in.Decision, in.Rationale)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{release}/publication", func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		x, e := s.PublishRelease(scope, r.PathValue("release"), actor)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{release}/deployments", func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in agentevaluations.AgentDeploymentInput
+		if !readJSON(w, r, &in, 32768) {
+			return
+		}
+		x, e := s.DeployRelease(scope, r.PathValue("release"), actor, in)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{release}/deployments/{deployment}/signals", func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in agentevaluations.ReleaseSignal
+		if !readJSON(w, r, &in, 32768) {
+			return
+		}
+		x, e := s.RecordReleaseSignal(scope, r.PathValue("release"), r.PathValue("deployment"), actor, in)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{release}/deployments/{deployment}/controls", func(w http.ResponseWriter, r *http.Request) {
+		scope, actor, ok := access(w, r, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Action          string `json:"action"`
+			Reason          string `json:"reason"`
+			WorkKind        string `json:"work_kind"`
+			WorkID          string `json:"work_id"`
+			OwnerID         string `json:"owner_id"`
+			ExpectedVersion int64  `json:"expected_version"`
+		}
+		if !readJSON(w, r, &in, 16384) {
+			return
+		}
+		x, e := s.ControlDeployment(scope, r.PathValue("release"), r.PathValue("deployment"), actor, in.Action, in.Reason, in.WorkKind, in.WorkID, in.OwnerID, in.ExpectedVersion)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
 }
 
 func registerAgentPilotHTTP(m *http.ServeMux, base string, s *agentevaluations.Store, repos dataFlowRepositories, credentials authStore, ownerAccess onboardingAccess, optional []agentEvaluationSources) {

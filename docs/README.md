@@ -334,6 +334,31 @@ an independently evaluated and activated replacement. The merged commit stays
 attributed to both the authorizing human and consented agent identity without
 giving either agent review or merge authority.
 
+## Attested agent releases and deployments
+
+Repository owners create a release draft at
+`/repositories/{repository}/agent-evaluations/releases` from one active
+onboarding, its accepted uncontaminated trials, an accepted current pilot, the
+exact behavior-contract and repository revisions, model and tool versions, and
+the operator terms already consented for that onboarding version. Attributable
+`domain_review`, `pilot_acceptance`, `data_policy`, and `resource_approval`
+decisions are all required before `/publication` emits the deterministic
+SHA-256 attestation. Reads continue to derive current onboarding trust and exact
+profile consent; profile upgrades and suspended or revoked installations block
+fresh trust instead of inheriting an older release's consent.
+
+An attested release accepts deployments only within the onboarding's roles,
+resources, and actions. Each deployment records scoped credential references
+without credential values, a cost and latency budget, and an optional rollback
+target that must itself be attested. Its append-only `/signals` report bounded
+outcome, correction, cost, latency, policy, and safety observations. Optimistic
+`/controls` narrow, pause, resume, or roll back authority and can retain a link
+to a reopened private finding or explicitly human- or agent-owned repair. These
+controls preserve every prior signal and contribution and do not execute the
+linked work or grant Git, review, merge, environment, credential, deployment,
+or operational authority. The Agents workspace displays exact release,
+deployment, signal, and response provenance.
+
 ## Continuity commitments
 
 Authorized repository collaborators define immutable recovery-objective

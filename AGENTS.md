@@ -413,6 +413,21 @@ the complete public-profile-to-merged-contribution loop. It retains comparison,
 hidden and prohibited evaluation failures, cost containment, scoped team and
 session work, ordinary review and merge, profile drift, operator outage, failed
 reevaluation suspension, and an independently activated replacement handoff.
+Attested collaborator releases live with the same evaluation store beneath
+repository `/agent-evaluations/releases`. A release freezes an active onboarding
+identity and consented profile, accepted trials and pilot, exact behavior
+contract and repository revision, model and tool versions, and operator terms.
+Publication requires attributable domain, pilot, data-policy, and resource
+decisions. Deployments remain subsets of onboarding roles, resources, and
+actions, retain only scoped credential references, budgets, latency bounds, and
+an optional attested rollback release, and append sanitized outcome, correction,
+cost, latency, policy, and safety signals. Optimistic controls narrow, pause,
+resume, or roll back live authority and may link a private finding or named
+human/agent repair without copying its evidence. Current onboarding trust and
+exact profile consent are re-derived, so a changed profile or suspended trust
+cannot become inherited release authority. Releases grant no implicit Git,
+secret, review, merge, environment, deployment, or operational authority. The
+repository web surface remains `view=agents`.
 
 Project funds live beneath `$PROJECT_FUND_ROOT` (default
 `apps/api/data/project-funds`). Repository writers publish governed terms with
