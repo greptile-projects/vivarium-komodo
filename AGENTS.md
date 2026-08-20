@@ -2774,6 +2774,21 @@ attributable plan blocker until the inventory and migration scope are revised.
 Linked work and progress never grant the retiring provider authority in the
 consumer repository.
 
+Migration proof candidates live beneath `$CAPABILITY_PROOF_ROOT` (default
+`apps/api/data/capability-proofs`). Repository writers bind one retirement
+stage to exact provider, consumer, schema, configuration, and release revisions
+and a bounded synthetic environment. Every immutable candidate includes an
+input-keyed matrix covering old-only, dual-support, replacement, rollback, and
+declared journeys. Attempts retain sanitized artifact digests, duration, cost,
+attribution, failures, targeted staleness, and superseded evidence. Usage
+observations bind known consumers to exact consumer, configuration, and release
+revisions and retain inaccessible, unmeasured, and residual use as removal
+blockers. Only named owners acknowledge current proof; missing or failed checks,
+unknown use, and requested changes prevent removal readiness. Proof records
+grant no repository write, consumer access, release, deployment, credential,
+environment, or operational authority. The repository web surface remains
+`view=capabilities`.
+
 Reusable test scenarios live beneath `$TEST_SCENARIO_ROOT` (default
 `apps/api/data/test-scenarios`). Repository writers publish immutable,
 optimistically concurrency-checked versions from ordinary branches, workspaces,
