@@ -4832,6 +4832,31 @@ report cited newly discovered consumers at `.../consumer-discoveries`. Those
 reports return to the plan as attributable blockers rather than silently
 narrowing scope, preserving why inventory and migration work must change.
 
+# Revision-exact migration proof
+
+`/repositories/{repository}/capability-proofs` assembles an immutable proof
+candidate for one retirement-plan stage. It freezes exact provider, consumer,
+schema, configuration, and release revisions plus a bounded synthetic or
+networkless environment and cost ceiling. Its check matrix must cover old-only,
+dual-support, replacement, rollback, and declared user-journey behavior. Each
+check declares the revision input keys that affect it, so a changed consumer
+contract can stale consumer-dependent proof without discarding unrelated
+old-only evidence.
+
+Attempts append passed, failed, or blocked results with sanitized artifact
+digests, cost, duration, and attribution. New current attempts supersede rather
+than erase earlier evidence. Usage observations separately bind each known
+consumer to the exact consumer, configuration, and release revisions and a
+time window. Missing, inaccessible, unmeasured, or nonzero old-behavior use is
+never interpreted as migration. Removal readiness requires a current passing
+result for the whole matrix, current zero-use evidence for every consumer, and
+acknowledgement from every named owner. The `view=capabilities` surface exposes
+the matrix, observation history, artifacts, costs, owners, residual dependents,
+staleness, and superseded evidence. Durable state defaults to
+`$CAPABILITY_PROOF_ROOT` (`apps/api/data/capability-proofs`) and grants no Git,
+consumer, release, deployment, credential, environment, or operational
+authority.
+
 # Reusable test scenarios
 
 `/repositories/{repository}/test-scenarios` turns expected behavior into an
