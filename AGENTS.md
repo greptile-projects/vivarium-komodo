@@ -1,5 +1,19 @@
 # AGENTS.md
 
+Versioned security expectations live beneath `$SECURITY_EXPECTATION_ROOT`
+(default `apps/api/data/security-expectations`). Repository writers publish
+immutable, optimistically concurrency-checked definitions for repository,
+service, interface, package, extension, environment, and user-journey scopes.
+Definitions retain protected assets, trust boundaries, actor capabilities,
+abuse cases, required controls and guarantees, accountable owners, severity
+policy, expiring approved exceptions, and design, privacy, infrastructure, API,
+quality, and release commitments. Reads derive missing ownership,
+contradictory crossings, unsupported guarantees, and expired or soon-expiring
+exceptions with attributable authors and exception owners rather than hiding or
+resolving them. Publication grants no repository, secret, credential, review,
+release, deployment, environment, or security-approval authority. The
+repository web surface is `view=security`.
+
 Versioned infrastructure inventories live beneath `$INFRASTRUCTURE_STATE_ROOT`
 (default `apps/api/data/infrastructure-state`). Repository writers publish
 immutable definitions pinned to an exact source revision and path, describing
