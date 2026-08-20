@@ -15,6 +15,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
 
 type agentEvaluationSources struct {
@@ -164,6 +165,7 @@ func registerAgentEvaluationsHTTP(m *http.ServeMux, s *agentevaluations.Store, p
 		return r.PathValue("organization"), a.UserID, true
 	}
 	registerAgentOnboardingHTTP(m, base+"/onboardings", "repository", s, profiles, repositoryAccess, operatorAccess)
+	registerAgentPilotHTTP(m, base+"/pilots", s, repos, credentials, repositoryAccess, optional)
 	organizationAccess := func(w http.ResponseWriter, r *http.Request, write bool) (string, string, bool) {
 		actor, ok := authenticateRequest(w, r, credentials, map[bool]auth.Scope{true: auth.RepositoryWrite, false: auth.RepositoryRead}[write])
 		if !ok {
@@ -180,6 +182,151 @@ func registerAgentEvaluationsHTTP(m *http.ServeMux, s *agentevaluations.Store, p
 	if len(optional) > 0 && optional[0].projects != nil && optional[0].pulls != nil {
 		registerAgentCandidateHTTP(m, s, repos, credentials, optional[0])
 	}
+}
+
+func registerAgentPilotHTTP(m *http.ServeMux, base string, s *agentevaluations.Store, repos dataFlowRepositories, credentials authStore, ownerAccess onboardingAccess, optional []agentEvaluationSources) {
+	reader := func(w http.ResponseWriter, r *http.Request) (string, string, bool) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return "", "", false
+		}
+		return string(repo.ID), a.UserID, true
+	}
+	reconcile := func(repo string, x agentevaluations.Pilot) agentevaluations.Pilot {
+		if len(optional) > 0 && optional[0].pulls != nil {
+			if p, e := optional[0].pulls.Get(repo, x.PullRequestID); e == nil && p.SourceCommitID != x.CandidateRevision {
+				x, _ = s.ReconcilePilotCandidate(repo, x.ID, "changed")
+			}
+		}
+		return x
+	}
+	syncPilot := func(repo, pilot string) {
+		if x, e := s.GetPilot(repo, pilot); e == nil {
+			reconcile(repo, x)
+		}
+	}
+	m.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := reader(w, r)
+		if !ok {
+			return
+		}
+		xs, e := s.ListPilots(repo)
+		if !agentEvaluationError(w, e) {
+			for i := range xs {
+				xs[i] = reconcile(repo, xs[i])
+			}
+			writeJSON(w, 200, map[string]any{"items": xs})
+		}
+	})
+	m.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := ownerAccess(w, r, true)
+		if !ok {
+			return
+		}
+		var in agentevaluations.PilotInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		for _, selected := range in.Repositories {
+			target, e := repos.Inspect(storage.ID(selected))
+			if e != nil || string(target.OwnerID) != actor {
+				writeJSON(w, 403, map[string]string{"error": "selected_repository_owner_required"})
+				return
+			}
+		}
+		x, e := s.CreatePilot(repo, actor, in)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("GET "+base+"/{pilot}", func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := reader(w, r)
+		if !ok {
+			return
+		}
+		x, e := s.GetPilot(repo, r.PathValue("pilot"))
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 200, reconcile(repo, x))
+		}
+	})
+	m.HandleFunc("POST "+base+"/{pilot}/consent", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := reader(w, r)
+		if !ok {
+			return
+		}
+		var in struct {
+			State  string `json:"state"`
+			Reason string `json:"reason"`
+		}
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		x, e := s.SetPilotConsent(repo, r.PathValue("pilot"), actor, in.State, in.Reason)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{pilot}/sessions", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := reader(w, r)
+		if !ok {
+			return
+		}
+		var in agentevaluations.PilotSessionInput
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		syncPilot(repo, r.PathValue("pilot"))
+		x, e := s.StartPilotSession(repo, r.PathValue("pilot"), actor, in)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{pilot}/sessions/{session}/events", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := reader(w, r)
+		if !ok {
+			return
+		}
+		var in agentevaluations.PilotEventInput
+		if !readJSON(w, r, &in, 32768) {
+			return
+		}
+		syncPilot(repo, r.PathValue("pilot"))
+		x, e := s.RecordPilotEvent(repo, r.PathValue("pilot"), r.PathValue("session"), actor, in)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{pilot}/feedback", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := reader(w, r)
+		if !ok {
+			return
+		}
+		var in agentevaluations.PilotFeedbackInput
+		if !readJSON(w, r, &in, 32768) {
+			return
+		}
+		x, e := s.RecordPilotFeedback(repo, r.PathValue("pilot"), actor, in)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	m.HandleFunc("POST "+base+"/{pilot}/controls", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := ownerAccess(w, r, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Action string `json:"action"`
+			Reason string `json:"reason"`
+		}
+		if !readJSON(w, r, &in, 8192) {
+			return
+		}
+		x, e := s.ControlPilot(repo, r.PathValue("pilot"), actor, in.Action, in.Reason)
+		if !agentEvaluationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
 }
 
 func contractVersion(p agentprojects.Project, n int64) (agentprojects.Version, bool) {

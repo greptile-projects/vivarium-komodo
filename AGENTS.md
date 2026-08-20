@@ -367,6 +367,19 @@ unchanged; affected evidence remains attributable on the prior candidate.
 Pull-request `section=agent-evaluations` compares a current candidate with an
 explicit baseline across task success, policy adherence, human corrections,
 uncertainty, latency, and cost without converting an aggregate into authority.
+Candidate pilots live in the same store beneath repository
+`/agent-evaluations/pilots`. An owner publishes one exact pull-request candidate
+to selected repositories, roles, named participants, tasks, expected outcomes,
+expiry, and a cost ceiling with only read and draft actions. Invited
+collaborators explicitly accept or revoke consent, delegate scoped sessions,
+guide or stop work, and append candidate-revision-bound feedback and
+corrections. Reads retain live session events, drafts, escalations, policy
+denials, costs, and expected-outcome comparisons. Expiry, exhausted budget,
+revoked consent, unsafe behavior, owner pause, or pull revision drift derives a
+paused pilot without deleting prior evidence. A pilot always projects merge,
+deploy, disclosure, and authoritative mutation as false and grants no durable
+agent identity, Git, review, release, credential, environment, or operational
+authority.
 Evaluated-agent onboarding records live in the same store beneath repository
 `/agent-evaluations/onboardings` and organization `/agent-onboardings`
 resources. Owners bind exact clean, accepted trial and profile versions to
