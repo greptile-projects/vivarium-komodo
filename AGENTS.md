@@ -16,6 +16,23 @@ repository write, secret, credential, security approval, review, merge,
 release, deployment, environment, provider, or operational authority. The
 repository web surface is `view=security`.
 
+Executable abuse and defense scenarios live beneath `$SECURITY_SCENARIO_ROOT`
+(default `apps/api/data/security-scenarios`). Repository readers translate one
+exact threat-model abuse path into immutable reviewed versions with attacker
+preconditions, explicitly bounded capabilities, synthetic credential-free
+fixtures, actions, and observable containment, detection, and recovery
+criteria. Attempts bind the current scenario and candidate revision to an
+ephemeral networkless workspace or exact pull-request preview and retain only
+sanitized commands, logs, traces, content-addressed artifacts, coverage, cost,
+provenance, and attributable blockers. Passing evidence requires complete
+three-domain coverage and rejects destructive effects, secrets, production
+data, hidden test material, inaccessible dependencies, and unsanitized
+artifacts; unsafe, blocked, and non-reproducible attempts remain visible rather
+than becoming success or disappearing. Scenario collaboration and evidence
+grant no repository write, secret, credential, security approval, deployment,
+preview, environment, or operational authority. The repository web surface is
+`view=security`.
+
 Versioned security expectations live beneath `$SECURITY_EXPECTATION_ROOT`
 (default `apps/api/data/security-expectations`). Repository writers publish
 immutable, optimistically concurrency-checked definitions for repository,

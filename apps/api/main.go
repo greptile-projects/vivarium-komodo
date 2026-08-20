@@ -90,6 +90,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/runtimereplays"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityexpectations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityreports"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/securityscenarios"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/serviceobjectives"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/supportquestions"
@@ -441,6 +442,14 @@ func main() {
 		threatModelRoot = "data/threat-models"
 	}
 	threatModelStore, err := threatmodels.New(threatModelRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	securityScenarioRoot := os.Getenv("SECURITY_SCENARIO_ROOT")
+	if securityScenarioRoot == "" {
+		securityScenarioRoot = "data/security-scenarios"
+	}
+	securityScenarioStore, err := securityscenarios.New(securityScenarioRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -877,6 +886,7 @@ func main() {
 	registerQualityPlansHTTP(mux, qualityPlanStore, repositoryCatalog, credentials)
 	registerSecurityExpectationsHTTP(mux, securityExpectationStore, repositoryCatalog, credentials)
 	registerThreatModelsHTTP(mux, threatModelStore, repositoryCatalog, credentials, threatModelSources{pulls: pullRequestStore})
+	registerSecurityScenariosHTTP(mux, securityScenarioStore, threatModelStore, repositoryCatalog, credentials, pullRequestStore, previewStore)
 	registerQualityGatesHTTP(mux, qualityGateStore, repositoryCatalog, credentials)
 	registerTestScenariosHTTP(mux, testScenarioStore, repositoryCatalog, credentials)
 	registerExploratorySessionsHTTP(mux, exploratorySessionStore, repositoryCatalog, credentials, issueStore, proposalStore)
