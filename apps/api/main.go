@@ -19,6 +19,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/capabilityinventories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/capabilityproofs"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/capabilityremovals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/capabilityretirements"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
@@ -454,6 +455,14 @@ func main() {
 		capabilityProofRoot = "data/capability-proofs"
 	}
 	capabilityProofStore, err := capabilityproofs.New(capabilityProofRoot, capabilityRetirementStore)
+	if err != nil {
+		log.Fatal(err)
+	}
+	capabilityRemovalRoot := os.Getenv("CAPABILITY_REMOVAL_ROOT")
+	if capabilityRemovalRoot == "" {
+		capabilityRemovalRoot = "data/capability-removals"
+	}
+	capabilityRemovalStore, err := capabilityremovals.New(capabilityRemovalRoot, capabilityProofStore, capabilityRetirementStore)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -924,6 +933,7 @@ func main() {
 	registerCapabilityInventoriesHTTP(mux, capabilityInventoryStore, repositoryCatalog, credentials)
 	registerCapabilityRetirementsHTTP(mux, capabilityRetirementStore, repositoryCatalog, credentials)
 	registerCapabilityProofsHTTP(mux, capabilityProofStore, repositoryCatalog, credentials)
+	registerCapabilityRemovalsHTTP(mux, capabilityRemovalStore, repositoryCatalog, credentials)
 	registerSecurityExpectationsHTTP(mux, securityExpectationStore, repositoryCatalog, credentials)
 	registerThreatModelsHTTP(mux, threatModelStore, repositoryCatalog, credentials, threatModelSources{pulls: pullRequestStore, plans: proposalStore, scenarios: securityScenarioStore})
 	registerSecurityScenariosHTTP(mux, securityScenarioStore, threatModelStore, repositoryCatalog, credentials, pullRequestStore, previewStore)

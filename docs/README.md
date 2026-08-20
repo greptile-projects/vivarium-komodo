@@ -4857,6 +4857,34 @@ staleness, and superseded evidence. Durable state defaults to
 consumer, release, deployment, credential, environment, or operational
 authority.
 
+# Controlled capability removal and verified cleanup
+
+`/repositories/{repository}/capability-removals` starts only when its exact
+retirement plan remains ready and its bound proof has no current migration or
+remaining-use blocker. The owner declares ordered delivery stages, required
+evidence classes, a maximum remaining-use count, and the precise stage where
+rollback becomes irreversible. Optimistic revisions keep concurrent owner and
+observer actions attributable.
+
+Delivery records link the results of ordinary merge queues, releases, durable
+schema migrations, infrastructure migrations, documentation publication, and
+protected environments; they do not execute those systems. Stage signals show
+remaining old use, health, control status, release, environment, evidence, and
+next action. Failed evidence, unhealthy behavior, unexpected consumers, or
+stale plan/proof inputs automatically pause the public `view=capabilities`
+surface. A named owner can restore compatibility only on a reversible stage;
+the failed attempt and rationale remain in history.
+
+Final completion is a separate owner action. It requires exact-revision
+evidence covering obsolete code, flags, data, credentials, telemetry,
+documentation, and policy exceptions, together with product outcome measures
+and links to retained historical evidence. This prevents flag disablement from
+being represented as removal while machinery or unsupported use remains.
+State defaults to `$CAPABILITY_REMOVAL_ROOT`
+(`apps/api/data/capability-removals`) and grants no Git, merge-queue, release,
+migration, publication, deployment, environment, credential, or operational
+authority.
+
 # Reusable test scenarios
 
 `/repositories/{repository}/test-scenarios` turns expected behavior into an

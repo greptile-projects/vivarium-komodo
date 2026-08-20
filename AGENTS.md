@@ -2789,6 +2789,22 @@ grant no repository write, consumer access, release, deployment, credential,
 environment, or operational authority. The repository web surface remains
 `view=capabilities`.
 
+Controlled capability removals live beneath `$CAPABILITY_REMOVAL_ROOT` (default
+`apps/api/data/capability-removals`). A named retirement owner may start one
+only from a current ready plan and removal-ready proof, binding the exact
+candidate revision to ordered stages and an explicit reversible or irreversible
+rollback boundary. Stages link ordinary merge-queue, release, schema-migration,
+infrastructure-migration, documentation-publication, and protected-environment
+evidence; append-only signals expose remaining use, health, controls, release,
+environment, and next action. Failed delivery, regressions, excess use, changed
+inputs, or newly discovered consumers pause progress. Owners alone advance,
+pause, resume, or restore compatibility, and restoration is rejected after the
+irreversible boundary. Completion requires evidence for obsolete code, flags,
+data, credentials, telemetry, documentation, and policy exceptions plus exact
+outcome measures and retained provenance. Removal records grant no Git, merge,
+release, migration, publication, deployment, environment, credential, or
+operational authority. The repository web surface remains `view=capabilities`.
+
 Reusable test scenarios live beneath `$TEST_SCENARIO_ROOT` (default
 `apps/api/data/test-scenarios`). Repository writers publish immutable,
 optimistically concurrency-checked versions from ordinary branches, workspaces,
