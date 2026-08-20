@@ -2730,6 +2730,22 @@ a passing suite as complete quality. Plans grant no repository, review, merge,
 release, deployment, environment, credential, or operational authority. The
 repository web surface is `view=quality`.
 
+Versioned capability inventories live beneath `$CAPABILITY_INVENTORY_ROOT`
+(default `apps/api/data/capability-inventories`). Repository writers bind a
+named product capability and repository definition path to an exact source
+revision, then map its interfaces, symbols, flags, packages, schemas,
+configuration, documentation, journeys, and releases to their own exact
+revisions and accountable owners. Declared repository, service, package,
+application, extension, journey, and external consumers retain their permitted
+audience, discovery method, status, owners, environments, and covered elements.
+Usage observations and compatibility promises remain revision-exact and
+attributable. Reads derive missing ownership or current evidence, unverified
+consumer status, expired observations or promises, and unknown, inaccessible,
+stale, or dynamically discovered use rather than treating it as absence.
+Inventories grant no repository write, consumer access, telemetry, secret,
+review, removal, release, deployment, environment, credential, or operational
+authority. The repository web surface is `view=capabilities`.
+
 Reusable test scenarios live beneath `$TEST_SCENARIO_ROOT` (default
 `apps/api/data/test-scenarios`). Repository writers publish immutable,
 optimistically concurrency-checked versions from ordinary branches, workspaces,

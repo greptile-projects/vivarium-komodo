@@ -4769,6 +4769,27 @@ quality-plan record grants Git, review, merge, release, deployment, environment,
 credential, or operational authority. Durable state is stored beneath
 `$QUALITY_PLAN_ROOT` (default `apps/api/data/quality-plans`).
 
+# Versioned capability footprint inventories
+
+`/repositories/{repository}/capability-inventories` lets repository writers
+publish immutable, concurrency-checked capability definitions rooted in an
+exact source revision and repository definition path. Each version selects
+exact interface, symbol, flag, package, schema, configuration, documentation,
+journey, and release revisions; connects accountable owners and environments;
+and maps declared internal or external consumers to the elements they use,
+their permitted audience, and static, observed, dynamic, inaccessible, or
+unknown discovery provenance.
+
+Revision-bound usage evidence and compatibility promises make active reliance
+inspectable. Catalog reads retain missing ownership and evidence, unverified
+consumer status, expired observations or promises, and unknown, inaccessible,
+stale, and runtime-discovered use as explicit gaps, so they cannot be counted
+as absence. The `view=capabilities` repository workspace shows the footprint,
+consumers, evidence, promises, version history, and every gap without granting
+removal or operational authority. Durable state lives beneath
+`$CAPABILITY_INVENTORY_ROOT` (default
+`apps/api/data/capability-inventories`).
+
 # Reusable test scenarios
 
 `/repositories/{repository}/test-scenarios` turns expected behavior into an
