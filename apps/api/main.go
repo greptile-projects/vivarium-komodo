@@ -49,6 +49,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/impactassessments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/inbox"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/incidents"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/independentassessments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/infrastructureplans"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/infrastructurestate"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/integrationqueue"
@@ -466,6 +467,14 @@ func main() {
 		assuranceAssessmentRoot = "data/assurance-assessments"
 	}
 	assuranceAssessmentStore, err := assuranceassessments.New(assuranceAssessmentRoot, assuranceProgramStore)
+	if err != nil {
+		log.Fatal(err)
+	}
+	independentAssessmentRoot := os.Getenv("INDEPENDENT_ASSESSMENT_ROOT")
+	if independentAssessmentRoot == "" {
+		independentAssessmentRoot = "data/independent-assessments"
+	}
+	independentAssessmentStore, err := independentassessments.New(independentAssessmentRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -961,6 +970,7 @@ func main() {
 	registerAssuranceProgramsHTTP(mux, assuranceProgramStore, repositoryCatalog, credentials)
 	registerAssuranceEvidenceHTTP(mux, assuranceEvidenceStore, repositoryCatalog, credentials)
 	registerAssuranceAssessmentsHTTP(mux, assuranceAssessmentStore, repositoryCatalog, credentials)
+	registerIndependentAssessmentsHTTP(mux, independentAssessmentStore, assuranceEvidenceStore, repositoryCatalog, credentials)
 	registerCapabilityRetirementsHTTP(mux, capabilityRetirementStore, repositoryCatalog, credentials)
 	registerCapabilityProofsHTTP(mux, capabilityProofStore, repositoryCatalog, credentials)
 	registerCapabilityRemovalsHTTP(mux, capabilityRemovalStore, repositoryCatalog, credentials)

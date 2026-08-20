@@ -33,6 +33,7 @@ import { CapabilityRetirements } from "@/components/capability-retirements";
 import { CapabilityProofs } from "@/components/capability-proofs";
 import { CapabilityRemovals } from "@/components/capability-removals";
 import { AssurancePrograms } from "@/components/assurance-programs";
+import { IndependentAssessments } from "@/components/independent-assessments";
 import { SecurityExpectations } from "@/components/security-expectations";
 import { ThreatModels } from "@/components/threat-models";
 import { SecurityScenarios } from "@/components/security-scenarios";
@@ -1885,7 +1886,7 @@ export default function RepositoryPage({
         )}
       </nav>
       {view === "assurance" ? (
-        <AssurancePrograms repository={repository.id} actor={actor} />
+        <><AssurancePrograms repository={repository.id} actor={actor} /><IndependentAssessments repository={repository.id} actor={actor} /></>
       ) : view === "capabilities" ? (
         <><CapabilityInventories repository={repository.id} actor={actor} /><CapabilityRetirements repository={repository.id} actor={actor} /><CapabilityProofs repository={repository.id} actor={actor} /><CapabilityRemovals repository={repository.id} actor={actor} /></>
       ) : view === "security" ? (

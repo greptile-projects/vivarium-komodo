@@ -4850,6 +4850,33 @@ release, deployment, credential, or operational authority. State lives beneath
 `$ASSURANCE_ASSESSMENT_ROOT` (default
 `apps/api/data/assurance-assessments`) and appears in `view=assurance`.
 
+## Bounded independent assurance assessments
+
+`POST /repositories/{repository}/independent-assessments` freezes a review to
+one assurance-program version, selected controls, systems, releases, assessment
+period, and immutable assurance evidence package IDs. Invitations beneath the
+assessment identify an internal or external assessor, retain organization and
+conflict disclosure, and return a one-time credential whose lifetime cannot
+exceed the assessment.
+
+That credential is accepted only by `GET /independent-assessor/context` and
+`POST /independent-assessor/events`. The context projects repository-audience
+records from only the selected packages and returns an opaque unavailable list
+when a selected package cannot be projected; it never enumerates restricted
+sources. Assessors append attributable questions, samples, walkthrough and
+evidence requests, attestation verifications, findings, disagreements, and
+appeals. Owners append responses, walkthrough records, evidence availability,
+finding and conflict resolutions, and appeal decisions. Every reference is
+checked against the frozen controls and evidence IDs.
+
+Owners may revoke an invitation or optimistically change scope. Scope history
+is append-only, and a scope change invalidates all existing assessor
+credentials. `view=assurance` manages owner records; `/assessments` is the
+credential-only evidence room. Neither grants repository write, Git, secrets,
+environment, production, approval, merge, release, deployment, or operational
+authority. State lives beneath `$INDEPENDENT_ASSESSMENT_ROOT` (default
+`apps/api/data/independent-assessments`).
+
 # Acknowledged capability retirement contracts
 
 `/repositories/{repository}/capability-retirements` lets repository writers
