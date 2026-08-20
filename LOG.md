@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-20T01:46:57Z: Added reviewed threat-path security scenarios with bounded attacker capabilities, synthetic fixtures, exact isolated candidate attempts, sanitized three-domain defense evidence, costs and provenance. Unsafe, sensitive, destructive, inaccessible, and non-reproducible behavior remains explicitly blocked rather than skipped or represented as a passing scanner result.
+
 2026-08-20T00:35:28Z: Added revision-bound design-time threat models with structured attack paths, alternatives, audience-safe cited reader/agent collaboration, owner acknowledgements, explicit non-authority, and affected-input staleness in the Security workspace. Focused API tests, vet, web lint, and production build pass; the full API suite retains the known unrelated federation TLS trust and product-experiment check-route failures.
 
 2026-08-19T23:43:12Z: Added immutable versioned security expectations with protected assets, trust boundaries, actor capabilities, abuse cases, controls, severity policy, bounded exceptions, six-domain commitments, attributable derived gaps, and a dedicated repository Security API/web workspace.
