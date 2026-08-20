@@ -1,5 +1,21 @@
 # AGENTS.md
 
+Revision-bound design-time threat models live beneath `$THREAT_MODEL_ROOT`
+(default `apps/api/data/threat-models`). Repository readers open models from an
+exact design proposal, pull request, API or schema evolution, infrastructure
+plan, or product experiment and bind code, architecture, dependency, and trust-
+boundary inputs. Models retain entry points, privileges, data flows,
+dependencies, attacker goals, abuse paths, mitigations, alternatives, residual
+risk, and affected owners. Repository readers and read-only agents may add only
+public or repository-visible cited findings, challenges, assumptions, and
+alternative comparisons; restricted evidence is rejected rather than copied.
+Only named owners acknowledge or request changes. Changed bound inputs make
+affected analysis and acknowledgements explicitly stale, and pull-request code
+drift is derived from the current source revision. These records grant no
+repository write, secret, credential, security approval, review, merge,
+release, deployment, environment, provider, or operational authority. The
+repository web surface is `view=security`.
+
 Versioned security expectations live beneath `$SECURITY_EXPECTATION_ROOT`
 (default `apps/api/data/security-expectations`). Repository writers publish
 immutable, optimistically concurrency-checked definitions for repository,
