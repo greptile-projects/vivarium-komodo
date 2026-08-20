@@ -4790,6 +4790,30 @@ removal or operational authority. Durable state lives beneath
 `$CAPABILITY_INVENTORY_ROOT` (default
 `apps/api/data/capability-inventories`).
 
+# Acknowledged capability retirement contracts
+
+`/repositories/{repository}/capability-retirements` lets repository writers
+open a removal proposal against one exact capability-inventory version. A plan
+states why removal is proposed, the revisioned supported replacements and
+migration guides, each affected audience's failure behavior and migration path,
+ordered compatibility stages, the removal deadline, success and rollback
+criteria, communication cadence and escalation, commitments, assumptions,
+exceptions, and every required owner acknowledgement.
+
+Repository readers and read-only agents can append `impact`, `challenge`,
+`assumption`, or `alternative` assessments only with a repository-visible
+evidence reference. Named owners alone decide their approval scope and may add
+an expiring policy decision that bounds a specific blocker. Reads continuously
+compare the plan with the current inventory and derive changed usage,
+incomplete evidence, embargoed dependencies, conflicting commitments,
+unresolved exceptions, rejected decisions, pending acknowledgements, and
+unresponsive owners. Policy decisions annotate rather than delete those facts.
+The `view=capabilities` workspace presents the migration contract, cited
+challenges, acknowledgement state, and attributable blockers. State lives
+beneath `$CAPABILITY_RETIREMENT_ROOT` (default
+`apps/api/data/capability-retirements`) and grants no removal, Git, release,
+deployment, credential, environment, consumer, or operational authority.
+
 # Reusable test scenarios
 
 `/repositories/{repository}/test-scenarios` turns expected behavior into an

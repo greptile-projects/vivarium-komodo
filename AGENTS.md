@@ -2746,6 +2746,23 @@ Inventories grant no repository write, consumer access, telemetry, secret,
 review, removal, release, deployment, environment, credential, or operational
 authority. The repository web surface is `view=capabilities`.
 
+Capability retirement plans live beneath `$CAPABILITY_RETIREMENT_ROOT` (default
+`apps/api/data/capability-retirements`). Repository writers bind a proposed
+removal to one exact capability-inventory version and retain supported
+replacements, affected audiences and failure behavior, ordered compatibility
+stages, deadlines, success and rollback criteria, communication policy,
+commitments, exceptions, assumptions, and required owner acknowledgements.
+Repository readers and read-only agents may add only attributable cited impact,
+challenge, assumption, and alternative assessments. Only the named owner may
+make an approval decision or an expiring bounded policy decision. Changed
+inventory usage, incomplete inventory evidence, embargoed dependencies,
+conflicting commitments, unresolved exceptions, rejected approvals, and
+unresponsive owners remain explicit attributable blockers; a bounded decision
+stays attached to the blocker instead of erasing it. Plans grant no repository
+write, consumer access, approval impersonation, merge, release, deployment,
+credential, environment, or operational authority. The repository web surface
+is `view=capabilities`.
+
 Reusable test scenarios live beneath `$TEST_SCENARIO_ROOT` (default
 `apps/api/data/test-scenarios`). Repository writers publish immutable,
 optimistically concurrency-checked versions from ordinary branches, workspaces,

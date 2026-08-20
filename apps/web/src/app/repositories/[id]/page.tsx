@@ -29,6 +29,7 @@ import { DesignSystems } from "@/components/design-systems";
 import { DesignProposals } from "@/components/design-proposals";
 import { QualityPlans } from "@/components/quality-plans";
 import { CapabilityInventories } from "@/components/capability-inventories";
+import { CapabilityRetirements } from "@/components/capability-retirements";
 import { SecurityExpectations } from "@/components/security-expectations";
 import { ThreatModels } from "@/components/threat-models";
 import { SecurityScenarios } from "@/components/security-scenarios";
@@ -1875,7 +1876,7 @@ export default function RepositoryPage({
         )}
       </nav>
       {view === "capabilities" ? (
-        <CapabilityInventories repository={repository.id} actor={actor} />
+        <><CapabilityInventories repository={repository.id} actor={actor} /><CapabilityRetirements repository={repository.id} actor={actor} /></>
       ) : view === "security" ? (
         <><SecurityExpectations repository={repository.id} actor={actor} /><ThreatModels repository={repository.id} actor={actor} /><SecurityScenarios repository={repository.id} actor={actor} /></>
       ) : view === "quality" ? (
