@@ -59,6 +59,11 @@ be connected by an owner to a private incident, advisory, or repair without
 copying production evidence. Policies, exceptions, monitoring, and responses
 grant no agent merge, disclosure, release, deployment, credential, environment,
 or production authority. The repository web surface remains `view=security`.
+`security_assurance_workflow_test.go` is the black-box boundary for the complete
+expectation-to-sustained-defense loop. It retains revision-bound redesign,
+unsafe and inaccessible scenario evidence, failed repairs, ordinary review and
+delivery assessments, changed post-release assumptions, and exact connected
+repair evidence without allowing stale analysis to become current proof.
 
 Versioned security expectations live beneath `$SECURITY_EXPECTATION_ROOT`
 (default `apps/api/data/security-expectations`). Repository writers publish
