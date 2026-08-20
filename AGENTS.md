@@ -45,6 +45,21 @@ grant no repository write, secret, credential, security approval, deployment,
 preview, environment, or operational authority. The repository web surface is
 `view=security`.
 
+Current security delivery policy lives beneath `$SECURITY_DELIVERY_ROOT`
+(default `apps/api/data/security-delivery`). Repository and organization
+owners scope immutable requirements by branch, component, asset, and risk
+class to exact threat models, complete scenario attempts, named control-owner
+acknowledgements, and resolved confirmed findings. The same revision-exact
+assessment blocks pull merge, integration-queue publication, release creation,
+and deployment promotion while retaining gaps, attempt provenance, residual
+risk, and requirement-scoped owner overrides that expire within 30 days.
+Sanitized deployment signals bind a release, revision, environment, assumption,
+control, and affected input keys; violated assumptions or failed controls can
+be connected by an owner to a private incident, advisory, or repair without
+copying production evidence. Policies, exceptions, monitoring, and responses
+grant no agent merge, disclosure, release, deployment, credential, environment,
+or production authority. The repository web surface remains `view=security`.
+
 Versioned security expectations live beneath `$SECURITY_EXPECTATION_ROOT`
 (default `apps/api/data/security-expectations`). Repository writers publish
 immutable, optimistically concurrency-checked definitions for repository,

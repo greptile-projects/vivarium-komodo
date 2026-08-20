@@ -42,8 +42,8 @@ type releaseStore interface {
 	List(string) ([]releases.Release, error)
 }
 
-func registerReleasesHTTP(mux *http.ServeMux, store releaseStore, builds releaseBuildStore, controller releaseBuildController, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) {
-	mux.HandleFunc("POST /repositories/{repository}/releases", createRelease(store, controller, pulls, repositories, credentials))
+func registerReleasesHTTP(mux *http.ServeMux, store releaseStore, builds releaseBuildStore, controller releaseBuildController, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, security ...securityDeliverySources) {
+	mux.HandleFunc("POST /repositories/{repository}/releases", createRelease(store, controller, pulls, repositories, credentials, security...))
 	mux.HandleFunc("GET /repositories/{repository}/releases", listReleases(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/releases/{release}", getRelease(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/releases/{release}/attestation", getReleaseAttestation(store, builds, repositories, credentials))
@@ -91,7 +91,7 @@ func getRelease(store releaseStore, repositories pullRequestRepositoryStore, cre
 	}
 }
 
-func createRelease(store releaseStore, controller releaseBuildController, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
+func createRelease(store releaseStore, controller releaseBuildController, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, security ...securityDeliverySources) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -106,10 +106,13 @@ func createRelease(store releaseStore, controller releaseBuildController, pulls 
 			return
 		}
 		var input struct {
-			Version        string `json:"version"`
-			Notes          string `json:"notes"`
-			CommitID       string `json:"commit_id"`
-			PriorReleaseID string `json:"prior_release_id"`
+			Version        string   `json:"version"`
+			Notes          string   `json:"notes"`
+			CommitID       string   `json:"commit_id"`
+			PriorReleaseID string   `json:"prior_release_id"`
+			Components     []string `json:"security_components"`
+			Assets         []string `json:"security_assets"`
+			RiskClasses    []string `json:"security_risk_classes"`
 		}
 		if !readJSON(w, r, &input, 70000) {
 			return
@@ -128,6 +131,17 @@ func createRelease(store releaseStore, controller releaseBuildController, pulls 
 		if err := controller.ValidateRelease(string(repository.ID), input.CommitID); err != nil {
 			writeJSON(w, 422, map[string]string{"error": "invalid_release_manifest"})
 			return
+		}
+		if len(security) > 0 {
+			a, e := security[0].assess(string(repository.ID), repository.OrganizationID, "release", input.CommitID, input.CommitID, "main", input.Components, input.Assets, input.RiskClasses)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			if !a.Ready {
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "security_requirements_unsatisfied", "security": a})
+				return
+			}
 		}
 		priorCommit := ""
 		if input.PriorReleaseID != "" {
