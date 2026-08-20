@@ -19,13 +19,15 @@ func TestCapabilityRetirementIsAnAcknowledgedMigrationContract(t *testing.T) {
 	repos, _ := repositories.New(t.TempDir(), git)
 	credentials, _ := auth.New(t.TempDir())
 	repo, _ := repos.Create("maintainer", repositories.Metadata{Name: "product", Visibility: repositories.Public})
+	consumerRepo, _ := repos.Create("consumer-owner", repositories.Metadata{Name: "mobile", Visibility: repositories.Private})
 	_, _ = repos.AddCollaborator("maintainer", repo.ID, "consumer-owner")
 	maintainer := issueAccess(t, credentials, "maintainer", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	consumer := issueAccess(t, credentials, "consumer-owner", auth.API, auth.RepositoryRead)
+	consumerWrite := issueAccess(t, credentials, "consumer-owner", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	agent := issueAccess(t, credentials, "impact-agent", auth.API, auth.RepositoryRead)
 	inventories, _ := capabilityinventories.New(t.TempDir())
 	now := time.Now().UTC()
-	inv, _ := inventories.Create(string(repo.ID), "maintainer", capabilityinventories.Input{Name: "Checkout v1", Description: "legacy checkout", SourceRevision: "commit-a", DefinitionPath: ".komodo/capabilities/checkout.json", Elements: []capabilityinventories.Element{{ID: "route", Kind: "interface", Reference: "POST /v1/checkout", Revision: "openapi-1", OwnerIDs: []string{"api-owner"}, Description: "legacy route"}}, Consumers: []capabilityinventories.Consumer{{ID: "mobile", Kind: "application", Reference: "mobile-app", Revision: "commit-mobile", Status: "active", OwnerIDs: []string{"consumer-owner"}, ElementIDs: []string{"route"}, Discovery: "observed", Audience: "repository"}}, UsageEvidence: []capabilityinventories.UsageEvidence{{ID: "usage", Kind: "telemetry", Reference: "usage-7", Revision: "release-7", ConsumerIDs: []string{"mobile"}, ElementIDs: []string{"route"}, Status: "current", ObservedAt: now, ExpiresAt: ptrTime(now.Add(24 * time.Hour)), AuthorID: "analyst"}}, CompatibilityPromises: []capabilityinventories.CompatibilityPromise{{ID: "promise", Scope: "mobile", Revision: "policy-3", ConsumerIDs: []string{"mobile"}, OwnerIDs: []string{"consumer-owner"}, Guarantee: "v1 through September", Until: ptrTime(now.Add(60 * 24 * time.Hour))}}, OwnerIDs: []string{"api-owner"}, ChangeReason: "prepare retirement"})
+	inv, _ := inventories.Create(string(repo.ID), "maintainer", capabilityinventories.Input{Name: "Checkout v1", Description: "legacy checkout", SourceRevision: "commit-a", DefinitionPath: ".komodo/capabilities/checkout.json", Elements: []capabilityinventories.Element{{ID: "route", Kind: "interface", Reference: "POST /v1/checkout", Revision: "openapi-1", OwnerIDs: []string{"api-owner"}, Description: "legacy route"}}, Consumers: []capabilityinventories.Consumer{{ID: "mobile", Kind: "application", Reference: string(consumerRepo.ID), Revision: "commit-mobile", Status: "active", OwnerIDs: []string{"consumer-owner"}, ElementIDs: []string{"route"}, Discovery: "observed", Audience: "repository"}}, UsageEvidence: []capabilityinventories.UsageEvidence{{ID: "usage", Kind: "telemetry", Reference: "usage-7", Revision: "release-7", ConsumerIDs: []string{"mobile"}, ElementIDs: []string{"route"}, Status: "current", ObservedAt: now, ExpiresAt: ptrTime(now.Add(24 * time.Hour)), AuthorID: "analyst"}}, CompatibilityPromises: []capabilityinventories.CompatibilityPromise{{ID: "promise", Scope: "mobile", Revision: "policy-3", ConsumerIDs: []string{"mobile"}, OwnerIDs: []string{"consumer-owner"}, Guarantee: "v1 through September", Until: ptrTime(now.Add(60 * 24 * time.Hour))}}, OwnerIDs: []string{"api-owner"}, ChangeReason: "prepare retirement"})
 	store, _ := capabilityretirements.New(t.TempDir(), inventories)
 	mux := http.NewServeMux()
 	registerCapabilityRetirementsHTTP(mux, store, repos, credentials)
@@ -63,6 +65,23 @@ func TestCapabilityRetirementIsAnAcknowledgedMigrationContract(t *testing.T) {
 	if !found {
 		t.Fatal("bounded policy decision did not remain attached to blocker")
 	}
+	taskInput := capabilityretirements.MigrationTaskInput{RepositoryID: string(consumerRepo.ID), OwnerKind: "human", OwnerID: "consumer-owner", Title: "Adopt checkout v2", OldContract: capabilityretirements.ContractReference{Kind: "interface", Reference: "POST /v1/checkout", Revision: "openapi-1"}, ReplacementContract: capabilityretirements.ContractReference{Kind: "interface", Reference: "POST /v2/checkout", Revision: "openapi-2"}, AcceptanceCriteria: []string{"dual-version tests pass", "mobile release uses v2"}, DocumentationChanges: []string{"docs/mobile-checkout.md"}, RolloutStageID: "warn"}
+	b, _ = json.Marshal(taskInput)
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+plan.ID+"/tasks", maintainer, string(b), http.StatusCreated, &plan)
+	if len(plan.Tasks) != 1 || !plan.Tasks[0].Ready || plan.Tasks[0].Input.OldContract.Revision != "openapi-1" || plan.Tasks[0].Input.ReplacementContract.Revision != "openapi-2" {
+		t.Fatalf("migration contract not retained: %#v", plan.Tasks)
+	}
+	progress := map[string]any{"state": "review", "summary": "consumer-owned pull is ready", "work": []capabilityretirements.WorkLink{{Kind: "session", ID: "session-1", RepositoryID: string(consumerRepo.ID), Revision: "commit-mobile-v2"}, {Kind: "workspace", ID: "workspace-1", RepositoryID: string(consumerRepo.ID), Revision: "commit-mobile-v2"}, {Kind: "fork", ID: "fork-1", RepositoryID: string(consumerRepo.ID), Revision: "commit-mobile-v2"}, {Kind: "pull_request", ID: "pull-1", RepositoryID: string(consumerRepo.ID), Revision: "commit-mobile-v2"}}}
+	b, _ = json.Marshal(progress)
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+plan.ID+"/tasks/"+plan.Tasks[0].ID+"/progress", maintainer, string(b), http.StatusNotFound, nil)
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+plan.ID+"/tasks/"+plan.Tasks[0].ID+"/progress", consumerWrite, string(b), http.StatusCreated, &plan)
+	if plan.Tasks[0].Status != "review" || len(plan.Tasks[0].Work) != 4 || plan.Tasks[0].Progress[0].ActorID != "consumer-owner" {
+		t.Fatalf("consumer progress not retained: %#v", plan.Tasks[0])
+	}
+	discovery := map[string]string{"consumer_id": "desktop", "repository_id": string(consumerRepo.ID), "revision": "desktop-base", "evidence_reference": "repo://mobile/dependency-lock", "summary": "desktop shares the legacy client"}
+	b, _ = json.Marshal(discovery)
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+plan.ID+"/consumer-discoveries", consumer, string(b), http.StatusCreated, &plan)
+	assertRetirementBlockers(t, plan, "new_consumer")
 	invInput := inv.Versions[0].Input
 	invInput.ChangeReason = "new desktop consumer discovered"
 	invInput.Consumers = append(invInput.Consumers, capabilityinventories.Consumer{ID: "desktop", Kind: "application", Reference: "desktop", Status: "unknown", OwnerIDs: []string{"desktop-owner"}, ElementIDs: []string{"route"}, Discovery: "dynamic", Audience: "repository"})
