@@ -2730,6 +2730,19 @@ a passing suite as complete quality. Plans grant no repository, review, merge,
 release, deployment, environment, credential, or operational authority. The
 repository web surface is `view=quality`.
 
+Versioned assurance programs live beneath `$ASSURANCE_PROGRAM_ROOT` (default
+`apps/api/data/assurance-programs`). Repository writers select exact versions
+of regulatory, contractual, and organization requirements and publish immutable,
+optimistically checked interpretations, applicability, scope, owners, review
+periods, exceptions, evidence criteria, and control objectives. Controls map
+claims to exact repositories, policies, data flows, infrastructure,
+environments, releases, and operational procedures. Reads retain attributable
+conflicting interpretations, missing owners, inherited or unmapped obligations,
+unsupported claims, and expired or soon-expiring exceptions rather than
+presenting a compliance badge. Programs grant no repository, policy, evidence,
+review, security approval, release, deployment, credential, environment, or
+operational authority. The repository web surface is `view=assurance`.
+
 Versioned capability inventories live beneath `$CAPABILITY_INVENTORY_ROOT`
 (default `apps/api/data/capability-inventories`). Repository writers bind a
 named product capability and repository definition path to an exact source
