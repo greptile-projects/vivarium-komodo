@@ -1,5 +1,22 @@
 # AGENTS.md
 
+Revision-exact compliance impact assessments live beneath
+`$ASSURANCE_ASSESSMENT_ROOT` (default
+`apps/api/data/assurance-assessments`). Repository writers bind an exact pull
+request, infrastructure plan, schema migration, extension installation, package
+update, or release candidate to one assurance-program version and identify its
+affected controls, changed evidence, required owner acknowledgements, tests,
+notices, retention actions, mitigations, exceptions, residual risk, and exact
+input keys. Repository readers and read-only agents may add only public or
+repository-visible cited challenges, analysis, alternatives, mitigations, and
+residual risk; restricted evidence is rejected. Only named control owners decide
+applicability. Changed candidates, policies, dependencies, obligations, or
+program versions stale only decisions bound to those inputs, while current
+required controls derive merge and release readiness blockers. Assessment
+records grant no Git, evidence, exception, approval, merge, release, deployment,
+credential, environment, or operational authority. The repository web surface
+is `view=assurance`.
+
 Revision-bound design-time threat models live beneath `$THREAT_MODEL_ROOT`
 (default `apps/api/data/threat-models`). Repository readers open models from an
 exact design proposal, pull request, API or schema evolution, infrastructure

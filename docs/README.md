@@ -4830,6 +4830,26 @@ lives beneath `$ASSURANCE_EVIDENCE_ROOT` (default
 `apps/api/data/assurance-evidence`) and grants no source-system or operational
 authority.
 
+## Revision-exact compliance impact assessments
+
+`/repositories/{repository}/assurance-assessments` binds a pull request,
+infrastructure plan, schema migration, extension installation, package update,
+or release candidate to its exact revision and one immutable assurance-program
+version. Each affected control retains mapped obligations, changed evidence,
+required owners, tests, notices, retention work, exceptions, mitigations, and
+the exact input keys on which its decision depends.
+
+Repository readers and read-only agents may add cited challenges, analysis,
+alternatives, mitigations, and residual risk using only public or
+repository-visible references. Named control owners alone acknowledge or
+request changes. A new candidate snapshot selectively marks a decision stale
+only when one of its bound inputs changed. Required controls, current owner
+decisions, and required evidence derive explicit merge or release readiness
+blockers. The record grants no Git, evidence-source, exception, approval, merge,
+release, deployment, credential, or operational authority. State lives beneath
+`$ASSURANCE_ASSESSMENT_ROOT` (default
+`apps/api/data/assurance-assessments`) and appears in `view=assurance`.
+
 # Acknowledged capability retirement contracts
 
 `/repositories/{repository}/capability-retirements` lets repository writers
