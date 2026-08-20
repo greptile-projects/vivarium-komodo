@@ -4911,3 +4911,32 @@ passing containment attempt against the pull candidate. Suspected duplicates,
 false positives, accepted risks, embargoes, and failed repairs retain named
 owner rationale and follow-up context rather than disappearing or becoming
 success.
+
+## Current security delivery and monitoring
+
+Repository policies at `/security-delivery-policies` and organization policies
+at `/organizations/{organization}/security-delivery-policies` select delivery
+requirements by branch, component, protected asset, and risk class. Each policy
+names the threat models, executable security scenarios, control owners, and
+finding-resolution rule that must hold. `/security-delivery/assessments`
+returns the exact candidate revision, applied policies, model and attempt
+provenance, affected input keys, gaps, residual risk, acknowledgements, active
+exceptions, and the derived `ready` decision.
+
+That assessment is enforced for pull-request merge, integration-queue
+candidates, release creation, and deployment promotion. Scenario success is
+accepted only when its current reviewed version passed against the exact
+candidate and contains containment, detection, and recovery coverage. Changed
+model inputs, scenario versions, attempts, findings, or candidate revisions
+therefore invalidate only the requirements that cite them. Owners can create a
+30-day-or-shorter exception for named requirement kinds; every exception keeps
+its approver, reason, subject, revision, and expiry.
+
+`/security-signals` accepts only explicitly sanitized, revision- and
+deployment-bound observations of a named assumption and control. A violated
+assumption or failed control can be connected to an existing private incident,
+security advisory, or repair through its `/responses` child. The signal keeps
+only the sanitized summary and affected input keys and grants neither its
+producer nor an agent disclosure, repository, merge, release, deployment,
+environment, credential, or production authority. Durable state defaults to
+`$SECURITY_DELIVERY_ROOT` (`apps/api/data/security-delivery`).

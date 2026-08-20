@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-20T03:32:02Z: Added repository- and organization-scoped current security delivery policies with exact threat/scenario/finding/owner evidence enforced across pull merge, integration queues, releases, and deployments, plus expiring requirement overrides and sanitized post-deployment assumption/control signals connected to private response work.
+
 2026-08-20T02:31:53Z: Added owner-governed threat-finding classification, audience projection, exact-context human/agent repair tasks, attributable non-repair and failed-repair resolutions, and pull/scenario verification requiring base failure, repair containment, review, design/commit links, and mitigation coverage without expanding authority.
 
 2026-08-20T01:46:57Z: Added reviewed threat-path security scenarios with bounded attacker capabilities, synthetic fixtures, exact isolated candidate attempts, sanitized three-domain defense evidence, costs and provenance. Unsafe, sensitive, destructive, inaccessible, and non-reproducible behavior remains explicitly blocked rather than skipped or represented as a passing scanner result.

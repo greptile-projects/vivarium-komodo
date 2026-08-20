@@ -35,6 +35,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/privacyverification"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/securitydelivery"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
 
@@ -623,6 +624,7 @@ type readinessResponse struct {
 	Privacy       *privacyverification.Assessment        `json:"privacy,omitempty"`
 	Localization  *localizationdelivery.Assessment       `json:"localization,omitempty"`
 	Design        *designgovernance.Assessment           `json:"design,omitempty"`
+	Security      *securitydelivery.Assessment           `json:"security,omitempty"`
 	Blockers      []readinessBlocker                     `json:"blockers"`
 }
 
@@ -649,6 +651,7 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 	var localizationEvidence *localizationverification.Store
 	var designGovernance *designgovernance.Store
 	var interfaceEvidence *interfacechecks.Store
+	var securityDelivery *securityDeliverySources
 	for _, x := range extras {
 		if v, ok := x.(*previews.Store); ok {
 			acceptance = v
@@ -676,6 +679,9 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 		}
 		if v, ok := x.(*interfacechecks.Store); ok {
 			interfaceEvidence = v
+		}
+		if v, ok := x.(securityDeliverySources); ok {
+			securityDelivery = &v
 		}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -858,6 +864,32 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 			for _, req := range assessment.Requirements {
 				if req.Blocking {
 					addBlocker("privacy_"+req.Kind, req.Detail)
+				}
+			}
+		}
+		if securityDelivery != nil {
+			changes, e := filesBetweenRepositories(sourceOpened, targetOpened, storage.ObjectID(item.SourceCommitID), storage.ObjectID(item.TargetCommitID))
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			paths := make([]string, len(changes))
+			risks := []string{}
+			for i := range changes {
+				paths[i] = changes[i].Path
+				if strings.Contains(changes[i].Path, "security") || strings.Contains(changes[i].Path, "auth") {
+					risks = append(risks, "critical")
+				}
+			}
+			a, e := securityDelivery.assess(string(repository.ID), repository.OrganizationID, "pull_request", item.ID, item.SourceCommitID, item.TargetBranch, paths, nil, risks)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			response.Security = &a
+			for _, req := range a.Requirements {
+				if req.Blocking {
+					addBlocker("security_"+req.Kind, req.Detail)
 				}
 			}
 		}
@@ -1048,6 +1080,7 @@ func mergePullRequestWithFederation(store pullRequestStore, proposalStore propos
 	var localizationEvidence *localizationverification.Store
 	var designGovernance *designgovernance.Store
 	var interfaceEvidence *interfacechecks.Store
+	var securityDelivery *securityDeliverySources
 	for _, x := range extras {
 		if v, ok := x.(*accessibilitypolicies.Store); ok {
 			accessibilityPolicy = v
@@ -1069,6 +1102,9 @@ func mergePullRequestWithFederation(store pullRequestStore, proposalStore propos
 		}
 		if v, ok := x.(*interfacechecks.Store); ok {
 			interfaceEvidence = v
+		}
+		if v, ok := x.(securityDeliverySources); ok {
+			securityDelivery = &v
 		}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -1256,6 +1292,30 @@ func mergePullRequestWithFederation(store pullRequestStore, proposalStore propos
 			}
 			if !a.Ready {
 				writeJSON(w, http.StatusConflict, map[string]any{"error": "pull_request_not_ready", "privacy": a})
+				return
+			}
+		}
+		if securityDelivery != nil {
+			changes, e := filesBetweenRepositories(sourceOpened, opened, source, target)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			paths := make([]string, len(changes))
+			risks := []string{}
+			for i := range changes {
+				paths[i] = changes[i].Path
+				if strings.Contains(changes[i].Path, "security") || strings.Contains(changes[i].Path, "auth") {
+					risks = append(risks, "critical")
+				}
+			}
+			a, e := securityDelivery.assess(string(repository.ID), repository.OrganizationID, "pull_request", item.ID, item.SourceCommitID, item.TargetBranch, paths, nil, risks)
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			if !a.Ready {
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "pull_request_not_ready", "security": a})
 				return
 			}
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +33,7 @@ type integrationQueueCoordinator struct {
 	starter      checkRunStarter
 	activity     activityStore
 	proposals    proposalStore
+	security     *securityDeliverySources
 	mu           sync.Mutex
 }
 
@@ -161,6 +163,29 @@ func (c *integrationQueueCoordinator) reconcileBranch(ctx context.Context, repos
 			}
 			c.transition(entry, pull, "blocked", reason, false)
 			return
+		}
+		if c.security != nil {
+			changes, evidenceErr := filesBetweenRepositories(sourceRepository, opened, storage.ObjectID(entry.SourceCommitID), storage.ObjectID(entry.TargetCommitID))
+			if evidenceErr != nil {
+				return
+			}
+			paths := make([]string, len(changes))
+			risks := []string{}
+			for i := range changes {
+				paths[i] = changes[i].Path
+				if strings.Contains(changes[i].Path, "security") || strings.Contains(changes[i].Path, "auth") {
+					risks = append(risks, "critical")
+				}
+			}
+			a, evidenceErr := c.security.assess(repositoryID, repository.OrganizationID, "integration_queue", entry.ID, entry.CandidateCommitID, branch, paths, nil, risks)
+			if evidenceErr != nil {
+				c.transition(entry, pull, "blocked", "security_evidence_unavailable", false)
+				return
+			}
+			if !a.Ready {
+				c.transition(entry, pull, "blocked", "security_requirements_unsatisfied", false)
+				return
+			}
 		}
 
 		err = opened.CompareAndSwapReference(storage.ReferenceName("refs/heads/"+branch), storage.ObjectID(entry.TargetCommitID), storage.ObjectID(entry.CandidateCommitID))

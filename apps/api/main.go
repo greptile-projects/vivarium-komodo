@@ -88,6 +88,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/runtimeprobes"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/runtimerepairs"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/runtimereplays"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/securitydelivery"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityexpectations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityreports"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityscenarios"
@@ -453,6 +454,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	securityDeliveryRoot := os.Getenv("SECURITY_DELIVERY_ROOT")
+	if securityDeliveryRoot == "" {
+		securityDeliveryRoot = "data/security-delivery"
+	}
+	securityDeliveryStore, err := securitydelivery.New(securityDeliveryRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	queueCoordinator.security = &securityDeliverySources{securityDeliveryStore, threatModelStore, securityScenarioStore}
 	qualityGateRoot := os.Getenv("QUALITY_GATE_ROOT")
 	if qualityGateRoot == "" {
 		qualityGateRoot = "data/quality-gates"
@@ -887,6 +897,7 @@ func main() {
 	registerSecurityExpectationsHTTP(mux, securityExpectationStore, repositoryCatalog, credentials)
 	registerThreatModelsHTTP(mux, threatModelStore, repositoryCatalog, credentials, threatModelSources{pulls: pullRequestStore, plans: proposalStore, scenarios: securityScenarioStore})
 	registerSecurityScenariosHTTP(mux, securityScenarioStore, threatModelStore, repositoryCatalog, credentials, pullRequestStore, previewStore)
+	registerSecurityDeliveryHTTP(mux, securityDeliveryStore, threatModelStore, securityScenarioStore, repositoryCatalog, organizationStore, credentials)
 	registerQualityGatesHTTP(mux, qualityGateStore, repositoryCatalog, credentials)
 	registerTestScenariosHTTP(mux, testScenarioStore, repositoryCatalog, credentials)
 	registerExploratorySessionsHTTP(mux, exploratorySessionStore, repositoryCatalog, credentials, issueStore, proposalStore)
@@ -940,9 +951,9 @@ func main() {
 	registerContributionOpportunitiesHTTP(mux, contributionOpportunityStore, repositoryCatalog, credentials, issueStore, proposalStore, organizationStore, contributorPathwayStore, workspaceStore, workspaceRunner, pullRequestStore, checkRunner, releaseStore)
 	registerIssueRepairsHTTP(mux, issueStore, proposalStore, pullRequestStore, repositoryCatalog, credentials, issueReproductionRunner, checkRunStore)
 	registerProposalTaskSessionsHTTP(mux, proposalStore, changeSessionStore, repositoryCatalog, credentials, activityStore, pullRequestStore, checkRunner)
-	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore, previewStore, federationStore, performanceGoalStore, accessibilityPolicyStore, accessibilityAssessmentStore, privacyVerificationStore, localizationDeliveryStore, localizationVerificationStore, designGovernanceStore, interfaceCheckStore)
+	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore, previewStore, federationStore, performanceGoalStore, accessibilityPolicyStore, accessibilityAssessmentStore, privacyVerificationStore, localizationDeliveryStore, localizationVerificationStore, designGovernanceStore, interfaceCheckStore, securityDeliverySources{securityDeliveryStore, threatModelStore, securityScenarioStore})
 	registerPreviewsHTTP(mux, previewStore, previewRunner, pullRequestStore, repositoryCatalog, credentials, previewSources{issues: issueStore, decisions: decisionStore, proposals: proposalStore}, previewRepairStores{plans: proposalStore, sessions: changeSessionStore, workspaces: workspaceStore, workspaceRunner: workspaceRunner})
-	registerReleasesHTTP(mux, releaseStore, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials)
+	registerReleasesHTTP(mux, releaseStore, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials, securityDeliverySources{securityDeliveryStore, threatModelStore, securityScenarioStore})
 	registerPackagesHTTP(mux, packageStore, releaseStore, checkRunStore, repositoryCatalog, credentials)
 	registerPackageRecoveryHTTP(mux, packageStore, dependencyInventoryStore, proposalStore, repositoryCatalog, credentials, activityStore)
 	registerDependencyInventoryHTTP(mux, dependencyInventoryStore, packageStore, releaseStore, checkRunStore, deploymentStore, repositoryCatalog, credentials)
@@ -950,7 +961,7 @@ func main() {
 	registerRelationshipsHTTP(mux, relationshipStore, releaseStore, deploymentStore, repositoryCatalog, proposalStore, pullRequestStore, credentials, changeSessionStore)
 	registerEvolutionVerificationHTTP(mux, relationshipStore, repositoryCatalog, pullRequestStore, credentials, checkRunner, checkRunStore)
 	registerEvolutionRolloutHTTP(mux, relationshipStore, repositoryCatalog, credentials, integrationQueueStore, releaseStore, deploymentStore, pullRequestStore, checkRunStore)
-	registerDeploymentsHTTP(mux, deploymentStore, releaseStore, checkRunStore, repositoryCatalog, credentials, activityStore, changeSessionStore, pullRequestStore, packageSafetyEnforcer{inventories: dependencyInventoryStore, packages: packageStore})
+	registerDeploymentsHTTP(mux, deploymentStore, releaseStore, checkRunStore, repositoryCatalog, credentials, activityStore, changeSessionStore, pullRequestStore, packageSafetyEnforcer{inventories: dependencyInventoryStore, packages: packageStore}, securityDeliverySources{securityDeliveryStore, threatModelStore, securityScenarioStore})
 	registerIncidentsHTTP(mux, incidentStore, deploymentStore, releaseStore, pullRequestStore, repositoryCatalog, credentials, proposalStore, activityStore, checkRunStore)
 	registerWorkspacesHTTP(mux, workspaceStore, workspaceRunner, repositoryCatalog, credentials, proposalStore, pullRequestStore, incidentStore, organizationStore, checkRunner)
 	registerSecurityReportsHTTP(mux, securityReportStore, repositoryCatalog, userStore, credentials, activityStore)
