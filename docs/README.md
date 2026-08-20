@@ -1,5 +1,24 @@
 # Docs
 
+## Versioned security expectations
+
+Repository collaborators define security intent before implementation through
+`/repositories/{repository}/security-expectations`. Immutable optimistic
+versions cover repository, service, interface, package, extension,
+environment, and user-journey scopes and name what is protected, which actors
+can do what, where trust changes, plausible abuse, required controls and their
+guarantees, owners, severity response, and bounded approved exceptions.
+
+Reader projections preserve the complete attributable history and explicitly
+derive missing owners, contradictory boundary decisions, guarantees the
+current system cannot support, and exceptions that are expired or within 30
+days of expiry. Links retain the intended relationship to design, privacy,
+infrastructure, API, quality, and release commitments. These descriptive
+records do not grant operational or approval authority. Durable JSON state is
+rooted at `$SECURITY_EXPECTATION_ROOT` (default
+`apps/api/data/security-expectations`), and the repository application exposes
+it at `view=security`.
+
 Notes on how this project fits together. Mostly empty for now — things get
 written down here as they're decided, not before.
 

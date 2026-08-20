@@ -28,6 +28,7 @@ import { APIContracts } from "@/components/api-contracts";
 import { DesignSystems } from "@/components/design-systems";
 import { DesignProposals } from "@/components/design-proposals";
 import { QualityPlans } from "@/components/quality-plans";
+import { SecurityExpectations } from "@/components/security-expectations";
 import { QualityGates } from "@/components/quality-gates";
 import { TestScenarios } from "@/components/test-scenarios";
 import { ExploratorySessions } from "@/components/exploratory-sessions";
@@ -1254,7 +1255,9 @@ export default function RepositoryPage({
   const revision = query.ref ?? "";
   const path = query.path ?? "";
   const view =
-    query.view === "quality"
+    query.view === "security"
+      ? "security"
+      : query.view === "quality"
       ? "quality"
       : query.view === "commits"
       ? "commits"
@@ -1615,6 +1618,10 @@ export default function RepositoryPage({
         </p>
       )}
       <nav className="repository-tabs" aria-label="Repository">
+        <button className={view === "security" ? "active" : ""} onClick={() => navigate({ view: "security", path: "" })}>
+          <Sparkles size={15} />
+          Security
+        </button>
         <button className={view === "quality" ? "active" : ""} onClick={() => navigate({ view: "quality", path: "" })}>
           <Sparkles size={15} />
           Quality
@@ -1858,7 +1865,9 @@ export default function RepositoryPage({
           </button>
         )}
       </nav>
-      {view === "quality" ? (
+      {view === "security" ? (
+        <SecurityExpectations repository={repository.id} actor={actor} />
+      ) : view === "quality" ? (
         <><QualityGates repository={repository.id} actor={actor} /><QualityPlans repository={repository.id} actor={actor} /><TestScenarios repository={repository.id} actor={actor} /><ExploratorySessions repository={repository.id} actor={actor} /></>
       ) : view === "governance" ? (
         <GovernanceCharter scope="repositories" id={repository.id} canManage={actor===repository.owner_id} />
