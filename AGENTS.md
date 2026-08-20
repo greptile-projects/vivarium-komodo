@@ -300,6 +300,24 @@ it grants no agent identity, repository, tool, model, knowledge, secret,
 credential, evaluation, deployment, environment, merge, release, or operational
 authority. The repository web surface is `view=agents`.
 
+Representative agent behavior scenarios live beneath `$AGENT_SCENARIO_ROOT`
+(default `apps/api/data/agent-scenarios`). Repository writers publish immutable,
+optimistically checked versions from ordinary branches or workspaces, binding
+an exact agent-project version and repository revision to cited issues, support
+threads, tasks, incidents, decisions, or sanitized prior sessions. Cases retain
+inputs, explicitly permitted context, expected outcomes, visible or protected
+rubrics, prohibited behavior, budgets, uncertainty, required human judgment,
+domain owners, licenses, provenance, and explicit allowed uses. Public reads
+redact protected inputs, sources, provenance, context, expectations, review
+rationales, and hidden criteria. Personal data,
+unsanitized sessions, inaccessible or unlicensed sources, and public embargoed
+context are rejected; scenario evaluation permission never implies training or
+broader-evaluation permission. Only named owners or the exact scoped agent may
+review the current version, and a revision makes prior approval non-current.
+Scenario records grant no Git, workspace, agent, training, evaluation, secret,
+credential, review, merge, deployment, environment, or operational authority.
+The repository web surface remains `view=agents`.
+
 Public agent profiles live beneath `$AGENT_PROFILE_ROOT` (default
 `apps/api/data/agent-profiles`). Authenticated operators publish immutable
 versions with a server-generated stable agent identity, collision-safe public
