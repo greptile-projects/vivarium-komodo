@@ -55,6 +55,11 @@ repository-audience statements are rejected from anonymous reads. These
 records grant no Git, task, session, workspace, policy, operational, evidence,
 approval, merge, release, deployment, credential, environment, certification,
 or production authority. The repository web surface is `view=assurance`.
+`compliance_assurance_workflow_test.go` is the black-box boundary for the
+complete obligation-to-verifiable-assurance loop. It retains missing and
+restricted evidence, stale control decisions, rejected exceptions, denied
+assessor evidence, contested findings, expiring access, exact human-agent
+repair delivery, signed release claims, post-publication drift, and revocation.
 
 Revision-bound design-time threat models live beneath `$THREAT_MODEL_ROOT`
 (default `apps/api/data/threat-models`). Repository readers open models from an

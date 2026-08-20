@@ -4903,6 +4903,15 @@ evidence, approval, merge, release, deployment, credential, environment, or
 operational authority. State lives beneath `$ASSURANCE_DELIVERY_ROOT` (default
 `apps/api/data/assurance-delivery`) and is managed in `view=assurance`.
 
+`compliance_assurance_workflow_test.go` proves the full public-API path from a
+cited obligation and exact released-service control map through continuous
+permission-aware evidence, agent challenge, control-owner assessment, bounded
+independent audit, and ordered human-agent remediation to a signed
+release-specific statement. The boundary deliberately retains missing and
+credential-bearing evidence, a rejected exception, stale owner decisions,
+unavailable assessor evidence, disagreement, credential revocation, and
+post-publication drift so none can become current proof or outlive consent.
+
 # Acknowledged capability retirement contracts
 
 `/repositories/{repository}/capability-retirements` lets repository writers
