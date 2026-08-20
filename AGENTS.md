@@ -2804,6 +2804,13 @@ data, credentials, telemetry, documentation, and policy exceptions plus exact
 outcome measures and retained provenance. Removal records grant no Git, merge,
 release, migration, publication, deployment, environment, credential, or
 operational authority. The repository web surface remains `view=capabilities`.
+`capability_retirement_workflow_test.go` is the black-box regression boundary
+for the complete released-capability-to-verified-cleanup loop. It retains a
+runtime-discovered independent consumer, corrected inventory and replacement
+plan, missed acknowledgement, dependency-ordered human and agent migration
+work, failed and corrected coexistence evidence, stale usage, reversible
+post-disable restoration, ordinary delivery links, and exact verified cleanup
+without granting cross-repository or operational authority.
 
 Reusable test scenarios live beneath `$TEST_SCENARIO_ROOT` (default
 `apps/api/data/test-scenarios`). Repository writers publish immutable,

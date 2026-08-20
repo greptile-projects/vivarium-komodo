@@ -8,7 +8,8 @@ const starter=JSON.stringify({plan_id:"plan-id",proof_id:"proof-id",candidate_re
 
 export function CapabilityRemovals({repository,actor}:{repository:string;actor:string}){
   const root=`/api/repositories/${repository}/capability-removals`,[items,setItems]=useState<Removal[]>([]),[error,setError]=useState("");
-  const load=useCallback(async()=>{const r=await fetch(root);if(r.ok)setItems((await r.json() as {items:Removal[]}).items)},[root]);useEffect(()=>{void load()},[load]);
+  const load=useCallback(async()=>{const r=await fetch(root);if(r.ok)setItems((await r.json() as {items:Removal[]}).items)},[root]);
+  useEffect(()=>{let current=true;void fetch(root).then(async r=>{if(r.ok&&current)setItems((await r.json() as {items:Removal[]}).items)});return()=>{current=false}},[root]);
   async function send(url:string,body:unknown){const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:typeof body==="string"?body:JSON.stringify(body)});if(!r.ok){setError((await r.json() as {error:string}).error);return}setError("");await load()}
   return <section className="investigation-workspace"><div className="section-heading"><div><p className="eyebrow">Controlled delivery to verified product outcome</p><h2>Staged removal</h2><p>Track ordinary delivery, remaining use, health, rollback limits, and complete cleanup without turning this record into deployment authority.</p></div><Badge>{items.length} removals</Badge></div>
     {error&&<p className="form-error" role="alert">{error.replaceAll("_"," ")}</p>}

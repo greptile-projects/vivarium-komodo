@@ -4885,6 +4885,18 @@ State defaults to `$CAPABILITY_REMOVAL_ROOT`
 migration, publication, deployment, environment, credential, or operational
 authority.
 
+The complete public lifecycle is protected by
+`capability_retirement_workflow_test.go`. It inventories released code, schema,
+configuration, documentation, and collection behavior, then carries internal
+and independently owned consumers through acknowledged human- and agent-authored
+migrations, revision-exact coexistence proof, reversible disablement, ordinary
+delivery, and verified cleanup. The scenario deliberately retains a hidden
+runtime consumer, an abandoned stale plan, a missed acknowledgement, a failed
+first migration, stale zero-use evidence, and a late post-disable regression.
+Those paths must be corrected or rolled back before removal can continue; none
+is erased or converted into repository, release, environment, or operational
+authority.
+
 # Reusable test scenarios
 
 `/repositories/{repository}/test-scenarios` turns expected behavior into an
