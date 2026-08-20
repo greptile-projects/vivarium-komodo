@@ -115,8 +115,50 @@ type FindingInput struct {
 type Finding struct {
 	ID string `json:"id"`
 	FindingInput
-	AuthorID  string    `json:"author_id"`
+	AuthorID       string                 `json:"author_id"`
+	CreatedAt      time.Time              `json:"created_at"`
+	Classification *FindingClassification `json:"classification,omitempty"`
+	Delivery       *FindingDelivery       `json:"delivery,omitempty"`
+	Resolution     *FindingResolution     `json:"resolution,omitempty"`
+}
+type FindingClassification struct {
+	Kind      string    `json:"kind"`
+	Audience  string    `json:"audience"`
+	Rationale string    `json:"rationale"`
+	OwnerID   string    `json:"owner_id"`
 	CreatedAt time.Time `json:"created_at"`
+}
+type FindingDelivery struct {
+	ProposalID                  string     `json:"proposal_id"`
+	TaskID                      string     `json:"task_id"`
+	ResourceKind                string     `json:"resource_kind"`
+	ResourceID                  string     `json:"resource_id,omitempty"`
+	OwnerKind                   string     `json:"owner_kind"`
+	OwnerID                     string     `json:"owner_id"`
+	ThreatModelRevision         string     `json:"threat_model_revision"`
+	CandidateRevision           string     `json:"candidate_revision"`
+	AbusePathIDs                []string   `json:"abuse_path_ids"`
+	PermittedCitationReferences []string   `json:"permitted_evidence_references"`
+	AcceptanceCriteria          []string   `json:"acceptance_criteria"`
+	PullRequestID               string     `json:"pull_request_id,omitempty"`
+	DesignChangeReferences      []string   `json:"design_change_references,omitempty"`
+	CommitIDs                   []string   `json:"commit_ids,omitempty"`
+	ReviewID                    string     `json:"review_id,omitempty"`
+	ScenarioID                  string     `json:"security_scenario_id,omitempty"`
+	BaseAttemptID               string     `json:"base_attempt_id,omitempty"`
+	RepairAttemptID             string     `json:"repair_attempt_id,omitempty"`
+	MitigationCoverage          []string   `json:"mitigation_coverage,omitempty"`
+	CreatedAt                   time.Time  `json:"created_at"`
+	VerifiedAt                  *time.Time `json:"verified_at,omitempty"`
+}
+type FindingResolution struct {
+	Kind               string    `json:"kind"`
+	Rationale          string    `json:"rationale"`
+	DuplicateFindingID string    `json:"duplicate_finding_id,omitempty"`
+	RiskOwnerID        string    `json:"risk_owner_id,omitempty"`
+	FollowUp           string    `json:"follow_up,omitempty"`
+	OwnerID            string    `json:"owner_id"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 type Acknowledgement struct {
 	OwnerID        string    `json:"owner_id"`
@@ -304,6 +346,130 @@ func (s *Store) AddFinding(repo, mid, actor string, in FindingInput) (Model, err
 			}
 		}
 		m.Findings = append(m.Findings, Finding{ID: id(), FindingInput: in, AuthorID: actor, CreatedAt: s.now().UTC()})
+		return nil
+	})
+}
+func owner(m Model, actor string) bool {
+	for _, x := range m.OwnerIDs {
+		if x == actor {
+			return true
+		}
+	}
+	return false
+}
+func findFinding(m *Model, fid string) *Finding {
+	for i := range m.Findings {
+		if m.Findings[i].ID == fid {
+			return &m.Findings[i]
+		}
+	}
+	return nil
+}
+func stringsValid(xs []string, required bool) bool {
+	if required && len(xs) == 0 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, x := range xs {
+		if !text(x, 4000) || seen[x] {
+			return false
+		}
+		seen[x] = true
+	}
+	return true
+}
+func (s *Store) ClassifyFinding(repo, mid, fid, actor, kind, audience, rationale string) (Model, error) {
+	return s.mutate(repo, mid, func(m *Model) error {
+		f := findFinding(m, fid)
+		if !owner(*m, actor) || f == nil || f.Classification != nil || !map[string]bool{"confirmed": true, "suspected_duplicate": true, "false_positive": true, "accepted_risk": true}[kind] || !map[string]bool{"owners": true, "repository": true, "public": true, "embargoed": true}[audience] || !text(rationale, 65536) {
+			return ErrInvalid
+		}
+		f.Classification = &FindingClassification{Kind: kind, Audience: audience, Rationale: rationale, OwnerID: actor, CreatedAt: s.now().UTC()}
+		return nil
+	})
+}
+
+type DeliveryInput struct {
+	ProposalID, TaskID, ResourceKind, ResourceID, OwnerKind, OwnerID, CandidateRevision string
+	AbusePathIDs, PermittedCitationReferences, AcceptanceCriteria                       []string
+}
+
+func (s *Store) LinkDelivery(repo, mid, fid, actor string, in DeliveryInput) (Model, error) {
+	return s.mutate(repo, mid, func(m *Model) error {
+		f := findFinding(m, fid)
+		if !owner(*m, actor) || f == nil || f.Classification == nil || f.Classification.Kind != "confirmed" || f.Delivery != nil || f.Resolution != nil || in.ProposalID == "" || in.TaskID == "" || !map[string]bool{"task": true, "change_session": true, "workspace": true}[in.ResourceKind] || !map[string]bool{"human": true, "agent": true}[in.OwnerKind] || in.OwnerID == "" || in.CandidateRevision != m.Origin.Revision || !stringsValid(in.AbusePathIDs, true) || !stringsValid(in.PermittedCitationReferences, true) || !stringsValid(in.AcceptanceCriteria, true) {
+			return ErrInvalid
+		}
+		knownPaths, permitted := map[string]bool{}, map[string]bool{}
+		for _, x := range f.AbusePathIDs {
+			knownPaths[x] = true
+		}
+		for _, x := range in.AbusePathIDs {
+			if !knownPaths[x] {
+				return ErrInvalid
+			}
+		}
+		for _, c := range f.Citations {
+			if c.Visibility == "public" || (c.Visibility == "repository" && f.Classification.Audience != "public") {
+				permitted[c.Reference] = true
+			}
+		}
+		for _, x := range in.PermittedCitationReferences {
+			if !permitted[x] {
+				return ErrInvalid
+			}
+		}
+		f.Delivery = &FindingDelivery{ProposalID: in.ProposalID, TaskID: in.TaskID, ResourceKind: in.ResourceKind, ResourceID: in.ResourceID, OwnerKind: in.OwnerKind, OwnerID: in.OwnerID, ThreatModelRevision: m.Origin.Revision, CandidateRevision: in.CandidateRevision, AbusePathIDs: in.AbusePathIDs, PermittedCitationReferences: in.PermittedCitationReferences, AcceptanceCriteria: in.AcceptanceCriteria, CreatedAt: s.now().UTC()}
+		return nil
+	})
+}
+
+type VerificationInput struct {
+	PullRequestID                                        string
+	DesignChangeReferences, CommitIDs                    []string
+	ReviewID, ScenarioID, BaseAttemptID, RepairAttemptID string
+	MitigationCoverage                                   []string
+}
+
+func (s *Store) VerifyDelivery(repo, mid, fid, actor string, in VerificationInput) (Model, error) {
+	return s.mutate(repo, mid, func(m *Model) error {
+		f := findFinding(m, fid)
+		if !owner(*m, actor) || f == nil || f.Delivery == nil || f.Resolution != nil || f.Delivery.VerifiedAt != nil || in.PullRequestID == "" || in.ReviewID == "" || in.ScenarioID == "" || in.BaseAttemptID == "" || in.RepairAttemptID == "" || in.BaseAttemptID == in.RepairAttemptID || !stringsValid(in.DesignChangeReferences, true) || !stringsValid(in.CommitIDs, true) || !stringsValid(in.MitigationCoverage, true) {
+			return ErrInvalid
+		}
+		known := map[string]bool{}
+		for _, x := range m.Mitigations {
+			known[x.ID] = true
+		}
+		for _, x := range in.MitigationCoverage {
+			if !known[x] {
+				return ErrInvalid
+			}
+		}
+		n := s.now().UTC()
+		d := f.Delivery
+		d.PullRequestID = in.PullRequestID
+		d.DesignChangeReferences = in.DesignChangeReferences
+		d.CommitIDs = in.CommitIDs
+		d.ReviewID = in.ReviewID
+		d.ScenarioID = in.ScenarioID
+		d.BaseAttemptID = in.BaseAttemptID
+		d.RepairAttemptID = in.RepairAttemptID
+		d.MitigationCoverage = in.MitigationCoverage
+		d.VerifiedAt = &n
+		return nil
+	})
+}
+
+type ResolutionInput struct{ Kind, Rationale, DuplicateFindingID, RiskOwnerID, FollowUp string }
+
+func (s *Store) ResolveFinding(repo, mid, fid, actor string, in ResolutionInput) (Model, error) {
+	return s.mutate(repo, mid, func(m *Model) error {
+		f := findFinding(m, fid)
+		if !owner(*m, actor) || f == nil || f.Classification == nil || f.Resolution != nil || (f.Delivery != nil && in.Kind != "failed_repair") || (in.Kind == "failed_repair" && (f.Delivery == nil || f.Delivery.VerifiedAt != nil)) || !map[string]bool{"suspected_duplicate": true, "false_positive": true, "accepted_risk": true, "failed_repair": true}[in.Kind] || !text(in.Rationale, 65536) || (in.Kind == "suspected_duplicate" && in.DuplicateFindingID == "") || (in.Kind == "accepted_risk" && in.RiskOwnerID == "") || (in.Kind == "failed_repair" && in.FollowUp == "") {
+			return ErrInvalid
+		}
+		f.Resolution = &FindingResolution{Kind: in.Kind, Rationale: in.Rationale, DuplicateFindingID: in.DuplicateFindingID, RiskOwnerID: in.RiskOwnerID, FollowUp: in.FollowUp, OwnerID: actor, CreatedAt: s.now().UTC()}
 		return nil
 	})
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/threatmodels"
@@ -20,8 +21,9 @@ func TestThreatModelsRepositoryReaderCollaboration(t *testing.T) {
 	owner := issueAccess(t, creds, "owner", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	reader := issueAccess(t, creds, "reader", auth.API, auth.RepositoryRead)
 	store, _ := threatmodels.New(t.TempDir())
+	plans, _ := proposals.New(t.TempDir())
 	mux := http.NewServeMux()
-	registerThreatModelsHTTP(mux, store, repos, creds, threatModelSources{})
+	registerThreatModelsHTTP(mux, store, repos, creds, threatModelSources{plans: plans})
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	in := threatmodels.Input{Title: "Webhook design", Summary: "Inspect callbacks", Origin: threatmodels.Origin{Kind: "api_evolution", Reference: "hooks", Revision: "v2"}, Inputs: []threatmodels.InputBinding{{Kind: "architecture", Reference: "callbacks", Revision: "a1"}}, EntryPoints: []threatmodels.EntryPoint{{ID: "hook", Description: "callback URL", Privileges: []string{"choose URL"}}}, AttackerGoals: []threatmodels.AttackerGoal{{ID: "ssrf", Actor: "writer", Goal: "reach metadata", Capability: "choose callback", Impact: "credential theft"}}, AbusePaths: []threatmodels.AbusePath{{ID: "metadata", GoalID: "ssrf", EntryPointIDs: []string{"hook"}, Steps: []string{"set metadata URL"}, ResidualRisk: "DNS rebinding", Severity: "high", OwnerIDs: []string{"owner"}}}, OwnerIDs: []string{"owner"}, ResidualRisk: "DNS rebinding remains"}
@@ -45,5 +47,20 @@ func TestThreatModelsRepositoryReaderCollaboration(t *testing.T) {
 	workflowJSON(t, server.URL, http.MethodPost, base+"/"+got.ID+"/acknowledgements", owner, ack, http.StatusCreated, &got)
 	if len(got.Acknowledgements) != 1 {
 		t.Fatal("acknowledgement missing")
+	}
+	classification := `{"kind":"confirmed","audience":"repository","rationale":"synthetic reproduction is safe for collaborators"}`
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+got.ID+"/findings/"+got.Findings[0].ID+"/classification", owner, classification, http.StatusCreated, &got)
+	if got.Findings[0].Classification == nil || got.Findings[0].Classification.OwnerID != "owner" {
+		t.Fatal("owner classification missing")
+	}
+	var delivered struct {
+		Model     threatmodels.Model `json:"model"`
+		Task      proposals.Task     `json:"task"`
+		Authority map[string]bool    `json:"authority"`
+	}
+	delivery := `{"owner_kind":"human","owner_id":"owner","candidate_revision":"v2","abuse_path_ids":["metadata"],"permitted_evidence_references":["hooks"],"acceptance_criteria":["resolved addresses remain outside protected ranges"]}`
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+got.ID+"/findings/"+got.Findings[0].ID+"/delivery", owner, delivery, http.StatusCreated, &delivered)
+	if delivered.Task.BaseRevision != "v2" || delivered.Model.Findings[0].Delivery.TaskID != delivered.Task.ID || delivered.Authority["repository_write"] {
+		t.Fatalf("governed preloaded task boundary missing: %#v", delivered)
 	}
 }
