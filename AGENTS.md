@@ -36,6 +36,26 @@ credential, production, environment, approval, merge, release, deployment, or
 operational authority. Owner management remains in `view=assurance`; the
 credential-only external web surface is `/assessments`.
 
+Finding remediation and signed assurance statements live beneath
+`$ASSURANCE_DELIVERY_ROOT` (default `apps/api/data/assurance-delivery`). Only
+the assessment owner converts an attributable independent-assessment finding
+into dependency-ordered human- or agent-owned tasks, sessions, workspaces,
+pull requests, policy changes, or operational work. Each item retains the
+finding control, permitted evidence-package IDs, affected revision, deadline,
+acceptance criteria, resource links, and attributable progress. Closure
+requires every item to complete in order, a passing verification on the exact
+affected revision and selected evidence digest, and an explicit owner or
+currently credentialed assessor disposition. Later revision drift or a reopen
+invalidates closure without deleting its prior verification or disposition.
+Owners may publish Ed25519-signed public or repository-audience statements for
+one exact assurance-program version, release revision, scope, period, controls,
+exceptions, evidence digest, and expiry. Reads derive current, changed,
+expired, or revoked status while preserving the originally signed payload;
+repository-audience statements are rejected from anonymous reads. These
+records grant no Git, task, session, workspace, policy, operational, evidence,
+approval, merge, release, deployment, credential, environment, certification,
+or production authority. The repository web surface is `view=assurance`.
+
 Revision-bound design-time threat models live beneath `$THREAT_MODEL_ROOT`
 (default `apps/api/data/threat-models`). Repository readers open models from an
 exact design proposal, pull request, API or schema evolution, infrastructure
