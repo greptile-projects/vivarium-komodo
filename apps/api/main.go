@@ -11,6 +11,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilitycommitments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilitypolicies"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/adoptionworkspaces"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/agentdiscovery"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/agentevaluations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/agentprofiles"
@@ -904,6 +905,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	adoptionWorkspaceRoot := os.Getenv("ADOPTION_WORKSPACE_ROOT")
+	if adoptionWorkspaceRoot == "" {
+		adoptionWorkspaceRoot = "data/adoption-workspaces"
+	}
+	adoptionWorkspaceStore, err := adoptionworkspaces.New(adoptionWorkspaceRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	productOpportunityRoot := os.Getenv("PRODUCT_OPPORTUNITY_ROOT")
 	if productOpportunityRoot == "" {
 		productOpportunityRoot = "data/product-opportunities"
@@ -1094,6 +1103,7 @@ func main() {
 	registerProjectDeliveriesHTTP(mux, projectDeliveryStore, projectIncubatorStore, projectBoundaryStore, credentials)
 	registerProjectReadinessHTTP(mux, projectReadinessStore, projectIncubatorStore, projectBoundaryStore, projectDeliveryStore, credentials)
 	registerProjectLifeHTTP(mux, projectLifeStore, projectReadinessStore, credentials)
+	registerAdoptionWorkspacesHTTP(mux, adoptionWorkspaceStore, credentials)
 	registerProductOpportunitiesHTTP(mux, productOpportunityStore, repositoryCatalog, credentials, opportunitySources{feedback: productFeedbackStore, issues: issueStore, previews: previewStore, experiments: productExperimentStore})
 	registerProductRoadmapsHTTP(mux, productRoadmapStore, productOpportunityStore, repositoryCatalog, credentials)
 	registerRoadmapValidationsHTTP(mux, roadmapValidationStore, productRoadmapStore, productFeedbackStore, repositoryCatalog, credentials)

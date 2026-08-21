@@ -1,5 +1,27 @@
 # Docs
 
+## Software adoption workspaces
+
+`/adoption-workspaces` gives adopters, provider maintainers, affected users, and
+read-only agents a shared evaluation record before software becomes a
+dependency. A workspace begins from an exact roadmap outcome, support gap,
+incubator, decision, package, API, or federated repository and freezes the real
+outcome, required journeys, target environments, constraints, budget, owners,
+and evaluation criteria. The `/adoptions` web application exposes the same
+contract.
+
+Candidate records name a declared version and exact provider revision.
+Capability, provenance, support, security, data-use, compatibility, and known-gap
+evidence is independently revision- and audience-bound. Public reads derive a
+per-dimension comparison and explicit blockers: missing, unavailable,
+inaccessible, expired, or different-revision evidence never becomes proof of
+fit, and inaccessible references are not projected. Provider maintainers and
+affected users participate by consent; agent participation is read-only even if
+the agent otherwise holds repository credentials. These records live beneath
+`$ADOPTION_WORKSPACE_ROOT` (default `apps/api/data/adoption-workspaces`) and
+grant no procurement, package, repository, API, agent, credential, trial,
+selection, integration, deployment, or operational authority.
+
 ## Responsible project life
 
 `/project-life` carries a current, ready incubated launch into accountable use.

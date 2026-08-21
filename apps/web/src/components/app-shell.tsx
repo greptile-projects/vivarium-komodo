@@ -8,6 +8,7 @@ const navigation = [
   { label: "Home", href: "/", icon: Home, active: true },
   { label: "Repositories", href: "#repositories", icon: Book },
   { label: "Incubators", href: "/incubators", icon: Sparkles },
+  { label: "Adoption", href: "/adoptions", icon: Users },
   { label: "Packages", href: "/packages", icon: Plus },
   { label: "Organizations", href: "/organizations", icon: Users },
   { label: "Pull requests", href: "#activity", icon: GitPullRequest, count: 3 },
