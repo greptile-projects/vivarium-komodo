@@ -1,5 +1,27 @@
 # Docs
 
+## Collaborative project incubation
+
+`/project-incubators` is the authenticated public API for a potential project
+before any repository or implementation boundary exists. A creator records the
+audience, problem, outcome, constraints, measures, sponsors, decision rights,
+and visibility, optionally citing exact product feedback, support-question, or
+governed-proposal context. The server checks the creator's access to that
+context; missing or unreadable context is retained as `inaccessible` without
+copying restricted content. A normalized audience/problem match is reported on
+both incubators as a possible duplicate rather than silently preventing a
+distinct initiative.
+
+The nested `participants`, `comments`, `evidence`, `assumptions`, and
+`scope-changes` resources preserve stable actor IDs and append-only collaboration
+context. Invitees explicitly accept or decline. Agent invitations resolve an
+exact active repository/organization onboarding identity, so an incubator does
+not approve an agent by itself. Scope changes retain complete before/after
+intent and rationale. The `/incubators` application surface makes origins,
+gaps, duplicates, governance, consent, evidence, assumptions, and discussion
+inspectable. Neither the record nor participation grants repository, Git,
+credential, governance, approval, merge, deployment, or operational authority.
+
 ## Versioned security expectations
 
 Repository collaborators define security intent before implementation through
