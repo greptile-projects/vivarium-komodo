@@ -1,5 +1,24 @@
 # Docs
 
+## Responsible project life
+
+`/project-life` carries a current, ready incubated launch into accountable use.
+Each record freezes the accepted direction, active boundary, proven delivery,
+readiness revision, launch revision, owners, and declared audience. Owners can
+append exact-launch attestations for the first release, documentation, packages,
+API contracts, contributor opportunities, and governed environments, then cite
+existing product and operational evidence for adoption, support, reliability,
+cost, and success measures.
+
+Feedback remains attributable and can connect either a roadmap revision or an
+ordinary human- or agent-owned work reference. A final disposition explicitly
+keeps the work experimental, graduates it to an organization initiative, merges
+it into an existing project, or archives it. Every non-experimental disposition
+requires cited resolution of its resources and obligations, preventing archive
+from becoming abandonment. Records live beneath `$PROJECT_LIFE_ROOT` (default
+`apps/api/data/project-life`) and grant no Git, publication, agent, release,
+package, environment, deployment, or operational authority.
+
 ## Governed project bootstrap
 
 An incubator founder or named sponsor explicitly accepts one active candidate
