@@ -1,5 +1,21 @@
 # AGENTS.md
 
+Software adoption workspaces live beneath `$ADOPTION_WORKSPACE_ROOT` (default
+`apps/api/data/adoption-workspaces`). Authenticated collaborators open one from
+an exact roadmap outcome, support gap, incubator, decision, package, API, or
+federated repository and declare required journeys, environments, constraints,
+budget, owners, and evaluation criteria before comparing exact candidate
+versions. Owners invite consenting provider maintainers, affected users, and
+strictly read-only agents with explicit evidence scope. Candidate capability,
+provenance, support, security, data-use, compatibility, and gap evidence retains
+its revision, availability, visibility, and validity; reads derive missing,
+stale, expired, unavailable, and inaccessible evidence rather than presenting it
+as proof. Workspaces grant no repository, package, API, agent, credential,
+procurement, selection, trial, integration, deployment, or operational authority.
+The public API is `/adoption-workspaces`, the web surface is `/adoptions`, and
+`adoption_workspace_workflow_test.go` is the black-box boundary for this initial
+shared fit evaluation.
+
 Responsible public-life records live beneath `$PROJECT_LIFE_ROOT` (default
 `apps/api/data/project-life`). A project enters public life only from the exact
 current ready launch and retains attested release, documentation, package, API
