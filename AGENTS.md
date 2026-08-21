@@ -1,5 +1,19 @@
 # AGENTS.md
 
+Responsible public-life records live beneath `$PROJECT_LIFE_ROOT` (default
+`apps/api/data/project-life`). A project enters public life only from the exact
+current ready launch and retains attested release, documentation, package, API
+contract, contributor-opportunity, and governed-environment publications for a
+declared audience. Append-only adoption, support, reliability, cost, and success
+measure observations cite existing product or operational evidence. Attributable
+feedback may revise the roadmap or open connected human- or agent-owned work.
+Owners explicitly record whether the incubator graduates to an organization
+initiative, remains experimental, merges into an existing project, or is
+archived; graduation, merge, and archive require every resource and obligation
+to carry a cited resolution. These coordination records grant no publication,
+Git, agent, package, environment, release, deployment, or operational authority.
+The public API is `/project-life`.
+
 Accepted incubator directions may open activation-gated project boundaries
 beneath `$PROJECT_BOUNDARY_ROOT` (default `apps/api/data/project-boundaries`).
 The manifest must include or connect organization, repository, team, package,
