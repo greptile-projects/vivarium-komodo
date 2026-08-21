@@ -268,6 +268,16 @@ func registerProjectIncubatorsHTTP(m *http.ServeMux, s *projectincubators.Store,
 			writeJSON(w, 201, v)
 		}
 	})
+	m.HandleFunc("POST /project-incubators/{incubator}/alternatives/{alternative}/accept", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authn(w, r, true)
+		if !ok {
+			return
+		}
+		v, e := s.AcceptAlternative(r.PathValue("incubator"), r.PathValue("alternative"), a.UserID)
+		if !incubatorError(w, e) {
+			writeJSON(w, 200, v)
+		}
+	})
 	m.HandleFunc("POST /project-incubators/{incubator}/findings", func(w http.ResponseWriter, r *http.Request) {
 		a, ok := authn(w, r, true)
 		if !ok {
