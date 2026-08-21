@@ -1,5 +1,26 @@
 # Docs
 
+## Governed project bootstrap
+
+An incubator founder or named sponsor explicitly accepts one active candidate
+direction before opening `/project-boundaries`. A boundary manifest covers the
+organization, repositories, teams, package identities, agent roles, contributor
+pathway, documentation, environments, and baseline review, security, privacy,
+quality, and release policy. Its public preview derives missing resource kinds,
+effective access, total recurring cost and budget blockers while retaining the
+source and approvers for generated content and inherited policy.
+
+Every named owner approves the exact manifest revision before activation.
+Activation durably assigns all created or connected resource handles in one
+commit; rollback releases created handles, retains connected-resource identity,
+and preserves the attempt history so activation can be safely retried. These
+bootstrap records are coordination and provenance boundaries only: they expose
+no credentials and grant no Git, agent, environment, deployment, merge, release,
+or operational authority. State lives beneath `$PROJECT_BOUNDARY_ROOT` (default
+`apps/api/data/project-boundaries`). `project_bootstrap_workflow_test.go` is the
+public-HTTP regression boundary from accepted direction through approval,
+activation, public inspection, rollback, and retry.
+
 ## Collaborative project incubation
 
 `/project-incubators` is the authenticated public API for a potential project

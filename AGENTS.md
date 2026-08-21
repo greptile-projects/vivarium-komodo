@@ -1,5 +1,19 @@
 # AGENTS.md
 
+Accepted incubator directions may open activation-gated project boundaries
+beneath `$PROJECT_BOUNDARY_ROOT` (default `apps/api/data/project-boundaries`).
+The manifest must include or connect organization, repository, team, package,
+agent-role, contributor-pathway, documentation, environment, and baseline
+review, security, privacy, quality, and release-policy resources. Public
+previews derive ownership, effective access, recurring cost, missing kinds,
+generated-content provenance, inherited policy, and exact-revision owner
+approval blockers. Activation assigns every resource handle atomically;
+rollback releases created handles and preserves attempts for retry without
+exposing credentials or granting Git, agent, environment, merge, release,
+deployment, or operational authority. `project_bootstrap_workflow_test.go` is
+the black-box boundary for acceptance, approval, activation, rollback, and
+retry.
+
 Pre-repository project incubators live beneath `$PROJECT_INCUBATOR_ROOT`
 (default `apps/api/data/project-incubators`). Authenticated collaborators open
 one from exact product feedback, a support gap, a governed proposal, or a new

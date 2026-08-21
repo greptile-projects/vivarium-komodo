@@ -156,21 +156,52 @@ type Input struct {
 type Incubator struct {
 	ID string `json:"id"`
 	Input
-	Source           Source        `json:"source"`
-	CreatedByID      string        `json:"created_by_id"`
-	Participants     []Participant `json:"participants"`
-	Discussion       []Comment     `json:"discussion"`
-	Evidence         []Evidence    `json:"evidence"`
-	Assumptions      []Assumption  `json:"assumptions"`
-	ScopeChanges     []ScopeChange `json:"scope_changes"`
-	Alternatives     []Alternative `json:"alternatives"`
-	Findings         []Finding     `json:"findings"`
-	Experiments      []Experiment  `json:"experiments"`
-	DuplicateIDs     []string      `json:"duplicate_incubator_ids"`
-	History          []Event       `json:"history"`
-	AuthorityGranted bool          `json:"authority_granted"`
-	CreatedAt        time.Time     `json:"created_at"`
-	UpdatedAt        time.Time     `json:"updated_at"`
+	Source                Source        `json:"source"`
+	CreatedByID           string        `json:"created_by_id"`
+	Participants          []Participant `json:"participants"`
+	Discussion            []Comment     `json:"discussion"`
+	Evidence              []Evidence    `json:"evidence"`
+	Assumptions           []Assumption  `json:"assumptions"`
+	ScopeChanges          []ScopeChange `json:"scope_changes"`
+	Alternatives          []Alternative `json:"alternatives"`
+	Findings              []Finding     `json:"findings"`
+	Experiments           []Experiment  `json:"experiments"`
+	AcceptedAlternativeID string        `json:"accepted_alternative_id,omitempty"`
+	DirectionAcceptedByID string        `json:"direction_accepted_by_id,omitempty"`
+	DirectionAcceptedAt   *time.Time    `json:"direction_accepted_at,omitempty"`
+	DuplicateIDs          []string      `json:"duplicate_incubator_ids"`
+	History               []Event       `json:"history"`
+	AuthorityGranted      bool          `json:"authority_granted"`
+	CreatedAt             time.Time     `json:"created_at"`
+	UpdatedAt             time.Time     `json:"updated_at"`
+}
+
+func (s *Store) AcceptAlternative(id, alternative, actor string) (Incubator, error) {
+	return s.mutate(id, actor, true, func(v *Incubator) error {
+		if actor != v.CreatedByID && !contains(v.SponsorIDs, actor) {
+			return ErrForbidden
+		}
+		found := false
+		for _, a := range v.Alternatives {
+			found = found || (a.ID == alternative && a.Status == "active")
+		}
+		if !found {
+			return ErrInvalid
+		}
+		now := s.now().UTC()
+		v.AcceptedAlternativeID, v.DirectionAcceptedByID, v.DirectionAcceptedAt = alternative, actor, &now
+		v.event("direction.accepted", actor, alternative)
+		return nil
+	})
+}
+
+func contains(xs []string, value string) bool {
+	for _, x := range xs {
+		if x == value {
+			return true
+		}
+	}
+	return false
 }
 
 type Store struct {
