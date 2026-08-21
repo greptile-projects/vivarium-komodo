@@ -1,5 +1,21 @@
 # AGENTS.md
 
+Pre-repository project incubators live beneath `$PROJECT_INCUBATOR_ROOT`
+(default `apps/api/data/project-incubators`). Authenticated collaborators open
+one from exact product feedback, a support gap, a governed proposal, or a new
+idea and record the affected audience, problem, desired outcome, constraints,
+success measures, sponsors, decision rights, and participant-only or public
+visibility without creating a repository. Source references that the creator
+cannot read remain explicit inaccessible gaps and no source body is copied;
+matching audience-and-problem records report symmetric possible duplicates.
+Accepted human participants may append attributable discussion, public or
+participant evidence, assumptions and their dispositions, and complete
+before/after scope changes. Invitations and consent remain explicit; an agent
+invitation must name an exact currently active repository or organization
+onboarding identity. Incubators and participation grant no repository, Git,
+agent, credential, governance, approval, merge, deployment, environment, or
+operational authority. The pre-repository web surface is `/incubators`.
+
 Revision-exact compliance impact assessments live beneath
 `$ASSURANCE_ASSESSMENT_ROOT` (default
 `apps/api/data/assurance-assessments`). Repository writers bind an exact pull
