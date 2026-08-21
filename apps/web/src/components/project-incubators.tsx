@@ -58,6 +58,21 @@ type Incubator = {
   experiments: {id:string;alternative_id:string;question:string;method:string[];inputs:string[];commands:string[];success_criteria:string[];budget:string;safety_boundary:string;authority_granted:boolean;attempts:{id:string;input_digest:string;measurements:Record<string,string>;artifacts:string[];outcome:string;reproduction_of_id?:string;actor_id:string}[]}[];
   updated_at: string;
 };
+type Delivery = {
+  id: string;
+  incubator_id: string;
+  representative_journey: string;
+  total_cost: number;
+  cost_limit: number;
+  blockers: string[];
+  authority_granted: boolean;
+  team: { id: string; kind: string; subject_id: string; role: string; scope: string; state: string }[];
+  steps: { id: string; order: number; kind: string; title: string; owner_id: string; state: string }[];
+  workspaces: { id: string; step_id: string; repository_handle: string; base_revision: string; definition_digest: string; state: string }[];
+  pull_requests: { id: string; kind: string; revision: string; url: string; author_id: string; state: string }[];
+  previews: { id: string; revision: string; url: string; state: string; invited_user_ids: string[]; evidence: { id: string; user_id: string; outcome: string; observation: string }[] }[];
+  activity: { id: string; kind: string; actor_id: string; detail: string; cost: number }[];
+};
 const lines = (v: FormDataEntryValue | null) =>
   String(v || "")
     .split("\n")
@@ -76,12 +91,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 export function ProjectIncubators() {
   const [items, setItems] = useState<Incubator[]>([]),
+    [deliveries, setDeliveries] = useState<Delivery[]>([]),
     [selected, setSelected] = useState(""),
     [error, setError] = useState("");
   const load = useCallback(async () => {
     try {
       const x = await request<{ items: Incubator[] }>("/project-incubators");
+      const d = await request<{ items: Delivery[] }>("/project-deliveries");
       setItems(x.items);
+      setDeliveries(d.items);
       if (!selected && x.items[0]) setSelected(x.items[0].id);
     } catch (e) {
       setError((e as Error).message);
@@ -160,6 +178,7 @@ export function ProjectIncubators() {
     }
   }
   const current = items.find((x) => x.id === selected);
+  const currentDeliveries = deliveries.filter((x) => x.incubator_id === selected);
   return (
     <section className="package-catalog">
       <div className="package-catalog-hero">
@@ -519,6 +538,21 @@ export function ProjectIncubators() {
                 <p>Compare the same product, technical, cost, license, security, and data boundaries before a prototype becomes architecture.</p>
                 {current.alternatives.map(a=><article className="panel" key={a.id}><h4>{a.title} <Badge>{a.status}</Badge></h4><p><strong>Boundary:</strong> {a.product_boundary}</p><p><strong>Architecture:</strong> {a.architecture}</p><p><strong>Build versus adopt:</strong> {a.build_or_adopt}</p><p><strong>Interfaces:</strong> {a.interfaces.join(" · ")} · <strong>Dependencies:</strong> {a.dependencies.join(" · ")||"none"}</p><p><strong>Licenses:</strong> {a.licenses.join(" · ")} · <strong>Operating cost:</strong> {a.operating_costs.join(" · ")}</p><p><strong>Security:</strong> {a.security_risks.join(" · ")} · <strong>Data:</strong> {a.data_risks.join(" · ")}</p><p><strong>Unknowns:</strong> {a.unknowns.join(" · ")||"none recorded"}</p>{current.findings.filter(x=>x.alternative_id===a.id).map(x=><p key={x.id}><Badge>{x.kind}</Badge> {x.claim} — {x.author_id}</p>)}{current.experiments.filter(x=>x.alternative_id===a.id).map(x=><div key={x.id}><h5>Experiment: {x.question}</h5><p>{x.method.join(" · ")} · budget {x.budget} · boundary {x.safety_boundary}</p>{x.attempts.map(t=><p key={t.id}><Badge>{t.outcome}</Badge> {Object.entries(t.measurements).map(([k,v])=>`${k}: ${v}`).join(" · ")} · input <code>{t.input_digest}</code>{t.reproduction_of_id&&" · reproduction"}</p>)}<small>No code, infrastructure, environment, or operational authority is created.</small></div>)}</article>)}
                 <details><summary>Propose a comparable alternative</summary><form className="stacked-form" onSubmit={e=>append(e,`/project-incubators/${current.id}/alternatives`,f=>({title:f.get("title"),product_boundary:f.get("boundary"),architecture:f.get("architecture"),interfaces:lines(f.get("interfaces")),dependencies:lines(f.get("dependencies")),licenses:lines(f.get("licenses")),operating_costs:lines(f.get("costs")),security_risks:lines(f.get("security")),data_risks:lines(f.get("data")),build_or_adopt:f.get("build"),unknowns:lines(f.get("unknowns")),capability_links:[]}))}><input name="title" placeholder="Alternative title" required/><textarea name="boundary" placeholder="Product boundary" required/><textarea name="architecture" placeholder="Architecture" required/>{[["interfaces","Interfaces"],["dependencies","Dependencies"],["licenses","Licenses"],["costs","Operating costs"],["security","Security risks"],["data","Data risks"],["unknowns","Unknowns"]].map(([n,l])=><textarea key={n} name={n} placeholder={`${l}, one per line`} required={!["dependencies","unknowns"].includes(n)}/>)}<textarea name="build" placeholder="What to build and what to adopt" required/><Button type="submit" size="sm">Propose alternative</Button></form></details>
+              </section>
+              <section>
+                <h3>First running product slice</h3>
+                {currentDeliveries.length === 0 && <p>No delivery plan has been opened from an active project boundary.</p>}
+                {currentDeliveries.map((d) => <article className="panel" key={d.id}>
+                  <h4>{d.representative_journey} <Badge>{d.blockers.length ? "blocked" : "proven"}</Badge></h4>
+                  <p><strong>Ordered plan:</strong> {d.steps.map(s => `${s.order}. ${s.kind} — ${s.owner_id}`).join(" · ")}</p>
+                  <p><strong>Temporary team:</strong> {d.team.map(m => `${m.kind} ${m.subject_id} (${m.role}, ${m.state})`).join(" · ")}</p>
+                  <p><strong>Reproducible workspaces:</strong> {d.workspaces.map(w => `${w.step_id} @ ${w.base_revision} (${w.state})`).join(" · ") || "none"}</p>
+                  <p><strong>Connected pull requests:</strong> {d.pull_requests.map(p => `${p.kind} ${p.revision} (${p.state})`).join(" · ") || "none"}</p>
+                  {d.previews.map(p => <div key={p.id}><p><strong>Target-user preview:</strong> <a href={p.url}>{p.revision}</a> · {p.state} · invited {p.invited_user_ids.join(", ")}</p>{p.evidence.map(e => <p key={e.id}><Badge>{e.outcome}</Badge> {e.observation} — {e.user_id}</p>)}</div>)}
+                  <p><strong>Reported activity:</strong> {d.activity.map(a => `${a.kind}: ${a.detail} (${a.actor_id}, $${a.cost})`).join(" · ") || "none"}</p>
+                  <p><strong>Cost:</strong> ${d.total_cost} / ${d.cost_limit} · <strong>Blockers:</strong> {d.blockers.join(" · ") || "none"}</p>
+                  <small>No Git, workspace, preview, review, merge, deployment, credential, or operational authority is implied.</small>
+                </article>)}
               </section>
               <section>
                 <h3>Discussion</h3>
