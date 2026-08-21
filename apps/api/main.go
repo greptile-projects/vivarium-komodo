@@ -76,6 +76,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/productopportunities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/productroadmaps"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/projectboundaries"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/projectdeliveries"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/projectfunds"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/projectincubators"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
@@ -877,6 +878,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	projectDeliveryRoot := os.Getenv("PROJECT_DELIVERY_ROOT")
+	if projectDeliveryRoot == "" {
+		projectDeliveryRoot = "data/project-deliveries"
+	}
+	projectDeliveryStore, err := projectdeliveries.New(projectDeliveryRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	productOpportunityRoot := os.Getenv("PRODUCT_OPPORTUNITY_ROOT")
 	if productOpportunityRoot == "" {
 		productOpportunityRoot = "data/product-opportunities"
@@ -1064,6 +1073,7 @@ func main() {
 	registerProductFeedbackHTTP(mux, productFeedbackStore, repositoryCatalog, credentials, feedbackSources{releases: releaseStore, docs: documentationStore, previews: previewStore, issues: issueStore, experiments: productExperimentStore, organizations: organizationStore})
 	registerProjectIncubatorsHTTP(mux, projectIncubatorStore, credentials, incubatorSources{feedback: productFeedbackStore, support: supportQuestionStore, governance: governanceStore, repos: repositoryCatalog, agents: agentEvaluationStore, users: userStore})
 	registerProjectBoundariesHTTP(mux, projectBoundaryStore, projectIncubatorStore, credentials)
+	registerProjectDeliveriesHTTP(mux, projectDeliveryStore, projectIncubatorStore, projectBoundaryStore, credentials)
 	registerProductOpportunitiesHTTP(mux, productOpportunityStore, repositoryCatalog, credentials, opportunitySources{feedback: productFeedbackStore, issues: issueStore, previews: previewStore, experiments: productExperimentStore})
 	registerProductRoadmapsHTTP(mux, productRoadmapStore, productOpportunityStore, repositoryCatalog, credentials)
 	registerRoadmapValidationsHTTP(mux, roadmapValidationStore, productRoadmapStore, productFeedbackStore, repositoryCatalog, credentials)

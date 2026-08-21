@@ -14,6 +14,21 @@ deployment, or operational authority. `project_bootstrap_workflow_test.go` is
 the black-box boundary for acceptance, approval, activation, rollback, and
 retry.
 
+First-slice delivery records live beneath `$PROJECT_DELIVERY_ROOT` (default
+`apps/api/data/project-deliveries`). An active boundary and its exact accepted
+incubator alternative may define a dependency-ordered code, test,
+documentation, infrastructure, and interface plan plus an expiring human-agent
+team. Reproducible workspaces bind boundary repository handles, base revisions,
+definition digests, and commands; connected pull requests retain exact
+revisions, authorship, ordinary checks, and distinct review. A revision-exact
+preview invites named target users to append evidence, while agent actions,
+handoffs, costs, and deviations report to the incubator delivery record.
+Changed preview or pull revisions reject stale evidence and decisions. These
+records grant no Git, agent, workspace, preview, repository, credential,
+review, merge, deployment, environment, or operational authority.
+`project_delivery_workflow_test.go` is the black-box boundary for the first
+running product slice.
+
 Pre-repository project incubators live beneath `$PROJECT_INCUBATOR_ROOT`
 (default `apps/api/data/project-incubators`). Authenticated collaborators open
 one from exact product feedback, a support gap, a governed proposal, or a new
