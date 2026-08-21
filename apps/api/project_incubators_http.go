@@ -254,6 +254,62 @@ func registerProjectIncubatorsHTTP(m *http.ServeMux, s *projectincubators.Store,
 			writeJSON(w, 201, v)
 		}
 	})
+	m.HandleFunc("POST /project-incubators/{incubator}/alternatives", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authn(w, r, true)
+		if !ok {
+			return
+		}
+		var in projectincubators.Alternative
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.AddAlternative(r.PathValue("incubator"), a.UserID, in)
+		if !incubatorError(w, e) {
+			writeJSON(w, 201, v)
+		}
+	})
+	m.HandleFunc("POST /project-incubators/{incubator}/findings", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authn(w, r, true)
+		if !ok {
+			return
+		}
+		var in projectincubators.Finding
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.AddFinding(r.PathValue("incubator"), a.UserID, in)
+		if !incubatorError(w, e) {
+			writeJSON(w, 201, v)
+		}
+	})
+	m.HandleFunc("POST /project-incubators/{incubator}/experiments", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authn(w, r, true)
+		if !ok {
+			return
+		}
+		var in projectincubators.Experiment
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.AddExperiment(r.PathValue("incubator"), a.UserID, in)
+		if !incubatorError(w, e) {
+			writeJSON(w, 201, v)
+		}
+	})
+	m.HandleFunc("POST /project-incubators/{incubator}/experiments/{experiment}/attempts", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authn(w, r, true)
+		if !ok {
+			return
+		}
+		var in projectincubators.ExperimentAttempt
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.AddAttempt(r.PathValue("incubator"), r.PathValue("experiment"), a.UserID, in)
+		if !incubatorError(w, e) {
+			writeJSON(w, 201, v)
+		}
+	})
 }
 func incubatorError(w http.ResponseWriter, e error) bool {
 	if e == nil {

@@ -76,3 +76,35 @@ func TestDuplicateAndPrivateVisibility(t *testing.T) {
 		t.Fatalf("private incubator leaked: %v", e)
 	}
 }
+
+func TestAlternativesResearchAndReproducibleExperiments(t *testing.T) {
+	s, _ := New(t.TempDir())
+	v, _ := s.Create("u_founder", base(), Source{Kind: "idea", Status: "accessible"})
+	a := Alternative{Title: "Adopt a parser core", ProductBoundary: "CLI and stable library API", Architecture: "thin adapters around an adopted parser", Interfaces: []string{"CLI", "Go API"}, Dependencies: []string{"parser.example v2"}, Licenses: []string{"Apache-2.0"}, OperatingCosts: []string{"one shared runner"}, SecurityRisks: []string{"untrusted grammar input"}, DataRisks: []string{"source remains local"}, BuildOrAdopt: "adopt parser; build product workflow", Unknowns: []string{"incremental parse latency"}, CapabilityLinks: []CapabilityLink{{Kind: "package", ResourceID: "parser.example", Revision: "v2", Visibility: "public"}, {Kind: "api", ScopeID: "org_tools", ResourceID: "parser-contract", Revision: "3", Visibility: "organization"}}}
+	v, e := s.AddAlternative(v.ID, "u_founder", a)
+	if e != nil {
+		t.Fatal(e)
+	}
+	alt := v.Alternatives[0]
+	v, e = s.AddFinding(v.ID, "u_founder", Finding{AlternativeID: alt.ID, Kind: "dissent", Claim: "The dependency may constrain error recovery", Evidence: []Evidence{{Kind: "package", Reference: "https://example.test/issues/12", Summary: "Open recovery limitation", Visibility: "public"}}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	v, e = s.AddExperiment(v.ID, "u_founder", Experiment{AlternativeID: alt.ID, Question: "Can it meet interactive latency?", Method: []string{"run fixed synthetic corpus"}, Inputs: []string{"corpus digest sha256:abc"}, Commands: []string{"bench --corpus fixture"}, SuccessCriteria: []string{"p95 under 50ms"}, Budget: "10 minutes, USD 1", SafetyBoundary: "networkless synthetic workspace"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	exp := v.Experiments[0]
+	v, e = s.AddAttempt(v.ID, exp.ID, "u_founder", ExperimentAttempt{InputDigest: "sha256:abc", Measurements: map[string]string{"p95": "42ms"}, Artifacts: []string{"sha256:result"}, Outcome: "passed", Notes: "isolated run"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	first := v.Experiments[0].Attempts[0]
+	v, e = s.AddAttempt(v.ID, exp.ID, "u_founder", ExperimentAttempt{InputDigest: "sha256:abc", Measurements: map[string]string{"p95": "44ms"}, Artifacts: []string{"sha256:reproduction"}, Outcome: "passed", ReproductionOfID: first.ID})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if v.AuthorityGranted || v.Experiments[0].AuthorityGranted || len(v.Findings) != 1 || len(v.Experiments[0].Attempts) != 2 {
+		t.Fatalf("learning record lost containment: %#v", v)
+	}
+}

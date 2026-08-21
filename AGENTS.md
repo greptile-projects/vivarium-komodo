@@ -15,6 +15,16 @@ invitation must name an exact currently active repository or organization
 onboarding identity. Incubators and participation grant no repository, Git,
 agent, credential, governance, approval, merge, deployment, environment, or
 operational authority. The pre-repository web surface is `/incubators`.
+Accepted incubator participants compare durable candidate project shapes across
+product boundaries, architectures, interfaces, dependencies, licenses,
+operating costs, security/data risks, and build-versus-adopt choices. Each
+alternative may cite exact public or organization-visible decision, prototype,
+package, API, and code-intelligence resources. Attributable research,
+measurements, dissent, unknowns, supersession, and input-digested experiment
+attempts remain attached to the incubator; reproducibility links retain the
+original attempt. Experiments declare commands, inputs, success criteria,
+budget, and a safety boundary and grant no code, repository, infrastructure,
+environment, credential, deployment, or operational authority.
 
 Revision-exact compliance impact assessments live beneath
 `$ASSURANCE_ASSESSMENT_ROOT` (default
