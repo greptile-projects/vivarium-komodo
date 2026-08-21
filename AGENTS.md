@@ -429,6 +429,16 @@ cannot become inherited release authority. Releases grant no implicit Git,
 secret, review, merge, environment, deployment, or operational authority. The
 repository web surface remains `view=agents`.
 
+`agent_development_workflow_test.go` is the black-box boundary for the complete
+intent-to-improved-agent loop. It uses public HTTP and stock Git to retain a
+human- and agent-authored behavior revision, protected domain scenario,
+baseline comparison, bounded pilot, ordinary review, attested release,
+production regression, rollback, model-key invalidation, exact reevaluation,
+and repaired rollout. Leaked answers, evaluator disagreement, prohibited
+actions, budget exhaustion, and revoked participant consent remain contained
+evidence and never become agent merge, deployment, credential, environment, or
+operational authority.
+
 Project funds live beneath `$PROJECT_FUND_ROOT` (default
 `apps/api/data/project-funds`). Repository writers publish governed terms with
 named stewards, accepted transfer sources, currency or credit units, spending

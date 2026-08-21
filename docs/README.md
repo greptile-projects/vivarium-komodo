@@ -359,6 +359,21 @@ linked work or grant Git, review, merge, environment, credential, deployment,
 or operational authority. The Agents workspace displays exact release,
 deployment, signal, and response provenance.
 
+The complete project-owned development loop is exercised by
+`agent_development_workflow_test.go` through public HTTP and stock Git. A human
+defines a real incident-triage role and protected domain case, an agent refines
+the reviewed behavior on the ordinary pull-request branch, and exact candidate
+attempts compare six dimensions with the baseline before intended users accept
+a read-and-draft-only pilot. Domain and repository owners retain ordinary
+review and merge; accepted trial, pilot, data-policy, and resource decisions
+then produce an attested scoped release. Production correction evidence pauses
+and rolls back the deployment, connects an agent-owned repair, invalidates the
+model-dependent proof after a model change, and requires a clean reproduction
+and domain reevaluation before bounded resume. The same trail retains protected
+answer redaction, contamination, evaluator disagreement, attempted prohibited
+action, budget exhaustion, participant revocation, costs, consent, revisions,
+decisions, signals, rollback, and outcomes without granting hidden authority.
+
 ## Continuity commitments
 
 Authorized repository collaborators define immutable recovery-objective
