@@ -53,6 +53,9 @@ type Incubator = {
   }[];
   duplicate_incubator_ids: string[];
   authority_granted: boolean;
+  alternatives: {id:string;title:string;product_boundary:string;architecture:string;interfaces:string[];dependencies:string[];licenses:string[];operating_costs:string[];security_risks:string[];data_risks:string[];build_or_adopt:string;unknowns:string[];status:string;created_by_id:string}[];
+  findings: {id:string;alternative_id:string;kind:string;claim:string;author_id:string;evidence:{reference:string;summary:string}[]}[];
+  experiments: {id:string;alternative_id:string;question:string;method:string[];inputs:string[];commands:string[];success_criteria:string[];budget:string;safety_boundary:string;authority_granted:boolean;attempts:{id:string;input_digest:string;measurements:Record<string,string>;artifacts:string[];outcome:string;reproduction_of_id?:string;actor_id:string}[]}[];
   updated_at: string;
 };
 const lines = (v: FormDataEntryValue | null) =>
@@ -510,6 +513,12 @@ export function ProjectIncubators() {
                     Record assumption
                   </Button>
                 </form>
+              </section>
+              <section>
+                <h3>Candidate project shapes</h3>
+                <p>Compare the same product, technical, cost, license, security, and data boundaries before a prototype becomes architecture.</p>
+                {current.alternatives.map(a=><article className="panel" key={a.id}><h4>{a.title} <Badge>{a.status}</Badge></h4><p><strong>Boundary:</strong> {a.product_boundary}</p><p><strong>Architecture:</strong> {a.architecture}</p><p><strong>Build versus adopt:</strong> {a.build_or_adopt}</p><p><strong>Interfaces:</strong> {a.interfaces.join(" · ")} · <strong>Dependencies:</strong> {a.dependencies.join(" · ")||"none"}</p><p><strong>Licenses:</strong> {a.licenses.join(" · ")} · <strong>Operating cost:</strong> {a.operating_costs.join(" · ")}</p><p><strong>Security:</strong> {a.security_risks.join(" · ")} · <strong>Data:</strong> {a.data_risks.join(" · ")}</p><p><strong>Unknowns:</strong> {a.unknowns.join(" · ")||"none recorded"}</p>{current.findings.filter(x=>x.alternative_id===a.id).map(x=><p key={x.id}><Badge>{x.kind}</Badge> {x.claim} — {x.author_id}</p>)}{current.experiments.filter(x=>x.alternative_id===a.id).map(x=><div key={x.id}><h5>Experiment: {x.question}</h5><p>{x.method.join(" · ")} · budget {x.budget} · boundary {x.safety_boundary}</p>{x.attempts.map(t=><p key={t.id}><Badge>{t.outcome}</Badge> {Object.entries(t.measurements).map(([k,v])=>`${k}: ${v}`).join(" · ")} · input <code>{t.input_digest}</code>{t.reproduction_of_id&&" · reproduction"}</p>)}<small>No code, infrastructure, environment, or operational authority is created.</small></div>)}</article>)}
+                <details><summary>Propose a comparable alternative</summary><form className="stacked-form" onSubmit={e=>append(e,`/project-incubators/${current.id}/alternatives`,f=>({title:f.get("title"),product_boundary:f.get("boundary"),architecture:f.get("architecture"),interfaces:lines(f.get("interfaces")),dependencies:lines(f.get("dependencies")),licenses:lines(f.get("licenses")),operating_costs:lines(f.get("costs")),security_risks:lines(f.get("security")),data_risks:lines(f.get("data")),build_or_adopt:f.get("build"),unknowns:lines(f.get("unknowns")),capability_links:[]}))}><input name="title" placeholder="Alternative title" required/><textarea name="boundary" placeholder="Product boundary" required/><textarea name="architecture" placeholder="Architecture" required/>{[["interfaces","Interfaces"],["dependencies","Dependencies"],["licenses","Licenses"],["costs","Operating costs"],["security","Security risks"],["data","Data risks"],["unknowns","Unknowns"]].map(([n,l])=><textarea key={n} name={n} placeholder={`${l}, one per line`} required={!["dependencies","unknowns"].includes(n)}/>)}<textarea name="build" placeholder="What to build and what to adopt" required/><Button type="submit" size="sm">Propose alternative</Button></form></details>
               </section>
               <section>
                 <h3>Discussion</h3>

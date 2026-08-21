@@ -46,6 +46,67 @@ type Assumption struct {
 	UpdatedByID string     `json:"updated_by_id,omitempty"`
 	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
 }
+type CapabilityLink struct {
+	Kind       string `json:"kind"`
+	ScopeID    string `json:"scope_id,omitempty"`
+	ResourceID string `json:"resource_id"`
+	Revision   string `json:"revision,omitempty"`
+	Visibility string `json:"visibility"`
+}
+type Alternative struct {
+	ID              string           `json:"id"`
+	Title           string           `json:"title"`
+	ProductBoundary string           `json:"product_boundary"`
+	Architecture    string           `json:"architecture"`
+	Interfaces      []string         `json:"interfaces"`
+	Dependencies    []string         `json:"dependencies"`
+	Licenses        []string         `json:"licenses"`
+	OperatingCosts  []string         `json:"operating_costs"`
+	SecurityRisks   []string         `json:"security_risks"`
+	DataRisks       []string         `json:"data_risks"`
+	BuildOrAdopt    string           `json:"build_or_adopt"`
+	Unknowns        []string         `json:"unknowns"`
+	CapabilityLinks []CapabilityLink `json:"capability_links"`
+	SupersedesID    string           `json:"supersedes_id,omitempty"`
+	Status          string           `json:"status"`
+	CreatedByID     string           `json:"created_by_id"`
+	CreatedAt       time.Time        `json:"created_at"`
+}
+type Finding struct {
+	ID            string     `json:"id"`
+	AlternativeID string     `json:"alternative_id"`
+	Kind          string     `json:"kind"`
+	Claim         string     `json:"claim"`
+	Evidence      []Evidence `json:"evidence"`
+	AuthorID      string     `json:"author_id"`
+	CreatedAt     time.Time  `json:"created_at"`
+}
+type Experiment struct {
+	ID               string              `json:"id"`
+	AlternativeID    string              `json:"alternative_id"`
+	Question         string              `json:"question"`
+	Method           []string            `json:"method"`
+	Inputs           []string            `json:"inputs"`
+	Commands         []string            `json:"commands"`
+	SuccessCriteria  []string            `json:"success_criteria"`
+	Budget           string              `json:"budget"`
+	SafetyBoundary   string              `json:"safety_boundary"`
+	CreatedByID      string              `json:"created_by_id"`
+	CreatedAt        time.Time           `json:"created_at"`
+	Attempts         []ExperimentAttempt `json:"attempts"`
+	AuthorityGranted bool                `json:"authority_granted"`
+}
+type ExperimentAttempt struct {
+	ID               string            `json:"id"`
+	InputDigest      string            `json:"input_digest"`
+	Measurements     map[string]string `json:"measurements"`
+	Artifacts        []string          `json:"artifacts"`
+	Outcome          string            `json:"outcome"`
+	Notes            string            `json:"notes"`
+	ReproductionOfID string            `json:"reproduction_of_id,omitempty"`
+	ActorID          string            `json:"actor_id"`
+	CreatedAt        time.Time         `json:"created_at"`
+}
 type Comment struct {
 	ID        string    `json:"id"`
 	Body      string    `json:"body"`
@@ -102,6 +163,9 @@ type Incubator struct {
 	Evidence         []Evidence    `json:"evidence"`
 	Assumptions      []Assumption  `json:"assumptions"`
 	ScopeChanges     []ScopeChange `json:"scope_changes"`
+	Alternatives     []Alternative `json:"alternatives"`
+	Findings         []Finding     `json:"findings"`
+	Experiments      []Experiment  `json:"experiments"`
 	DuplicateIDs     []string      `json:"duplicate_incubator_ids"`
 	History          []Event       `json:"history"`
 	AuthorityGranted bool          `json:"authority_granted"`
@@ -160,7 +224,7 @@ func (s *Store) Create(actor string, in Input, source Source) (Incubator, error)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now().UTC()
-	v := Incubator{ID: newID("inc_"), Input: in, Source: source, CreatedByID: actor, Participants: []Participant{}, Discussion: []Comment{}, Evidence: []Evidence{}, Assumptions: []Assumption{}, ScopeChanges: []ScopeChange{}, DuplicateIDs: []string{}, History: []Event{}, AuthorityGranted: false, CreatedAt: now, UpdatedAt: now}
+	v := Incubator{ID: newID("inc_"), Input: in, Source: source, CreatedByID: actor, Participants: []Participant{}, Discussion: []Comment{}, Evidence: []Evidence{}, Assumptions: []Assumption{}, ScopeChanges: []ScopeChange{}, Alternatives: []Alternative{}, Findings: []Finding{}, Experiments: []Experiment{}, DuplicateIDs: []string{}, History: []Event{}, AuthorityGranted: false, CreatedAt: now, UpdatedAt: now}
 	v.Participants = append(v.Participants, Participant{ID: newID("par_"), Kind: "human", UserID: actor, Role: "founder", InvitedByID: actor, InvitedAt: now, Consent: "accepted", RespondedAt: &now})
 	v.event("incubator.opened", actor, "")
 	all, _ := s.list()
@@ -173,6 +237,116 @@ func (s *Store) Create(actor string, in Input, source Source) (Incubator, error)
 		}
 	}
 	return v, s.write(v)
+}
+func validAlternative(a Alternative) bool {
+	return strings.TrimSpace(a.Title) != "" && strings.TrimSpace(a.ProductBoundary) != "" && strings.TrimSpace(a.Architecture) != "" && strings.TrimSpace(a.BuildOrAdopt) != "" && cleanList(a.Interfaces, true) && cleanList(a.Dependencies, false) && cleanList(a.Licenses, true) && cleanList(a.OperatingCosts, true) && cleanList(a.SecurityRisks, true) && cleanList(a.DataRisks, true) && cleanList(a.Unknowns, false)
+}
+func (s *Store) AddAlternative(id, actor string, a Alternative) (Incubator, error) {
+	return s.mutate(id, actor, true, func(v *Incubator) error {
+		if !validAlternative(a) {
+			return ErrInvalid
+		}
+		if a.SupersedesID != "" {
+			found := false
+			for i := range v.Alternatives {
+				if v.Alternatives[i].ID == a.SupersedesID {
+					v.Alternatives[i].Status = "superseded"
+					found = true
+				}
+			}
+			if !found {
+				return ErrInvalid
+			}
+		}
+		for _, l := range a.CapabilityLinks {
+			if !map[string]bool{"decision": true, "prototype": true, "package": true, "api": true, "code_intelligence": true}[l.Kind] || l.ResourceID == "" || !map[string]bool{"public": true, "organization": true}[l.Visibility] {
+				return ErrInvalid
+			}
+		}
+		now := s.now().UTC()
+		a.ID = newID("alt_")
+		a.Status = "active"
+		a.CreatedByID = actor
+		a.CreatedAt = now
+		v.Alternatives = append(v.Alternatives, a)
+		v.event("alternative.added", actor, a.ID)
+		return nil
+	})
+}
+func (s *Store) AddFinding(id, actor string, f Finding) (Incubator, error) {
+	return s.mutate(id, actor, true, func(v *Incubator) error {
+		if !map[string]bool{"research": true, "measurement": true, "dissent": true, "unknown": true}[f.Kind] || strings.TrimSpace(f.Claim) == "" {
+			return ErrInvalid
+		}
+		found := false
+		for _, a := range v.Alternatives {
+			found = found || a.ID == f.AlternativeID
+		}
+		if !found {
+			return ErrInvalid
+		}
+		for i := range f.Evidence {
+			e := &f.Evidence[i]
+			if !map[string]bool{"public": true, "organization": true}[e.Visibility] || e.Reference == "" || e.Summary == "" {
+				return ErrInvalid
+			}
+			e.ID = newID("evd_")
+			e.AddedByID = actor
+			e.CreatedAt = s.now().UTC()
+		}
+		f.ID = newID("fnd_")
+		f.AuthorID = actor
+		f.CreatedAt = s.now().UTC()
+		v.Findings = append(v.Findings, f)
+		v.event("finding.added", actor, f.ID)
+		return nil
+	})
+}
+func (s *Store) AddExperiment(id, actor string, x Experiment) (Incubator, error) {
+	return s.mutate(id, actor, true, func(v *Incubator) error {
+		found := false
+		for _, a := range v.Alternatives {
+			found = found || a.ID == x.AlternativeID
+		}
+		if !found || x.Question == "" || !cleanList(x.Method, true) || !cleanList(x.Inputs, true) || !cleanList(x.Commands, true) || !cleanList(x.SuccessCriteria, true) || x.Budget == "" || x.SafetyBoundary == "" {
+			return ErrInvalid
+		}
+		x.ID = newID("exp_")
+		x.CreatedByID = actor
+		x.CreatedAt = s.now().UTC()
+		x.Attempts = []ExperimentAttempt{}
+		x.AuthorityGranted = false
+		v.Experiments = append(v.Experiments, x)
+		v.event("experiment.created", actor, x.ID)
+		return nil
+	})
+}
+func (s *Store) AddAttempt(id, experiment, actor string, a ExperimentAttempt) (Incubator, error) {
+	return s.mutate(id, actor, true, func(v *Incubator) error {
+		if a.InputDigest == "" || len(a.Measurements) == 0 || !map[string]bool{"passed": true, "failed": true, "inconclusive": true, "blocked": true}[a.Outcome] {
+			return ErrInvalid
+		}
+		for i := range v.Experiments {
+			if v.Experiments[i].ID == experiment {
+				if a.ReproductionOfID != "" {
+					ok := false
+					for _, old := range v.Experiments[i].Attempts {
+						ok = ok || old.ID == a.ReproductionOfID
+					}
+					if !ok {
+						return ErrInvalid
+					}
+				}
+				a.ID = newID("att_")
+				a.ActorID = actor
+				a.CreatedAt = s.now().UTC()
+				v.Experiments[i].Attempts = append(v.Experiments[i].Attempts, a)
+				v.event("experiment.attempted", actor, a.ID)
+				return nil
+			}
+		}
+		return ErrNotFound
+	})
 }
 func duplicateKey(in Input) string {
 	return strings.ToLower(strings.Join(strings.Fields(in.Audience+" "+in.Problem), " "))
@@ -217,12 +391,18 @@ func canRead(v Incubator, actor string) bool {
 		if p.Kind == "human" && p.UserID == actor && p.Consent != "declined" {
 			return true
 		}
+		if p.Kind == "agent" && p.AgentIdentity == actor && p.Consent == "accepted" {
+			return true
+		}
 	}
 	return false
 }
 func canShape(v Incubator, actor string) bool {
 	for _, p := range v.Participants {
 		if p.Kind == "human" && p.UserID == actor && p.Consent == "accepted" {
+			return true
+		}
+		if p.Kind == "agent" && p.AgentIdentity == actor && p.Consent == "accepted" {
 			return true
 		}
 	}
@@ -243,6 +423,10 @@ func (s *Store) Invite(id, actor string, p Participant) (Incubator, error) {
 		p.InvitedByID = actor
 		p.InvitedAt = now
 		p.Consent = "pending"
+		if p.Kind == "agent" {
+			p.Consent = "accepted"
+			p.RespondedAt = &now
+		}
 		v.Participants = append(v.Participants, p)
 		v.event("participant.invited", actor, p.ID)
 		return nil
