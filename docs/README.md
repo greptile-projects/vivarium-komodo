@@ -10,6 +10,15 @@ API contracts, contributor opportunities, and governed environments, then cite
 existing product and operational evidence for adoption, support, reliability,
 cost, and success measures.
 
+The complete incubation regression is `project_incubation_workflow_test.go`.
+It connects the pre-repository need, invited human and approved-agent research,
+bounded alternative experiments, governed resource bootstrap, exact first-slice
+authorship and target-user proof, readiness ownership, launch publications,
+adoption feedback, roadmap work, and continuing disposition. Its retained
+correction paths cover a duplicate need, rejected prototype, blocked and rolled
+back bootstrap, failed stale preview, cost breach, unavailable launch owner, and
+rejected launch revision without turning any coordination record into authority.
+
 Feedback remains attributable and can connect either a roadmap revision or an
 ordinary human- or agent-owned work reference. A final disposition explicitly
 keeps the work experimental, graduates it to an organization initiative, merges

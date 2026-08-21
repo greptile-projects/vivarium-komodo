@@ -13,6 +13,9 @@ archived; graduation, merge, and archive require every resource and obligation
 to carry a cited resolution. These coordination records grant no publication,
 Git, agent, package, environment, release, deployment, or operational authority.
 The public API is `/project-life`.
+`project_incubation_workflow_test.go` is the black-box boundary for the complete
+shared-need-to-continuing-stewardship loop across the incubator, boundary,
+delivery, readiness, and public-life resources.
 
 Accepted incubator directions may open activation-gated project boundaries
 beneath `$PROJECT_BOUNDARY_ROOT` (default `apps/api/data/project-boundaries`).
