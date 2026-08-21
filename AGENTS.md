@@ -29,6 +29,21 @@ review, merge, deployment, environment, or operational authority.
 `project_delivery_workflow_test.go` is the black-box boundary for the first
 running product slice.
 
+Initial public-life readiness records live beneath `$PROJECT_READINESS_ROOT`
+(default `apps/api/data/project-readiness`). A record binds an exact accepted
+incubator direction, active boundary revision, proven delivery revision, and
+declared launch revision to evidence for ownership, support and governance,
+licensing and provenance, security and privacy, accessibility, documentation,
+package or API adoption, service objectives, continuity, contributor setup,
+operating budget, prototype debt, and user validation. Required category owners
+accept the current evidence digest or create a 90-day-or-shorter exception with
+an explicit narrower scope and connected follow-up work. Reads derive missing
+maintainers and evidence, unsafe defaults, unsupported promises, failed user
+validation, stale decisions, and expired exceptions as blockers or launch-scope
+narrowing. Records grant no repository, release, deployment, credential,
+environment, or operational authority. `project_readiness_workflow_test.go` is
+the public HTTP regression boundary.
+
 Pre-repository project incubators live beneath `$PROJECT_INCUBATOR_ROOT`
 (default `apps/api/data/project-incubators`). Authenticated collaborators open
 one from exact product feedback, a support gap, a governed proposal, or a new

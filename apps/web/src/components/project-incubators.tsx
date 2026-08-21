@@ -73,6 +73,13 @@ type Delivery = {
   previews: { id: string; revision: string; url: string; state: string; invited_user_ids: string[]; evidence: { id: string; user_id: string; outcome: string; observation: string }[] }[];
   activity: { id: string; kind: string; actor_id: string; detail: string; cost: number }[];
 };
+type Readiness = {
+  id: string; incubator_id: string; launch_revision: string; declared_scope: string;
+  effective_scope: string; ready: boolean; blockers: string[]; missing_categories: string[];
+  authority_granted: boolean;
+  evidence: { category: string; reference: string; summary: string; outcome: string; maintainer_ids?: string[]; safe_defaults: boolean; supported_promises: boolean; user_validated: boolean }[];
+  decisions: { category: string; owner_id: string; decision: string; reason: string; narrowed_scope?: string; expires_at?: string; follow_up_work?: string }[];
+};
 const lines = (v: FormDataEntryValue | null) =>
   String(v || "")
     .split("\n")
@@ -92,14 +99,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export function ProjectIncubators() {
   const [items, setItems] = useState<Incubator[]>([]),
     [deliveries, setDeliveries] = useState<Delivery[]>([]),
+    [readiness, setReadiness] = useState<Readiness[]>([]),
     [selected, setSelected] = useState(""),
     [error, setError] = useState("");
   const load = useCallback(async () => {
     try {
       const x = await request<{ items: Incubator[] }>("/project-incubators");
       const d = await request<{ items: Delivery[] }>("/project-deliveries");
+      const r = await request<{ items: Readiness[] }>("/project-readiness");
       setItems(x.items);
       setDeliveries(d.items);
+      setReadiness(r.items);
       if (!selected && x.items[0]) setSelected(x.items[0].id);
     } catch (e) {
       setError((e as Error).message);
@@ -179,6 +189,7 @@ export function ProjectIncubators() {
   }
   const current = items.find((x) => x.id === selected);
   const currentDeliveries = deliveries.filter((x) => x.incubator_id === selected);
+  const currentReadiness = readiness.filter((x) => x.incubator_id === selected);
   return (
     <section className="package-catalog">
       <div className="package-catalog-hero">
@@ -552,6 +563,22 @@ export function ProjectIncubators() {
                   <p><strong>Reported activity:</strong> {d.activity.map(a => `${a.kind}: ${a.detail} (${a.actor_id}, $${a.cost})`).join(" · ") || "none"}</p>
                   <p><strong>Cost:</strong> ${d.total_cost} / ${d.cost_limit} · <strong>Blockers:</strong> {d.blockers.join(" · ") || "none"}</p>
                   <small>No Git, workspace, preview, review, merge, deployment, credential, or operational authority is implied.</small>
+                </article>)}
+              </section>
+              <section>
+                <h3>Public-life readiness</h3>
+                {currentReadiness.length === 0 && <p>No launch readiness review has been opened for the proven slice.</p>}
+                {currentReadiness.map((r) => <article className="panel" key={r.id}>
+                  <h4>{r.launch_revision} <Badge>{r.ready ? `${r.effective_scope} ready` : "blocked"}</Badge></h4>
+                  <p><strong>Declared launch:</strong> {r.declared_scope} · <strong>Effective launch:</strong> {r.effective_scope}</p>
+                  <p><strong>Blockers:</strong> {r.blockers.join(" · ") || "none"}</p>
+                  <p><strong>Missing evidence:</strong> {r.missing_categories.join(" · ") || "none"}</p>
+                  {r.evidence.map(e => { const d = [...r.decisions].reverse().find(x => x.category === e.category); return <div key={`${e.category}-${e.reference}`}>
+                    <p><Badge>{e.outcome}</Badge> <strong>{e.category.replaceAll("_", " ")}</strong> — <a href={e.reference}>{e.summary}</a></p>
+                    <small>safe defaults {String(e.safe_defaults)} · supported promises {String(e.supported_promises)}{e.category === "ownership" && ` · maintainers ${e.maintainer_ids?.join(", ") || "missing"}`}{e.category === "user_validation" && ` · validated ${String(e.user_validated)}`}</small>
+                    {d && <p><strong>{d.decision}</strong> by {d.owner_id}: {d.reason}{d.narrowed_scope && ` · narrowed to ${d.narrowed_scope}`}{d.expires_at && ` · expires ${new Date(d.expires_at).toLocaleDateString()}`}{d.follow_up_work && ` · follow-up ${d.follow_up_work}`}</p>}
+                  </div>})}
+                  <small>Evidence and decisions grant no release, deployment, repository, credential, environment, or operational authority.</small>
                 </article>)}
               </section>
               <section>

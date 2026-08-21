@@ -21,6 +21,28 @@ or operational authority. State lives beneath `$PROJECT_BOUNDARY_ROOT` (default
 public-HTTP regression boundary from accepted direction through approval,
 activation, public inspection, rollback, and retry.
 
+## Initial public-life readiness
+
+`/project-readiness` binds a proposed launch to the exact accepted incubator
+alternative, active project boundary, and proven first-slice delivery it relies
+on. Its readiness view covers ownership, support and governance, licensing and
+provenance, security and privacy, accessibility, documentation, package or API
+adoption, service objectives, continuity, contributor setup, operating budget,
+prototype debt, and target-user validation. Evidence retains a citation,
+digest, outcome, accountable recorder, safety and support assertions, plus
+maintainers or validation where applicable.
+
+Every category names its required owners. An owner can accept only the current
+passing evidence digest. A failed or incomplete result can proceed only as an
+exception expiring within 90 days that names connected follow-up work and a
+narrower launch scope. Missing maintainers, unsafe defaults, unsupported
+promises, failed user validation, missing evidence, stale decisions, and
+expired exceptions remain derived blockers; a successful build never hides
+them. The `/incubators` surface presents evidence, decisions, blockers, and the
+effective scope together. State defaults beneath `$PROJECT_READINESS_ROOT`
+(`apps/api/data/project-readiness`), grants no launch or operational authority,
+and is covered end-to-end by `project_readiness_workflow_test.go`.
+
 ## Collaborative project incubation
 
 `/project-incubators` is the authenticated public API for a potential project

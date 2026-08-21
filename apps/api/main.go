@@ -79,6 +79,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/projectdeliveries"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/projectfunds"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/projectincubators"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/projectreadiness"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/protectionplans"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
@@ -886,6 +887,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	projectReadinessRoot := os.Getenv("PROJECT_READINESS_ROOT")
+	if projectReadinessRoot == "" {
+		projectReadinessRoot = "data/project-readiness"
+	}
+	projectReadinessStore, err := projectreadiness.New(projectReadinessRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	productOpportunityRoot := os.Getenv("PRODUCT_OPPORTUNITY_ROOT")
 	if productOpportunityRoot == "" {
 		productOpportunityRoot = "data/product-opportunities"
@@ -1074,6 +1083,7 @@ func main() {
 	registerProjectIncubatorsHTTP(mux, projectIncubatorStore, credentials, incubatorSources{feedback: productFeedbackStore, support: supportQuestionStore, governance: governanceStore, repos: repositoryCatalog, agents: agentEvaluationStore, users: userStore})
 	registerProjectBoundariesHTTP(mux, projectBoundaryStore, projectIncubatorStore, credentials)
 	registerProjectDeliveriesHTTP(mux, projectDeliveryStore, projectIncubatorStore, projectBoundaryStore, credentials)
+	registerProjectReadinessHTTP(mux, projectReadinessStore, projectIncubatorStore, projectBoundaryStore, projectDeliveryStore, credentials)
 	registerProductOpportunitiesHTTP(mux, productOpportunityStore, repositoryCatalog, credentials, opportunitySources{feedback: productFeedbackStore, issues: issueStore, previews: previewStore, experiments: productExperimentStore})
 	registerProductRoadmapsHTTP(mux, productRoadmapStore, productOpportunityStore, repositoryCatalog, credentials)
 	registerRoadmapValidationsHTTP(mux, roadmapValidationStore, productRoadmapStore, productFeedbackStore, repositoryCatalog, credentials)
