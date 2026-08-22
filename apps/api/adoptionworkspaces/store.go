@@ -90,6 +90,7 @@ type Candidate struct {
 	AddedByID          string            `json:"added_by_id"`
 	CreatedAt          time.Time         `json:"created_at"`
 	Trials             []Trial           `json:"trials"`
+	IntegrationPlans   []IntegrationPlan `json:"integration_plans"`
 }
 type TrialSource struct {
 	Kind        string `json:"kind"`
@@ -177,6 +178,69 @@ type Trial struct {
 	Blockers  []string        `json:"blockers"`
 	AddedByID string          `json:"added_by_id"`
 	CreatedAt time.Time       `json:"created_at"`
+}
+type PlanOwnership struct {
+	Decision string `json:"decision"`
+	OwnerID  string `json:"owner_id"`
+	Side     string `json:"side"`
+}
+type PlanBoundary struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	OwnerID     string `json:"owner_id"`
+}
+type PlanException struct {
+	Description string `json:"description"`
+	OwnerID     string `json:"owner_id"`
+	Resolution  string `json:"resolution"`
+}
+type PlanGap struct {
+	Description string `json:"description"`
+	OwnerID     string `json:"owner_id"`
+}
+type CompatibilityPromise struct {
+	Promise string `json:"promise"`
+	OwnerID string `json:"owner_id"`
+}
+type IntegrationWork struct {
+	Key                string   `json:"key"`
+	Scope              string   `json:"scope"`
+	Target             string   `json:"target"`
+	OwnerKind          string   `json:"owner_kind"`
+	OwnerID            string   `json:"owner_id"`
+	DependsOn          []string `json:"depends_on"`
+	AcceptanceCriteria []string `json:"acceptance_criteria"`
+}
+type IntegrationPlanInput struct {
+	TrialID                string                 `json:"trial_id"`
+	SelectedVersion        string                 `json:"selected_version"`
+	SelectedRevision       string                 `json:"selected_revision"`
+	Architecture           string                 `json:"architecture"`
+	ConfigurationOwnership []PlanOwnership        `json:"configuration_ownership"`
+	UpdatePolicy           string                 `json:"update_policy"`
+	SupportPolicy          string                 `json:"support_policy"`
+	ServiceBoundaries      []PlanBoundary         `json:"service_boundaries"`
+	DataBoundaries         []PlanBoundary         `json:"data_boundaries"`
+	RequiredExceptions     []PlanException        `json:"required_exceptions"`
+	ExitStrategy           string                 `json:"exit_strategy"`
+	UnresolvedGaps         []PlanGap              `json:"unresolved_gaps"`
+	RecurringCost          string                 `json:"recurring_cost"`
+	CompatibilityPromises  []CompatibilityPromise `json:"compatibility_promises"`
+	Work                   []IntegrationWork      `json:"work"`
+}
+type IntegrationPreview struct {
+	EffectiveAccess   []string `json:"effective_access"`
+	RecurringCost     string   `json:"recurring_cost"`
+	AccountableOwners []string `json:"accountable_owners"`
+	Blockers          []string `json:"blockers"`
+}
+type IntegrationPlan struct {
+	ID string `json:"id"`
+	IntegrationPlanInput
+	Preview          IntegrationPreview `json:"preview"`
+	RecordedByID     string             `json:"recorded_by_id"`
+	CreatedAt        time.Time          `json:"created_at"`
+	AuthorityGranted bool               `json:"authority_granted"`
 }
 type Event struct {
 	Sequence  int64     `json:"sequence"`
@@ -366,9 +430,154 @@ func (s *Store) AddCandidate(wid, actor string, c Candidate) (Workspace, error) 
 		c.CreatedAt = s.now().UTC()
 		c.Evidence = []Evidence{}
 		c.Trials = []Trial{}
+		c.IntegrationPlans = []IntegrationPlan{}
 		v.Candidates = append(v.Candidates, c)
 		v.event("candidate.added", actor, c.ID)
 		return nil
+	})
+}
+
+func canPlan(v Workspace, actor string) bool {
+	if isOwner(v, actor) {
+		return true
+	}
+	for _, p := range v.Participants {
+		if p.SubjectID == actor && p.Kind == "human" && p.Role == "provider_maintainer" && p.Consent == "accepted" {
+			return true
+		}
+	}
+	return false
+}
+
+func validPlan(in IntegrationPlanInput) bool {
+	if in.TrialID == "" || in.SelectedVersion == "" || in.SelectedRevision == "" || in.Architecture == "" || in.UpdatePolicy == "" || in.SupportPolicy == "" || in.ExitStrategy == "" || in.RecurringCost == "" || len(in.ConfigurationOwnership) == 0 || len(in.ServiceBoundaries) == 0 || len(in.DataBoundaries) == 0 || len(in.CompatibilityPromises) == 0 || len(in.Work) == 0 {
+		return false
+	}
+	if !safeStrings([]string{in.Architecture, in.UpdatePolicy, in.SupportPolicy, in.ExitStrategy, in.RecurringCost}) {
+		return false
+	}
+	owners := map[string]bool{}
+	for _, x := range in.ConfigurationOwnership {
+		if x.Decision == "" || x.OwnerID == "" || !map[string]bool{"consumer": true, "provider": true, "shared": true}[x.Side] {
+			return false
+		}
+		owners[x.OwnerID] = true
+	}
+	for _, xs := range [][]PlanBoundary{in.ServiceBoundaries, in.DataBoundaries} {
+		for _, x := range xs {
+			if x.Name == "" || x.Description == "" || x.OwnerID == "" {
+				return false
+			}
+			owners[x.OwnerID] = true
+		}
+	}
+	for _, x := range in.RequiredExceptions {
+		if x.Description == "" || x.OwnerID == "" || x.Resolution == "" {
+			return false
+		}
+		owners[x.OwnerID] = true
+	}
+	for _, x := range in.UnresolvedGaps {
+		if x.Description == "" || x.OwnerID == "" {
+			return false
+		}
+		owners[x.OwnerID] = true
+	}
+	for _, x := range in.CompatibilityPromises {
+		if x.Promise == "" || x.OwnerID == "" {
+			return false
+		}
+		owners[x.OwnerID] = true
+	}
+	seen := map[string]bool{}
+	for _, x := range in.Work {
+		if x.Key == "" || seen[x.Key] || x.Target == "" || x.OwnerID == "" || !map[string]bool{"human": true, "agent": true}[x.OwnerKind] || !map[string]bool{"consumer_repository": true, "environment": true, "documentation": true, "upstream_fork": true}[x.Scope] || len(x.AcceptanceCriteria) == 0 {
+			return false
+		}
+		for _, dep := range x.DependsOn {
+			if !seen[dep] {
+				return false
+			}
+		}
+		seen[x.Key], owners[x.OwnerID] = true, true
+	}
+	return true
+}
+
+func (s *Store) AddIntegrationPlan(wid, cid, actor string, in IntegrationPlanInput) (Workspace, error) {
+	return s.mutate(wid, actor, false, func(v *Workspace) error {
+		if !canPlan(*v, actor) {
+			return ErrForbidden
+		}
+		if !validPlan(in) {
+			return ErrInvalid
+		}
+		for ci := range v.Candidates {
+			c := &v.Candidates[ci]
+			if c.ID != cid {
+				continue
+			}
+			if in.SelectedVersion != c.Version || in.SelectedRevision != c.Revision {
+				return ErrInvalid
+			}
+			passed := false
+			for _, t := range c.Trials {
+				passed = passed || (t.ID == in.TrialID && t.Status == "passed")
+			}
+			if !passed {
+				return ErrInvalid
+			}
+			access := []string{}
+			owners := map[string]bool{}
+			blockers := []string{}
+			for _, x := range in.Work {
+				control := "consumer-controlled"
+				if x.Scope == "upstream_fork" {
+					permitted := false
+					for _, p := range v.Participants {
+						permitted = permitted || (p.SubjectID == x.OwnerID && p.Role == "provider_maintainer" && p.Kind == "human" && p.Consent == "accepted")
+					}
+					if !permitted {
+						return ErrInvalid
+					}
+					control = "provider-controlled"
+				}
+				access = append(access, x.Key+": "+control+"; "+x.OwnerKind+" work grants no repository or operational authority")
+				owners[x.OwnerID] = true
+			}
+			for _, x := range in.ConfigurationOwnership {
+				owners[x.OwnerID] = true
+			}
+			for _, xs := range [][]PlanBoundary{in.ServiceBoundaries, in.DataBoundaries} {
+				for _, x := range xs {
+					owners[x.OwnerID] = true
+				}
+			}
+			for _, x := range in.CompatibilityPromises {
+				owners[x.OwnerID] = true
+			}
+			for _, x := range in.UnresolvedGaps {
+				owners[x.OwnerID] = true
+				blockers = append(blockers, "unresolved fit gap: "+x.Description)
+			}
+			for _, x := range in.RequiredExceptions {
+				owners[x.OwnerID] = true
+				if x.Resolution != "approved" {
+					blockers = append(blockers, "required exception: "+x.Description)
+				}
+			}
+			ownerList := []string{}
+			for x := range owners {
+				ownerList = append(ownerList, x)
+			}
+			sort.Strings(ownerList)
+			sort.Strings(blockers)
+			p := IntegrationPlan{ID: id("ipl_"), IntegrationPlanInput: in, Preview: IntegrationPreview{EffectiveAccess: access, RecurringCost: in.RecurringCost, AccountableOwners: ownerList, Blockers: blockers}, RecordedByID: actor, CreatedAt: s.now().UTC(), AuthorityGranted: false}
+			c.IntegrationPlans = append(c.IntegrationPlans, p)
+			v.event("integration_plan.recorded", actor, p.ID)
+			return nil
+		}
+		return ErrNotFound
 	})
 }
 

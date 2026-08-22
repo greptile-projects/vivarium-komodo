@@ -25,6 +25,15 @@ Public projection retains failed and non-reproducible attempts while reducing
 provider- or consumer-scoped evidence to an inaccessible blocker; credential-
 shaped configuration and commands are rejected. Agents may run bounded trials
 but cannot submit user feedback or turn their recommendation into fit proof.
+Adopter owners and consented provider maintainers may turn a current passing
+trial into an immutable candidate-version integration plan. Plans retain the
+architecture, configuration decision ownership, update and support policy,
+service and data boundaries, required exceptions, exit strategy, unresolved
+fit gaps, recurring cost, compatibility promises, and dependency-ordered human
+or agent work across consumer repositories, environments, documentation, and
+explicitly permitted provider forks. Previews derive effective access,
+accountable owners, cost, and open decisions; plan work grants neither side
+repository, secret, deployment, roadmap, or operational authority.
 
 Responsible public-life records live beneath `$PROJECT_LIFE_ROOT` (default
 `apps/api/data/project-life`). A project enters public life only from the exact
