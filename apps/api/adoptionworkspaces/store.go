@@ -21,6 +21,7 @@ var ErrForbidden = errors.New("adoption workspace action forbidden")
 
 var originKinds = map[string]bool{"roadmap_outcome": true, "support_gap": true, "incubator": true, "decision": true, "package": true, "api": true, "federated_repository": true}
 var dimensions = map[string]bool{"capability": true, "provenance": true, "support": true, "security": true, "data_use": true, "compatibility": true, "gap": true}
+var trialAudiences = map[string]bool{"public": true, "shared": true, "provider": true, "consumer": true}
 
 type Origin struct {
 	Kind         string `json:"kind"`
@@ -88,6 +89,94 @@ type Candidate struct {
 	Blockers           []string          `json:"blockers"`
 	AddedByID          string            `json:"added_by_id"`
 	CreatedAt          time.Time         `json:"created_at"`
+	Trials             []Trial           `json:"trials"`
+}
+type TrialSource struct {
+	Kind        string `json:"kind"`
+	Reference   string `json:"reference"`
+	Revision    string `json:"revision"`
+	Attestation string `json:"attestation,omitempty"`
+}
+type TrialData struct {
+	Kind        string `json:"kind"`
+	Description string `json:"description"`
+	Reference   string `json:"reference,omitempty"`
+}
+type TrialInput struct {
+	Name             string            `json:"name"`
+	Source           TrialSource       `json:"source"`
+	Packages         []string          `json:"packages"`
+	APIs             []string          `json:"apis"`
+	Data             []TrialData       `json:"data"`
+	JourneyIDs       []string          `json:"journey_ids"`
+	Policies         []string          `json:"policies"`
+	Setup            []string          `json:"setup"`
+	Configuration    map[string]string `json:"configuration"`
+	Commands         []string          `json:"commands"`
+	Budget           string            `json:"budget"`
+	EvidenceAudience string            `json:"evidence_audience"`
+}
+type TrialCheck struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Summary string `json:"summary"`
+}
+type TrialPreview struct {
+	Name      string `json:"name"`
+	Reference string `json:"reference"`
+	Status    string `json:"status"`
+}
+type TrialMeasurement struct {
+	Name  string  `json:"name"`
+	Value float64 `json:"value"`
+	Unit  string  `json:"unit"`
+}
+type TrialFinding struct {
+	Kind              string `json:"kind"`
+	Summary           string `json:"summary"`
+	EvidenceReference string `json:"evidence_reference,omitempty"`
+}
+type TrialAttemptInput struct {
+	Environment        string             `json:"environment"`
+	SourceRevision     string             `json:"source_revision"`
+	Configuration      map[string]string  `json:"configuration"`
+	Commands           []string           `json:"commands"`
+	IntegrationChanges []string           `json:"integration_changes"`
+	Checks             []TrialCheck       `json:"checks"`
+	Previews           []TrialPreview     `json:"previews"`
+	Measurements       []TrialMeasurement `json:"measurements"`
+	Cost               float64            `json:"cost"`
+	Currency           string             `json:"currency"`
+	Findings           []TrialFinding     `json:"findings"`
+	Artifacts          []string           `json:"artifacts"`
+	ReproductionOf     string             `json:"reproduction_of,omitempty"`
+}
+type TrialAttempt struct {
+	ID string `json:"id"`
+	TrialAttemptInput
+	Status       string    `json:"status"`
+	Reproducible bool      `json:"reproducible"`
+	AddedByID    string    `json:"added_by_id"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+type TrialFeedback struct {
+	ID        string    `json:"id"`
+	AttemptID string    `json:"attempt_id"`
+	JourneyID string    `json:"journey_id"`
+	Verdict   string    `json:"verdict"`
+	Comment   string    `json:"comment"`
+	AddedByID string    `json:"added_by_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type Trial struct {
+	ID string `json:"id"`
+	TrialInput
+	Attempts  []TrialAttempt  `json:"attempts"`
+	Feedback  []TrialFeedback `json:"feedback"`
+	Status    string          `json:"status"`
+	Blockers  []string        `json:"blockers"`
+	AddedByID string          `json:"added_by_id"`
+	CreatedAt time.Time       `json:"created_at"`
 }
 type Event struct {
 	Sequence  int64     `json:"sequence"`
@@ -186,6 +275,22 @@ func canContribute(v Workspace, actor string) bool {
 	}
 	return false
 }
+func canRunTrial(v Workspace, actor string) bool {
+	for _, p := range v.Participants {
+		if p.SubjectID == actor && p.Consent == "accepted" {
+			return true
+		}
+	}
+	return false
+}
+func isAgent(v Workspace, actor string) bool {
+	for _, p := range v.Participants {
+		if p.SubjectID == actor && p.Kind == "agent" {
+			return true
+		}
+	}
+	return false
+}
 func isOwner(v Workspace, actor string) bool {
 	if v.CreatedByID == actor {
 		return true
@@ -260,9 +365,160 @@ func (s *Store) AddCandidate(wid, actor string, c Candidate) (Workspace, error) 
 		c.AddedByID = actor
 		c.CreatedAt = s.now().UTC()
 		c.Evidence = []Evidence{}
+		c.Trials = []Trial{}
 		v.Candidates = append(v.Candidates, c)
 		v.event("candidate.added", actor, c.ID)
 		return nil
+	})
+}
+
+func hasJourney(v Workspace, journey string) bool {
+	for _, x := range v.RequiredJourneys {
+		if x == journey {
+			return true
+		}
+	}
+	return false
+}
+func safeMap(v map[string]string) bool {
+	for k, x := range v {
+		joined := strings.ToLower(k + " " + x)
+		if strings.TrimSpace(k) == "" || strings.TrimSpace(x) == "" || strings.Contains(joined, "password") || strings.Contains(joined, "secret") || strings.Contains(joined, "token") || strings.Contains(joined, "credential") {
+			return false
+		}
+	}
+	return true
+}
+func safeStrings(v []string) bool {
+	for _, x := range v {
+		lower := strings.ToLower(x)
+		if strings.TrimSpace(x) == "" || strings.Contains(lower, "password=") || strings.Contains(lower, "secret=") || strings.Contains(lower, "token=") || strings.Contains(lower, "credential=") {
+			return false
+		}
+	}
+	return true
+}
+func (s *Store) AddTrial(wid, cid, actor string, in TrialInput) (Workspace, error) {
+	return s.mutate(wid, actor, false, func(v *Workspace) error {
+		if !canRunTrial(*v, actor) || in.Name == "" || !map[string]bool{"release": true, "revision": true}[in.Source.Kind] || in.Source.Reference == "" || in.Source.Revision == "" || (in.Source.Kind == "release" && in.Source.Attestation == "") || len(in.JourneyIDs) == 0 || len(in.Policies) == 0 || len(in.Setup) == 0 || len(in.Commands) == 0 || len(in.Data) == 0 || in.Budget == "" || !safeMap(in.Configuration) || !safeStrings(in.Commands) || !trialAudiences[in.EvidenceAudience] || (!listOK(in.Packages, false) || !listOK(in.APIs, false)) || len(in.Packages)+len(in.APIs) == 0 {
+			return ErrInvalid
+		}
+		for _, j := range in.JourneyIDs {
+			if !hasJourney(*v, j) {
+				return ErrInvalid
+			}
+		}
+		for _, d := range in.Data {
+			if !map[string]bool{"synthetic": true, "permitted": true}[d.Kind] || d.Description == "" || (d.Kind == "permitted" && d.Reference == "") {
+				return ErrInvalid
+			}
+		}
+		for i := range v.Candidates {
+			if v.Candidates[i].ID == cid {
+				if in.Source.Revision != v.Candidates[i].Revision {
+					return ErrInvalid
+				}
+				now := s.now().UTC()
+				t := Trial{ID: id("trl_"), TrialInput: in, Attempts: []TrialAttempt{}, Feedback: []TrialFeedback{}, Status: "not_run", Blockers: []string{"no attempt evidence"}, AddedByID: actor, CreatedAt: now}
+				v.Candidates[i].Trials = append(v.Candidates[i].Trials, t)
+				v.event("trial.assembled", actor, t.ID)
+				return nil
+			}
+		}
+		return ErrNotFound
+	})
+}
+func deriveAttempt(in TrialAttemptInput) (string, bool) {
+	if len(in.Checks) == 0 {
+		return "non_reproducible", false
+	}
+	for _, c := range in.Checks {
+		if c.Name == "" || !map[string]bool{"passed": true, "failed": true, "blocked": true}[c.Status] {
+			return "non_reproducible", false
+		}
+		if c.Status != "passed" {
+			return "failed", false
+		}
+	}
+	if len(in.Commands) == 0 || len(in.Artifacts) == 0 {
+		return "non_reproducible", false
+	}
+	return "passed", true
+}
+func (s *Store) AddTrialAttempt(wid, cid, tid, actor string, in TrialAttemptInput) (Workspace, error) {
+	return s.mutate(wid, actor, false, func(v *Workspace) error {
+		if !canRunTrial(*v, actor) || in.Environment == "" || in.SourceRevision == "" || !safeMap(in.Configuration) || !safeStrings(in.Commands) || in.Cost < 0 || (in.Cost > 0 && in.Currency == "") {
+			return ErrInvalid
+		}
+		for ci := range v.Candidates {
+			c := &v.Candidates[ci]
+			if c.ID != cid {
+				continue
+			}
+			for ti := range c.Trials {
+				t := &c.Trials[ti]
+				if t.ID != tid {
+					continue
+				}
+				if in.SourceRevision != t.Source.Revision {
+					return ErrInvalid
+				}
+				if in.ReproductionOf != "" {
+					found := false
+					for _, prior := range t.Attempts {
+						found = found || prior.ID == in.ReproductionOf
+					}
+					if !found {
+						return ErrInvalid
+					}
+				}
+				status, repro := deriveAttempt(in)
+				now := s.now().UTC()
+				a := TrialAttempt{ID: id("att_"), TrialAttemptInput: in, Status: status, Reproducible: repro, AddedByID: actor, CreatedAt: now}
+				t.Attempts = append(t.Attempts, a)
+				t.Status = status
+				t.Blockers = []string{}
+				if !repro {
+					t.Blockers = append(t.Blockers, "latest attempt is "+status)
+				}
+				v.event("trial.attempted", actor, a.ID)
+				return nil
+			}
+		}
+		return ErrNotFound
+	})
+}
+func (s *Store) AddTrialFeedback(wid, cid, tid, actor string, in TrialFeedback) (Workspace, error) {
+	return s.mutate(wid, actor, false, func(v *Workspace) error {
+		if !canRunTrial(*v, actor) || isAgent(*v, actor) || in.AttemptID == "" || !hasJourney(*v, in.JourneyID) || !map[string]bool{"meets": true, "does_not_meet": true, "uncertain": true}[in.Verdict] || in.Comment == "" {
+			return ErrInvalid
+		}
+		for ci := range v.Candidates {
+			if v.Candidates[ci].ID != cid {
+				continue
+			}
+			for ti := range v.Candidates[ci].Trials {
+				t := &v.Candidates[ci].Trials[ti]
+				if t.ID != tid {
+					continue
+				}
+				found := false
+				for _, a := range t.Attempts {
+					found = found || a.ID == in.AttemptID
+				}
+				if !found {
+					return ErrInvalid
+				}
+				now := s.now().UTC()
+				in.ID = id("fbk_")
+				in.AddedByID = actor
+				in.CreatedAt = now
+				t.Feedback = append(t.Feedback, in)
+				v.event("trial.feedback_added", actor, in.ID)
+				return nil
+			}
+		}
+		return ErrNotFound
 	})
 }
 func (s *Store) AddEvidence(wid, cid, actor string, e Evidence) (Workspace, error) {
@@ -376,6 +632,20 @@ func (s *Store) project(v Workspace, actor string) Workspace {
 		for d, status := range c.Coverage {
 			if status == "missing" {
 				c.Blockers = append(c.Blockers, d+": no evidence")
+			}
+		}
+		for ti := range c.Trials {
+			t := &c.Trials[ti]
+			accessible := t.EvidenceAudience == "public" || (t.EvidenceAudience == "shared" && participant) || (t.EvidenceAudience == "provider" && provider) || (t.EvidenceAudience == "consumer" && ((participant && !provider) || isOwner(v, actor)))
+			if !accessible {
+				t.Setup = nil
+				t.Configuration = nil
+				t.Commands = nil
+				t.Data = nil
+				t.Attempts = nil
+				t.Feedback = nil
+				t.Status = "inaccessible"
+				t.Blockers = []string{"trial evidence is not accessible to this viewer"}
 			}
 		}
 		sort.Strings(c.Blockers)

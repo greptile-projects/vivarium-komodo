@@ -118,4 +118,46 @@ func registerAdoptionWorkspacesHTTP(m *http.ServeMux, s *adoptionworkspaces.Stor
 			writeJSON(w, 201, v)
 		}
 	})
+	m.HandleFunc("POST /adoption-workspaces/{workspace}/candidates/{candidate}/trials", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authenticateRequest(w, r, c, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in adoptionworkspaces.TrialInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.AddTrial(r.PathValue("workspace"), r.PathValue("candidate"), a.UserID, in)
+		if !fail(w, e) {
+			writeJSON(w, 201, v)
+		}
+	})
+	m.HandleFunc("POST /adoption-workspaces/{workspace}/candidates/{candidate}/trials/{trial}/attempts", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authenticateRequest(w, r, c, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in adoptionworkspaces.TrialAttemptInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.AddTrialAttempt(r.PathValue("workspace"), r.PathValue("candidate"), r.PathValue("trial"), a.UserID, in)
+		if !fail(w, e) {
+			writeJSON(w, 201, v)
+		}
+	})
+	m.HandleFunc("POST /adoption-workspaces/{workspace}/candidates/{candidate}/trials/{trial}/feedback", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authenticateRequest(w, r, c, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in adoptionworkspaces.TrialFeedback
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.AddTrialFeedback(r.PathValue("workspace"), r.PathValue("candidate"), r.PathValue("trial"), a.UserID, in)
+		if !fail(w, e) {
+			writeJSON(w, 201, v)
+		}
+	})
 }
