@@ -15,6 +15,16 @@ procurement, selection, trial, integration, deployment, or operational authority
 The public API is `/adoption-workspaces`, the web surface is `/adoptions`, and
 `adoption_workspace_workflow_test.go` is the black-box boundary for this initial
 shared fit evaluation.
+Accepted workspace participants may assemble candidate-revision-bound trials
+from attested releases or exact revisions, scoped packages and APIs, synthetic
+or explicitly permitted data, declared journeys, policies, sanitized setup,
+configuration, and commands, and a budget. Append-only attempts retain
+integration changes, checks, previews, measurements, cost, findings,
+content-addressed artifacts, reproducibility, and attributable user feedback.
+Public projection retains failed and non-reproducible attempts while reducing
+provider- or consumer-scoped evidence to an inaccessible blocker; credential-
+shaped configuration and commands are rejected. Agents may run bounded trials
+but cannot submit user feedback or turn their recommendation into fit proof.
 
 Responsible public-life records live beneath `$PROJECT_LIFE_ROOT` (default
 `apps/api/data/project-life`). A project enters public life only from the exact

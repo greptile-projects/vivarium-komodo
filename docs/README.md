@@ -22,6 +22,23 @@ the agent otherwise holds repository credentials. These records live beneath
 grant no procurement, package, repository, API, agent, credential, trial,
 selection, integration, deployment, or operational authority.
 
+Each exact candidate may contain multiple bounded trials assembled by accepted
+human or agent participants. A trial binds an attested release or exact revision
+to scoped packages and APIs, synthetic or explicitly permitted data, declared
+workspace journeys and adopter policies, sanitized setup/configuration/commands,
+and a budget. Attempts are append-only and retain the environment, exact source,
+integration changes, checks, previews, measurements, cost, findings,
+content-addressed artifacts, authorship, and whether the result was reproducible.
+Failed, blocked, and artifact-incomplete attempts remain visible; target-user
+feedback is attributable and cannot be supplied by an agent.
+
+Trial evidence has an independent public, participant, provider, or consumer
+audience. Public workspace reads retain inaccessible trial records as explicit
+blockers without setup, data, commands, attempts, or feedback. Configuration or
+commands shaped like embedded passwords, secrets, tokens, or credentials are
+rejected. This makes versions comparable from reproducible evidence without
+copying a private machine, production data, or private provider/consumer proof.
+
 ## Responsible project life
 
 `/project-life` carries a current, ready incubated launch into accountable use.

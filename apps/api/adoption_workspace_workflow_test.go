@@ -23,6 +23,7 @@ func TestAdoptionWorkspaceWorkflow(t *testing.T) {
 	maintainer := issueAccess(t, credentials, "provider", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	agent := issueAccess(t, credentials, "agent:fit-reader", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 	observer := issueAccess(t, credentials, "public-observer", auth.API, auth.RepositoryRead)
+	user := issueAccess(t, credentials, "target-user", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
 
 	var workspace adoptionworkspaces.Workspace
 	workflowJSON(t, server.URL, http.MethodPost, "/adoption-workspaces", owner, `{"title":"Adopt a shared compiler","outcome":"compile safely in one command","origin":{"kind":"incubator","resource_id":"inc_42","revision":"7"},"required_journeys":["compile a sample project"],"environments":[{"name":"developer laptops","platform":"linux","version":"ubuntu-24.04"}],"constraints":["no source retention"],"budget":"USD 100/month","owner_ids":["adopter"],"evaluation_criteria":[{"id":"isolation","description":"untrusted source remains isolated","required":true}],"visibility":"public"}`, http.StatusCreated, &workspace)
@@ -30,6 +31,9 @@ func TestAdoptionWorkspaceWorkflow(t *testing.T) {
 	providerParticipant := workspace.Participants[len(workspace.Participants)-1].ID
 	workflowJSON(t, server.URL, http.MethodPost, "/adoption-workspaces/"+workspace.ID+"/participants/"+providerParticipant+"/consent", maintainer, `{"decision":"accepted"}`, http.StatusCreated, &workspace)
 	workflowJSON(t, server.URL, http.MethodPost, "/adoption-workspaces/"+workspace.ID+"/participants", owner, `{"kind":"agent","subject_id":"agent:fit-reader","role":"read_only_agent","evidence_access":"shared"}`, http.StatusCreated, &workspace)
+	workflowJSON(t, server.URL, http.MethodPost, "/adoption-workspaces/"+workspace.ID+"/participants", owner, `{"kind":"human","subject_id":"target-user","role":"affected_user","evidence_access":"shared"}`, http.StatusCreated, &workspace)
+	userParticipant := workspace.Participants[len(workspace.Participants)-1].ID
+	workflowJSON(t, server.URL, http.MethodPost, "/adoption-workspaces/"+workspace.ID+"/participants/"+userParticipant+"/consent", user, `{"decision":"accepted"}`, http.StatusCreated, &workspace)
 	workflowJSON(t, server.URL, http.MethodPost, "/adoption-workspaces/"+workspace.ID+"/candidates", maintainer, `{"project":"Compiler Kit","provider_repository":"federated:provider/compiler","version":"v2.1.0","revision":"commit-good"}`, http.StatusCreated, &workspace)
 	candidate := workspace.Candidates[0].ID
 	workflowJSON(t, server.URL, http.MethodPost, "/adoption-workspaces/"+workspace.ID+"/candidates/"+candidate+"/evidence", maintainer, `{"dimension":"capability","claim":"compiles the required fixture","reference":"attestation:compile-7","revision":"commit-good","visibility":"public","availability":"available"}`, http.StatusCreated, &workspace)
@@ -37,9 +41,25 @@ func TestAdoptionWorkspaceWorkflow(t *testing.T) {
 	workflowJSON(t, server.URL, http.MethodPost, "/adoption-workspaces/"+workspace.ID+"/candidates/"+candidate+"/evidence", maintainer, `{"dimension":"support","claim":"private support agreement exists","revision":"commit-good","visibility":"provider","availability":"unavailable"}`, http.StatusCreated, &workspace)
 	workflowJSON(t, server.URL, http.MethodPost, "/adoption-workspaces/"+workspace.ID+"/candidates/"+candidate+"/evidence", maintainer, `{"dimension":"provenance","claim":"release provenance is attested","reference":"attestation:private-provenance","revision":"commit-good","visibility":"provider","availability":"available"}`, http.StatusCreated, &workspace)
 	workflowJSON(t, server.URL, http.MethodPost, "/adoption-workspaces/"+workspace.ID+"/candidates/"+candidate+"/evidence", agent, `{"dimension":"gap","claim":"agent recommendation","reference":"agent:private-demo","revision":"commit-good","visibility":"shared","availability":"available"}`, http.StatusForbidden, nil)
+	trialPath := "/adoption-workspaces/" + workspace.ID + "/candidates/" + candidate + "/trials"
+	workflowJSON(t, server.URL, http.MethodPost, trialPath, agent, `{"name":"Linux compiler journey","source":{"kind":"release","reference":"package:compiler-kit@2.1.0","revision":"commit-good","attestation":"release-attestation:7"},"packages":["compiler-kit@2.1.0"],"apis":["compile/v2"],"data":[{"kind":"synthetic","description":"generated sample project"}],"journey_ids":["compile a sample project"],"policies":["no source retention","networkless execution"],"setup":["create an empty temporary directory"],"configuration":{"mode":"isolated"},"commands":["compiler-kit synthetic-project"],"budget":"USD 5","evidence_audience":"public"}`, http.StatusCreated, &workspace)
+	trial := workspace.Candidates[0].Trials[0].ID
+	workflowJSON(t, server.URL, http.MethodPost, trialPath, owner, `{"name":"credential leak","source":{"kind":"revision","reference":"git:compiler","revision":"commit-good"},"packages":["compiler-kit"],"journey_ids":["compile a sample project"],"policies":["isolated"],"commands":["run --token=private"],"budget":"USD 5","evidence_audience":"public"}`, http.StatusUnprocessableEntity, nil)
+	attemptPath := trialPath + "/" + trial + "/attempts"
+	workflowJSON(t, server.URL, http.MethodPost, attemptPath, agent, `{"environment":"ubuntu-24.04 ephemeral","source_revision":"commit-good","configuration":{"mode":"isolated"},"commands":["compiler-kit synthetic-project"],"integration_changes":["added synthetic compiler fixture"],"checks":[{"name":"compile journey","status":"failed","summary":"generated module import failed"}],"previews":[{"name":"compiler output","reference":"artifact:failed-output","status":"available"}],"measurements":[{"name":"duration","value":12.4,"unit":"seconds"}],"cost":0.12,"currency":"USD","findings":[{"kind":"compatibility","summary":"default module mode is incompatible","evidence_reference":"artifact:failed-output"}],"artifacts":["sha256:failed"]}`, http.StatusCreated, &workspace)
+	failedAttempt := workspace.Candidates[0].Trials[0].Attempts[0].ID
+	workflowJSON(t, server.URL, http.MethodPost, attemptPath, agent, `{"environment":"ubuntu-24.04 ephemeral","source_revision":"commit-good","configuration":{"mode":"isolated","module":"compatible"},"commands":["compiler-kit synthetic-project --module compatible"],"integration_changes":["configured compatible module mode"],"checks":[{"name":"compile journey","status":"passed","summary":"synthetic project compiled"}],"previews":[{"name":"compiler output","reference":"artifact:passing-output","status":"available"}],"measurements":[{"name":"duration","value":3.1,"unit":"seconds"}],"cost":0.14,"currency":"USD","findings":[],"artifacts":["sha256:passing"],"reproduction_of":"`+failedAttempt+`"}`, http.StatusCreated, &workspace)
+	passingAttempt := workspace.Candidates[0].Trials[0].Attempts[1].ID
+	workflowJSON(t, server.URL, http.MethodPost, trialPath+"/"+trial+"/feedback", agent, `{"attempt_id":"`+passingAttempt+`","journey_id":"compile a sample project","verdict":"meets","comment":"agent recommendation"}`, http.StatusUnprocessableEntity, nil)
+	workflowJSON(t, server.URL, http.MethodPost, trialPath+"/"+trial+"/feedback", user, `{"attempt_id":"`+passingAttempt+`","journey_id":"compile a sample project","verdict":"meets","comment":"reproduced without a private machine"}`, http.StatusCreated, &workspace)
+	workflowJSON(t, server.URL, http.MethodPost, trialPath, maintainer, `{"name":"Provider-only benchmark","source":{"kind":"revision","reference":"git:compiler","revision":"commit-good"},"packages":["compiler-kit"],"data":[{"kind":"permitted","description":"provider benchmark corpus","reference":"provider-permission:4"}],"journey_ids":["compile a sample project"],"policies":["provider lab only"],"setup":["create isolated benchmark workspace"],"commands":["compiler-kit benchmark"],"budget":"USD 5","evidence_audience":"provider"}`, http.StatusCreated, &workspace)
+	workflowJSON(t, server.URL, http.MethodPost, "/adoption-workspaces/"+workspace.ID+"/candidates", maintainer, `{"project":"Compiler Kit","provider_repository":"federated:provider/compiler","version":"v2.2.0-rc1","revision":"commit-next"}`, http.StatusCreated, &workspace)
 	workflowJSON(t, server.URL, http.MethodGet, "/adoption-workspaces/"+workspace.ID, agent, "", http.StatusOK, &workspace)
 	if workspace.AuthorityGranted || workspace.Candidates[0].Coverage["capability"] != "supported" || workspace.Candidates[0].Coverage["security"] != "stale" || workspace.Candidates[0].Evidence[2].ProofOfFit || workspace.Candidates[0].Evidence[2].Reference != "" {
 		t.Fatalf("fit projection presented a gap as proof or granted authority: %#v", workspace.Candidates[0])
+	}
+	if len(workspace.Candidates) != 2 || workspace.Candidates[0].Trials[0].Status != "passed" || !workspace.Candidates[0].Trials[0].Attempts[1].Reproducible || len(workspace.Candidates[0].Trials[0].Feedback) != 1 {
+		t.Fatalf("trial comparison did not retain reproducible evidence and human feedback: %#v", workspace.Candidates[0].Trials)
 	}
 	if !strings.Contains(strings.Join(workspace.Candidates[0].Blockers, " "), "no evidence") {
 		t.Fatalf("missing comparison dimensions were hidden: %#v", workspace.Candidates[0].Blockers)
@@ -48,5 +68,8 @@ func TestAdoptionWorkspaceWorkflow(t *testing.T) {
 	workflowJSON(t, server.URL, http.MethodGet, "/adoption-workspaces/"+workspace.ID, observer, "", http.StatusOK, &publicView)
 	if publicView.Candidates[0].Evidence[3].Reference != "" || publicView.Candidates[0].Evidence[3].Status != "inaccessible" {
 		t.Fatalf("provider evidence leaked through a public workspace: %#v", publicView.Candidates[0].Evidence[3])
+	}
+	if len(publicView.Candidates[0].Trials[0].Attempts) != 2 || publicView.Candidates[0].Trials[0].Attempts[0].Status != "failed" || publicView.Candidates[0].Trials[1].Status != "inaccessible" || len(publicView.Candidates[0].Trials[1].Attempts) != 0 {
+		t.Fatalf("public trial surface hid failure or leaked scoped evidence: %#v", publicView.Candidates[0].Trials)
 	}
 }
