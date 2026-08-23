@@ -4165,6 +4165,20 @@ changes; `ready` is rejected while blockers remain. The repository
 the general inquiry canvas. These records coordinate later historical tests
 but grant no Git, agent, release, deployment, or environment authority.
 
+Historical comparison stays attached to the same resource. `POST
+.../{investigation}/scenarios` creates an immutable bounded definition, either
+directly or derived from the current investigation behavior, with typed inputs,
+fixture safety, commands, revision-aware environment requirements, timeout,
+and cost ceiling. `POST .../{investigation}/scenarios/{scenario}/attempts`
+accepts only a visible resolved commit, an attestation-identified release, or
+an exact dependency combination and retains its isolated image and definition
+digest, OS and architecture, toolchain and lock digest, setup, inputs, commands,
+sanitized output and logs, artifact digests, cost, repetitions, actor, and
+runner provenance. Results classify observed expected or regressed behavior
+separately from incompatible setup, missing dependencies, flaky execution,
+unsafe fixtures, and untestable revisions, so those gaps remain visible without
+becoming false passing or failing evidence.
+
 Repository writers open a shared canvas with `POST
 /repositories/{repository}/investigations`, naming a title, framing question,
 and revision. The revision is resolved once; the record, its ordered runs, and

@@ -64,6 +64,93 @@ type ScopeChange struct {
 	Scope     Scope     `json:"scope"`
 	CreatedAt time.Time `json:"created_at"`
 }
+type ScenarioInput struct {
+	Name           string `json:"name"`
+	Kind           string `json:"kind"`
+	Value          string `json:"value,omitempty"`
+	SourceRevision string `json:"source_revision,omitempty"`
+}
+type Fixture struct {
+	Name           string `json:"name"`
+	Reference      string `json:"reference"`
+	Classification string `json:"classification"`
+	Transformation string `json:"transformation,omitempty"`
+}
+type ScenarioDefinition struct {
+	Title                   string          `json:"title"`
+	ExpectedBehavior        string          `json:"expected_behavior"`
+	RegressedBehavior       string          `json:"regressed_behavior"`
+	Inputs                  []ScenarioInput `json:"inputs"`
+	Commands                []string        `json:"commands"`
+	Fixtures                []Fixture       `json:"fixtures"`
+	EnvironmentRequirements []string        `json:"environment_requirements"`
+	TimeoutSeconds          int64           `json:"timeout_seconds"`
+	CostLimit               float64         `json:"cost_limit"`
+}
+type Scenario struct {
+	ID                   string             `json:"id"`
+	Version              int64              `json:"version"`
+	InvestigationVersion int64              `json:"investigation_version"`
+	Derived              bool               `json:"derived"`
+	Definition           ScenarioDefinition `json:"definition"`
+	CreatedByID          string             `json:"created_by_id"`
+	CreatedAt            time.Time          `json:"created_at"`
+}
+type Target struct {
+	Kind              string            `json:"kind"`
+	Reference         string            `json:"reference,omitempty"`
+	CommitID          string            `json:"commit_id,omitempty"`
+	ReleaseID         string            `json:"release_id,omitempty"`
+	AttestationDigest string            `json:"attestation_digest,omitempty"`
+	Dependencies      map[string]string `json:"dependencies,omitempty"`
+}
+type Environment struct {
+	Image                string            `json:"image"`
+	DefinitionDigest     string            `json:"definition_digest"`
+	OS                   string            `json:"os"`
+	Architecture         string            `json:"architecture"`
+	Isolation            string            `json:"isolation"`
+	Network              string            `json:"network"`
+	Toolchain            map[string]string `json:"toolchain"`
+	DependencyLockDigest string            `json:"dependency_lock_digest,omitempty"`
+	SetupCommands        []string          `json:"setup_commands"`
+}
+type Artifact struct {
+	Name      string `json:"name"`
+	Digest    string `json:"digest"`
+	MediaType string `json:"media_type"`
+	Size      int64  `json:"size"`
+}
+type Provenance struct {
+	RunnerID        string `json:"runner_id"`
+	RunnerVersion   string `json:"runner_version"`
+	ActorKind       string `json:"actor_kind"`
+	StartedAt       string `json:"started_at"`
+	CompletedAt     string `json:"completed_at"`
+	RepetitionCount int64  `json:"repetition_count"`
+}
+type AttemptInput struct {
+	Target         Target          `json:"target"`
+	Environment    Environment     `json:"environment"`
+	Inputs         []ScenarioInput `json:"inputs"`
+	Commands       []string        `json:"commands"`
+	Outputs        []string        `json:"outputs"`
+	Logs           []string        `json:"logs"`
+	Artifacts      []Artifact      `json:"artifacts"`
+	Classification string          `json:"classification"`
+	Rationale      string          `json:"rationale"`
+	Cost           float64         `json:"cost"`
+	Currency       string          `json:"currency"`
+	Provenance     Provenance      `json:"provenance"`
+}
+type Attempt struct {
+	ID              string `json:"id"`
+	ScenarioID      string `json:"scenario_id"`
+	ScenarioVersion int64  `json:"scenario_version"`
+	AttemptInput
+	ActorID   string    `json:"actor_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
 type Investigation struct {
 	ID           string        `json:"id"`
 	RepositoryID string        `json:"repository_id"`
@@ -78,6 +165,8 @@ type Investigation struct {
 	Evidence     []Evidence    `json:"evidence"`
 	Entries      []Entry       `json:"entries"`
 	ScopeChanges []ScopeChange `json:"scope_changes"`
+	Scenarios    []Scenario    `json:"scenarios"`
+	Attempts     []Attempt     `json:"attempts"`
 	CreatedAt    time.Time     `json:"created_at"`
 	UpdatedAt    time.Time     `json:"updated_at"`
 }
@@ -137,6 +226,8 @@ func (s *Store) List(repo string) ([]Investigation, error) {
 			v.Entries = nil
 			v.Evidence = nil
 			v.ScopeChanges = nil
+			v.Scenarios = nil
+			v.Attempts = nil
 			out = append(out, v)
 		}
 	}
@@ -208,6 +299,121 @@ func (s *Store) SetStatus(repo, key, actor, status, reason string) (Investigatio
 	v.Entries = append(v.Entries, Entry{ID: id(), Sequence: int64(len(v.Entries) + 1), Kind: "status_change", Body: strings.TrimSpace(reason), ActorID: actor, CreatedAt: now})
 	v.UpdatedAt = now
 	return v, s.write(v)
+}
+func (s *Store) CreateScenario(repo, key, actor string, derived bool, d ScenarioDefinition) (Investigation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(key)
+	if e != nil || v.RepositoryID != repo {
+		return Investigation{}, ErrNotFound
+	}
+	d.Title, d.ExpectedBehavior, d.RegressedBehavior = strings.TrimSpace(d.Title), strings.TrimSpace(d.ExpectedBehavior), strings.TrimSpace(d.RegressedBehavior)
+	d.Commands, d.EnvironmentRequirements = clean(d.Commands), clean(d.EnvironmentRequirements)
+	if derived {
+		if d.ExpectedBehavior == "" {
+			d.ExpectedBehavior = v.Scope.ExpectedBehavior
+		}
+		if d.RegressedBehavior == "" {
+			d.RegressedBehavior = v.Scope.RegressedBehavior
+		}
+	}
+	if d.Title == "" || d.ExpectedBehavior == "" || d.RegressedBehavior == "" || len(d.Commands) == 0 || len(d.EnvironmentRequirements) == 0 || d.TimeoutSeconds < 1 || d.TimeoutSeconds > 3600 || d.CostLimit < 0 || !validFixtures(d.Fixtures) || !validInputs(d.Inputs) {
+		return Investigation{}, ErrConflict
+	}
+	now := s.now().UTC()
+	v.Scenarios = append(v.Scenarios, Scenario{ID: id(), Version: 1, InvestigationVersion: v.Version, Derived: derived, Definition: d, CreatedByID: actor, CreatedAt: now})
+	v.UpdatedAt = now
+	return v, s.write(v)
+}
+func (s *Store) AddAttempt(repo, key, scenario, actor string, in AttemptInput) (Investigation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(key)
+	if e != nil || v.RepositoryID != repo {
+		return Investigation{}, ErrNotFound
+	}
+	var sc *Scenario
+	for i := range v.Scenarios {
+		if v.Scenarios[i].ID == scenario {
+			sc = &v.Scenarios[i]
+			break
+		}
+	}
+	if sc == nil {
+		return Investigation{}, ErrNotFound
+	}
+	in.Commands, in.Outputs, in.Logs, in.Environment.SetupCommands = clean(in.Commands), clean(in.Outputs), clean(in.Logs), clean(in.Environment.SetupCommands)
+	in.Rationale, in.Currency = strings.TrimSpace(in.Rationale), strings.TrimSpace(in.Currency)
+	if !validAttempt(in, *sc) {
+		return Investigation{}, ErrConflict
+	}
+	now := s.now().UTC()
+	v.Attempts = append(v.Attempts, Attempt{ID: id(), ScenarioID: sc.ID, ScenarioVersion: sc.Version, AttemptInput: in, ActorID: actor, CreatedAt: now})
+	v.UpdatedAt = now
+	return v, s.write(v)
+}
+func validFixtures(v []Fixture) bool {
+	if len(v) == 0 {
+		return false
+	}
+	for _, x := range v {
+		if strings.TrimSpace(x.Name) == "" || strings.TrimSpace(x.Reference) == "" || !map[string]bool{"synthetic": true, "explicitly_permitted": true, "unsafe": true}[x.Classification] {
+			return false
+		}
+	}
+	return true
+}
+func validInputs(v []ScenarioInput) bool {
+	for _, x := range v {
+		if strings.TrimSpace(x.Name) == "" || !map[string]bool{"string": true, "number": true, "boolean": true, "artifact_reference": true}[x.Kind] {
+			return false
+		}
+	}
+	return true
+}
+func validAttempt(v AttemptInput, s Scenario) bool {
+	classes := map[string]bool{"expected_behavior": true, "regressed_behavior": true, "incompatible_setup": true, "missing_dependencies": true, "flaky": true, "unsafe_fixture": true, "untestable_revision": true}
+	targets := map[string]bool{"revision": true, "release": true, "dependency_combination": true}
+	if !classes[v.Classification] || !targets[v.Target.Kind] || v.Rationale == "" || v.Cost < 0 || v.Currency == "" || v.Environment.Image == "" || v.Environment.DefinitionDigest == "" || v.Environment.OS == "" || v.Environment.Architecture == "" || v.Environment.Isolation != "isolated" || v.Environment.Network == "unrestricted" || len(v.Commands) == 0 || !validInputs(v.Inputs) || v.Provenance.RunnerID == "" || v.Provenance.RunnerVersion == "" || !map[string]bool{"human": true, "agent": true, "system": true}[v.Provenance.ActorKind] || v.Provenance.StartedAt == "" || v.Provenance.CompletedAt == "" || v.Provenance.RepetitionCount < 1 {
+		return false
+	}
+	if v.Cost > s.Definition.CostLimit || v.Target.CommitID == "" || (v.Target.Kind == "dependency_combination" && len(v.Target.Dependencies) == 0) || (v.Target.Kind == "release" && (v.Target.ReleaseID == "" || v.Target.AttestationDigest == "")) {
+		return false
+	}
+	if v.Classification == "flaky" && v.Provenance.RepetitionCount < 2 {
+		return false
+	}
+	for _, f := range s.Definition.Fixtures {
+		if f.Classification == "unsafe" && v.Classification != "unsafe_fixture" {
+			return false
+		}
+	}
+	retained := append(append(append([]string{}, v.Commands...), v.Environment.SetupCommands...), v.Outputs...)
+	retained = append(retained, v.Logs...)
+	for _, x := range v.Inputs {
+		retained = append(retained, x.Name, x.Value)
+	}
+	for _, x := range retained {
+		if len(x) > 10000 || credentialShaped(x) {
+			return false
+		}
+	}
+	for _, a := range v.Artifacts {
+		if a.Name == "" || a.Digest == "" || a.MediaType == "" || a.Size < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func credentialShaped(v string) bool {
+	x := strings.ToLower(v)
+	for _, marker := range []string{"-----begin private key-----", "authorization: bearer ", "password=", "secret=", "api_key=", "access_token="} {
+		if strings.Contains(x, marker) {
+			return true
+		}
+	}
+	return false
 }
 func cleanScope(v Scope) Scope {
 	v.ExpectedBehavior = strings.TrimSpace(v.ExpectedBehavior)
