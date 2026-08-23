@@ -2141,6 +2141,16 @@ whenever dependencies change or the web job fails before it starts.
   and an explicit proposed, supported, disputed, or rejected state. Graph
   snapshots and searches grant no Git, package, agent, runner, pull-request,
   decision, review, merge, release, deployment, or operational authority.
+  Owner-governed regression responses remain beneath the exact investigation.
+  Each response compares evidence-cited revert, rollout or configuration
+  containment, dependency adjustment, and forward-repair options against
+  affected releases and current work, with deliberate tradeoffs and backport
+  targets. A selection retains the supported culprit range, reproduction,
+  constraints, acceptance criteria, original intent, and authorship. Owners may
+  link ordinary human- or agent-owned tasks, sessions, or shared workspaces;
+  published pull-request links carry that preloaded context but grant no Git,
+  rollback, review, merge, release, deployment, environment, or operational
+  authority.
   Prospective impact assessments live beneath `$IMPACT_ASSESSMENT_ROOT`
   (default `apps/api/data/impact-assessments`) and begin from selected code,
   symbols, an exact current investigation conclusion, or a proposed diff. Keep
