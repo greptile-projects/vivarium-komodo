@@ -34,6 +34,16 @@ Execution records still grant no repository, organization, agent, component,
 embargo, environment, approval, credential, merge, release, deployment, or
 operational authority.
 
+Execution reads form the shared live graph in `view=agents`: frozen provenance,
+step dependencies and status, all attempts, typed inputs and accessible outputs,
+sanitized logs, redacted artifact metadata, exact agent sessions, costs, timing,
+approval/input waits, failures, and derived next actions remain durable after
+completion. Repository writers may append attributable pause, resume, cancel,
+retry, definition-optional skip, non-secret requested input, named-owner
+approval, or declared-manual-step takeover controls. Active credentials are
+revoked on pause or invalidation; restricted artifacts retain only a redacted
+digest record, and credential-shaped logs, inputs, and session data are rejected.
+
 Software adoption workspaces live beneath `$ADOPTION_WORKSPACE_ROOT` (default
 `apps/api/data/adoption-workspaces`). Authenticated collaborators open one from
 an exact roadmap outcome, support gap, incubator, decision, package, API, or

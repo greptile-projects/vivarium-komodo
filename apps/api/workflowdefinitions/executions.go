@@ -70,17 +70,50 @@ type StepAttempt struct {
 	Outputs             map[string]OutputValue `json:"outputs,omitempty"`
 	Cost                float64                `json:"cost"`
 	Failure             string                 `json:"failure,omitempty"`
+	Logs                []ExecutionLog         `json:"logs"`
+	Artifacts           []ExecutionArtifact    `json:"artifacts"`
+	AgentSession        *AgentSession          `json:"agent_session,omitempty"`
 	StartedAt           time.Time              `json:"started_at"`
 	CompletedAt         *time.Time             `json:"completed_at,omitempty"`
 }
+type ExecutionLog struct {
+	Level     string    `json:"level"`
+	Message   string    `json:"message"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type ExecutionArtifact struct {
+	Name       string `json:"name"`
+	Digest     string `json:"digest"`
+	MediaType  string `json:"media_type"`
+	Accessible bool   `json:"accessible"`
+	Redacted   bool   `json:"redacted"`
+}
+type AgentSession struct {
+	ID       string `json:"id"`
+	Revision string `json:"revision"`
+	State    string `json:"state"`
+}
+type WaitingApproval struct {
+	ID       string   `json:"id"`
+	Summary  string   `json:"summary"`
+	OwnerIDs []string `json:"owner_ids"`
+}
 type ExecutionStep struct {
-	ID              string                 `json:"id"`
-	State           string                 `json:"state"`
-	Needs           []string               `json:"needs"`
-	Credential      *StepCredential        `json:"credential,omitempty"`
-	Attempts        []StepAttempt          `json:"attempts"`
-	AvailableInputs map[string]OutputValue `json:"available_inputs,omitempty"`
-	Blocker         string                 `json:"blocker,omitempty"`
+	ID                  string                 `json:"id"`
+	Name                string                 `json:"name"`
+	State               string                 `json:"state"`
+	Needs               []string               `json:"needs"`
+	Optional            bool                   `json:"optional"`
+	InvocationKind      string                 `json:"invocation_kind"`
+	Credential          *StepCredential        `json:"credential,omitempty"`
+	Attempts            []StepAttempt          `json:"attempts"`
+	AvailableInputs     map[string]OutputValue `json:"available_inputs,omitempty"`
+	Blocker             string                 `json:"blocker,omitempty"`
+	WaitingApproval     *WaitingApproval       `json:"waiting_approval,omitempty"`
+	RequestedInput      string                 `json:"requested_input,omitempty"`
+	ProvidedInputs      map[string]any         `json:"provided_inputs,omitempty"`
+	ManualActorID       string                 `json:"manual_actor_id,omitempty"`
+	PredictedNextAction string                 `json:"predicted_next_action"`
 }
 type ExecutionEvent struct {
 	Sequence  int64     `json:"sequence"`
@@ -114,6 +147,7 @@ type Execution struct {
 	CreatedAt                  time.Time          `json:"created_at"`
 	UpdatedAt                  time.Time          `json:"updated_at"`
 	CompletedAt                *time.Time         `json:"completed_at,omitempty"`
+	PredictedNextActions       []string           `json:"predicted_next_actions"`
 }
 type ExecutionCatalog struct {
 	Items []Execution `json:"items"`
@@ -131,6 +165,11 @@ type ResultInput struct {
 	Outputs             map[string]OutputValue `json:"outputs"`
 	Cost                float64                `json:"cost"`
 	Failure             string                 `json:"failure"`
+	Logs                []ExecutionLog         `json:"logs"`
+	Artifacts           []ExecutionArtifact    `json:"artifacts"`
+	AgentSession        *AgentSession          `json:"agent_session,omitempty"`
+	WaitingApproval     *WaitingApproval       `json:"waiting_approval,omitempty"`
+	RequestedInput      string                 `json:"requested_input,omitempty"`
 }
 type ControlInput struct {
 	ExpectedRevision int64           `json:"expected_revision"`
@@ -138,6 +177,7 @@ type ControlInput struct {
 	StepID           string          `json:"step_id"`
 	Reason           string          `json:"reason"`
 	Policy           *PolicyDecision `json:"policy,omitempty"`
+	Inputs           map[string]any  `json:"inputs,omitempty"`
 }
 
 func (s *Store) executionDir(repo, workflow string) string {
@@ -161,12 +201,44 @@ func safeValue(v any) bool {
 		return false
 	}
 	q := strings.ToLower(string(b))
-	for _, x := range []string{"password", "private_key", "access_token", "secret="} {
+	for _, x := range []string{"password", "private_key", "access_token", "secret=", "authorization:", "terminal_input"} {
 		if strings.Contains(q, x) {
 			return false
 		}
 	}
 	return len(b) <= 64<<10
+}
+func safeText(v string) bool { return strings.TrimSpace(v) != "" && safeValue(v) }
+
+func refreshExecution(x *Execution) {
+	x.PredictedNextActions = nil
+	for i := range x.Steps {
+		s := &x.Steps[i]
+		s.PredictedNextAction = "No further action; this step is retained as " + s.State + "."
+		switch s.State {
+		case "pending":
+			s.PredictedNextAction = "Wait for dependencies: " + strings.Join(s.Needs, ", ") + "."
+		case "ready":
+			s.PredictedNextAction = "The scheduler can dispatch this step."
+		case "running":
+			s.PredictedNextAction = "Wait for the current attempt to report a result."
+		case "paused":
+			s.PredictedNextAction = "An authorized collaborator can resume the execution."
+		case "retry_ready":
+			s.PredictedNextAction = "An authorized collaborator can retry this step."
+		case "waiting_input":
+			s.PredictedNextAction = "Provide the requested non-secret input: " + s.RequestedInput
+		case "waiting_approval":
+			s.PredictedNextAction = "A repository writer can approve or cancel this request."
+		case "manual_ready":
+			s.PredictedNextAction = "An authorized collaborator can take over this manual step."
+		case "failed":
+			s.PredictedNextAction = "Inspect retained attempts and start a new workflow execution if correction is needed."
+		}
+		if !executionTerminal(x.State) && s.State != "succeeded" && s.State != "skipped" && s.State != "cancelled" {
+			x.PredictedNextActions = append(x.PredictedNextActions, s.ID+": "+s.PredictedNextAction)
+		}
+	}
 }
 func valueMatches(kind string, value any) bool {
 	switch kind {
@@ -224,6 +296,7 @@ func (s *Store) readExecution(repo, workflow, execution string) (Execution, erro
 	if json.Unmarshal(b, &x) != nil || x.RepositoryID != repo || x.WorkflowID != workflow || x.ID != execution {
 		return Execution{}, ErrNotFound
 	}
+	refreshExecution(&x)
 	return x, nil
 }
 func (s *Store) listExecutions(repo, workflow string) ([]Execution, error) {
@@ -338,7 +411,10 @@ func (s *Store) Invoke(repo, workflow, requestActor string, in InvokeInput) (Exe
 		if len(st.Needs) == 0 {
 			state = "ready"
 		}
-		steps = append(steps, ExecutionStep{ID: st.ID, State: state, Needs: append([]string{}, st.Needs...), Attempts: []StepAttempt{}})
+		if st.Invocation.Kind == "manual" && state == "ready" {
+			state = "manual_ready"
+		}
+		steps = append(steps, ExecutionStep{ID: st.ID, Name: st.Name, State: state, Needs: append([]string{}, st.Needs...), Optional: st.Optional, InvocationKind: st.Invocation.Kind, Attempts: []StepAttempt{}})
 	}
 	state := "running"
 	blockers := []string{}
@@ -352,6 +428,7 @@ func (s *Store) Invoke(repo, workflow, requestActor string, in InvokeInput) (Exe
 		kind = "policy_blocked"
 	}
 	x.event(kind, requestActor, "", "exact workflow, event, actor, policy, and resource revisions bound", now)
+	refreshExecution(&x)
 	return x, s.saveExecution(x)
 }
 func (s *Store) GetExecution(repo, workflow, execution string) (Execution, error) {
@@ -384,6 +461,7 @@ func (s *Store) mutateExecution(repo, workflow, execution string, expected int64
 	}
 	x.Revision++
 	x.UpdatedAt = now
+	refreshExecution(&x)
 	return x, s.saveExecution(x)
 }
 
@@ -438,7 +516,8 @@ func (s *Store) RecordResult(repo, workflow, execution, actor, step string, in R
 			return ErrNotFound
 		}
 		q := &x.Steps[i]
-		if q.State != "running" || q.Credential == nil || q.Credential.Reference != in.CredentialReference || !q.Credential.ExpiresAt.After(now) {
+		manual := q.InvocationKind == "manual" && q.State == "running" && q.ManualActorID == actor
+		if !manual && (q.State != "running" || q.Credential == nil || q.Credential.Reference != in.CredentialReference || !q.Credential.ExpiresAt.After(now)) {
 			return ErrInvalid
 		}
 		a := &q.Attempts[len(q.Attempts)-1]
@@ -447,6 +526,28 @@ func (s *Store) RecordResult(repo, workflow, execution, actor, step string, in R
 		}
 		if a.State != "running" {
 			return errExecutionUnchanged
+		}
+		for _, log := range in.Logs {
+			if (log.Level != "debug" && log.Level != "info" && log.Level != "warning" && log.Level != "error") || !safeText(log.Message) {
+				return ErrInvalid
+			}
+			log.CreatedAt = now
+			a.Logs = append(a.Logs, log)
+		}
+		for _, artifact := range in.Artifacts {
+			if artifact.Name == "" || artifact.Digest == "" || artifact.MediaType == "" || !safeText(artifact.Name) || !safeText(artifact.Digest) {
+				return ErrInvalid
+			}
+			if !artifact.Accessible {
+				artifact.Name, artifact.MediaType, artifact.Redacted = "restricted artifact", "application/octet-stream", true
+			}
+			a.Artifacts = append(a.Artifacts, artifact)
+		}
+		if in.AgentSession != nil {
+			if !identifier(in.AgentSession.ID) || in.AgentSession.Revision == "" || !safeText(in.AgentSession.Revision) || (in.AgentSession.State != "running" && in.AgentSession.State != "completed" && in.AgentSession.State != "failed") {
+				return ErrInvalid
+			}
+			a.AgentSession = in.AgentSession
 		}
 		w, _ := s.read(repo, workflow)
 		var def Step
@@ -461,7 +562,9 @@ func (s *Store) RecordResult(repo, workflow, execution, actor, step string, in R
 			a.CompletedAt = &now
 			q.State = "blocked"
 			q.Blocker = "budget_exceeded"
-			q.Credential.RevokedAt = &now
+			if q.Credential != nil {
+				q.Credential.RevokedAt = &now
+			}
 			x.State = "blocked"
 			x.Blockers = []string{"budget_exceeded"}
 			x.event("budget_blocked", actor, step, "cost exceeded declared boundary", now)
@@ -497,39 +600,31 @@ func (s *Store) RecordResult(repo, workflow, execution, actor, step string, in R
 			a.State = "succeeded"
 			a.Outputs = clean
 			q.State = "succeeded"
-			q.Credential.RevokedAt = &now
-			for j := range x.Steps {
-				if x.Steps[j].State != "pending" {
-					continue
-				}
-				ready := true
-				available := map[string]OutputValue{}
-				for _, need := range x.Steps[j].Needs {
-					k := stepIndex(*x, need)
-					if k < 0 || x.Steps[k].State != "succeeded" {
-						ready = false
-						break
-					}
-					for n, v := range x.Steps[k].Attempts[len(x.Steps[k].Attempts)-1].Outputs {
-						available[need+"."+n] = v
-					}
-				}
-				if ready {
-					x.Steps[j].State = "ready"
-					x.Steps[j].AvailableInputs = available
-				}
+			if q.Credential != nil {
+				q.Credential.RevokedAt = &now
 			}
-			done := true
-			for _, st := range x.Steps {
-				if st.State != "succeeded" {
-					done = false
-				}
-			}
-			if done {
-				x.State = "completed"
-				x.CompletedAt = &now
-			}
+			advanceExecution(x, now)
 			x.event("step_succeeded", actor, step, "declared accessible outputs retained", now)
+		case "waiting_input":
+			if !safeText(in.RequestedInput) {
+				return ErrInvalid
+			}
+			a.State, a.CompletedAt, q.State, q.RequestedInput = "waiting_input", &now, "waiting_input", in.RequestedInput
+			if q.Credential != nil {
+				q.Credential.RevokedAt = &now
+			}
+			x.State = "waiting"
+			x.event("input_requested", actor, step, in.RequestedInput, now)
+		case "waiting_approval":
+			if in.WaitingApproval == nil || !identifier(in.WaitingApproval.ID) || !safeText(in.WaitingApproval.Summary) || len(in.WaitingApproval.OwnerIDs) == 0 {
+				return ErrInvalid
+			}
+			a.State, a.CompletedAt, q.State, q.WaitingApproval = "waiting_approval", &now, "waiting_approval", in.WaitingApproval
+			if q.Credential != nil {
+				q.Credential.RevokedAt = &now
+			}
+			x.State = "waiting"
+			x.event("approval_requested", actor, step, in.WaitingApproval.Summary, now)
 		case "failed", "interrupted":
 			a.State = in.State
 			a.Failure = in.Failure
@@ -549,12 +644,65 @@ func (s *Store) RecordResult(repo, workflow, execution, actor, step string, in R
 		return nil
 	})
 }
+
+func advanceExecution(x *Execution, now time.Time) {
+	for j := range x.Steps {
+		if x.Steps[j].State != "pending" {
+			continue
+		}
+		ready, available := true, map[string]OutputValue{}
+		for _, need := range x.Steps[j].Needs {
+			k := stepIndex(*x, need)
+			if k < 0 || (x.Steps[k].State != "succeeded" && x.Steps[k].State != "skipped") {
+				ready = false
+				break
+			}
+			if x.Steps[k].State == "succeeded" && len(x.Steps[k].Attempts) > 0 {
+				for n, v := range x.Steps[k].Attempts[len(x.Steps[k].Attempts)-1].Outputs {
+					available[need+"."+n] = v
+				}
+			}
+		}
+		if ready {
+			x.Steps[j].State, x.Steps[j].AvailableInputs = "ready", available
+			if x.Steps[j].InvocationKind == "manual" {
+				x.Steps[j].State = "manual_ready"
+			}
+		}
+	}
+	done := true
+	for _, st := range x.Steps {
+		if st.State != "succeeded" && st.State != "skipped" {
+			done = false
+		}
+	}
+	if done {
+		x.State, x.CompletedAt = "completed", &now
+	}
+}
 func (s *Store) Control(repo, workflow, execution, actor string, in ControlInput) (Execution, error) {
 	return s.mutateExecution(repo, workflow, execution, in.ExpectedRevision, func(x *Execution, now time.Time) error {
 		if in.Reason == "" {
 			return ErrInvalid
 		}
 		switch in.Action {
+		case "pause":
+			if x.State != "running" && x.State != "waiting" {
+				return ErrInvalid
+			}
+			x.State = "paused"
+			for i := range x.Steps {
+				if x.Steps[i].State == "running" {
+					x.Steps[i].State = "paused"
+					if x.Steps[i].Credential != nil && x.Steps[i].Credential.RevokedAt == nil {
+						x.Steps[i].Credential.RevokedAt = &now
+					}
+					if len(x.Steps[i].Attempts) > 0 {
+						a := &x.Steps[i].Attempts[len(x.Steps[i].Attempts)-1]
+						a.State, a.Failure, a.CompletedAt = "interrupted", "collaborator_pause", &now
+					}
+				}
+			}
 		case "cancel":
 			if executionTerminal(x.State) {
 				return ErrInvalid
@@ -577,12 +725,55 @@ func (s *Store) Control(repo, workflow, execution, actor string, in ControlInput
 			x.Steps[i].State = "ready"
 			x.Steps[i].Blocker = ""
 		case "resume":
-			if x.State != "blocked" || len(x.Blockers) == 0 || x.Blockers[0] == "budget_exceeded" || in.Policy == nil || !policyAllowed(*in.Policy) {
+			if x.State == "paused" {
+				x.State = "running"
+				for i := range x.Steps {
+					if x.Steps[i].State == "paused" {
+						x.Steps[i].State = "ready"
+					}
+				}
+				for i := range x.Steps {
+					if x.Steps[i].State == "waiting_input" || x.Steps[i].State == "waiting_approval" {
+						x.State = "waiting"
+					}
+				}
+			} else {
+				if x.State != "blocked" || len(x.Blockers) == 0 || x.Blockers[0] == "budget_exceeded" || in.Policy == nil || !policyAllowed(*in.Policy) {
+					return ErrInvalid
+				}
+				x.Policy, x.State, x.Blockers = *in.Policy, "running", nil
+			}
+		case "skip":
+			i := stepIndex(*x, in.StepID)
+			if i < 0 || !x.Steps[i].Optional || (x.Steps[i].State != "pending" && x.Steps[i].State != "ready" && x.Steps[i].State != "retry_ready" && x.Steps[i].State != "waiting_input" && x.Steps[i].State != "waiting_approval" && x.Steps[i].State != "manual_ready") {
 				return ErrInvalid
 			}
-			x.Policy = *in.Policy
-			x.State = "running"
-			x.Blockers = nil
+			x.Steps[i].State, x.Steps[i].Blocker, x.Steps[i].WaitingApproval, x.Steps[i].RequestedInput = "skipped", "", nil, ""
+			advanceExecution(x, now)
+		case "provide_input":
+			i := stepIndex(*x, in.StepID)
+			if i < 0 || x.Steps[i].State != "waiting_input" || len(in.Inputs) == 0 {
+				return ErrInvalid
+			}
+			for k, v := range in.Inputs {
+				if !identifier(k) || !safeValue(v) {
+					return ErrInvalid
+				}
+			}
+			x.Steps[i].ProvidedInputs, x.Steps[i].RequestedInput, x.Steps[i].State, x.State = in.Inputs, "", "ready", "running"
+		case "approve":
+			i := stepIndex(*x, in.StepID)
+			if i < 0 || x.Steps[i].State != "waiting_approval" || x.Steps[i].WaitingApproval == nil || !contains(x.Steps[i].WaitingApproval.OwnerIDs, actor) {
+				return ErrConflict
+			}
+			x.Steps[i].WaitingApproval, x.Steps[i].State, x.State = nil, "ready", "running"
+		case "take_over":
+			i := stepIndex(*x, in.StepID)
+			if i < 0 || x.Steps[i].State != "manual_ready" || x.Steps[i].InvocationKind != "manual" {
+				return ErrInvalid
+			}
+			x.Steps[i].ManualActorID, x.Steps[i].State, x.State = actor, "running", "running"
+			x.Steps[i].Attempts = append(x.Steps[i].Attempts, StepAttempt{Number: len(x.Steps[i].Attempts) + 1, IdempotencyKey: "manual-" + newID(), State: "running", StartedAt: now})
 		case "revoke_access", "stale_inputs":
 			if executionTerminal(x.State) {
 				return ErrInvalid
