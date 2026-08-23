@@ -4187,6 +4187,17 @@ request. The API verifies that contextual resource already names the requested
 commit; a branch name or caller-asserted association is never accepted as the
 foundation. Collection and detail reads follow ordinary repository read policy.
 
+A target-repository writer can turn a current, complete pull-request conflict
+analysis into one of these environments with `POST
+/repositories/{repository}/pull-requests/{pull}/conflicts/workspace`. The
+record freezes the common base, both immutable tips and their side-only commit
+histories, permitted conflict evidence, affected owner IDs, and the target
+revision's setup definition. Existing workspace presence, discussion, editing,
+commands, checkpoints, and human or approved-agent controls then provide the
+shared reconciliation surface. Publication remains bound to the target
+repository and its ordinary write checks; neither history conveys authority to
+the other repository.
+
 Setup materializes only the captured Git tree beneath `$WORKSPACE_ROOT`
 (default `apps/api/data/workspaces`) and executes each command in Bubblewrap
 without network, credentials, repository metadata, or host filesystem access.

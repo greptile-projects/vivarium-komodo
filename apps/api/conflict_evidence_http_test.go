@@ -10,6 +10,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
 )
 
 func TestPullConflictEvidenceExplainsExactIntentWithoutChangingBranches(t *testing.T) {
@@ -63,5 +64,51 @@ func TestPullConflictEvidenceExplainsExactIntentWithoutChangingBranches(t *testi
 	_ = json.Unmarshal(response.Body.Bytes(), &analysis)
 	if !analysis.Stale || analysis.Target.Revision.LiveCommitID != string(base) {
 		t.Fatalf("stale analysis = %#v", analysis)
+	}
+}
+
+func TestCurrentConflictLaunchesAuthorityBoundSharedWorkspace(t *testing.T) {
+	gitStorage, _ := storage.New(t.TempDir())
+	catalog, _ := repositories.New(t.TempDir(), gitStorage)
+	pulls, _ := pullrequests.New(t.TempDir())
+	credentials, _ := auth.New(t.TempDir())
+	workspaceStore, _ := workspaces.New(t.TempDir())
+	repository, _ := catalog.Create("maintainer", repositories.Metadata{Name: "reconcile", Visibility: repositories.Public})
+	repo, _ := catalog.Open(repository.ID)
+	commit := func(parent storage.ObjectID, value, message string, manifest bool) storage.ObjectID {
+		file, _ := repo.WriteObject(storage.BlobObject, []byte(value))
+		entries := treeEntry("100644", "contract.go", file)
+		if manifest {
+			raw := `{"version":1,"tools":[{"name":"go","version":"1.25"}],"dependencies":[],"setup":["true"],"resources":{"cpu_seconds":10,"memory_mb":128,"disk_mb":128,"setup_timeout_seconds":10}}`
+			blob, _ := repo.WriteObject(storage.BlobObject, []byte(raw))
+			komodo, _ := repo.WriteObject(storage.TreeObject, testTree(t, map[string]storage.ObjectID{"workspaces.json": blob}))
+			entries = append(treeEntry("040000", ".komodo", komodo), entries...)
+		}
+		tree, _ := repo.WriteObject(storage.TreeObject, entries)
+		parents := ""
+		if parent != "" {
+			parents = "parent " + string(parent) + "\n"
+		}
+		id, _ := repo.WriteObject(storage.CommitObject, []byte("tree "+string(tree)+"\n"+parents+"author A <a@example.test> 1 +0000\ncommitter A <a@example.test> 1 +0000\n\n"+message+"\n"))
+		return id
+	}
+	base := commit("", "package p\nconst Value = 1\n", "base", false)
+	source := commit(base, "package p\nconst Value = 2\n", "source", false)
+	target := commit(base, "package p\nconst Value = 3\n", "target", true)
+	_ = repo.CreateReference(storage.Reference{Name: "refs/heads/main", ObjectID: target})
+	_ = repo.CreateReference(storage.Reference{Name: "refs/heads/change", ObjectID: source})
+	pull, _ := pulls.Create(pullrequests.CreateParams{RepositoryID: string(repository.ID), SourceRepositoryID: string(repository.ID), AuthorID: "contributor", Title: "overlap", SourceBranch: "change", TargetBranch: "main", SourceCommitID: string(source), TargetCommitID: string(target)})
+	runner := workspaces.NewRunner(workspaceStore, catalog)
+	mux := http.NewServeMux()
+	registerWorkspacesHTTP(mux, workspaceStore, runner, catalog, credentials, nil, pulls, nil)
+	token := issueAccess(t, credentials, "maintainer", auth.API, auth.RepositoryRead, auth.RepositoryWrite)
+	request := httptest.NewRequest(http.MethodPost, "/repositories/"+string(repository.ID)+"/pull-requests/"+pull.ID+"/conflicts/workspace", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	var created workspaces.Workspace
+	_ = json.Unmarshal(response.Body.Bytes(), &created)
+	if response.Code != http.StatusCreated || created.Context.Conflict == nil || created.Context.Conflict.Source.CommitID != string(source) || created.Context.Conflict.Target.CommitID != string(target) || created.Context.Conflict.PublishRepositoryID != string(repository.ID) || len(created.Context.Conflict.OwnerIDs) != 2 {
+		t.Fatalf("workspace = %#v status=%d body=%s", created, response.Code, response.Body.String())
 	}
 }

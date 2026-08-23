@@ -95,6 +95,66 @@ func registerWorkspacesHTTP(mux *http.ServeMux, store workspaceStore, runner wor
 	mux.HandleFunc("POST "+base+"/{workspace}/controls", workspaceGrantControl(store, repositories, credentials, organizationStore))
 	mux.HandleFunc("POST "+base+"/{workspace}/controls/{control}/interventions", workspaceIntervention(store, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/checkpoints/{checkpoint}/publication", publishWorkspaceCheckpoint(store, runner, repositories, credentials, plans, pulls, checks))
+	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/conflicts/workspace", createConflictWorkspace(store, runner, repositories, credentials, pulls))
+}
+
+func createConflictWorkspace(store workspaceStore, runner workspaceRunner, repositories taskSessionRepositoryStore, credentials authStore, pulls pullRequestStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		pull, err := pulls.Get(string(repository.ID), r.PathValue("pull_request"))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "pull_request_not_found"})
+			return
+		}
+		sourceRepo, err := repositories.Open(storage.ID(pull.SourceRepositoryID))
+		if err != nil {
+			writeJSON(w, 409, map[string]string{"error": "source_repository_unavailable"})
+			return
+		}
+		targetRepo, err := repositories.Open(repository.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		analysis, err := analyzePullConflict(r.Context(), pull, pulls, sourceRepo, targetRepo, nil)
+		if err != nil || !analysis.Complete || analysis.Stale || len(analysis.Conflicts) == 0 {
+			writeJSON(w, 409, map[string]string{"error": "conflict_evidence_not_current"})
+			return
+		}
+		definition, digest, err := runner.Definition(string(repository.ID), pull.TargetCommitID)
+		if err != nil {
+			writeJSON(w, 422, map[string]string{"error": "invalid_workspace_definition"})
+			return
+		}
+		history := func(commits []pullRequestCommit) []string {
+			out := make([]string, 0, len(commits))
+			for _, c := range commits {
+				out = append(out, c.ID)
+			}
+			return out
+		}
+		evidence := make([]workspaces.ConflictEvidence, 0, len(analysis.Conflicts))
+		for _, item := range analysis.Conflicts {
+			evidence = append(evidence, workspaces.ConflictEvidence{Kind: item.Kind, Path: item.Path, Symbol: item.Symbol, Detail: item.Detail})
+		}
+		owners := []string{pull.AuthorID, repository.OwnerID}
+		if pull.AuthorID == repository.OwnerID {
+			owners = owners[:1]
+		}
+		context := workspaces.SourceContext{Type: "pull_request_conflict", ID: pull.ID, Evidence: []string{"conflict-analysis:" + pull.ID}, Conflict: &workspaces.ConflictContext{PullRequestID: pull.ID, BaseCommitID: analysis.BaseCommitID, Source: workspaces.ConflictRevision{RepositoryID: pull.SourceRepositoryID, Branch: pull.SourceBranch, CommitID: pull.SourceCommitID}, Target: workspaces.ConflictRevision{RepositoryID: pull.RepositoryID, Branch: pull.TargetBranch, CommitID: pull.TargetCommitID}, SourceHistory: history(analysis.Source.Commits), TargetHistory: history(analysis.Target.Commits), Evidence: evidence, OwnerIDs: owners, PublishRepositoryID: string(repository.ID), PublishPermission: "repository:write"}}
+		policy, _ := store.EffectivePolicy(string(repository.ID), repository.OrganizationID)
+		item, err := store.CreateWithPolicy(string(repository.ID), pull.TargetCommitID, actor.UserID, context, workspaces.Access{RepositoryID: string(repository.ID), ActorID: actor.UserID, Permission: "repository:write"}, definition, digest, policy)
+		if err != nil {
+			writeWorkspaceResult(w, item, err)
+			return
+		}
+		runner.Start(item)
+		w.Header().Set("Location", baseWorkspaceURL(item.RepositoryID, item.ID))
+		writeJSON(w, http.StatusCreated, item)
+	}
 }
 
 func organizationWorkspacePolicy(store workspaceStore, credentials authStore, orgs workspaceOrganizationStore, update bool) http.HandlerFunc {

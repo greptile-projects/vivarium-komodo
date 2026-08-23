@@ -60,15 +60,42 @@ type NamedCommand struct {
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 type SourceContext struct {
-	Type                 string   `json:"type"`
-	ID                   string   `json:"id,omitempty"`
-	ParentID             string   `json:"parent_id,omitempty"`
-	UpstreamRepositoryID string   `json:"upstream_repository_id,omitempty"`
-	GuidanceVersion      int64    `json:"guidance_version,omitempty"`
-	Guidance             []string `json:"guidance,omitempty"`
-	Evidence             []string `json:"evidence,omitempty"`
-	AcceptanceCriteria   []string `json:"acceptance_criteria,omitempty"`
-	SampleData           []string `json:"sample_data,omitempty"`
+	Type                 string           `json:"type"`
+	ID                   string           `json:"id,omitempty"`
+	ParentID             string           `json:"parent_id,omitempty"`
+	UpstreamRepositoryID string           `json:"upstream_repository_id,omitempty"`
+	GuidanceVersion      int64            `json:"guidance_version,omitempty"`
+	Guidance             []string         `json:"guidance,omitempty"`
+	Evidence             []string         `json:"evidence,omitempty"`
+	AcceptanceCriteria   []string         `json:"acceptance_criteria,omitempty"`
+	SampleData           []string         `json:"sample_data,omitempty"`
+	Conflict             *ConflictContext `json:"conflict,omitempty"`
+}
+
+// ConflictContext freezes the two histories and the audience-safe evidence used
+// to create a reconciliation workspace. It is context, never an authority grant.
+type ConflictContext struct {
+	PullRequestID       string             `json:"pull_request_id"`
+	BaseCommitID        string             `json:"base_commit_id"`
+	Source              ConflictRevision   `json:"source"`
+	Target              ConflictRevision   `json:"target"`
+	SourceHistory       []string           `json:"source_history"`
+	TargetHistory       []string           `json:"target_history"`
+	Evidence            []ConflictEvidence `json:"evidence"`
+	OwnerIDs            []string           `json:"owner_ids"`
+	PublishRepositoryID string             `json:"publish_repository_id"`
+	PublishPermission   string             `json:"publish_permission"`
+}
+type ConflictRevision struct {
+	RepositoryID string `json:"repository_id"`
+	Branch       string `json:"branch"`
+	CommitID     string `json:"commit_id"`
+}
+type ConflictEvidence struct {
+	Kind   string `json:"kind"`
+	Path   string `json:"path,omitempty"`
+	Symbol string `json:"symbol,omitempty"`
+	Detail string `json:"detail"`
 }
 type Access struct {
 	RepositoryID string `json:"repository_id"`
