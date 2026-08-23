@@ -174,4 +174,32 @@ func registerAdoptionWorkspacesHTTP(m *http.ServeMux, s *adoptionworkspaces.Stor
 			writeJSON(w, 201, v)
 		}
 	})
+	m.HandleFunc("POST /adoption-workspaces/{workspace}/candidates/{candidate}/deliveries", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authenticateRequest(w, r, c, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in adoptionworkspaces.AdoptionDeliveryInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.AddDelivery(r.PathValue("workspace"), r.PathValue("candidate"), a.UserID, in)
+		if !fail(w, e) {
+			writeJSON(w, http.StatusCreated, v)
+		}
+	})
+	m.HandleFunc("POST /adoption-workspaces/{workspace}/candidates/{candidate}/deliveries/{delivery}/observations", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authenticateRequest(w, r, c, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in adoptionworkspaces.DeliveryObservation
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.AddDeliveryObservation(r.PathValue("workspace"), r.PathValue("candidate"), r.PathValue("delivery"), a.UserID, in)
+		if !fail(w, e) {
+			writeJSON(w, http.StatusCreated, v)
+		}
+	})
 }

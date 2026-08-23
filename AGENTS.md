@@ -34,6 +34,14 @@ or agent work across consumer repositories, environments, documentation, and
 explicitly permitted provider forks. Previews derive effective access,
 accountable owners, cost, and open decisions; plan work grants neither side
 repository, secret, deployment, roadmap, or operational authority.
+Consumer owners may connect an immutable integration plan to an exact consumer
+pull revision containing pinned dependencies and categorized integration work.
+Delivery records retain exact provider and consumer revisions, attestations,
+ordinary approval, review, policy, rehearsal, and release evidence, support and
+user acceptance, and ordered staged-rollout health and cost. Failed criteria,
+incompatibility, unhealthy rollout, or revoked access pause adoption; only an
+adopter owner may record restoration, and neither providers nor agents gain
+merge or environment authority.
 
 Responsible public-life records live beneath `$PROJECT_LIFE_ROOT` (default
 `apps/api/data/project-life`). A project enters public life only from the exact

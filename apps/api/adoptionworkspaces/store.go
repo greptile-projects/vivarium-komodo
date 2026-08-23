@@ -79,18 +79,19 @@ type Evidence struct {
 	Gap          string     `json:"gap,omitempty"`
 }
 type Candidate struct {
-	ID                 string            `json:"id"`
-	Project            string            `json:"project"`
-	ProviderRepository string            `json:"provider_repository"`
-	Version            string            `json:"version"`
-	Revision           string            `json:"revision"`
-	Evidence           []Evidence        `json:"evidence"`
-	Coverage           map[string]string `json:"coverage"`
-	Blockers           []string          `json:"blockers"`
-	AddedByID          string            `json:"added_by_id"`
-	CreatedAt          time.Time         `json:"created_at"`
-	Trials             []Trial           `json:"trials"`
-	IntegrationPlans   []IntegrationPlan `json:"integration_plans"`
+	ID                 string             `json:"id"`
+	Project            string             `json:"project"`
+	ProviderRepository string             `json:"provider_repository"`
+	Version            string             `json:"version"`
+	Revision           string             `json:"revision"`
+	Evidence           []Evidence         `json:"evidence"`
+	Coverage           map[string]string  `json:"coverage"`
+	Blockers           []string           `json:"blockers"`
+	AddedByID          string             `json:"added_by_id"`
+	CreatedAt          time.Time          `json:"created_at"`
+	Trials             []Trial            `json:"trials"`
+	IntegrationPlans   []IntegrationPlan  `json:"integration_plans"`
+	Deliveries         []AdoptionDelivery `json:"deliveries"`
 }
 type TrialSource struct {
 	Kind        string `json:"kind"`
@@ -242,6 +243,60 @@ type IntegrationPlan struct {
 	CreatedAt        time.Time          `json:"created_at"`
 	AuthorityGranted bool               `json:"authority_granted"`
 }
+type DeliveryChange struct {
+	Kind string `json:"kind"`
+	Path string `json:"path"`
+}
+type DeliveryEvidence struct {
+	Kind         string `json:"kind"`
+	Reference    string `json:"reference"`
+	Revision     string `json:"revision"`
+	Status       string `json:"status"`
+	ApprovedByID string `json:"approved_by_id,omitempty"`
+}
+type RolloutStage struct {
+	Name              string  `json:"name"`
+	Environment       string  `json:"environment"`
+	ReleaseRevision   string  `json:"release_revision"`
+	Status            string  `json:"status"`
+	Health            string  `json:"health"`
+	Cost              float64 `json:"cost"`
+	Currency          string  `json:"currency"`
+	EvidenceReference string  `json:"evidence_reference"`
+}
+type AdoptionDeliveryInput struct {
+	PlanID              string             `json:"plan_id"`
+	ProviderRevision    string             `json:"provider_revision"`
+	ConsumerRepository  string             `json:"consumer_repository"`
+	ConsumerPullRequest string             `json:"consumer_pull_request"`
+	ConsumerRevision    string             `json:"consumer_revision"`
+	PinnedDependencies  []string           `json:"pinned_dependencies"`
+	Changes             []DeliveryChange   `json:"changes"`
+	Evidence            []DeliveryEvidence `json:"evidence"`
+	Rollout             []RolloutStage     `json:"rollout"`
+}
+type DeliveryObservation struct {
+	ID                string    `json:"id"`
+	ConsumerRevision  string    `json:"consumer_revision"`
+	Kind              string    `json:"kind"`
+	Status            string    `json:"status"`
+	Summary           string    `json:"summary"`
+	EvidenceReference string    `json:"evidence_reference"`
+	Cost              float64   `json:"cost,omitempty"`
+	Currency          string    `json:"currency,omitempty"`
+	AddedByID         string    `json:"added_by_id"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+type AdoptionDelivery struct {
+	ID string `json:"id"`
+	AdoptionDeliveryInput
+	Status           string                `json:"status"`
+	Blockers         []string              `json:"blockers"`
+	Observations     []DeliveryObservation `json:"observations"`
+	CreatedByID      string                `json:"created_by_id"`
+	CreatedAt        time.Time             `json:"created_at"`
+	AuthorityGranted bool                  `json:"authority_granted"`
+}
 type Event struct {
 	Sequence  int64     `json:"sequence"`
 	Type      string    `json:"type"`
@@ -355,6 +410,14 @@ func isAgent(v Workspace, actor string) bool {
 	}
 	return false
 }
+func isAffectedUser(v Workspace, actor string) bool {
+	for _, p := range v.Participants {
+		if p.SubjectID == actor && p.Kind == "human" && p.Role == "affected_user" && p.Consent == "accepted" {
+			return true
+		}
+	}
+	return false
+}
 func isOwner(v Workspace, actor string) bool {
 	if v.CreatedByID == actor {
 		return true
@@ -431,6 +494,7 @@ func (s *Store) AddCandidate(wid, actor string, c Candidate) (Workspace, error) 
 		c.Evidence = []Evidence{}
 		c.Trials = []Trial{}
 		c.IntegrationPlans = []IntegrationPlan{}
+		c.Deliveries = []AdoptionDelivery{}
 		v.Candidates = append(v.Candidates, c)
 		v.event("candidate.added", actor, c.ID)
 		return nil
@@ -576,6 +640,150 @@ func (s *Store) AddIntegrationPlan(wid, cid, actor string, in IntegrationPlanInp
 			c.IntegrationPlans = append(c.IntegrationPlans, p)
 			v.event("integration_plan.recorded", actor, p.ID)
 			return nil
+		}
+		return ErrNotFound
+	})
+}
+
+var deliveryEvidenceKinds = map[string]bool{"provider_attestation": true, "approval": true, "review": true, "policy": true, "rehearsal": true, "release": true, "support_readiness": true, "user_acceptance": true}
+var deliveryChangeKinds = map[string]bool{"dependency": true, "integration": true, "configuration": true, "infrastructure": true, "test": true, "documentation": true}
+
+func deriveDelivery(in AdoptionDeliveryInput) (string, []string) {
+	blockers := []string{}
+	seen := map[string]bool{}
+	for _, e := range in.Evidence {
+		seen[e.Kind] = true
+		if e.Status != "passed" {
+			blockers = append(blockers, e.Kind+": "+e.Status)
+		}
+	}
+	for kind := range deliveryEvidenceKinds {
+		if !seen[kind] {
+			blockers = append(blockers, kind+": missing evidence")
+		}
+	}
+	for _, stage := range in.Rollout {
+		if stage.Status != "passed" || stage.Health != "healthy" {
+			blockers = append(blockers, "rollout "+stage.Name+": "+stage.Status+"; health "+stage.Health)
+		}
+	}
+	sort.Strings(blockers)
+	if len(blockers) > 0 {
+		return "paused", blockers
+	}
+	return "active", blockers
+}
+
+func validDelivery(in AdoptionDeliveryInput) bool {
+	if in.PlanID == "" || in.ProviderRevision == "" || in.ConsumerRepository == "" || in.ConsumerPullRequest == "" || in.ConsumerRevision == "" || len(in.PinnedDependencies) == 0 || len(in.Changes) == 0 || len(in.Rollout) == 0 || !safeStrings(in.PinnedDependencies) {
+		return false
+	}
+	for _, p := range in.PinnedDependencies {
+		if !strings.ContainsAny(p, "@=") {
+			return false
+		}
+	}
+	for _, x := range in.Changes {
+		if !deliveryChangeKinds[x.Kind] || x.Path == "" {
+			return false
+		}
+	}
+	for _, e := range in.Evidence {
+		if !deliveryEvidenceKinds[e.Kind] || e.Reference == "" || e.Revision != in.ConsumerRevision || !map[string]bool{"passed": true, "failed": true, "revoked": true}[e.Status] {
+			return false
+		}
+	}
+	for i, x := range in.Rollout {
+		if x.Name == "" || x.Environment == "" || x.ReleaseRevision != in.ConsumerRevision || x.EvidenceReference == "" || x.Cost < 0 || (x.Cost > 0 && x.Currency == "") || !map[string]bool{"pending": true, "passed": true, "failed": true}[x.Status] || !map[string]bool{"unknown": true, "healthy": true, "unhealthy": true}[x.Health] {
+			return false
+		}
+		if i > 0 && in.Rollout[i-1].Status != "passed" && x.Status != "pending" {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Store) AddDelivery(wid, cid, actor string, in AdoptionDeliveryInput) (Workspace, error) {
+	return s.mutate(wid, actor, false, func(v *Workspace) error {
+		if !isOwner(*v, actor) || isAgent(*v, actor) {
+			return ErrForbidden
+		}
+		if !validDelivery(in) {
+			return ErrInvalid
+		}
+		for ci := range v.Candidates {
+			c := &v.Candidates[ci]
+			if c.ID != cid {
+				continue
+			}
+			if c.Revision != in.ProviderRevision {
+				return ErrInvalid
+			}
+			found := false
+			for _, p := range c.IntegrationPlans {
+				found = found || (p.ID == in.PlanID && p.SelectedRevision == in.ProviderRevision)
+			}
+			if !found {
+				return ErrInvalid
+			}
+			status, blockers := deriveDelivery(in)
+			d := AdoptionDelivery{ID: id("adl_"), AdoptionDeliveryInput: in, Status: status, Blockers: blockers, Observations: []DeliveryObservation{}, CreatedByID: actor, CreatedAt: s.now().UTC(), AuthorityGranted: false}
+			c.Deliveries = append(c.Deliveries, d)
+			v.event("adoption_delivery.connected", actor, d.ID)
+			return nil
+		}
+		return ErrNotFound
+	})
+}
+
+func (s *Store) AddDeliveryObservation(wid, cid, did, actor string, in DeliveryObservation) (Workspace, error) {
+	return s.mutate(wid, actor, false, func(v *Workspace) error {
+		if !canRunTrial(*v, actor) || in.Kind == "" || in.Summary == "" || in.EvidenceReference == "" || !map[string]bool{"health": true, "cost": true, "access": true, "compatibility": true, "criteria": true, "user_acceptance": true, "rollout": true}[in.Kind] || !map[string]bool{"passed": true, "failed": true, "revoked": true, "restored": true}[in.Status] || in.Cost < 0 || (in.Cost > 0 && in.Currency == "") {
+			return ErrInvalid
+		}
+		if in.Status == "restored" && (!isOwner(*v, actor) || isAgent(*v, actor)) {
+			return ErrForbidden
+		}
+		if in.Kind == "user_acceptance" && !isOwner(*v, actor) && !isAffectedUser(*v, actor) {
+			return ErrForbidden
+		}
+		for ci := range v.Candidates {
+			if v.Candidates[ci].ID == cid {
+				for di := range v.Candidates[ci].Deliveries {
+					d := &v.Candidates[ci].Deliveries[di]
+					if d.ID == did {
+						if in.ConsumerRevision != d.ConsumerRevision {
+							return ErrInvalid
+						}
+						if in.Status == "restored" && d.Status != "paused" {
+							return ErrInvalid
+						}
+						if in.Status == "restored" {
+							_, baseBlockers := deriveDelivery(d.AdoptionDeliveryInput)
+							failedObservation := false
+							for _, prior := range d.Observations {
+								failedObservation = failedObservation || prior.Status == "failed" || prior.Status == "revoked"
+							}
+							if len(baseBlockers) > 0 || !failedObservation {
+								return ErrInvalid
+							}
+						}
+						in.ID, in.AddedByID, in.CreatedAt = id("obs_"), actor, s.now().UTC()
+						d.Observations = append(d.Observations, in)
+						if in.Status == "failed" || in.Status == "revoked" {
+							d.Status = "paused"
+							d.Blockers = append(d.Blockers, in.Kind+": "+in.Summary)
+						}
+						if in.Status == "restored" {
+							d.Status = "active"
+							d.Blockers = []string{}
+						}
+						v.event("adoption_delivery."+in.Status, actor, in.ID)
+						return nil
+					}
+				}
+			}
 		}
 		return ErrNotFound
 	})
