@@ -76,6 +76,86 @@ func registerWorkflowDefinitionsHTTP(mux *http.ServeMux, s *workflowdefinitions.
 			writeJSON(w, 201, x)
 		}
 	})
+	mux.HandleFunc("POST "+base+"/{workflow}/candidate-decisions", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Version   int64  `json:"version"`
+			Kind      string `json:"kind"`
+			Decision  string `json:"decision"`
+			Rationale string `json:"rationale"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.RecordCandidateDecision(string(repo.ID), r.PathValue("workflow"), a.UserID, in.Version, in.Kind, in.Decision, in.Rationale)
+		if !workflowDefinitionError(w, e, &x) {
+			writeJSON(w, 201, x)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{workflow}/simulations", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in workflowdefinitions.SimulationResult
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.RecordSimulation(string(repo.ID), r.PathValue("workflow"), a.UserID, in)
+		if !workflowDefinitionError(w, e, &x) {
+			writeJSON(w, 201, x)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{workflow}/exceptions", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in workflowdefinitions.Exception
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.AddException(string(repo.ID), r.PathValue("workflow"), a.UserID, in)
+		if !workflowDefinitionError(w, e, &x) {
+			writeJSON(w, 201, x)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{workflow}/disable", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Reason string `json:"reason"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.Disable(string(repo.ID), r.PathValue("workflow"), a.UserID, in.Reason)
+		if !workflowDefinitionError(w, e, &x) {
+			writeJSON(w, 201, x)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{workflow}/rollback", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Version int64  `json:"version"`
+			Reason  string `json:"reason"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.Rollback(string(repo.ID), r.PathValue("workflow"), a.UserID, in.Version, in.Reason)
+		if !workflowDefinitionError(w, e, &x) {
+			writeJSON(w, 201, x)
+		}
+	})
 	mux.HandleFunc("GET "+base+"/{workflow}/executions", func(w http.ResponseWriter, r *http.Request) {
 		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
 		if !ok {
@@ -120,6 +200,40 @@ func registerWorkflowDefinitionsHTTP(mux *http.ServeMux, s *workflowdefinitions.
 			return
 		}
 		x, e := s.Dispatch(string(repo.ID), r.PathValue("workflow"), r.PathValue("execution"), a.UserID, r.PathValue("step"), in)
+		if !workflowDefinitionError(w, e, nil) {
+			writeJSON(w, 201, x)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{workflow}/executions/{execution}/steps/{step}/approval-requests", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedRevision int64 `json:"expected_revision"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.RequestActionApproval(string(repo.ID), r.PathValue("workflow"), r.PathValue("execution"), a.UserID, r.PathValue("step"), in.ExpectedRevision)
+		if !workflowDefinitionError(w, e, nil) {
+			writeJSON(w, 201, x)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{workflow}/executions/{execution}/approval-requests/{approval}/decisions", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedRevision int64  `json:"expected_revision"`
+			Decision         string `json:"decision"`
+			Rationale        string `json:"rationale"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.DecideActionApproval(string(repo.ID), r.PathValue("workflow"), r.PathValue("execution"), r.PathValue("approval"), a.UserID, in.Decision, in.Rationale, in.ExpectedRevision)
 		if !workflowDefinitionError(w, e, nil) {
 			writeJSON(w, 201, x)
 		}

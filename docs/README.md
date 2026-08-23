@@ -46,6 +46,24 @@ new version returns it to draft for renewed review. Durable state defaults to
 coverage is in `workflow_definitions_http_test.go` and
 `workflowdefinitions/store_test.go`.
 
+Candidate governance binds simulated event cases to the exact definition
+version and shows expected effects, permission requirements, bounded cost, and
+policy conflicts beside named reviewer and resource-owner decisions. Optional
+action-class requirements cover consequential merge, release, infrastructure,
+protected-evidence, and spending effects with approval quorum, separation of
+duties, and expiry. A dispatch cannot proceed on an absent, rejected, or expired
+approval; successful effects append an immutable receipt identifying the exact
+workflow, action/resource revision, attempt, approval, output digests, actor,
+and cost.
+
+Declared owners can emergency-disable a workflow or publish a prior version as
+a new rollback draft. Disablement and authority-changing revisions pause active
+runs and revoke live step credential references without deleting completed
+runs, outputs, decisions, approvals, or receipts. Expiring exceptions remain
+attributable records, not ambient authority. The public regression boundary for
+these controls is `workflow_governance_http_test.go`, and the Agents view shows
+candidate governance, live approvals, emergency state, and action receipts.
+
 ## Durable scoped workflow execution
 
 An active definition can be invoked at

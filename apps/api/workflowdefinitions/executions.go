@@ -98,6 +98,38 @@ type WaitingApproval struct {
 	Summary  string   `json:"summary"`
 	OwnerIDs []string `json:"owner_ids"`
 }
+type ActionApproval struct {
+	ID                 string                   `json:"id"`
+	StepID             string                   `json:"step_id"`
+	ActionClass        string                   `json:"action_class"`
+	RequestedBy        string                   `json:"requested_by"`
+	OwnerIDs           []string                 `json:"owner_ids"`
+	MinimumApprovals   int                      `json:"minimum_approvals"`
+	SeparateFromAuthor bool                     `json:"separate_from_author"`
+	ExpiresAt          time.Time                `json:"expires_at"`
+	Decisions          []ActionApprovalDecision `json:"decisions"`
+	State              string                   `json:"state"`
+	CreatedAt          time.Time                `json:"created_at"`
+}
+type ActionApprovalDecision struct {
+	ActorID   string    `json:"actor_id"`
+	Decision  string    `json:"decision"`
+	Rationale string    `json:"rationale"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type ActionReceipt struct {
+	ID              string           `json:"id"`
+	StepID          string           `json:"step_id"`
+	ActionClass     string           `json:"action_class"`
+	Resource        ResourceRevision `json:"resource"`
+	WorkflowVersion int64            `json:"workflow_version"`
+	Attempt         int              `json:"attempt"`
+	ActorID         string           `json:"actor_id"`
+	ApprovalID      string           `json:"approval_id,omitempty"`
+	OutputDigests   []string         `json:"output_digests"`
+	Cost            float64          `json:"cost"`
+	CreatedAt       time.Time        `json:"created_at"`
+}
 type ExecutionStep struct {
 	ID                  string                 `json:"id"`
 	Name                string                 `json:"name"`
@@ -148,6 +180,8 @@ type Execution struct {
 	UpdatedAt                  time.Time          `json:"updated_at"`
 	CompletedAt                *time.Time         `json:"completed_at,omitempty"`
 	PredictedNextActions       []string           `json:"predicted_next_actions"`
+	ActionApprovals            []ActionApproval   `json:"action_approvals"`
+	ActionReceipts             []ActionReceipt    `json:"action_receipts"`
 }
 type ExecutionCatalog struct {
 	Items []Execution `json:"items"`
@@ -490,6 +524,20 @@ func (s *Store) Dispatch(repo, workflow, execution, actor, step string, in Dispa
 				st = candidate
 			}
 		}
+		for _, requirement := range w.Versions[x.WorkflowVersion-1].Governance.ActionRequirements {
+			if requirement.ActionClass == st.Invocation.ActionClass {
+				approved := false
+				for i := range x.ActionApprovals {
+					a := &x.ActionApprovals[i]
+					if a.StepID == step && a.ActionClass == requirement.ActionClass && a.State == "approved" && a.ExpiresAt.After(now) {
+						approved = true
+					}
+				}
+				if !approved {
+					return ErrBlocked
+				}
+			}
+		}
 		maximumExpiry := now.Add(time.Duration(st.TimeoutSeconds) * time.Second)
 		if maximumExpiry.After(now.Add(15 * time.Minute)) {
 			maximumExpiry = now.Add(15 * time.Minute)
@@ -605,6 +653,21 @@ func (s *Store) RecordResult(repo, workflow, execution, actor, step string, in R
 			}
 			advanceExecution(x, now)
 			x.event("step_succeeded", actor, step, "declared accessible outputs retained", now)
+			if def.Invocation.ActionClass != "" {
+				digests := []string{}
+				for _, o := range a.Outputs {
+					if o.Digest != "" {
+						digests = append(digests, o.Digest)
+					}
+				}
+				approval := ""
+				for _, p := range x.ActionApprovals {
+					if p.StepID == step && p.State == "approved" {
+						approval = p.ID
+					}
+				}
+				x.ActionReceipts = append(x.ActionReceipts, ActionReceipt{newID(), step, def.Invocation.ActionClass, ResourceRevision{def.Invocation.Kind, def.Invocation.Reference, def.Invocation.Revision}, x.WorkflowVersion, a.Number, actor, approval, digests, in.Cost, now})
+			}
 		case "waiting_input":
 			if !safeText(in.RequestedInput) {
 				return ErrInvalid
@@ -642,6 +705,72 @@ func (s *Store) RecordResult(repo, workflow, execution, actor, step string, in R
 			return ErrInvalid
 		}
 		return nil
+	})
+}
+
+func (s *Store) RequestActionApproval(repo, workflow, execution, actor, step string, expected int64) (Execution, error) {
+	return s.mutateExecution(repo, workflow, execution, expected, func(x *Execution, now time.Time) error {
+		if x.State != "running" {
+			return ErrInvalid
+		}
+		w, _ := s.read(repo, workflow)
+		var def Step
+		for _, q := range w.Versions[x.WorkflowVersion-1].Steps {
+			if q.ID == step {
+				def = q
+			}
+		}
+		for _, r := range w.Versions[x.WorkflowVersion-1].Governance.ActionRequirements {
+			if r.ActionClass == def.Invocation.ActionClass {
+				for _, a := range x.ActionApprovals {
+					if a.StepID == step && a.State == "pending" && a.ExpiresAt.After(now) {
+						return errExecutionUnchanged
+					}
+				}
+				x.ActionApprovals = append(x.ActionApprovals, ActionApproval{newID(), step, r.ActionClass, actor, append([]string{}, r.OwnerIDs...), r.MinimumApprovals, r.SeparateFromAuthor, now.Add(time.Duration(r.ApprovalTTLSeconds) * time.Second), nil, "pending", now})
+				x.event("action_approval_requested", actor, step, r.ActionClass, now)
+				return nil
+			}
+		}
+		return ErrInvalid
+	})
+}
+func (s *Store) DecideActionApproval(repo, workflow, execution, approval, actor, decision, rationale string, expected int64) (Execution, error) {
+	return s.mutateExecution(repo, workflow, execution, expected, func(x *Execution, now time.Time) error {
+		if rationale == "" || (decision != "approved" && decision != "rejected") {
+			return ErrInvalid
+		}
+		for i := range x.ActionApprovals {
+			a := &x.ActionApprovals[i]
+			if a.ID != approval {
+				continue
+			}
+			if a.State != "pending" || !a.ExpiresAt.After(now) || !contains(a.OwnerIDs, actor) || a.SeparateFromAuthor && actor == a.RequestedBy {
+				return ErrConflict
+			}
+			for _, d := range a.Decisions {
+				if d.ActorID == actor {
+					return ErrConflict
+				}
+			}
+			a.Decisions = append(a.Decisions, ActionApprovalDecision{actor, decision, rationale, now})
+			if decision == "rejected" {
+				a.State = "rejected"
+			} else {
+				count := 0
+				for _, d := range a.Decisions {
+					if d.Decision == "approved" {
+						count++
+					}
+				}
+				if count >= a.MinimumApprovals {
+					a.State = "approved"
+				}
+			}
+			x.event("action_approval_"+decision, actor, a.StepID, rationale, now)
+			return nil
+		}
+		return ErrNotFound
 	})
 }
 
