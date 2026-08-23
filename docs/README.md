@@ -27,6 +27,39 @@ new version returns it to draft for renewed review. Durable state defaults to
 coverage is in `workflow_definitions_http_test.go` and
 `workflowdefinitions/store_test.go`.
 
+## Durable scoped workflow execution
+
+An active definition can be invoked at
+`POST /repositories/{repository}/workflow-definitions/{workflow}/executions`.
+The durable run freezes the exact workflow version and reviewed repository
+revision together with the triggering event ID and revision, attributed actor,
+typed inputs, permitted action/component/agent revisions, idempotency key, and
+the effective repository, organization, agent, embargo, environment, and
+approval decisions that justified the attempt. Reusing the same event key
+returns the original execution; a changed payload conflicts. Per-definition
+concurrency and rolling rate limits bound admission.
+
+Dependency roots begin ready and downstream steps remain pending until every
+declared prerequisite succeeds. Dispatch issues a non-secret credential
+reference whose subject is one execution step, whose capabilities and resource
+revision come from the frozen definition, and whose expiry is bounded by both
+the step timeout and 15 minutes. Results accept only the step's declared typed,
+accessible, non-secret outputs, so credentials and inaccessible context cannot
+flow through output mappings. Step and workflow budgets are checked before a
+result becomes evidence.
+
+Executions, attempts, credentials, costs, blockers, and an append-only event
+history persist beneath `$WORKFLOW_DEFINITION_ROOT`. Interrupted steps can be
+retried up to their frozen limit with a new idempotency key and credential;
+replayed dispatches and results return the existing state. Cancellation, access
+revocation, stale inputs, policy denial, rate or concurrency pressure, exhausted
+retries, and budget excess are explicit deterministic states. Reads are
+reviewable records only: execution never borrows the invoking user's credential
+and grants no repository, organization, agent, component, embargo, environment,
+approval, merge, release, deployment, or operational authority. Focused public
+API coverage is in `workflow_execution_http_test.go`, with scheduler and restart
+coverage in `workflowdefinitions/executions_test.go`.
+
 ## Software adoption workspaces
 
 `/adoption-workspaces` gives adopters, provider maintainers, affected users, and

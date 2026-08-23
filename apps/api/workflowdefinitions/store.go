@@ -77,10 +77,16 @@ type Input struct {
 	Outputs            []Field   `json:"outputs"`
 	MaximumCost        float64   `json:"maximum_cost"`
 	Currency           string    `json:"currency"`
+	MaximumConcurrency int       `json:"maximum_concurrency,omitempty"`
+	RateLimit          RateLimit `json:"rate_limit,omitempty"`
 	OwnerIDs           []string  `json:"owner_ids"`
 	CompletionCriteria []string  `json:"completion_criteria"`
 	Policies           []Policy  `json:"policies"`
 	ChangeReason       string    `json:"change_reason"`
+}
+type RateLimit struct {
+	MaximumInvocations int `json:"maximum_invocations"`
+	WindowSeconds      int `json:"window_seconds"`
 }
 type Version struct {
 	Number int64 `json:"number"`
@@ -149,6 +155,9 @@ func identifier(s string) bool {
 }
 func valid(in Input) bool {
 	if strings.TrimSpace(in.Name) == "" || strings.TrimSpace(in.Outcome) == "" || in.RepositoryRevision == "" || in.DefinitionPath == "" || in.ChangeReason == "" || len(in.Triggers) == 0 || len(in.Steps) == 0 || len(in.OwnerIDs) == 0 || len(in.CompletionCriteria) == 0 || in.MaximumCost < 0 || in.Currency == "" {
+		return false
+	}
+	if in.MaximumConcurrency < 0 || in.RateLimit.MaximumInvocations < 0 || in.RateLimit.WindowSeconds < 0 || (in.RateLimit.MaximumInvocations == 0) != (in.RateLimit.WindowSeconds == 0) {
 		return false
 	}
 	for _, f := range append(append([]Field{}, in.Inputs...), in.Outputs...) {

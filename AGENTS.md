@@ -17,6 +17,23 @@ surface is `view=agents`. Definitions and activation grant no event, agent,
 component, repository, credential, merge, release, deployment, environment, or
 operational authority.
 
+Active workflow versions may receive durable invocations beneath their
+`/executions` resource. Each execution freezes the definition and repository
+revision, triggering event revision, attributed human, agent, or system actor,
+typed inputs, exact permitted action/component/agent revisions, and current
+repository, organization, agent, embargo, environment, and approval decisions.
+Duplicate idempotency keys return the original run; declared concurrency, rate,
+step, and workflow cost limits prevent unbounded work. Dependency-ready steps
+receive only a reference to a credential scoped to that step's exact resource
+and capabilities, expiring no later than its timeout or 15 minutes, with no
+secret retained. Only declared, accessible, non-secret typed outputs reach
+dependent steps. Attempts and events survive process interruption; retry limits,
+budget exhaustion, cancellation, access revocation, and stale inputs retain a
+deterministic terminal or blocked state and revoke active step credentials.
+Execution records still grant no repository, organization, agent, component,
+embargo, environment, approval, credential, merge, release, deployment, or
+operational authority.
+
 Software adoption workspaces live beneath `$ADOPTION_WORKSPACE_ROOT` (default
 `apps/api/data/adoption-workspaces`). Authenticated collaborators open one from
 an exact roadmap outcome, support gap, incubator, decision, package, API, or
