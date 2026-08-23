@@ -252,6 +252,59 @@ type ResponsePlan struct {
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 }
+type ProofCheck struct {
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	Status     string `json:"status"`
+	EvidenceID string `json:"evidence_id,omitempty"`
+}
+type CorrectionCandidateInput struct {
+	ResponseID        string   `json:"response_id"`
+	WorkID            string   `json:"work_id"`
+	Kind              string   `json:"kind"`
+	Target            Target   `json:"target"`
+	ScenarioID        string   `json:"scenario_id"`
+	AffectedChecks    []string `json:"affected_checks"`
+	RequirementIDs    []string `json:"requirement_ids"`
+	ChangeCriteria    []string `json:"original_change_acceptance_criteria"`
+	QualityPlanID     string   `json:"quality_plan_id,omitempty"`
+	RequiredCheckName string   `json:"required_check_name,omitempty"`
+}
+type CorrectionProof struct {
+	ID                 string       `json:"id"`
+	ScenarioAttemptID  string       `json:"scenario_attempt_id"`
+	BaselineAttemptIDs []string     `json:"baseline_attempt_ids"`
+	Checks             []ProofCheck `json:"checks"`
+	Revision           string       `json:"revision"`
+	ActorID            string       `json:"actor_id"`
+	CreatedAt          time.Time    `json:"created_at"`
+}
+type DeliveryEvent struct {
+	ID         string    `json:"id"`
+	Kind       string    `json:"kind"`
+	ResourceID string    `json:"resource_id"`
+	Revision   string    `json:"revision"`
+	Status     string    `json:"status"`
+	Summary    string    `json:"summary"`
+	ActorID    string    `json:"actor_id"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+type CorrectionCandidate struct {
+	ID string `json:"id"`
+	CorrectionCandidateInput
+	InvestigationVersion int64             `json:"investigation_version"`
+	ScenarioVersion      int64             `json:"scenario_version"`
+	OriginalIntent       string            `json:"original_change_intent"`
+	AcceptanceCriteria   []string          `json:"regression_acceptance_criteria"`
+	Proofs               []CorrectionProof `json:"proofs"`
+	Delivery             []DeliveryEvent   `json:"delivery"`
+	State                string            `json:"state"`
+	Blockers             []string          `json:"blockers"`
+	ReopenedReason       string            `json:"reopened_reason,omitempty"`
+	CreatedByID          string            `json:"created_by_id"`
+	CreatedAt            time.Time         `json:"created_at"`
+	UpdatedAt            time.Time         `json:"updated_at"`
+}
 type Search struct {
 	ID               string                    `json:"id"`
 	ScenarioID       string                    `json:"scenario_id"`
@@ -272,25 +325,255 @@ type Search struct {
 	UpdatedAt        time.Time                 `json:"updated_at"`
 }
 type Investigation struct {
-	ID           string         `json:"id"`
-	RepositoryID string         `json:"repository_id"`
-	Title        string         `json:"title"`
-	Source       Source         `json:"source"`
-	CreatorID    string         `json:"creator_id"`
-	Version      int64          `json:"version"`
-	Scope        Scope          `json:"scope"`
-	Status       string         `json:"status"`
-	Blockers     []string       `json:"blockers"`
-	StaleInputs  []string       `json:"stale_inputs"`
-	Evidence     []Evidence     `json:"evidence"`
-	Entries      []Entry        `json:"entries"`
-	ScopeChanges []ScopeChange  `json:"scope_changes"`
-	Scenarios    []Scenario     `json:"scenarios"`
-	Attempts     []Attempt      `json:"attempts"`
-	Searches     []Search       `json:"searches"`
-	Responses    []ResponsePlan `json:"responses"`
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
+	ID           string                `json:"id"`
+	RepositoryID string                `json:"repository_id"`
+	Title        string                `json:"title"`
+	Source       Source                `json:"source"`
+	CreatorID    string                `json:"creator_id"`
+	Version      int64                 `json:"version"`
+	Scope        Scope                 `json:"scope"`
+	Status       string                `json:"status"`
+	Blockers     []string              `json:"blockers"`
+	StaleInputs  []string              `json:"stale_inputs"`
+	Evidence     []Evidence            `json:"evidence"`
+	Entries      []Entry               `json:"entries"`
+	ScopeChanges []ScopeChange         `json:"scope_changes"`
+	Scenarios    []Scenario            `json:"scenarios"`
+	Attempts     []Attempt             `json:"attempts"`
+	Searches     []Search              `json:"searches"`
+	Responses    []ResponsePlan        `json:"responses"`
+	Corrections  []CorrectionCandidate `json:"correction_candidates"`
+	CreatedAt    time.Time             `json:"created_at"`
+	UpdatedAt    time.Time             `json:"updated_at"`
+}
+
+func (s *Store) CreateCorrection(repo, key, actor string, in CorrectionCandidateInput) (Investigation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(key)
+	if e != nil || v.RepositoryID != repo {
+		return Investigation{}, ErrNotFound
+	}
+	in.ResponseID, in.WorkID, in.Kind, in.ScenarioID = strings.TrimSpace(in.ResponseID), strings.TrimSpace(in.WorkID), strings.TrimSpace(in.Kind), strings.TrimSpace(in.ScenarioID)
+	in.AffectedChecks, in.RequirementIDs, in.ChangeCriteria = clean(in.AffectedChecks), clean(in.RequirementIDs), clean(in.ChangeCriteria)
+	var response *ResponsePlan
+	var work *ResponseWork
+	for i := range v.Responses {
+		if v.Responses[i].ID == in.ResponseID {
+			response = &v.Responses[i]
+		}
+	}
+	if response != nil {
+		for i := range response.Work {
+			if response.Work[i].ID == in.WorkID {
+				work = &response.Work[i]
+			}
+		}
+	}
+	var scenario *Scenario
+	for i := range v.Scenarios {
+		if v.Scenarios[i].ID == in.ScenarioID {
+			scenario = &v.Scenarios[i]
+		}
+	}
+	if response == nil || work == nil || scenario == nil || !map[string]bool{"repair": true, "backport": true}[in.Kind] || in.Target.CommitID == "" || len(in.AffectedChecks) == 0 || len(in.RequirementIDs) == 0 || len(in.ChangeCriteria) == 0 || (in.RequiredCheckName != "" && in.QualityPlanID == "") {
+		return Investigation{}, ErrConflict
+	}
+	if in.Kind == "backport" && len(work.BackportTargets) == 0 {
+		return Investigation{}, ErrConflict
+	}
+	now := s.now().UTC()
+	c := CorrectionCandidate{ID: id(), CorrectionCandidateInput: in, InvestigationVersion: v.Version, ScenarioVersion: scenario.Version, OriginalIntent: response.OriginalIntent, AcceptanceCriteria: append([]string{}, response.AcceptanceCriteria...), State: "awaiting_proof", CreatedByID: actor, CreatedAt: now, UpdatedAt: now}
+	deriveCorrection(&c, v)
+	v.Corrections = append(v.Corrections, c)
+	v.UpdatedAt = now
+	return v, s.write(v)
+}
+
+func (s *Store) AddCorrectionProof(repo, key, candidate, actor string, in CorrectionProof) (Investigation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(key)
+	if e != nil || v.RepositoryID != repo {
+		return Investigation{}, ErrNotFound
+	}
+	var c *CorrectionCandidate
+	for i := range v.Corrections {
+		if v.Corrections[i].ID == candidate {
+			c = &v.Corrections[i]
+		}
+	}
+	if c == nil {
+		return Investigation{}, ErrNotFound
+	}
+	in.BaselineAttemptIDs = clean(in.BaselineAttemptIDs)
+	in.Revision = strings.TrimSpace(in.Revision)
+	known := map[string]Attempt{}
+	for _, a := range v.Attempts {
+		known[a.ID] = a
+	}
+	scenarioAttempt, ok := known[in.ScenarioAttemptID]
+	if !ok || scenarioAttempt.ScenarioID != c.ScenarioID || scenarioAttempt.ScenarioVersion != c.ScenarioVersion || scenarioAttempt.Target.CommitID != c.Target.CommitID || in.Revision != c.Target.CommitID {
+		return Investigation{}, ErrConflict
+	}
+	if len(in.BaselineAttemptIDs) < 2 {
+		return Investigation{}, ErrConflict
+	}
+	hasGood, hasBad := false, false
+	for _, x := range in.BaselineAttemptIDs {
+		a, exists := known[x]
+		if !exists || a.ScenarioID != c.ScenarioID {
+			return Investigation{}, ErrConflict
+		}
+		hasGood = hasGood || a.Classification == "expected_behavior"
+		hasBad = hasBad || a.Classification == "regressed_behavior"
+	}
+	if !hasGood || !hasBad {
+		return Investigation{}, ErrConflict
+	}
+	required := map[string]bool{}
+	for _, x := range c.AffectedChecks {
+		required["check:"+x] = true
+	}
+	for _, x := range c.RequirementIDs {
+		required["requirement:"+x] = true
+	}
+	for _, x := range c.AcceptanceCriteria {
+		required["regression_criterion:"+x] = true
+	}
+	for _, x := range c.ChangeCriteria {
+		required["change_criterion:"+x] = true
+	}
+	seen := map[string]bool{}
+	for i := range in.Checks {
+		x := &in.Checks[i]
+		x.Name = strings.TrimSpace(x.Name)
+		if !map[string]bool{"check": true, "requirement": true, "regression_criterion": true, "change_criterion": true}[x.Kind] || !map[string]bool{"passed": true, "failed": true}[x.Status] || !required[x.Kind+":"+x.Name] || seen[x.Kind+":"+x.Name] {
+			return Investigation{}, ErrConflict
+		}
+		seen[x.Kind+":"+x.Name] = true
+	}
+	if len(seen) != len(required) {
+		return Investigation{}, ErrConflict
+	}
+	in.ID = id()
+	in.ActorID = actor
+	in.CreatedAt = s.now().UTC()
+	c.Proofs = append(c.Proofs, in)
+	c.UpdatedAt = in.CreatedAt
+	deriveCorrection(c, v)
+	v.UpdatedAt = in.CreatedAt
+	return v, s.write(v)
+}
+
+func (s *Store) AddCorrectionDelivery(repo, key, candidate, actor string, in DeliveryEvent) (Investigation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(key)
+	if e != nil || v.RepositoryID != repo {
+		return Investigation{}, ErrNotFound
+	}
+	var c *CorrectionCandidate
+	for i := range v.Corrections {
+		if v.Corrections[i].ID == candidate {
+			c = &v.Corrections[i]
+		}
+	}
+	if c == nil {
+		return Investigation{}, ErrNotFound
+	}
+	in.Kind, in.ResourceID, in.Revision, in.Status, in.Summary = strings.TrimSpace(in.Kind), strings.TrimSpace(in.ResourceID), strings.TrimSpace(in.Revision), strings.TrimSpace(in.Status), strings.TrimSpace(in.Summary)
+	if !map[string]bool{"review": true, "merge": true, "release": true, "deployment": true, "outcome": true}[in.Kind] || !map[string]bool{"passed": true, "failed": true, "reverted": true, "disagreed": true}[in.Status] || in.ResourceID == "" || in.Revision == "" || in.Summary == "" {
+		return Investigation{}, ErrConflict
+	}
+	if in.Kind != "outcome" && in.Revision != c.Target.CommitID {
+		return Investigation{}, ErrConflict
+	}
+	in.ID = id()
+	in.ActorID = actor
+	in.CreatedAt = s.now().UTC()
+	c.Delivery = append(c.Delivery, in)
+	c.UpdatedAt = in.CreatedAt
+	deriveCorrection(c, v)
+	if c.State == "reopened" {
+		v.Status = "open"
+		v.Entries = append(v.Entries, Entry{ID: id(), Sequence: int64(len(v.Entries) + 1), Kind: "status_change", Body: "Correction evidence reopened: " + c.ReopenedReason, ActorID: actor, CreatedAt: in.CreatedAt})
+	}
+	v.UpdatedAt = in.CreatedAt
+	return v, s.write(v)
+}
+
+func deriveCorrection(c *CorrectionCandidate, v Investigation) {
+	c.Blockers = nil
+	c.ReopenedReason = ""
+	if c.InvestigationVersion != v.Version {
+		c.Blockers = append(c.Blockers, "stale_investigation_baseline")
+	}
+	var scenario *Scenario
+	for i := range v.Scenarios {
+		if v.Scenarios[i].ID == c.ScenarioID {
+			scenario = &v.Scenarios[i]
+		}
+	}
+	if scenario == nil || scenario.Version != c.ScenarioVersion {
+		c.Blockers = append(c.Blockers, "stale_scenario_baseline")
+	}
+	passed := false
+	proofs := c.Proofs
+	if len(proofs) > 0 {
+		proofs = proofs[len(proofs)-1:]
+	}
+	for _, p := range proofs {
+		ok := true
+		for _, x := range p.Checks {
+			if x.Status != "passed" {
+				ok = false
+				c.Blockers = append(c.Blockers, "partial_correction")
+			}
+		}
+		if a := attemptByID(v.Attempts, p.ScenarioAttemptID); a == nil || a.Classification != "expected_behavior" {
+			ok = false
+			c.Blockers = append(c.Blockers, "historical_regression_still_present")
+		}
+		passed = passed || ok
+	}
+	if len(c.Proofs) == 0 {
+		c.Blockers = append(c.Blockers, "correction_proof_missing")
+	}
+	c.State = "awaiting_proof"
+	if passed && len(c.Blockers) == 0 {
+		c.State = "verified"
+	}
+	latestDelivery := map[string]DeliveryEvent{}
+	for _, x := range c.Delivery {
+		latestDelivery[x.Kind] = x
+	}
+	for _, x := range latestDelivery {
+		if x.Status == "failed" || x.Status == "reverted" || x.Status == "disagreed" {
+			c.State = "reopened"
+			c.ReopenedReason = x.Kind + "_" + x.Status
+			c.Blockers = append(c.Blockers, c.ReopenedReason)
+		}
+	}
+	if c.State == "verified" {
+		complete := true
+		for _, kind := range []string{"review", "merge", "release", "deployment", "outcome"} {
+			if latestDelivery[kind].Status != "passed" {
+				complete = false
+			}
+		}
+		if complete {
+			c.State = "observed"
+		}
+	}
+}
+func attemptByID(xs []Attempt, id string) *Attempt {
+	for i := range xs {
+		if xs[i].ID == id {
+			return &xs[i]
+		}
+	}
+	return nil
 }
 
 func (s *Store) CreateResponse(repo, key, actor string, in ResponsePlanInput) (Investigation, error) {
@@ -461,6 +744,7 @@ func (s *Store) List(repo string) ([]Investigation, error) {
 			v.Attempts = nil
 			v.Searches = nil
 			v.Responses = nil
+			v.Corrections = nil
 			out = append(out, v)
 		}
 	}
@@ -481,6 +765,9 @@ func (s *Store) ChangeScope(repo, key, actor, reason string, expected int64, sco
 	v.Version++
 	v.Scope = cleanScope(scope)
 	v.Blockers = blockers(v.Scope)
+	for i := range v.Corrections {
+		deriveCorrection(&v.Corrections[i], v)
+	}
 	v.ScopeChanges = append(v.ScopeChanges, ScopeChange{Version: v.Version, ActorID: actor, Reason: strings.TrimSpace(reason), Scope: v.Scope, CreatedAt: now})
 	v.UpdatedAt = now
 	return v, s.write(v)
@@ -524,7 +811,13 @@ func (s *Store) SetStatus(repo, key, actor, status, reason string) (Investigatio
 	if x != nil || v.RepositoryID != repo {
 		return Investigation{}, ErrNotFound
 	}
-	if !validStatus(status) || strings.TrimSpace(reason) == "" || (status == "ready" && len(v.Blockers) > 0) {
+	openCorrection := false
+	for _, c := range v.Corrections {
+		if c.State != "observed" {
+			openCorrection = true
+		}
+	}
+	if !validStatus(status) || strings.TrimSpace(reason) == "" || (status == "ready" && len(v.Blockers) > 0) || (status == "closed" && openCorrection) {
 		return Investigation{}, ErrConflict
 	}
 	now := s.now().UTC()

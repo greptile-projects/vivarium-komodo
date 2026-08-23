@@ -83,3 +83,61 @@ func TestOwnerResponseCarriesEvidenceIntoOrdinaryWork(t *testing.T) {
 		t.Fatalf("preloaded work incomplete: %#v %v", w, err)
 	}
 }
+
+func TestCorrectionProofPreservesIntentAndReopensOnProductionDisagreement(t *testing.T) {
+	s, _ := New(t.TempDir())
+	v, _ := s.Create("repo", "owner", Input{Title: "regression", Scope: Scope{ExpectedBehavior: "old and new documents parse", RegressedBehavior: "old documents fail", AcceptanceCriteria: []string{"old documents parse"}}})
+	v, _ = s.CreateScenario("repo", v.ID, "agent", true, ScenarioDefinition{Title: "historical document", Commands: []string{"test historical"}, Fixtures: []Fixture{{Name: "old document", Reference: "synthetic", Classification: "synthetic"}}, EnvironmentRequirements: []string{"isolated"}, TimeoutSeconds: 10, CostLimit: 1})
+	scenario := v.Scenarios[0].ID
+	addAttempt := func(ref, class string) string {
+		v, _ = s.AddAttempt("repo", v.ID, scenario, "agent", AttemptInput{Target: Target{Kind: "revision", Reference: ref, CommitID: ref}, Environment: Environment{Image: "image", DefinitionDigest: "sha256:env", OS: "linux", Architecture: "amd64", Isolation: "isolated", Network: "none"}, Commands: []string{"test historical"}, Classification: class, Rationale: "repeatable", Currency: "USD", Provenance: Provenance{RunnerID: "runner", RunnerVersion: "1", ActorKind: "agent", StartedAt: "now", CompletedAt: "now", RepetitionCount: 1}})
+		return v.Attempts[len(v.Attempts)-1].ID
+	}
+	good, bad, repaired := addAttempt("good", "expected_behavior"), addAttempt("bad", "regressed_behavior"), addAttempt("repair", "expected_behavior")
+	v, _ = s.CreateSearch("repo", v.ID, "owner", SearchInput{ScenarioID: scenario, GoodKey: "good", BadKey: "bad", ConfidenceTarget: .9, Revisions: []SearchRevision{{Key: "good", Kind: "commit", Revision: "good"}, {Key: "bad", Kind: "commit", Revision: "bad", Parents: []string{"good"}}}})
+	search := v.Searches[0].ID
+	v, _ = s.ClassifyCandidate("repo", v.ID, search, "owner", CandidateClassification{RevisionKey: "good", AttemptIDs: []string{good}, Classification: "working", Rationale: "works"})
+	v, _ = s.ClassifyCandidate("repo", v.ID, search, "owner", CandidateClassification{RevisionKey: "bad", AttemptIDs: []string{bad}, Classification: "regressed", Rationale: "fails"})
+	options := []ResponseOption{}
+	for _, kind := range []string{"revert", "containment", "dependency_adjustment", "forward_repair"} {
+		options = append(options, ResponseOption{ID: kind, Kind: kind, Title: kind, Summary: "response", Tradeoffs: []string{"reviewed"}, AffectedReleases: []string{"v2"}, AffectedWork: []string{"next"}, BackportTargets: []string{"v1"}, EvidenceIDs: []string{bad}})
+	}
+	v, _ = s.CreateResponse("repo", v.ID, "owner", ResponsePlanInput{SearchID: search, CulpritGoodKey: "good", CulpritBadKey: "bad", ReproductionIDs: []string{bad}, Constraints: []string{"retain new syntax"}, AcceptanceCriteria: []string{"old documents parse"}, OriginalIntent: "add new document syntax", OriginalAuthorIDs: []string{"author"}, Options: options, SelectedOptionID: "forward_repair", Rationale: "preserves both"})
+	response := v.Responses[0].ID
+	v, _ = s.AddResponseWork("repo", v.ID, response, "owner", ResponseWork{Kind: "task", ResourceID: "task-1", OwnerID: "agent", OwnerKind: "agent", OptionID: "forward_repair"})
+	work := v.Responses[0].Work[0].ID
+	v, err := s.CreateCorrection("repo", v.ID, "owner", CorrectionCandidateInput{ResponseID: response, WorkID: work, Kind: "repair", Target: Target{Kind: "revision", Reference: "repair", CommitID: "repair"}, ScenarioID: scenario, AffectedChecks: []string{"parser"}, RequirementIDs: []string{"req-compat"}, ChangeCriteria: []string{"new documents parse"}, QualityPlanID: "quality-1", RequiredCheckName: "historical-document"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := v.Corrections[0].ID
+	checks := []ProofCheck{{Name: "parser", Kind: "check", Status: "passed"}, {Name: "req-compat", Kind: "requirement", Status: "passed"}, {Name: "old documents parse", Kind: "regression_criterion", Status: "passed"}, {Name: "new documents parse", Kind: "change_criterion", Status: "passed"}}
+	partial := append([]ProofCheck{}, checks...)
+	partial[3].Status = "failed"
+	v, err = s.AddCorrectionProof("repo", v.ID, candidate, "agent", CorrectionProof{ScenarioAttemptID: repaired, BaselineAttemptIDs: []string{good, bad}, Checks: partial, Revision: "repair"})
+	if err != nil || v.Corrections[0].State != "awaiting_proof" || !contains(v.Corrections[0].Blockers, "partial_correction") {
+		t.Fatalf("partial correction became proof: %#v %v", v.Corrections[0], err)
+	}
+	v, err = s.AddCorrectionProof("repo", v.ID, candidate, "agent", CorrectionProof{ScenarioAttemptID: repaired, BaselineAttemptIDs: []string{good, bad}, Checks: checks, Revision: "repair"})
+	if err != nil || v.Corrections[0].State != "verified" || v.Corrections[0].OriginalIntent != "add new document syntax" {
+		t.Fatalf("proof incomplete: %#v %v", v.Corrections[0], err)
+	}
+	for _, kind := range []string{"review", "merge", "release", "deployment"} {
+		v, err = s.AddCorrectionDelivery("repo", v.ID, candidate, "owner", DeliveryEvent{Kind: kind, ResourceID: kind + "-1", Revision: "repair", Status: "passed", Summary: kind + " retained exact correction provenance"})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	v, err = s.AddCorrectionDelivery("repo", v.ID, candidate, "owner", DeliveryEvent{Kind: "outcome", ResourceID: "signal-0", Revision: "release-repair", Status: "passed", Summary: "supported environments agree"})
+	if err != nil || v.Corrections[0].State != "observed" {
+		t.Fatalf("complete delivery was not observed: %#v %v", v.Corrections[0], err)
+	}
+	v, err = s.SetStatus("repo", v.ID, "owner", "closed", "all supported corrections observed")
+	if err != nil || v.Status != "closed" {
+		t.Fatalf("observed correction could not close: %#v %v", v, err)
+	}
+	v, err = s.AddCorrectionDelivery("repo", v.ID, candidate, "owner", DeliveryEvent{Kind: "outcome", ResourceID: "signal-1", Revision: "release-repair", Status: "disagreed", Summary: "supported environment still rejects old documents"})
+	if err != nil || v.Corrections[0].State != "reopened" || v.Status != "open" {
+		t.Fatalf("production disagreement did not reopen: %#v %v", v.Corrections[0], err)
+	}
+}
