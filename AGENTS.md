@@ -44,6 +44,26 @@ approval, or declared-manual-step takeover controls. Active credentials are
 revoked on pause or invalidation; restricted artifacts retain only a redacted
 digest record, and credential-shaped logs, inputs, and session data are rejected.
 
+Reusable collaboration components live beneath `$WORKFLOW_COMPONENT_ROOT`
+(default `apps/api/data/workflow-components`). Maintainers publish immutable
+versions from their own repository with an exact package version, source
+revision and path, artifact digest, attestation, typed input/output contracts,
+requested capabilities, engine compatibility, data-use terms, passing
+revision-matched tests, support policy, and local or federated publisher
+provenance. Consumer installations freeze the full selected component into an
+ordinary pull-request revision and require every requested capability to map to
+an explicit local permission and resource plus non-secret local configuration.
+Each update appends a new installation revision, so retaining or replacing a
+pin never rewrites its history or any workflow execution. Reads derive changed
+publisher, revoked trust, unavailable peer, vulnerable version, and breaking
+compatibility blockers from the latest observation while preserving every
+prior source and trust snapshot. The public APIs are
+`/repositories/{repository}/workflow-components` and
+`/repositories/{repository}/workflow-component-installations`; inspection and
+local pins appear in `view=agents`. Publications and installations grant no
+package, federation, repository, pull-request, credential, workflow, action,
+agent, environment, or operational authority.
+
 Software adoption workspaces live beneath `$ADOPTION_WORKSPACE_ROOT` (default
 `apps/api/data/adoption-workspaces`). Authenticated collaborators open one from
 an exact roadmap outcome, support gap, incubator, decision, package, API, or

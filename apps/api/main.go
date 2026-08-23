@@ -116,6 +116,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/threatmodels"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/translationunits"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/users"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/workflowcomponents"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/workflowdefinitions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/workspaces"
 )
@@ -190,6 +191,14 @@ func main() {
 		workflowDefinitionRoot = "data/workflow-definitions"
 	}
 	workflowDefinitionStore, err := workflowdefinitions.New(workflowDefinitionRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	workflowComponentRoot := os.Getenv("WORKFLOW_COMPONENT_ROOT")
+	if workflowComponentRoot == "" {
+		workflowComponentRoot = "data/workflow-components"
+	}
+	workflowComponentStore, err := workflowcomponents.New(workflowComponentRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1150,6 +1159,7 @@ func main() {
 	registerAgentProfilesHTTP(mux, agentProfileStore, credentials, userStore)
 	registerAgentProjectsHTTP(mux, agentProjectStore, repositoryCatalog, credentials)
 	registerWorkflowDefinitionsHTTP(mux, workflowDefinitionStore, repositoryCatalog, credentials)
+	registerWorkflowComponentsHTTP(mux, workflowComponentStore, repositoryCatalog, credentials)
 	registerAgentScenariosHTTP(mux, agentScenarioStore, repositoryCatalog, credentials)
 	registerAgentDiscoveryHTTP(mux, agentDiscoveryStore, agentProfileStore, repositoryCatalog, credentials)
 	registerAgentEvaluationsHTTP(mux, agentEvaluationStore, agentProfileStore, repositoryCatalog, organizationStore, credentials, agentEvaluationSources{projects: agentProjectStore, pulls: pullRequestStore})

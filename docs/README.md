@@ -1,5 +1,24 @@
 # Docs
 
+## Reusable workflow components
+
+Repositories publish attested workflow components at
+`/repositories/{repository}/workflow-components`. A component is an immutable
+exact package/source revision with typed contracts, requested capabilities,
+compatibility and data-use terms, passing test attestations, support policy,
+and local or federated publisher provenance. Consumers pin the full record at
+`/repositories/{repository}/workflow-component-installations` through an exact
+pull-request revision, non-secret configuration, and an explicit mapping from
+each requested capability to a local permission and resource.
+
+Installation revisions preserve earlier pins and therefore do not rewrite
+workflow execution history. Current observations keep publisher identity
+changes, revoked trust, unavailable federation peers, vulnerabilities, and
+breaking compatibility visible as blockers while allowing the consumer to
+retain or replace the pinned version. The Agents repository view exposes this
+evidence and mapping; neither publication nor installation grants authority.
+Durable records default beneath `$WORKFLOW_COMPONENT_ROOT`.
+
 ## Governed collaboration workflow definitions
 
 `/repositories/{repository}/workflow-definitions` keeps recurring project
