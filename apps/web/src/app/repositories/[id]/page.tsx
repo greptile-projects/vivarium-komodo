@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Badge, Button } from "@/components/ui";
 import { GroundedQuestions } from "@/components/grounded-questions";
 import { CollaborativeInvestigations } from "@/components/collaborative-investigations";
+import { RegressionInvestigations } from "@/components/regression-investigations";
 import { ImpactAssessments } from "@/components/impact-assessments";
 import { TechnicalDecisions } from "@/components/technical-decisions";
 import { DeliveryTeams } from "@/components/delivery-teams";
@@ -2028,12 +2029,10 @@ export default function RepositoryPage({
           selectedSymbol={query.symbol}
         />
       ) : view === "investigations" ? (
-        <CollaborativeInvestigations
-          repository={repository.id}
-          revision={ref}
-          selected={query.investigation}
-          conversation={query.conversation}
-        />
+        <>
+          <RegressionInvestigations repository={repository.id} revision={ref} />
+          <CollaborativeInvestigations repository={repository.id} revision={ref} selected={query.investigation} conversation={query.conversation} />
+        </>
       ) : view === "impact" ? (
         <ImpactAssessments
           repository={repository.id}

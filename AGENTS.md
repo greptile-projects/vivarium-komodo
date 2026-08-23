@@ -2099,6 +2099,20 @@ whenever dependencies change or the web job fails before it starts.
   Reruns append an exact-revision run and mark older commit-bound entries stale
   rather than rewriting them; never persist workspace output, credentials, or
   hidden agent context in the canvas.
+  Regression search boundaries are separate durable resources beneath
+  `$REGRESSION_INVESTIGATION_ROOT` (default
+  `apps/api/data/regression-investigations`) and share `view=investigations`.
+  Repository writers open one from an issue, support thread, failed check,
+  release, deployment, or reproduction. Resolve known-good and known-bad
+  revisions or releases to visible commits and require the good commit to be
+  an ancestor of the bad commit; retain their original references so moved
+  branches surface as stale inputs. The current scope records expected and
+  regressed behavior, affected environments, comparability, severity, owners,
+  and acceptance criteria, while derived blockers expose omissions. Scope
+  changes use optimistic versions and preserve full attributed snapshots;
+  discussion, hypotheses, status changes, and public or repository-visible
+  evidence remain append-only. A ready boundary grants no testing, Git,
+  repository, agent, release, deployment, or operational authority.
   Prospective impact assessments live beneath `$IMPACT_ASSESSMENT_ROOT`
   (default `apps/api/data/impact-assessments`) and begin from selected code,
   symbols, an exact current investigation conclusion, or a proposed diff. Keep
