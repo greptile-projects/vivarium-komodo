@@ -4244,6 +4244,14 @@ target advance, or newly conflicting queue head blocks or removes the attempt
 without moving either contribution branch; collaborators can synchronize,
 reapprove, or launch a new conflict workspace and enqueue fresh evidence.
 
+`conflict_resolution_workflow_test.go` proves this complete collaboration
+boundary through public HTTP and stock Git. Two independently reviewed changes
+collide in the queue, and their retained reconciliation trail covers textual and
+semantic incompatibility, stale target and concurrent source movement, repeated
+queue conflict, bounded then revoked agent access, an explicitly rejected agent
+suggestion, failed and corrected combined checks, both-owner acceptance,
+two-parent attributed publication, fresh review, and safe queued merge.
+
 Setup materializes only the captured Git tree beneath `$WORKSPACE_ROOT`
 (default `apps/api/data/workspaces`) and executes each command in Bubblewrap
 without network, credentials, repository metadata, or host filesystem access.
