@@ -39,6 +39,22 @@ commands shaped like embedded passwords, secrets, tokens, or credentials are
 rejected. This makes versions comparable from reproducible evidence without
 copying a private machine, production data, or private provider/consumer proof.
 
+A consumer owner can connect a current integration plan to a consumer pull
+request and its exact revision. The delivery freezes pinned dependencies and
+categorized integration, configuration, infrastructure, test, and documentation
+paths alongside provider attestations and revision-matching approval, ordinary
+review, policy, rehearsal, release, support-readiness, and user-acceptance
+evidence. Ordered rollout stages retain the governed environment, exact release
+revision, health, cost, and evidence reference.
+
+Append-only observations retain post-release health, cost, compatibility,
+access, criteria, rollout, and attributable user acceptance. Failed evidence,
+unhealthy rollout, incompatibility, or revoked access pauses the delivery;
+restoration requires an explicit adopter-owner record against the same consumer
+revision. Connecting and observing delivery grants no pull-request merge,
+release, deployment, provider, credential, environment, or operational
+authority to a provider, user, or agent.
+
 ## Responsible project life
 
 `/project-life` carries a current, ready incubated launch into accountable use.
