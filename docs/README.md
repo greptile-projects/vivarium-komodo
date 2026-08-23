@@ -80,6 +80,15 @@ complete revision-matching set of attestation, approval, review, policy,
 rehearsal, release, support-readiness, and user-acceptance evidence. The record
 proves replacement without merging, deploying, or centralizing either project.
 
+The complete adoption regression is `adoption_workspace_workflow_test.go`. It
+connects a declared product need, consented provider and target-user evidence,
+agent reproduction, a denied operating exception, exact provider and consumer
+Git revisions, governed delivery, rollout failure and restoration, a federated
+or fork contribution, provider review and release, and consumer-owned removal
+of the temporary patch. The retained correction paths also cover an unsuitable
+candidate, inaccessible evidence, credential rejection, rejected contribution,
+provider outage, embargoed evidence, and a later-version regression.
+
 ## Responsible project life
 
 `/project-life` carries a current, ready incubated launch into accountable use.
