@@ -42,6 +42,20 @@ user acceptance, and ordered staged-rollout health and cost. Failed criteria,
 incompatibility, unhealthy rollout, or revoked access pause adoption; only an
 adopter owner may record restoration, and neither providers nor agents gain
 merge or environment authority.
+Adopter owners may propose redacted trial findings, reproductions, support
+questions, compatibility evidence, documentation feedback, and usage outcomes
+for an accepted provider maintainer's explicit consent. Each share retains exact
+workspace evidence references and a public, participant, provider, or embargoed
+audience; inaccessible and embargoed bodies are projected as blockers, and
+credential-shaped text is rejected. Consented evidence may accompany ordinary
+provider issues or exact-revision local, fork, or federated pull requests.
+Contribution links retain human or agent authorship, contributor guidance,
+review, checks, security evidence, provider decisions, and a safe local fallback
+without granting repository or merge authority. A maintainer-accepted exact
+release can replace consumer patches only through an adopter-owner verified
+update with revision-matching attestation, approval, review, policy, rehearsal,
+release, support, and user evidence. Rejection, embargo, or provider outage does
+not erase local resolution or expose consumer evidence.
 
 Responsible public-life records live beneath `$PROJECT_LIFE_ROOT` (default
 `apps/api/data/project-life`). A project enters public life only from the exact

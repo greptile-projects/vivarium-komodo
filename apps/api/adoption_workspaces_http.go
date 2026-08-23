@@ -202,4 +202,76 @@ func registerAdoptionWorkspacesHTTP(m *http.ServeMux, s *adoptionworkspaces.Stor
 			writeJSON(w, http.StatusCreated, v)
 		}
 	})
+	m.HandleFunc("POST /adoption-workspaces/{workspace}/candidates/{candidate}/upstream-shares", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authenticateRequest(w, r, c, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in adoptionworkspaces.UpstreamShareInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.AddUpstreamShare(r.PathValue("workspace"), r.PathValue("candidate"), a.UserID, in)
+		if !fail(w, e) {
+			writeJSON(w, http.StatusCreated, v)
+		}
+	})
+	m.HandleFunc("POST /adoption-workspaces/{workspace}/candidates/{candidate}/upstream-shares/{share}/consent", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authenticateRequest(w, r, c, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in struct {
+			Decision string `json:"decision"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.DecideUpstreamShare(r.PathValue("workspace"), r.PathValue("candidate"), r.PathValue("share"), a.UserID, in.Decision)
+		if !fail(w, e) {
+			writeJSON(w, http.StatusCreated, v)
+		}
+	})
+	m.HandleFunc("POST /adoption-workspaces/{workspace}/candidates/{candidate}/upstream-contributions", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authenticateRequest(w, r, c, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in adoptionworkspaces.UpstreamContributionInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.AddUpstreamContribution(r.PathValue("workspace"), r.PathValue("candidate"), a.UserID, in)
+		if !fail(w, e) {
+			writeJSON(w, http.StatusCreated, v)
+		}
+	})
+	m.HandleFunc("POST /adoption-workspaces/{workspace}/candidates/{candidate}/upstream-contributions/{contribution}/decision", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authenticateRequest(w, r, c, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in adoptionworkspaces.ContributionDecisionInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.DecideUpstreamContribution(r.PathValue("workspace"), r.PathValue("candidate"), r.PathValue("contribution"), a.UserID, in)
+		if !fail(w, e) {
+			writeJSON(w, http.StatusCreated, v)
+		}
+	})
+	m.HandleFunc("POST /adoption-workspaces/{workspace}/candidates/{candidate}/verified-updates", func(w http.ResponseWriter, r *http.Request) {
+		a, ok := authenticateRequest(w, r, c, auth.RepositoryWrite)
+		if !ok {
+			return
+		}
+		var in adoptionworkspaces.VerifiedAdoptionUpdateInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		v, e := s.AddVerifiedUpdate(r.PathValue("workspace"), r.PathValue("candidate"), a.UserID, in)
+		if !fail(w, e) {
+			writeJSON(w, http.StatusCreated, v)
+		}
+	})
 }
