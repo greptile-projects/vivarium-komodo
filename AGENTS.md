@@ -1,5 +1,22 @@
 # AGENTS.md
 
+Repository-reviewed collaboration workflow definitions live beneath
+`$WORKFLOW_DEFINITION_ROOT` (default `apps/api/data/workflow-definitions`).
+Repository writers publish immutable versions with exact source revision and
+configuration path, typed event/manual/schedule/webhook triggers, inputs,
+conditions, dependency-ordered or parallel steps, outputs, retry and timeout
+limits, budgets, owners, policies, and completion criteria. Invocations name an
+exact permitted platform action, reusable component, or approved-agent
+revision. Reads preview event subscriptions and effective requested authority
+without granting it. Dependency cycles and missing steps, emitted-event trigger
+loops, inaccessible resources, missing owners, and deny-policy conflicts remain
+attributable activation blockers. Only a declared owner can activate the exact
+current version; every revision returns the workflow to draft. The public API
+is `/repositories/{repository}/workflow-definitions`, and the repository web
+surface is `view=agents`. Definitions and activation grant no event, agent,
+component, repository, credential, merge, release, deployment, environment, or
+operational authority.
+
 Software adoption workspaces live beneath `$ADOPTION_WORKSPACE_ROOT` (default
 `apps/api/data/adoption-workspaces`). Authenticated collaborators open one from
 an exact roadmap outcome, support gap, incubator, decision, package, API, or
