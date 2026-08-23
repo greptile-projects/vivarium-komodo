@@ -171,7 +171,7 @@ func valid(in Input) bool {
 		}
 	}
 	for _, s := range in.Steps {
-		if !identifier(s.ID) || s.Name == "" || (s.Invocation.Kind != "platform_action" && s.Invocation.Kind != "component" && s.Invocation.Kind != "approved_agent") || s.Invocation.Reference == "" || s.Invocation.Revision == "" || s.TimeoutSeconds < 1 || s.Retry.MaximumAttempts < 1 || s.MaximumCost < 0 || len(s.CompletionCriteria) == 0 {
+		if !identifier(s.ID) || s.Name == "" || (s.Invocation.Kind != "platform_action" && s.Invocation.Kind != "component" && s.Invocation.Kind != "approved_agent" && s.Invocation.Kind != "manual") || s.Invocation.Reference == "" || s.Invocation.Revision == "" || s.TimeoutSeconds < 1 || s.Retry.MaximumAttempts < 1 || s.MaximumCost < 0 || len(s.CompletionCriteria) == 0 {
 			return false
 		}
 	}

@@ -109,3 +109,55 @@ func TestStaleAccessAndCancellationRevokeStepIdentity(t *testing.T) {
 		t.Fatalf("cancel: %#v", x)
 	}
 }
+
+func TestExecutionGraphRetainsEvidenceAndSafeCollaboratorInterventions(t *testing.T) {
+	now := time.Date(2026, 8, 23, 8, 0, 0, 0, time.UTC)
+	s, _ := New(t.TempDir())
+	s.now = func() time.Time { return now }
+	in := executableDefinition()
+	in.Steps[1].Optional = true
+	in.Steps = append(in.Steps, Step{ID: "review", Name: "Human review", Needs: []string{"publish"}, Invocation: Invocation{Kind: "manual", Reference: "owner-review", Revision: "v1", Accessible: true, OwnerIDs: []string{"owner"}}, Retry: Retry{MaximumAttempts: 1}, TimeoutSeconds: 300, CompletionCriteria: []string{"review recorded"}})
+	w, err := s.Create("repo", "owner", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = s.Activate("repo", w.ID, "owner", 1)
+	invocation := invokeAt(w.ID, now)
+	invocation.PermittedResources = append(invocation.PermittedResources, ResourceRevision{Kind: "manual", Reference: "owner-review", Revision: "v1"})
+	x, err := s.Invoke("repo", w.ID, "owner", invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, _ = s.Control("repo", w.ID, x.ID, "maintainer", ControlInput{ExpectedRevision: x.Revision, Action: "pause", Reason: "inspect live coordination"})
+	if x.State != "paused" || x.Events[len(x.Events)-1].ActorID != "maintainer" {
+		t.Fatalf("attributable pause: %#v", x)
+	}
+	x, _ = s.Control("repo", w.ID, x.ID, "maintainer", ControlInput{ExpectedRevision: x.Revision, Action: "resume", Reason: "inspection complete"})
+	x, _ = s.Dispatch("repo", w.ID, x.ID, "scheduler", "draft", DispatchInput{ExpectedRevision: x.Revision, IdempotencyKey: "draft-1", CredentialExpiresAt: now.Add(time.Minute)})
+	credential := x.Steps[0].Credential.Reference
+	x, err = s.RecordResult("repo", w.ID, x.ID, "runner", "draft", ResultInput{ExpectedRevision: x.Revision, IdempotencyKey: "draft-1", CredentialReference: credential, State: "waiting_input", RequestedInput: "Choose the public proposal title", Logs: []ExecutionLog{{Level: "info", Message: "Draft assembled without private terminal input"}}, Artifacts: []ExecutionArtifact{{Name: "private trace", Digest: "sha256:abc", MediaType: "text/plain", Accessible: false}}, AgentSession: &AgentSession{ID: "session-1", Revision: "agent-v1", State: "completed"}})
+	if err != nil || x.State != "waiting" || !x.Steps[0].Attempts[0].Artifacts[0].Redacted || x.Steps[0].Attempts[0].Artifacts[0].Name != "restricted artifact" {
+		t.Fatalf("safe wait evidence: %#v %v", x, err)
+	}
+	if _, err = s.Control("repo", w.ID, x.ID, "owner", ControlInput{ExpectedRevision: x.Revision, Action: "provide_input", StepID: "draft", Reason: "must reject private terminal material", Inputs: map[string]any{"terminal_input": "access_token=hidden"}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("credential-shaped requested input must be rejected, got %v", err)
+	}
+	x, err = s.Control("repo", w.ID, x.ID, "owner", ControlInput{ExpectedRevision: x.Revision, Action: "provide_input", StepID: "draft", Reason: "owner selected title", Inputs: map[string]any{"title": "Bounded repair"}})
+	if err != nil || x.Steps[0].State != "ready" || x.Steps[0].ProvidedInputs["title"] != "Bounded repair" {
+		t.Fatalf("provided input: %#v %v", x, err)
+	}
+	x, _ = s.Dispatch("repo", w.ID, x.ID, "scheduler", "draft", DispatchInput{ExpectedRevision: x.Revision, IdempotencyKey: "draft-2", CredentialExpiresAt: now.Add(time.Minute)})
+	x, _ = s.RecordResult("repo", w.ID, x.ID, "runner", "draft", ResultInput{ExpectedRevision: x.Revision, IdempotencyKey: "draft-2", CredentialReference: x.Steps[0].Credential.Reference, State: "succeeded", Outputs: map[string]OutputValue{"proposal": {Value: "proposal-1", Accessible: true}}})
+	x, err = s.Control("repo", w.ID, x.ID, "owner", ControlInput{ExpectedRevision: x.Revision, Action: "skip", StepID: "publish", Reason: "optional publication prohibited by current policy"})
+	if err != nil || x.Steps[1].State != "skipped" || x.Steps[2].State != "manual_ready" {
+		t.Fatalf("optional skip: %#v %v", x, err)
+	}
+	x, err = s.Control("repo", w.ID, x.ID, "reviewer", ControlInput{ExpectedRevision: x.Revision, Action: "take_over", StepID: "review", Reason: "reviewer accepted declared manual work"})
+	if err != nil || x.Steps[2].ManualActorID != "reviewer" {
+		t.Fatalf("manual takeover: %#v %v", x, err)
+	}
+	x, err = s.RecordResult("repo", w.ID, x.ID, "reviewer", "review", ResultInput{ExpectedRevision: x.Revision, IdempotencyKey: x.Steps[2].Attempts[0].IdempotencyKey, State: "succeeded"})
+	if err != nil || x.State != "completed" || len(x.PredictedNextActions) != 0 {
+		t.Fatalf("manual completion: %#v %v", x, err)
+	}
+}

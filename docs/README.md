@@ -60,6 +60,27 @@ approval, merge, release, deployment, or operational authority. Focused public
 API coverage is in `workflow_execution_http_test.go`, with scheduler and restart
 coverage in `workflowdefinitions/executions_test.go`.
 
+The `view=agents` workflow workspace polls active definitions' execution
+resources as a shared live graph. Every run exposes frozen workflow/event/actor
+provenance, declared inputs, dependency and optional/manual step state, every
+attempt, accessible typed outputs, sanitized logs, redacted content-addressed
+artifact metadata, exact agent-session revisions, failure/blocker detail,
+approval and input waits, cumulative cost, timestamps, and server-derived next
+actions. Terminal runs and earlier attempts stay in the same catalog rather
+than disappearing into a runner.
+
+Repository writers can append optimistic, attributable `pause`, `resume`,
+`cancel`, `retry`, optional-step `skip`, non-secret `provide_input`, approval,
+and declared-manual-step `take_over` controls. Pausing or access invalidation
+revokes active step credential references; resumption dispatches a fresh attempt.
+Only definition-optional work can be skipped, only named approval owners can
+approve, and only a `manual` invocation can be taken over. Input, log, output,
+artifact, and session validation rejects credential-shaped or private terminal
+material; inaccessible artifacts retain only an explicit redacted record and
+digest. Controls coordinate the frozen run but grant no additional action,
+agent, repository, evidence, credential, environment, merge, release,
+deployment, or operational authority.
+
 ## Software adoption workspaces
 
 `/adoption-workspaces` gives adopters, provider maintainers, affected users, and
