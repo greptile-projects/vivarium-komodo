@@ -55,6 +55,31 @@ revision. Connecting and observing delivery grants no pull-request merge,
 release, deployment, provider, credential, environment, or operational
 authority to a provider, user, or agent.
 
+Adopter owners return integration learning through candidate
+`/upstream-shares`. A proposed trial finding, reproduction, support question,
+compatibility result, documentation note, or usage outcome contains only
+deliberately redacted details and exact references to workspace evidence. An
+accepted provider maintainer must explicitly accept the share before it can be
+linked to an upstream contribution. Public, shared, provider-only, and embargoed
+visibility are independently enforced; inaccessible projections omit the body
+and citations, and credential-shaped redactions are rejected.
+
+`/upstream-contributions` connects accepted shares to ordinary provider issues
+or local, fork-based, and federated pull requests. Pull links freeze the exact
+revision and retain human or agent authorship, contributor-pathway guidance,
+ordinary review, checks, and security references. These are evidence links, not
+alternate issue or merge APIs: repository owners and provider maintainers keep
+their existing access, review, and acceptance authority. Provider acceptance,
+rejection, embargo, and unavailability remain attributable alongside a required
+safe local fallback.
+
+When accepted work ships, an adopter owner may record `/verified-updates` only
+for the maintainer-accepted release and revision, the prior delivery's exact
+consumer revision, a distinct update revision, named removed patches, and a
+complete revision-matching set of attestation, approval, review, policy,
+rehearsal, release, support-readiness, and user-acceptance evidence. The record
+proves replacement without merging, deploying, or centralizing either project.
+
 ## Responsible project life
 
 `/project-life` carries a current, ready incubated launch into accountable use.

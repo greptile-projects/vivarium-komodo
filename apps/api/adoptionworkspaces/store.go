@@ -79,19 +79,89 @@ type Evidence struct {
 	Gap          string     `json:"gap,omitempty"`
 }
 type Candidate struct {
-	ID                 string             `json:"id"`
-	Project            string             `json:"project"`
-	ProviderRepository string             `json:"provider_repository"`
-	Version            string             `json:"version"`
-	Revision           string             `json:"revision"`
-	Evidence           []Evidence         `json:"evidence"`
-	Coverage           map[string]string  `json:"coverage"`
-	Blockers           []string           `json:"blockers"`
-	AddedByID          string             `json:"added_by_id"`
-	CreatedAt          time.Time          `json:"created_at"`
-	Trials             []Trial            `json:"trials"`
-	IntegrationPlans   []IntegrationPlan  `json:"integration_plans"`
-	Deliveries         []AdoptionDelivery `json:"deliveries"`
+	ID                 string                   `json:"id"`
+	Project            string                   `json:"project"`
+	ProviderRepository string                   `json:"provider_repository"`
+	Version            string                   `json:"version"`
+	Revision           string                   `json:"revision"`
+	Evidence           []Evidence               `json:"evidence"`
+	Coverage           map[string]string        `json:"coverage"`
+	Blockers           []string                 `json:"blockers"`
+	AddedByID          string                   `json:"added_by_id"`
+	CreatedAt          time.Time                `json:"created_at"`
+	Trials             []Trial                  `json:"trials"`
+	IntegrationPlans   []IntegrationPlan        `json:"integration_plans"`
+	Deliveries         []AdoptionDelivery       `json:"deliveries"`
+	UpstreamShares     []UpstreamShare          `json:"upstream_shares"`
+	Contributions      []UpstreamContribution   `json:"contributions"`
+	VerifiedUpdates    []VerifiedAdoptionUpdate `json:"verified_updates"`
+}
+type UpstreamShareInput struct {
+	Kind               string     `json:"kind"`
+	Summary            string     `json:"summary"`
+	RedactedDetails    []string   `json:"redacted_details"`
+	EvidenceReferences []string   `json:"evidence_references"`
+	Visibility         string     `json:"visibility"`
+	EmbargoUntil       *time.Time `json:"embargo_until,omitempty"`
+}
+type UpstreamShare struct {
+	ID string `json:"id"`
+	UpstreamShareInput
+	Consent          string    `json:"consent"`
+	ConsentedByID    string    `json:"consented_by_id,omitempty"`
+	CreatedByID      string    `json:"created_by_id"`
+	CreatedAt        time.Time `json:"created_at"`
+	AuthorityGranted bool      `json:"authority_granted"`
+}
+type UpstreamContributionInput struct {
+	ShareIDs            []string `json:"share_ids"`
+	Kind                string   `json:"kind"`
+	RepositoryID        string   `json:"repository_id"`
+	ResourceID          string   `json:"resource_id"`
+	Revision            string   `json:"revision,omitempty"`
+	AuthorKind          string   `json:"author_kind"`
+	AuthorID            string   `json:"author_id"`
+	ContributorGuidance string   `json:"contributor_guidance"`
+	ReviewReference     string   `json:"review_reference,omitempty"`
+	ChecksReference     string   `json:"checks_reference,omitempty"`
+	SecurityReference   string   `json:"security_reference,omitempty"`
+	LocalResolution     string   `json:"local_resolution"`
+}
+type UpstreamContribution struct {
+	ID string `json:"id"`
+	UpstreamContributionInput
+	Decision         string    `json:"decision"`
+	DecisionReason   string    `json:"decision_reason,omitempty"`
+	DecidedByID      string    `json:"decided_by_id,omitempty"`
+	AcceptedRelease  string    `json:"accepted_release,omitempty"`
+	AcceptedRevision string    `json:"accepted_revision,omitempty"`
+	CreatedByID      string    `json:"created_by_id"`
+	CreatedAt        time.Time `json:"created_at"`
+	AuthorityGranted bool      `json:"authority_granted"`
+}
+type ContributionDecisionInput struct {
+	Decision string `json:"decision"`
+	Reason   string `json:"reason"`
+	Release  string `json:"release,omitempty"`
+	Revision string `json:"revision,omitempty"`
+}
+type VerifiedAdoptionUpdateInput struct {
+	ContributionID       string             `json:"contribution_id"`
+	DeliveryID           string             `json:"delivery_id"`
+	FromConsumerRevision string             `json:"from_consumer_revision"`
+	ToConsumerRevision   string             `json:"to_consumer_revision"`
+	AcceptedRelease      string             `json:"accepted_release"`
+	ProviderRevision     string             `json:"provider_revision"`
+	ReplacedPatches      []string           `json:"replaced_patches"`
+	Evidence             []DeliveryEvidence `json:"evidence"`
+}
+type VerifiedAdoptionUpdate struct {
+	ID string `json:"id"`
+	VerifiedAdoptionUpdateInput
+	Status           string    `json:"status"`
+	VerifiedByID     string    `json:"verified_by_id"`
+	CreatedAt        time.Time `json:"created_at"`
+	AuthorityGranted bool      `json:"authority_granted"`
 }
 type TrialSource struct {
 	Kind        string `json:"kind"`
@@ -495,6 +565,9 @@ func (s *Store) AddCandidate(wid, actor string, c Candidate) (Workspace, error) 
 		c.Trials = []Trial{}
 		c.IntegrationPlans = []IntegrationPlan{}
 		c.Deliveries = []AdoptionDelivery{}
+		c.UpstreamShares = []UpstreamShare{}
+		c.Contributions = []UpstreamContribution{}
+		c.VerifiedUpdates = []VerifiedAdoptionUpdate{}
 		v.Candidates = append(v.Candidates, c)
 		v.event("candidate.added", actor, c.ID)
 		return nil
@@ -789,6 +862,229 @@ func (s *Store) AddDeliveryObservation(wid, cid, did, actor string, in DeliveryO
 	})
 }
 
+var upstreamShareKinds = map[string]bool{"trial_finding": true, "reproduction": true, "support_question": true, "compatibility_evidence": true, "documentation_feedback": true, "usage_outcome": true}
+var upstreamContributionKinds = map[string]bool{"issue": true, "local_pull_request": true, "fork_pull_request": true, "federated_pull_request": true}
+
+func isProviderMaintainer(v Workspace, actor string) bool {
+	for _, p := range v.Participants {
+		if p.SubjectID == actor && p.Kind == "human" && p.Role == "provider_maintainer" && p.Consent == "accepted" {
+			return true
+		}
+	}
+	return false
+}
+
+func candidateEvidenceReferences(c Candidate) map[string]bool {
+	refs := map[string]bool{}
+	for _, e := range c.Evidence {
+		refs["evidence:"+e.ID] = true
+	}
+	for _, t := range c.Trials {
+		refs["trial:"+t.ID] = true
+		for _, a := range t.Attempts {
+			refs["attempt:"+a.ID] = true
+		}
+		for _, f := range t.Feedback {
+			refs["feedback:"+f.ID] = true
+		}
+	}
+	for _, d := range c.Deliveries {
+		refs["delivery:"+d.ID] = true
+		for _, o := range d.Observations {
+			refs["observation:"+o.ID] = true
+		}
+	}
+	return refs
+}
+
+func safeUpstreamText(xs []string) bool {
+	if !listOK(xs, true) || !safeStrings(xs) {
+		return false
+	}
+	for _, x := range xs {
+		lower := strings.ToLower(x)
+		if strings.Contains(lower, "password:") || strings.Contains(lower, "secret:") || strings.Contains(lower, "token:") || strings.Contains(lower, "credential:") || strings.Contains(lower, "private key") {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Store) AddUpstreamShare(wid, cid, actor string, in UpstreamShareInput) (Workspace, error) {
+	return s.mutate(wid, actor, false, func(v *Workspace) error {
+		if !isOwner(*v, actor) || isAgent(*v, actor) {
+			return ErrForbidden
+		}
+		if !upstreamShareKinds[in.Kind] || strings.TrimSpace(in.Summary) == "" || !safeUpstreamText(append([]string{in.Summary}, in.RedactedDetails...)) || !listOK(in.EvidenceReferences, true) || !map[string]bool{"public": true, "shared": true, "provider": true, "embargoed": true}[in.Visibility] || (in.Visibility == "embargoed" && (in.EmbargoUntil == nil || !in.EmbargoUntil.After(s.now()))) {
+			return ErrInvalid
+		}
+		for ci := range v.Candidates {
+			c := &v.Candidates[ci]
+			if c.ID != cid {
+				continue
+			}
+			known := candidateEvidenceReferences(*c)
+			for _, ref := range in.EvidenceReferences {
+				if !known[ref] {
+					return ErrInvalid
+				}
+			}
+			x := UpstreamShare{ID: id("ush_"), UpstreamShareInput: in, Consent: "pending", CreatedByID: actor, CreatedAt: s.now().UTC(), AuthorityGranted: false}
+			c.UpstreamShares = append(c.UpstreamShares, x)
+			v.event("upstream_share.proposed", actor, x.ID)
+			return nil
+		}
+		return ErrNotFound
+	})
+}
+
+func (s *Store) DecideUpstreamShare(wid, cid, sid, actor, decision string) (Workspace, error) {
+	return s.mutate(wid, actor, false, func(v *Workspace) error {
+		if !isProviderMaintainer(*v, actor) {
+			return ErrForbidden
+		}
+		if decision != "accepted" && decision != "declined" {
+			return ErrInvalid
+		}
+		for ci := range v.Candidates {
+			if v.Candidates[ci].ID == cid {
+				for si := range v.Candidates[ci].UpstreamShares {
+					x := &v.Candidates[ci].UpstreamShares[si]
+					if x.ID == sid {
+						if x.Consent != "pending" {
+							return ErrInvalid
+						}
+						x.Consent, x.ConsentedByID = decision, actor
+						v.event("upstream_share."+decision, actor, sid)
+						return nil
+					}
+				}
+			}
+		}
+		return ErrNotFound
+	})
+}
+
+func (s *Store) AddUpstreamContribution(wid, cid, actor string, in UpstreamContributionInput) (Workspace, error) {
+	return s.mutate(wid, actor, false, func(v *Workspace) error {
+		if !canRunTrial(*v, actor) || !upstreamContributionKinds[in.Kind] || in.RepositoryID == "" || in.ResourceID == "" || in.AuthorID == "" || !map[string]bool{"human": true, "agent": true}[in.AuthorKind] || in.ContributorGuidance == "" || in.LocalResolution == "" || !safeUpstreamText([]string{in.ContributorGuidance, in.LocalResolution}) || len(in.ShareIDs) == 0 {
+			return ErrInvalid
+		}
+		if in.Kind != "issue" && (in.Revision == "" || in.ReviewReference == "" || in.ChecksReference == "" || in.SecurityReference == "") {
+			return ErrInvalid
+		}
+		if in.AuthorID != actor {
+			return ErrForbidden
+		}
+		for ci := range v.Candidates {
+			c := &v.Candidates[ci]
+			if c.ID == cid {
+				if in.Kind != "local_pull_request" && in.RepositoryID != c.ProviderRepository {
+					return ErrInvalid
+				}
+				accepted := map[string]bool{}
+				for _, x := range c.UpstreamShares {
+					if x.Consent == "accepted" {
+						accepted[x.ID] = true
+					}
+				}
+				for _, sid := range in.ShareIDs {
+					if !accepted[sid] {
+						return ErrInvalid
+					}
+				}
+				x := UpstreamContribution{ID: id("uct_"), UpstreamContributionInput: in, Decision: "pending", CreatedByID: actor, CreatedAt: s.now().UTC(), AuthorityGranted: false}
+				c.Contributions = append(c.Contributions, x)
+				v.event("upstream_contribution.linked", actor, x.ID)
+				return nil
+			}
+		}
+		return ErrNotFound
+	})
+}
+
+func (s *Store) DecideUpstreamContribution(wid, cid, contribution, actor string, in ContributionDecisionInput) (Workspace, error) {
+	return s.mutate(wid, actor, false, func(v *Workspace) error {
+		providerDecision := map[string]bool{"accepted": true, "rejected": true, "embargoed": true}[in.Decision]
+		if providerDecision && !isProviderMaintainer(*v, actor) {
+			return ErrForbidden
+		}
+		if in.Decision == "provider_unavailable" && !isOwner(*v, actor) {
+			return ErrForbidden
+		}
+		if !providerDecision && in.Decision != "provider_unavailable" {
+			return ErrInvalid
+		}
+		if in.Reason == "" || (in.Decision == "accepted" && (in.Release == "" || in.Revision == "")) {
+			return ErrInvalid
+		}
+		for ci := range v.Candidates {
+			if v.Candidates[ci].ID == cid {
+				for i := range v.Candidates[ci].Contributions {
+					x := &v.Candidates[ci].Contributions[i]
+					if x.ID == contribution {
+						if x.Decision != "pending" {
+							return ErrInvalid
+						}
+						x.Decision, x.DecisionReason, x.DecidedByID, x.AcceptedRelease, x.AcceptedRevision = in.Decision, in.Reason, actor, in.Release, in.Revision
+						v.event("upstream_contribution."+in.Decision, actor, x.ID)
+						return nil
+					}
+				}
+			}
+		}
+		return ErrNotFound
+	})
+}
+
+func (s *Store) AddVerifiedUpdate(wid, cid, actor string, in VerifiedAdoptionUpdateInput) (Workspace, error) {
+	return s.mutate(wid, actor, false, func(v *Workspace) error {
+		if !isOwner(*v, actor) || isAgent(*v, actor) {
+			return ErrForbidden
+		}
+		if in.FromConsumerRevision == "" || in.ToConsumerRevision == "" || in.FromConsumerRevision == in.ToConsumerRevision || len(in.ReplacedPatches) == 0 || !safeStrings(in.ReplacedPatches) {
+			return ErrInvalid
+		}
+		for ci := range v.Candidates {
+			c := &v.Candidates[ci]
+			if c.ID == cid {
+				var contribution *UpstreamContribution
+				for i := range c.Contributions {
+					if c.Contributions[i].ID == in.ContributionID {
+						contribution = &c.Contributions[i]
+					}
+				}
+				var delivery *AdoptionDelivery
+				for i := range c.Deliveries {
+					if c.Deliveries[i].ID == in.DeliveryID {
+						delivery = &c.Deliveries[i]
+					}
+				}
+				if contribution == nil || contribution.Decision != "accepted" || delivery == nil || delivery.ConsumerRevision != in.FromConsumerRevision || contribution.AcceptedRelease != in.AcceptedRelease || contribution.AcceptedRevision != in.ProviderRevision {
+					return ErrInvalid
+				}
+				seen := map[string]bool{}
+				for _, e := range in.Evidence {
+					if !deliveryEvidenceKinds[e.Kind] || e.Status != "passed" || e.Revision != in.ToConsumerRevision || e.Reference == "" {
+						return ErrInvalid
+					}
+					seen[e.Kind] = true
+				}
+				for k := range deliveryEvidenceKinds {
+					if !seen[k] {
+						return ErrInvalid
+					}
+				}
+				x := VerifiedAdoptionUpdate{ID: id("aup_"), VerifiedAdoptionUpdateInput: in, Status: "verified", VerifiedByID: actor, CreatedAt: s.now().UTC(), AuthorityGranted: false}
+				c.VerifiedUpdates = append(c.VerifiedUpdates, x)
+				v.event("adoption_update.verified", actor, x.ID)
+				return nil
+			}
+		}
+		return ErrNotFound
+	})
+}
+
 func hasJourney(v Workspace, journey string) bool {
 	for _, x := range v.RequiredJourneys {
 		if x == journey {
@@ -1063,6 +1359,43 @@ func (s *Store) project(v Workspace, actor string) Workspace {
 				t.Feedback = nil
 				t.Status = "inaccessible"
 				t.Blockers = []string{"trial evidence is not accessible to this viewer"}
+			}
+		}
+		visibleShares := map[string]bool{}
+		for si := range c.UpstreamShares {
+			x := &c.UpstreamShares[si]
+			accessible := x.CreatedByID == actor || isOwner(v, actor) || (x.Consent == "accepted" && (x.Visibility == "public" || (x.Visibility == "shared" && participant) || (x.Visibility == "provider" && provider) || (x.Visibility == "embargoed" && (provider || (x.EmbargoUntil != nil && !x.EmbargoUntil.After(now))))))
+			if !accessible {
+				x.Summary = ""
+				x.RedactedDetails = nil
+				x.EvidenceReferences = nil
+				x.Consent = "inaccessible"
+				x.ConsentedByID = ""
+			} else {
+				visibleShares[x.ID] = true
+			}
+		}
+		visibleContributions := map[string]bool{}
+		for i := range c.Contributions {
+			x := &c.Contributions[i]
+			accessible := true
+			for _, sid := range x.ShareIDs {
+				accessible = accessible && visibleShares[sid]
+			}
+			if !accessible {
+				x.RepositoryID, x.ResourceID, x.Revision, x.AuthorID = "", "", "", ""
+				x.ContributorGuidance, x.ReviewReference, x.ChecksReference, x.SecurityReference, x.LocalResolution = "", "", "", "", ""
+				x.Decision, x.DecisionReason, x.DecidedByID, x.AcceptedRelease, x.AcceptedRevision = "inaccessible", "", "", "", ""
+			} else {
+				visibleContributions[x.ID] = true
+			}
+		}
+		for i := range c.VerifiedUpdates {
+			x := &c.VerifiedUpdates[i]
+			if !visibleContributions[x.ContributionID] {
+				x.ContributionID, x.DeliveryID, x.FromConsumerRevision, x.ToConsumerRevision = "", "", "", ""
+				x.AcceptedRelease, x.ProviderRevision, x.VerifiedByID = "", "", ""
+				x.ReplacedPatches, x.Evidence, x.Status = nil, nil, "inaccessible"
 			}
 		}
 		sort.Strings(c.Blockers)
