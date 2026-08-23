@@ -4198,6 +4198,17 @@ shared reconciliation surface. Publication remains bound to the target
 repository and its ordinary write checks; neither history conveys authority to
 the other repository.
 
+The workspace makes base, source, target, and the proposed workspace result
+visible together. Writers append revision-grounded questions, answers,
+proposals, applied-edit explanations, and undo explanations at `POST
+.../workspaces/{workspace}/resolutions`. Every entry cites exact frozen evidence
+and retains human or agent authorship, paths, assumptions, uncertainty, and the
+effect on named acceptance criteria, design decisions, migrations, or user
+behaviors as preserved, intentionally changed, or unknown. These records do not
+edit files themselves: ordinary bounded workspace editing, checkpoints and
+restore provide apply and undo, while existing pause and revoke controls contain
+agent work. None grants merge, secret, credential, or environment authority.
+
 Setup materializes only the captured Git tree beneath `$WORKSPACE_ROOT`
 (default `apps/api/data/workspaces`) and executes each command in Bubblewrap
 without network, credentials, repository metadata, or host filesystem access.

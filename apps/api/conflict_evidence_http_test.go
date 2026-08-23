@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
@@ -110,5 +111,23 @@ func TestCurrentConflictLaunchesAuthorityBoundSharedWorkspace(t *testing.T) {
 	_ = json.Unmarshal(response.Body.Bytes(), &created)
 	if response.Code != http.StatusCreated || created.Context.Conflict == nil || created.Context.Conflict.Source.CommitID != string(source) || created.Context.Conflict.Target.CommitID != string(target) || created.Context.Conflict.PublishRepositoryID != string(repository.ID) || len(created.Context.Conflict.OwnerIDs) != 2 {
 		t.Fatalf("workspace = %#v status=%d body=%s", created, response.Code, response.Body.String())
+	}
+	// Questions and proposed edits must cite one of the workspace's frozen
+	// revisions and make their effect on intended outcomes inspectable.
+	resolutionURL := "/repositories/" + string(repository.ID) + "/workspaces/" + created.ID + "/resolutions"
+	request = httptest.NewRequest(http.MethodPost, resolutionURL, strings.NewReader(`{"kind":"proposal","summary":"Keep the source value while retaining the target setup contract","paths":["contract.go"],"evidence":[{"kind":"source_change","reference":"contract.go:2","revision":"`+string(source)+`","path":"contract.go"},{"kind":"target_change","reference":"contract.go:2","revision":"`+string(target)+`","path":"contract.go"}],"impacts":[{"kind":"acceptance_criterion","outcome":"source callers receive Value 2","disposition":"preserved","rationale":"the proposed constant matches the exact source revision"},{"kind":"design_decision","outcome":"target workspace setup remains available","disposition":"preserved","rationale":"the target .komodo tree is not changed"}],"assumptions":["no caller depends on Value 3"],"uncertainty":"combined checks have not run","actor_kind":"agent"}`))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	_ = json.Unmarshal(response.Body.Bytes(), &created)
+	if response.Code != http.StatusCreated || len(created.Resolutions) != 1 || created.Resolutions[0].ActorID != "maintainer" || created.Resolutions[0].Impacts[0].Disposition != "preserved" || created.Resolutions[0].Uncertainty == "" {
+		t.Fatalf("resolution ledger = %#v status=%d body=%s", created.Resolutions, response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPost, resolutionURL, strings.NewReader(`{"kind":"question","summary":"Was this checked against a newer branch?","evidence":[{"kind":"branch","reference":"moving tip","revision":"not-frozen"}]}`))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unfrozen evidence status=%d body=%s", response.Code, response.Body.String())
 	}
 }

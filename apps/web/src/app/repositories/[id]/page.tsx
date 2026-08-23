@@ -138,7 +138,7 @@ type DevelopmentWorkspace = {
   repository_id: string;
   revision: string;
   creator_id: string;
-  source_context: { type: string; id?: string; parent_id?: string };
+  source_context: { type: string; id?: string; parent_id?: string; conflict?: { pull_request_id:string; base_commit_id:string; source:{repository_id:string;branch:string;commit_id:string}; target:{repository_id:string;branch:string;commit_id:string}; evidence:Array<{kind:string;path?:string;symbol?:string;detail:string}> } };
   effective_access: { actor_id: string; permission: string };
   definition: {
     version: number;
@@ -253,6 +253,7 @@ type DevelopmentWorkspace = {
       reasons: string[];
     };
   }>;
+  resolutions?: Array<{id:string;parent_id?:string;kind:"question"|"answer"|"proposal"|"applied"|"undone";summary:string;paths?:string[];evidence:Array<{kind:string;reference:string;revision:string;path?:string}>;impacts?:Array<{kind:string;outcome:string;disposition:"preserved"|"changed"|"unknown";rationale:string}>;assumptions?:string[];uncertainty?:string;actor_id:string;actor_kind:"human"|"agent";created_at:string}>;
 };
 type WorkspaceFile = {
   path: string;
@@ -2782,6 +2783,7 @@ function DevelopmentWorkspaces({
   const [command, setCommand] = useState("");
   const [terminal, setTerminal] = useState("");
   const [message, setMessage] = useState("");
+  const [resolutionSummary, setResolutionSummary] = useState("");
   const [controlSubject, setControlSubject] = useState("");
   const [checkpointSummary, setCheckpointSummary] = useState("");
   const [checkpointPaths, setCheckpointPaths] = useState("");
@@ -3257,6 +3259,7 @@ function DevelopmentWorkspaces({
                 Rebuild required: {inspected.rebuild_reasons?.join(", ")}
               </p>
             )}
+            {inspected.source_context.conflict && <section className="workspace-collaboration"><p className="eyebrow">Meaning-preserving reconciliation</p><h4>Base, source, target, and proposed result</h4><p>Base <code>{short(inspected.source_context.conflict.base_commit_id)}</code> · source <code>{short(inspected.source_context.conflict.source.commit_id)}</code> · target <code>{short(inspected.source_context.conflict.target.commit_id)}</code> · workspace result <code>{short(inspected.revision)}</code></p>{inspected.source_context.conflict.evidence.map((item,index)=><p key={`${item.kind}-${index}`}><Badge>{item.kind}</Badge> <code>{item.path||item.symbol}</code> — {item.detail}</p>)}<h4>Revision-grounded questions and resolutions</h4>{inspected.resolutions?.map(entry=><article className="panel" key={entry.id}><p><Badge>{entry.kind}</Badge> <Badge>{entry.actor_kind}</Badge> <Actor id={entry.actor_id}/></p><strong>{entry.summary}</strong>{entry.evidence.map((e,index)=><small key={index}><br/>{e.kind}: {e.reference} · <code>{short(e.revision)}</code></small>)}{entry.impacts?.map((impact,index)=><p key={index}><Badge>{impact.disposition}</Badge> {impact.kind.replaceAll("_"," ")}: {impact.outcome} — {impact.rationale}</p>)}{entry.assumptions?.length?<p><strong>Assumptions:</strong> {entry.assumptions.join(" · ")}</p>:null}{entry.uncertainty&&<p><strong>Uncertainty:</strong> {entry.uncertainty}</p>}</article>)}{actor&&inspected.state==="ready"&&<form className="form-stack" onSubmit={async e=>{e.preventDefault();const f=new FormData(e.currentTarget);const revision=String(f.get("revision"));await send(`/repositories/${repository.id}/workspaces/${inspected.id}/resolutions`,"POST",{kind:f.get("kind"),summary:resolutionSummary,paths:String(f.get("paths")).split("\n").filter(Boolean),evidence:[{kind:"code_or_intent",reference:f.get("reference"),revision}],impacts:f.get("kind")==="question"?[]:[{kind:f.get("impact_kind"),outcome:f.get("outcome"),disposition:f.get("disposition"),rationale:f.get("rationale")}],assumptions:String(f.get("assumptions")).split("\n").filter(Boolean),uncertainty:f.get("uncertainty"),actor_kind:"human"});setResolutionSummary("");await load()}}><label>Entry type<select name="kind"><option value="question">Question</option><option value="answer">Answer</option><option value="proposal">Proposed resolution</option><option value="applied">Applied edit</option><option value="undone">Undone edit</option></select></label><label>Question or resolution summary<textarea required value={resolutionSummary} onChange={e=>setResolutionSummary(e.target.value)}/></label><label>Exact evidence reference<input name="reference" placeholder="path:line, check, criterion, or decision ID" required/></label><label>Evidence revision<select name="revision"><option value={inspected.source_context.conflict.base_commit_id}>Base</option><option value={inspected.source_context.conflict.source.commit_id}>Source</option><option value={inspected.source_context.conflict.target.commit_id}>Target</option><option value={inspected.revision}>Proposed workspace result</option></select></label><label>Affected paths<textarea name="paths"/></label><label>Outcome class<select name="impact_kind"><option value="acceptance_criterion">Acceptance criterion</option><option value="design_decision">Design decision</option><option value="migration">Migration</option><option value="user_behavior">User behavior</option></select></label><label>Outcome<input name="outcome"/></label><label>Disposition<select name="disposition"><option value="preserved">Preserved</option><option value="changed">Intentionally changed</option><option value="unknown">Unknown</option></select></label><label>Rationale<textarea name="rationale"/></label><label>Assumptions<textarea name="assumptions" placeholder="One inspectable assumption per line"/></label><label>Uncertainty<textarea name="uncertainty"/></label><Button size="sm">Record without merging</Button></form>}<p><strong>Control remains local:</strong> use checkpoints to undo edits and the controls above to pause or revoke agent access. These records grant no merge, secret, credential, or environment authority.</p></section>}
             {inspected.consumption?.length ? (
               <p>
                 Attributed consumption:{" "}

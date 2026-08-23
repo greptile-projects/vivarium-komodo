@@ -31,6 +31,7 @@ type workspaceStore interface {
 	AddMessage(string, string, string, string) (workspaces.Workspace, error)
 	Grant(string, string, string, string, string, string, []string) (workspaces.Workspace, error)
 	Intervene(string, string, string, string, string, string, int64) (workspaces.Workspace, error)
+	AddResolution(string, string, string, workspaces.ResolutionEntry) (workspaces.Workspace, error)
 	RecordPublication(string, string, string, workspaces.Publication) (workspaces.Workspace, error)
 	LinkPublicationPullRequest(string, string, string, string) (workspaces.Workspace, error)
 	SetPolicy(string, string, workspaces.Policy) (workspaces.Policy, error)
@@ -75,6 +76,7 @@ func registerWorkspacesHTTP(mux *http.ServeMux, store workspaceStore, runner wor
 	mux.HandleFunc("GET "+base+"/{workspace}/preview/{port}/{path...}", workspacePreview(store, runner, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/presence", workspacePresence(store, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/messages", workspaceMessage(store, repositories, credentials))
+	mux.HandleFunc("POST "+base+"/{workspace}/resolutions", workspaceResolution(store, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/checkpoints", createWorkspaceCheckpoint(store, runner, repositories, credentials))
 	mux.HandleFunc("GET "+base+"/{workspace}/checkpoints/{checkpoint}", getWorkspaceCheckpoint(store, runner, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/checkpoints/{checkpoint}/restore", restoreWorkspaceCheckpoint(store, runner, repositories, credentials))
@@ -96,6 +98,58 @@ func registerWorkspacesHTTP(mux *http.ServeMux, store workspaceStore, runner wor
 	mux.HandleFunc("POST "+base+"/{workspace}/controls/{control}/interventions", workspaceIntervention(store, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/checkpoints/{checkpoint}/publication", publishWorkspaceCheckpoint(store, runner, repositories, credentials, plans, pulls, checks))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/conflicts/workspace", createConflictWorkspace(store, runner, repositories, credentials, pulls))
+}
+
+func workspaceResolution(store workspaceStore, repositories taskSessionRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in workspaces.ResolutionEntry
+		if !readJSON(w, r, &in, 32<<10) {
+			return
+		}
+		in.Kind, in.Summary, in.Uncertainty = strings.TrimSpace(in.Kind), strings.TrimSpace(in.Summary), strings.TrimSpace(in.Uncertainty)
+		allowedKind := map[string]bool{"question": true, "answer": true, "proposal": true, "applied": true, "undone": true}
+		allowedImpact := map[string]bool{"acceptance_criterion": true, "design_decision": true, "migration": true, "user_behavior": true}
+		allowedDisposition := map[string]bool{"preserved": true, "changed": true, "unknown": true}
+		if !allowedKind[in.Kind] || in.Summary == "" || len(in.Evidence) == 0 || (in.Kind != "question" && len(in.Impacts) == 0) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_resolution_entry"})
+			return
+		}
+		current, err := store.Get(string(repository.ID), r.PathValue("workspace"))
+		if err != nil || current.Context.Conflict == nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		validRevision := map[string]bool{current.Context.Conflict.BaseCommitID: true, current.Context.Conflict.Source.CommitID: true, current.Context.Conflict.Target.CommitID: true, current.Revision: true}
+		for _, e := range in.Evidence {
+			if strings.TrimSpace(e.Reference) == "" || !validRevision[e.Revision] {
+				writeJSON(w, 422, map[string]string{"error": "evidence_revision_not_frozen"})
+				return
+			}
+		}
+		for _, impact := range in.Impacts {
+			if !allowedImpact[impact.Kind] || !allowedDisposition[impact.Disposition] || strings.TrimSpace(impact.Outcome) == "" || strings.TrimSpace(impact.Rationale) == "" {
+				writeJSON(w, 422, map[string]string{"error": "invalid_outcome_impact"})
+				return
+			}
+		}
+		if in.ActorKind == "" {
+			in.ActorKind = "human"
+		}
+		if in.ActorKind != "human" && in.ActorKind != "agent" {
+			writeJSON(w, 422, map[string]string{"error": "invalid_actor_kind"})
+			return
+		}
+		item, err := store.AddResolution(string(repository.ID), current.ID, actor.UserID, in)
+		if err != nil {
+			writeWorkspaceResult(w, item, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, item)
+	}
 }
 
 func createConflictWorkspace(store workspaceStore, runner workspaceRunner, repositories taskSessionRepositoryStore, credentials authStore, pulls pullRequestStore) http.HandlerFunc {
