@@ -19,6 +19,24 @@ retain or replace the pinned version. The Agents repository view exposes this
 evidence and mapping; neither publication nor installation grants authority.
 Durable records default beneath `$WORKFLOW_COMPONENT_ROOT`.
 
+The end-to-end product boundary is `workflow_automation_workflow_test.go`. A
+team reviews and activates an issue-accepted workflow, redirects and resumes a
+bounded approved-agent repair, and observes the same durable run through stock
+Git contribution, pull creation, human review, required checks, merge queue,
+release build, and protected deployment approval. Connected platform APIs keep
+their own authority checks; the workflow retains exact identities, revisions,
+outputs, decisions, receipts, evidence, costs, and outcome instead of borrowing
+the triggering collaborator's authority.
+
+The boundary also replays the failure contract: duplicate admission returns
+the original execution, stale mutation conflicts, pause revokes the active step
+reference, interruption and failure retry from retained attempts, denial blocks
+a consequential dispatch, and excess cost blocks only the offending run. The
+proven repair component is then installed in a second repository with narrower
+issue-read and pull-create mappings. A breaking upgrade observation appends an
+attention-required revision without rewriting its working pin or the completed
+producer execution.
+
 ## Governed collaboration workflow definitions
 
 `/repositories/{repository}/workflow-definitions` keeps recurring project

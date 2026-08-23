@@ -75,6 +75,19 @@ local pins appear in `view=agents`. Publications and installations grant no
 package, federation, repository, pull-request, credential, workflow, action,
 agent, environment, or operational authority.
 
+`workflow_automation_workflow_test.go` is the black-box boundary for the
+complete accepted-issue-to-protected-deployment automation loop. It connects a
+reviewed exact workflow version to an attributed accepted issue, bounded agent
+repair, stock Git revision, ordinary pull request, human review, required
+checks, merge queue, attested release artifact, and separately approved
+protected deployment. The retained execution proves duplicate-event
+idempotency, stale-revision rejection, pause and credential revocation, failed
+and interrupted retry, denied consequential approval, budget containment, and
+restart-safe history. Its published repair component is installed in a second
+repository with narrower local mappings, while a breaking upgrade observation
+preserves the working pin and completed run. None of these links replaces the
+native authority checks of the connected resource.
+
 Software adoption workspaces live beneath `$ADOPTION_WORKSPACE_ROOT` (default
 `apps/api/data/adoption-workspaces`). Authenticated collaborators open one from
 an exact roadmap outcome, support gap, incubator, decision, package, API, or
