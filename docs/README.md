@@ -1,5 +1,32 @@
 # Docs
 
+## Governed collaboration workflow definitions
+
+`/repositories/{repository}/workflow-definitions` keeps recurring project
+coordination beside its reviewed configuration. Immutable versions bind an
+exact repository revision and path to typed triggers and inputs, readable
+conditions, ordered or parallel dependency steps, declared outputs, retries,
+timeouts, per-step and workflow budgets, owners, policy effects, and completion
+criteria. Each invocation pins a permitted platform action, reusable component,
+or approved agent revision and declares its requested capabilities and emitted
+events.
+
+Repository readers and the `view=agents` web workspace receive the derived event
+subscriptions, execution graph, cost boundary, accountable owners, completion
+meaning, and effective requested resources and capabilities before anything is
+active. The authority preview is deliberately non-authoritative: publishing or
+activating a definition never manufactures access to an event, repository,
+agent, component, credential, merge, release, deployment, or environment.
+
+Diagnostics retain their responsible owners and block activation for missing or
+cyclic dependencies, output-to-trigger loops, inaccessible invocations, missing
+resource owners, and conflicts between requested capabilities and deny policy.
+Only a workflow owner can activate its exact current version, and publishing a
+new version returns it to draft for renewed review. Durable state defaults to
+`$WORKFLOW_DEFINITION_ROOT` (`apps/api/data/workflow-definitions`). Focused API
+coverage is in `workflow_definitions_http_test.go` and
+`workflowdefinitions/store_test.go`.
+
 ## Software adoption workspaces
 
 `/adoption-workspaces` gives adopters, provider maintainers, affected users, and
