@@ -71,3 +71,19 @@ func TestPresenceExpiresAndControlInterventionsUseVersions(t *testing.T) {
 }
 
 func ensureEnvironment(path string) error { return os.Mkdir(path, 0o750) }
+
+func TestVerificationUsesLatestCurrentAttemptWithoutDiscardingFailure(t *testing.T) {
+	inputs := VerificationInputs{Candidate: "candidate", Source: "source", Target: "target", Dependency: "dependency", Policy: "policy"}
+	candidate := VerificationCandidate{
+		Inputs: inputs,
+		Criteria: []VerificationCriterion{{ID: "combined", AffectedInputs: []string{"candidate", "source", "target"}}},
+		Attempts: []VerificationAttempt{
+			{ID: "failed", CriterionIDs: []string{"combined"}, InputRevisions: inputs, Status: "failed"},
+			{ID: "corrected", CriterionIDs: []string{"combined"}, InputRevisions: inputs, Status: "passed"},
+		},
+	}
+	refreshVerification(&candidate)
+	if candidate.Status != "passed" || len(candidate.Attempts) != 2 || candidate.Attempts[0].Status != "failed" {
+		t.Fatalf("corrected evidence did not retain its failed history: %#v", candidate)
+	}
+}

@@ -2299,6 +2299,13 @@ whenever dependencies change or the web job fails before it starts.
   merge. Source movement, withdrawn approval, target drift, or a new merge
   conflict blocks or removes only the queue attempt and preserves both inputs
   for another reconciliation.
+  `conflict_resolution_workflow_test.go` is the black-box boundary for the
+  complete independently reviewed change-to-integrated-result loop. It retains
+  textual and semantic conflicts, competing intent, stale and concurrent
+  revisions, repeated queue conflicts, bounded and revoked agent participation,
+  rejected suggestions, failed then corrected combined verification, both-owner
+  decisions, two-parent attributed publication, exact review, and final queue
+  history without treating workspace or agent access as merge authority.
   Candidate verification is defined by the exact revision's
   `.komodo/checks.json` manifest (schema version `1`). Each named check declares
   a shell command plus optional working directory, timeout, and environment.

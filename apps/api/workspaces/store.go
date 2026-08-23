@@ -657,7 +657,7 @@ func verificationStale(expected, got VerificationInputs, keys []string) []string
 	return out
 }
 func refreshVerification(candidate *VerificationCandidate) {
-	covered, failed := map[string]bool{}, false
+	latest := map[string]string{}
 	for i := range candidate.Attempts {
 		keys := []string{}
 		for _, id := range candidate.Attempts[i].CriterionIDs {
@@ -670,11 +670,8 @@ func refreshVerification(candidate *VerificationCandidate) {
 		candidate.Attempts[i].StaleInputKeys = verificationStale(candidate.Inputs, candidate.Attempts[i].InputRevisions, keys)
 		if len(candidate.Attempts[i].StaleInputKeys) == 0 {
 			for _, id := range candidate.Attempts[i].CriterionIDs {
-				if candidate.Attempts[i].Status == "passed" {
-					covered[id] = true
-				}
+				latest[id] = candidate.Attempts[i].Status
 			}
-			failed = failed || candidate.Attempts[i].Status == "failed"
 		}
 	}
 	for i := range candidate.Decisions {
@@ -690,7 +687,7 @@ func refreshVerification(candidate *VerificationCandidate) {
 	}
 	candidate.Blockers = nil
 	for _, criterion := range candidate.Criteria {
-		if !covered[criterion.ID] {
+		if latest[criterion.ID] != "passed" {
 			candidate.Blockers = append(candidate.Blockers, "missing current evidence: "+criterion.ID)
 		}
 	}
@@ -700,7 +697,14 @@ func refreshVerification(candidate *VerificationCandidate) {
 		}
 	}
 	switch {
-	case failed:
+	case func() bool {
+		for _, status := range latest {
+			if status == "failed" {
+				return true
+			}
+		}
+		return false
+	}():
 		candidate.Status = "failed"
 	case len(candidate.Blockers) > 0:
 		candidate.Status = "blocked"
@@ -737,7 +741,7 @@ func (s *Store) AddVerificationAttempt(repositoryID, workspaceID, checkpointID, 
 		if c.ID != checkpointID || c.Verification == nil {
 			continue
 		}
-		if !criterionSet(c.Verification, in.CriterionIDs) || !map[string]bool{"required_check": true, "reproduction": true, "contract_scenario": true, "schema_scenario": true, "preview_acceptance": true, "conflict_test": true}[in.Kind] || !map[string]bool{"passed": true, "failed": true, "blocked": true}[in.Status] || len(in.Commands) == 0 || in.Cost < 0 {
+		if !criterionSet(c.Verification, in.CriterionIDs) || !map[string]bool{"required_check": true, "reproduction": true, "contract_scenario": true, "schema_scenario": true, "preview_acceptance": true, "conflict_test": true, "conflict_scenario": true, "acceptance": true}[in.Kind] || !map[string]bool{"passed": true, "failed": true, "blocked": true}[in.Status] || len(in.Commands) == 0 || in.Cost < 0 {
 			return Checkpoint{}, ErrConflict
 		}
 		for _, a := range in.Artifacts {
