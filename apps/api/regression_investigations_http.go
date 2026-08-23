@@ -1,11 +1,15 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 	ri "github.com/greptile-projects/vivarium-komodo/apps/api/regressioninvestigations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -15,7 +19,7 @@ type regressionReleaseStore interface {
 	Get(string, string) (releases.Release, error)
 }
 
-func registerRegressionInvestigationsHTTP(m *http.ServeMux, s *ri.Store, repos codeIntelligenceStore, credentials authStore, releaseStore regressionReleaseStore) {
+func registerRegressionInvestigationsHTTP(m *http.ServeMux, s *ri.Store, repos codeIntelligenceStore, credentials authStore, releaseStore regressionReleaseStore, builds releaseBuildStore) {
 	base := "/repositories/{repository}/regression-investigations"
 	m.HandleFunc("POST "+base, func(w http.ResponseWriter, r *http.Request) {
 		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
@@ -133,6 +137,98 @@ func registerRegressionInvestigationsHTTP(m *http.ServeMux, s *ri.Store, repos c
 		v, e := s.SetStatus(string(repo.ID), r.PathValue("investigation"), a.UserID, in.Status, in.Reason)
 		writeRegression(w, v, e, 200)
 	})
+	m.HandleFunc("POST "+base+"/{investigation}/scenarios", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Derived    bool                  `json:"derived"`
+			Definition ri.ScenarioDefinition `json:"definition"`
+		}
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		v, e := s.CreateScenario(string(repo.ID), r.PathValue("investigation"), a.UserID, in.Derived, in.Definition)
+		writeRegression(w, v, e, 201)
+	})
+	m.HandleFunc("POST "+base+"/{investigation}/scenarios/{scenario}/attempts", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in ri.AttemptInput
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		opened, e := repos.Open(repo.ID)
+		if e != nil || !resolveRegressionTarget(string(repo.ID), opened, releaseStore, builds, &in.Target) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_attempt_target"})
+			return
+		}
+		v, e := s.AddAttempt(string(repo.ID), r.PathValue("investigation"), r.PathValue("scenario"), a.UserID, in)
+		writeRegression(w, v, e, 201)
+	})
+}
+
+func resolveRegressionTarget(repoID string, repo *storage.Repository, rs regressionReleaseStore, builds releaseBuildStore, t *ri.Target) bool {
+	switch t.Kind {
+	case "revision":
+		b := ri.Boundary{Kind: "revision", Reference: t.Reference, CommitID: t.CommitID}
+		if !resolveRegressionBoundary(repoID, repo, rs, &b) {
+			return false
+		}
+		t.Reference, t.CommitID, t.ReleaseID = b.Reference, b.CommitID, ""
+		return true
+	case "release":
+		b := ri.Boundary{Kind: "release", Reference: t.Reference, CommitID: t.CommitID, ReleaseID: t.ReleaseID}
+		if !resolveRegressionBoundary(repoID, repo, rs, &b) {
+			return false
+		}
+		digest, ok := regressionReleaseAttestation(repoID, b.ReleaseID, builds)
+		if !ok {
+			return false
+		}
+		t.Reference, t.CommitID, t.ReleaseID = b.Reference, b.CommitID, b.ReleaseID
+		t.AttestationDigest = digest
+		return true
+	case "dependency_combination":
+		if len(t.Dependencies) == 0 || strings.TrimSpace(t.Reference) == "" {
+			return false
+		}
+		b := ri.Boundary{Kind: "revision", Reference: t.Reference}
+		if !resolveRegressionBoundary(repoID, repo, rs, &b) {
+			return false
+		}
+		t.Reference, t.CommitID = b.Reference, b.CommitID
+		return true
+	}
+	return false
+}
+
+func regressionReleaseAttestation(repoID, releaseID string, builds releaseBuildStore) (string, bool) {
+	if builds == nil {
+		return "", false
+	}
+	attempts, err := builds.List(repoID, "release:"+releaseID)
+	if err != nil || len(attempts) == 0 {
+		return "", false
+	}
+	latest := map[string]checkruns.Run{}
+	for i := len(attempts) - 1; i >= 0; i-- {
+		latest[attempts[i].Definition.Name] = attempts[i]
+	}
+	for _, run := range latest {
+		if run.State != checkruns.Succeeded {
+			return "", false
+		}
+	}
+	b, err := json.Marshal(attempts)
+	if err != nil {
+		return "", false
+	}
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:]), true
 }
 
 func regressionStaleInputs(repo *storage.Repository, s ri.Scope) []string {

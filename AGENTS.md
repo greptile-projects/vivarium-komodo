@@ -2113,6 +2113,19 @@ whenever dependencies change or the web job fails before it starts.
   discussion, hypotheses, status changes, and public or repository-visible
   evidence remain append-only. A ready boundary grants no testing, Git,
   repository, agent, release, deployment, or operational authority.
+  Immutable regression scenarios and append-only historical attempts remain
+  beneath that investigation. Repository writers and scoped agents derive or
+  define bounded commands, inputs, fixture safety, environment requirements,
+  timeouts, and cost limits, then record isolated attempts against resolved
+  commits, attested releases, or exact dependency combinations. Each attempt
+  freezes the environment image and definition digest, OS, architecture,
+  toolchain, dependency lock, setup, commands, outputs, sanitized logs,
+  artifact metadata, cost, repetitions, runner provenance, and one explicit
+  behavior or non-evidence classification. Incompatible setup, missing
+  dependencies, flakiness, unsafe fixtures, and untestable revisions never
+  become expected or regressed behavior evidence. Scenario and attempt records
+  grant no Git, agent, package, release, credential, environment, or execution
+  authority.
   Prospective impact assessments live beneath `$IMPACT_ASSESSMENT_ROOT`
   (default `apps/api/data/impact-assessments`) and begin from selected code,
   symbols, an exact current investigation conclusion, or a proposed diff. Keep
