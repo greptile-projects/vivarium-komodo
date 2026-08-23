@@ -76,6 +76,82 @@ func registerWorkflowDefinitionsHTTP(mux *http.ServeMux, s *workflowdefinitions.
 			writeJSON(w, 201, x)
 		}
 	})
+	mux.HandleFunc("GET "+base+"/{workflow}/executions", func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		x, e := s.Executions(string(repo.ID), r.PathValue("workflow"))
+		if !workflowDefinitionError(w, e, nil) {
+			writeJSON(w, 200, x)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{workflow}/executions", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in workflowdefinitions.InvokeInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.Invoke(string(repo.ID), r.PathValue("workflow"), a.UserID, in)
+		if !workflowDefinitionError(w, e, nil) {
+			writeJSON(w, 201, x)
+		}
+	})
+	mux.HandleFunc("GET "+base+"/{workflow}/executions/{execution}", func(w http.ResponseWriter, r *http.Request) {
+		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		x, e := s.GetExecution(string(repo.ID), r.PathValue("workflow"), r.PathValue("execution"))
+		if !workflowDefinitionError(w, e, nil) {
+			writeJSON(w, 200, x)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{workflow}/executions/{execution}/steps/{step}/dispatch", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in workflowdefinitions.DispatchInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.Dispatch(string(repo.ID), r.PathValue("workflow"), r.PathValue("execution"), a.UserID, r.PathValue("step"), in)
+		if !workflowDefinitionError(w, e, nil) {
+			writeJSON(w, 201, x)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{workflow}/executions/{execution}/steps/{step}/results", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in workflowdefinitions.ResultInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.RecordResult(string(repo.ID), r.PathValue("workflow"), r.PathValue("execution"), a.UserID, r.PathValue("step"), in)
+		if !workflowDefinitionError(w, e, nil) {
+			writeJSON(w, 201, x)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{workflow}/executions/{execution}/controls", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in workflowdefinitions.ControlInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.Control(string(repo.ID), r.PathValue("workflow"), r.PathValue("execution"), a.UserID, in)
+		if !workflowDefinitionError(w, e, nil) {
+			writeJSON(w, 201, x)
+		}
+	})
 }
 func workflowDefinitionError(w http.ResponseWriter, e error, x *workflowdefinitions.Workflow) bool {
 	if e == nil {
@@ -87,7 +163,11 @@ func workflowDefinitionError(w http.ResponseWriter, e error, x *workflowdefiniti
 	case errors.Is(e, workflowdefinitions.ErrConflict):
 		writeJSON(w, 409, map[string]string{"error": "workflow_changed_or_not_owned"})
 	case errors.Is(e, workflowdefinitions.ErrBlocked):
-		writeJSON(w, 422, map[string]any{"error": "workflow_activation_blocked", "diagnostics": x.Diagnostics})
+		if x != nil {
+			writeJSON(w, 422, map[string]any{"error": "workflow_activation_blocked", "diagnostics": x.Diagnostics})
+		} else {
+			writeJSON(w, 429, map[string]string{"error": "workflow_execution_limited", "recovery": "retry after a running execution or rate window completes"})
+		}
 	case errors.Is(e, workflowdefinitions.ErrInvalid):
 		writeJSON(w, 422, map[string]string{"error": "invalid_workflow_definition"})
 	default:
