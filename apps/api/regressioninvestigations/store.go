@@ -3,9 +3,11 @@ package regressioninvestigations
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -151,6 +153,72 @@ type Attempt struct {
 	ActorID   string    `json:"actor_id"`
 	CreatedAt time.Time `json:"created_at"`
 }
+type SearchRevision struct {
+	Key          string   `json:"key"`
+	Kind         string   `json:"kind"`
+	RepositoryID string   `json:"repository_id,omitempty"`
+	Package      string   `json:"package,omitempty"`
+	Revision     string   `json:"revision"`
+	Parents      []string `json:"parents"`
+	Summary      string   `json:"summary,omitempty"`
+	DiffPaths    []string `json:"diff_paths,omitempty"`
+	OwnerIDs     []string `json:"owner_ids,omitempty"`
+	PullIDs      []string `json:"pull_request_ids,omitempty"`
+	DecisionIDs  []string `json:"decision_ids,omitempty"`
+}
+type SearchInput struct {
+	ScenarioID       string           `json:"scenario_id"`
+	GoodKey          string           `json:"good_key"`
+	BadKey           string           `json:"bad_key"`
+	Revisions        []SearchRevision `json:"revisions"`
+	ConfidenceTarget float64          `json:"confidence_target"`
+}
+type CandidateClassification struct {
+	ID             string    `json:"id"`
+	RevisionKey    string    `json:"revision_key"`
+	AttemptIDs     []string  `json:"attempt_ids"`
+	Classification string    `json:"classification"`
+	Rationale      string    `json:"rationale"`
+	ActorID        string    `json:"actor_id"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+type CulpritRange struct {
+	GoodKey    string  `json:"good_key"`
+	BadKey     string  `json:"bad_key"`
+	Confidence float64 `json:"confidence"`
+	Status     string  `json:"status"`
+}
+type CausalHypothesis struct {
+	ID           string    `json:"id"`
+	RevisionKeys []string  `json:"revision_keys"`
+	Body         string    `json:"body"`
+	EvidenceIDs  []string  `json:"evidence_ids"`
+	DiffPaths    []string  `json:"diff_paths"`
+	Confidence   float64   `json:"confidence"`
+	ActorID      string    `json:"actor_id"`
+	ActorKind    string    `json:"actor_kind"`
+	State        string    `json:"state"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+type Search struct {
+	ID               string                    `json:"id"`
+	ScenarioID       string                    `json:"scenario_id"`
+	GoodKey          string                    `json:"good_key"`
+	BadKey           string                    `json:"bad_key"`
+	ConfidenceTarget float64                   `json:"confidence_target"`
+	Revisions        []SearchRevision          `json:"revisions"`
+	Classifications  []CandidateClassification `json:"classifications"`
+	Hypotheses       []CausalHypothesis        `json:"causal_hypotheses"`
+	RemainingKeys    []string                  `json:"remaining_search_space"`
+	ScheduledKeys    []string                  `json:"scheduled_candidates"`
+	Ranges           []CulpritRange            `json:"culprit_ranges"`
+	Verdict          string                    `json:"verdict"`
+	Blockers         []string                  `json:"blockers"`
+	GraphDigest      string                    `json:"graph_digest"`
+	CreatedByID      string                    `json:"created_by_id"`
+	CreatedAt        time.Time                 `json:"created_at"`
+	UpdatedAt        time.Time                 `json:"updated_at"`
+}
 type Investigation struct {
 	ID           string        `json:"id"`
 	RepositoryID string        `json:"repository_id"`
@@ -167,6 +235,7 @@ type Investigation struct {
 	ScopeChanges []ScopeChange `json:"scope_changes"`
 	Scenarios    []Scenario    `json:"scenarios"`
 	Attempts     []Attempt     `json:"attempts"`
+	Searches     []Search      `json:"searches"`
 	CreatedAt    time.Time     `json:"created_at"`
 	UpdatedAt    time.Time     `json:"updated_at"`
 }
@@ -228,6 +297,7 @@ func (s *Store) List(repo string) ([]Investigation, error) {
 			v.ScopeChanges = nil
 			v.Scenarios = nil
 			v.Attempts = nil
+			v.Searches = nil
 			out = append(out, v)
 		}
 	}
@@ -351,6 +421,247 @@ func (s *Store) AddAttempt(repo, key, scenario, actor string, in AttemptInput) (
 	v.Attempts = append(v.Attempts, Attempt{ID: id(), ScenarioID: sc.ID, ScenarioVersion: sc.Version, AttemptInput: in, ActorID: actor, CreatedAt: now})
 	v.UpdatedAt = now
 	return v, s.write(v)
+}
+func (s *Store) CreateSearch(repo, key, actor string, in SearchInput) (Investigation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(key)
+	if e != nil || v.RepositoryID != repo {
+		return Investigation{}, ErrNotFound
+	}
+	foundScenario := false
+	for _, x := range v.Scenarios {
+		if x.ID == in.ScenarioID {
+			foundScenario = true
+		}
+	}
+	if !foundScenario || in.ConfidenceTarget <= 0 || in.ConfidenceTarget > 1 || len(in.Revisions) < 2 || len(in.Revisions) > 2000 {
+		return Investigation{}, ErrConflict
+	}
+	keys := map[string]bool{}
+	for i := range in.Revisions {
+		x := &in.Revisions[i]
+		x.Key, x.Kind, x.Revision = strings.TrimSpace(x.Key), strings.TrimSpace(x.Kind), strings.TrimSpace(x.Revision)
+		x.Parents, x.DiffPaths, x.OwnerIDs, x.PullIDs, x.DecisionIDs = clean(x.Parents), clean(x.DiffPaths), clean(x.OwnerIDs), clean(x.PullIDs), clean(x.DecisionIDs)
+		if x.Key == "" || x.Revision == "" || keys[x.Key] || !map[string]bool{"commit": true, "repository_revision": true, "package_revision": true}[x.Kind] {
+			return Investigation{}, ErrConflict
+		}
+		keys[x.Key] = true
+		if x.Kind == "repository_revision" && x.RepositoryID == "" || x.Kind == "package_revision" && x.Package == "" {
+			return Investigation{}, ErrConflict
+		}
+	}
+	if !keys[in.GoodKey] || !keys[in.BadKey] || hasSearchCycle(in.Revisions) {
+		return Investigation{}, ErrConflict
+	}
+	for _, x := range in.Revisions {
+		for _, p := range x.Parents {
+			if !keys[p] {
+				return Investigation{}, ErrConflict
+			}
+		}
+	}
+	b, _ := json.Marshal(in.Revisions)
+	sum := sha256.Sum256(b)
+	now := s.now().UTC()
+	search := Search{ID: id(), ScenarioID: in.ScenarioID, GoodKey: in.GoodKey, BadKey: in.BadKey, ConfidenceTarget: in.ConfidenceTarget, Revisions: in.Revisions, GraphDigest: "sha256:" + hex.EncodeToString(sum[:]), CreatedByID: actor, CreatedAt: now, UpdatedAt: now}
+	deriveSearch(&search)
+	v.Searches = append(v.Searches, search)
+	v.UpdatedAt = now
+	return v, s.write(v)
+}
+func (s *Store) ClassifyCandidate(repo, key, searchID, actor string, in CandidateClassification) (Investigation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(key)
+	if e != nil || v.RepositoryID != repo {
+		return Investigation{}, ErrNotFound
+	}
+	var q *Search
+	for i := range v.Searches {
+		if v.Searches[i].ID == searchID {
+			q = &v.Searches[i]
+		}
+	}
+	if q == nil {
+		return Investigation{}, ErrNotFound
+	}
+	in.Rationale = strings.TrimSpace(in.Rationale)
+	in.AttemptIDs = clean(in.AttemptIDs)
+	validKey := false
+	for _, x := range q.Revisions {
+		if x.Key == in.RevisionKey {
+			validKey = true
+		}
+	}
+	validAttempts := map[string]bool{}
+	for _, x := range v.Attempts {
+		if x.ScenarioID == q.ScenarioID {
+			validAttempts[x.ID] = true
+		}
+	}
+	if !validKey || in.Rationale == "" || !map[string]bool{"working": true, "regressed": true, "invalid": true, "flaky": true, "inconclusive": true}[in.Classification] {
+		return Investigation{}, ErrConflict
+	}
+	if (in.Classification == "working" || in.Classification == "regressed") && len(in.AttemptIDs) == 0 {
+		return Investigation{}, ErrConflict
+	}
+	for _, x := range in.AttemptIDs {
+		if !validAttempts[x] {
+			return Investigation{}, ErrConflict
+		}
+	}
+	now := s.now().UTC()
+	in.ID = id()
+	in.ActorID = actor
+	in.CreatedAt = now
+	q.Classifications = append(q.Classifications, in)
+	q.UpdatedAt = now
+	deriveSearch(q)
+	v.UpdatedAt = now
+	return v, s.write(v)
+}
+func (s *Store) AddHypothesis(repo, key, searchID, actor string, in CausalHypothesis) (Investigation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(key)
+	if e != nil || v.RepositoryID != repo {
+		return Investigation{}, ErrNotFound
+	}
+	var q *Search
+	for i := range v.Searches {
+		if v.Searches[i].ID == searchID {
+			q = &v.Searches[i]
+		}
+	}
+	if q == nil {
+		return Investigation{}, ErrNotFound
+	}
+	in.Body = strings.TrimSpace(in.Body)
+	in.RevisionKeys, in.EvidenceIDs, in.DiffPaths = clean(in.RevisionKeys), clean(in.EvidenceIDs), clean(in.DiffPaths)
+	keys := map[string]bool{}
+	knownEvidence := map[string]bool{}
+	for _, x := range q.Revisions {
+		keys[x.Key] = true
+	}
+	for _, x := range v.Attempts {
+		knownEvidence[x.ID] = true
+	}
+	for _, x := range v.Evidence {
+		knownEvidence[x.ID] = true
+	}
+	for _, x := range in.RevisionKeys {
+		if !keys[x] {
+			return Investigation{}, ErrConflict
+		}
+	}
+	for _, x := range in.EvidenceIDs {
+		if !knownEvidence[x] {
+			return Investigation{}, ErrConflict
+		}
+	}
+	if in.Body == "" || len(in.RevisionKeys) == 0 || len(in.EvidenceIDs) == 0 || in.Confidence < 0 || in.Confidence > 1 || !map[string]bool{"human": true, "agent": true}[in.ActorKind] || !map[string]bool{"proposed": true, "supported": true, "disputed": true, "rejected": true}[in.State] {
+		return Investigation{}, ErrConflict
+	}
+	now := s.now().UTC()
+	in.ID = id()
+	in.ActorID = actor
+	in.CreatedAt = now
+	q.Hypotheses = append(q.Hypotheses, in)
+	q.UpdatedAt = now
+	v.UpdatedAt = now
+	return v, s.write(v)
+}
+func hasSearchCycle(rs []SearchRevision) bool {
+	m := map[string][]string{}
+	for _, x := range rs {
+		m[x.Key] = x.Parents
+	}
+	visiting, done := map[string]bool{}, map[string]bool{}
+	var visit func(string) bool
+	visit = func(k string) bool {
+		if visiting[k] {
+			return true
+		}
+		if done[k] {
+			return false
+		}
+		visiting[k] = true
+		for _, p := range m[k] {
+			if visit(p) {
+				return true
+			}
+		}
+		visiting[k] = false
+		done[k] = true
+		return false
+	}
+	for k := range m {
+		if visit(k) {
+			return true
+		}
+	}
+	return false
+}
+func deriveSearch(q *Search) {
+	latest := map[string]string{}
+	stable := map[string]bool{}
+	invalid := map[string]bool{}
+	for _, x := range q.Classifications {
+		latest[x.RevisionKey] = x.Classification
+		if x.Classification == "working" || x.Classification == "regressed" {
+			stable[x.RevisionKey] = true
+		}
+		if x.Classification == "invalid" || x.Classification == "flaky" {
+			invalid[x.RevisionKey] = true
+		}
+	}
+	q.RemainingKeys = nil
+	q.ScheduledKeys = nil
+	q.Ranges = nil
+	q.Blockers = nil
+	q.Verdict = ""
+	for _, x := range q.Revisions {
+		if !stable[x.Key] && !invalid[x.Key] {
+			q.RemainingKeys = append(q.RemainingKeys, x.Key)
+		}
+	}
+	for _, x := range q.Revisions {
+		if len(q.ScheduledKeys) >= 4 {
+			break
+		}
+		if latest[x.Key] == "" && x.Key != q.GoodKey && x.Key != q.BadKey {
+			q.ScheduledKeys = append(q.ScheduledKeys, x.Key)
+		}
+	}
+	for _, bad := range q.Revisions {
+		if latest[bad.Key] != "regressed" {
+			continue
+		}
+		for _, p := range bad.Parents {
+			if latest[p] == "working" {
+				confidence := 1.0
+				if len(bad.Parents) > 1 {
+					confidence = .75
+					q.Blockers = append(q.Blockers, "merge_ancestry_requires_parent_disambiguation")
+				}
+				q.Ranges = append(q.Ranges, CulpritRange{GoodKey: p, BadKey: bad.Key, Confidence: confidence, Status: "supported"})
+			}
+		}
+	}
+	if invalid[q.GoodKey] || invalid[q.BadKey] {
+		q.Blockers = append(q.Blockers, "boundary_trial_invalid")
+	}
+	if len(q.Ranges) > 1 {
+		q.Blockers = append(q.Blockers, "competing_culprit_ranges")
+	}
+	if len(q.Ranges) == 1 && q.Ranges[0].Confidence >= q.ConfidenceTarget && len(q.Blockers) == 0 {
+		q.Verdict = fmt.Sprintf("%s..%s", q.Ranges[0].GoodKey, q.Ranges[0].BadKey)
+	} else if len(q.Ranges) > 0 {
+		q.Verdict = "multiple_or_ambiguous"
+	} else {
+		q.Verdict = "unresolved"
+	}
 }
 func validFixtures(v []Fixture) bool {
 	if len(v) == 0 {

@@ -2126,6 +2126,21 @@ whenever dependencies change or the web job fails before it starts.
   become expected or regressed behavior evidence. Scenario and attempt records
   grant no Git, agent, package, release, credential, environment, or execution
   authority.
+  Evidence-driven searches are immutable graph snapshots beneath a regression
+  investigation. A search binds one scenario, confidence target, good and bad
+  graph keys, exact local commits with their complete ordered parent lists, and
+  explicitly selected cross-repository or package revisions. Revisions retain
+  summaries, relevant diff paths, owners, pull requests, and decisions. The
+  derived projection schedules unclassified candidates and shows remaining
+  keys, tested classifications, competing transition ranges, confidence, and
+  blockers. Working or regressed classifications require cited scenario
+  attempts; invalid, flaky, and inconclusive trials never narrow the range.
+  Merge transitions remain ambiguous until parent effects are disambiguated,
+  and multiple supported ranges never become a single verdict. Human and agent
+  causal hypotheses require cited evidence, implicated revisions, confidence,
+  and an explicit proposed, supported, disputed, or rejected state. Graph
+  snapshots and searches grant no Git, package, agent, runner, pull-request,
+  decision, review, merge, release, deployment, or operational authority.
   Prospective impact assessments live beneath `$IMPACT_ASSESSMENT_ROOT`
   (default `apps/api/data/impact-assessments`) and begin from selected code,
   symbols, an exact current investigation conclusion, or a proposed diff. Keep

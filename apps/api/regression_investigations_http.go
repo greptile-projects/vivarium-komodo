@@ -169,6 +169,75 @@ func registerRegressionInvestigationsHTTP(m *http.ServeMux, s *ri.Store, repos c
 		v, e := s.AddAttempt(string(repo.ID), r.PathValue("investigation"), r.PathValue("scenario"), a.UserID, in)
 		writeRegression(w, v, e, 201)
 	})
+	m.HandleFunc("POST "+base+"/{investigation}/searches", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in ri.SearchInput
+		if !readJSON(w, r, &in, 512<<10) {
+			return
+		}
+		opened, e := repos.Open(repo.ID)
+		if e != nil || !validateSearchGraph(string(repo.ID), opened, in.Revisions) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_search_graph"})
+			return
+		}
+		v, e := s.CreateSearch(string(repo.ID), r.PathValue("investigation"), a.UserID, in)
+		writeRegression(w, v, e, 201)
+	})
+	m.HandleFunc("POST "+base+"/{investigation}/searches/{search}/classifications", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in ri.CandidateClassification
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		v, e := s.ClassifyCandidate(string(repo.ID), r.PathValue("investigation"), r.PathValue("search"), a.UserID, in)
+		writeRegression(w, v, e, 201)
+	})
+	m.HandleFunc("POST "+base+"/{investigation}/searches/{search}/hypotheses", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in ri.CausalHypothesis
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		v, e := s.AddHypothesis(string(repo.ID), r.PathValue("investigation"), r.PathValue("search"), a.UserID, in)
+		writeRegression(w, v, e, 201)
+	})
+}
+
+func validateSearchGraph(repoID string, repo *storage.Repository, revisions []ri.SearchRevision) bool {
+	for _, x := range revisions {
+		if x.Kind != "commit" {
+			if x.Kind == "repository_revision" && x.RepositoryID != "" && x.RepositoryID != repoID || x.Kind == "package_revision" && x.Package != "" {
+				continue
+			}
+			return false
+		}
+		c, e := repo.ReadCommit(storage.ObjectID(x.Revision))
+		if e != nil {
+			return false
+		}
+		actual := make([]string, len(c.Parents))
+		for i, p := range c.Parents {
+			actual[i] = string(p)
+		}
+		if len(actual) != len(x.Parents) {
+			return false
+		}
+		for i, p := range actual {
+			if x.Parents[i] != p {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func resolveRegressionTarget(repoID string, repo *storage.Repository, rs regressionReleaseStore, builds releaseBuildStore, t *ri.Target) bool {
