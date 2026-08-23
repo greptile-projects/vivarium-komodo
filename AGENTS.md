@@ -2257,6 +2257,13 @@ whenever dependencies change or the web job fails before it starts.
   proposal task, discussion, author, description, and recorded completion or
   contribution criteria; absent intent, checks, inaccessible repositories, and
   unavailable ancestry remain visible gaps rather than inferred resolution.
+  A current complete conflict analysis may launch a shared reconciliation
+  workspace at `POST .../conflicts/workspace`. The workspace freezes the common
+  base, both exact revision identities and side-only histories, audience-safe
+  conflict evidence, affected owners, and the target revision's repository-
+  defined setup. Its publication repository is the target repository where the
+  launcher already has write access; collaboration controls grant only bounded
+  workspace access and never copy authority from either repository.
   Candidate verification is defined by the exact revision's
   `.komodo/checks.json` manifest (schema version `1`). Each named check declares
   a shell command plus optional working directory, timeout, and environment.

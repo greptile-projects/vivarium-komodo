@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-23T12:50:53Z: Added current-conflict-gated shared reconciliation workspaces that freeze both revision histories, permitted incompatibility evidence, affected owners, repository setup, and target-only publication authority while reusing durable collaboration, checkpoints, and scoped agent controls.
+
 2026-08-20T03:32:02Z: Added repository- and organization-scoped current security delivery policies with exact threat/scenario/finding/owner evidence enforced across pull merge, integration queues, releases, and deployments, plus expiring requirement overrides and sanitized post-deployment assumption/control signals connected to private response work.
 
 2026-08-20T02:31:53Z: Added owner-governed threat-finding classification, audience projection, exact-context human/agent repair tasks, attributable non-repair and failed-repair resolutions, and pull/scenario verification requiring base failure, repair containment, review, design/commit links, and mitigation coverage without expanding authority.
