@@ -17,6 +17,17 @@ surface is `view=agents`. Definitions and activation grant no event, agent,
 component, repository, credential, merge, release, deployment, environment, or
 operational authority.
 
+Workflow governance is version-bound in the same resource. Definitions may
+require exact simulated event cases, named independent review, resource-owner
+acknowledgement, and action-class rules with separation of duties, approval
+quorum, and bounded expiry. Activation remains blocked until current passing
+simulations and decisions exist. Executions retain approval requests and
+immutable action receipts; expired approvals cannot dispatch. Owner emergency
+disablement and authority-changing revisions pause active effects and revoke
+their step credential references, while rollback publishes a prior definition
+as a new draft version. Exceptions expire without erasing decisions, receipts,
+completed executions, or legitimate outputs.
+
 Active workflow versions may receive durable invocations beneath their
 `/executions` resource. Each execution freezes the definition and repository
 revision, triggering event revision, attributed human, agent, or system actor,

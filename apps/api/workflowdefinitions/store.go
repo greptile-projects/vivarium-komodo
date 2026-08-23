@@ -45,6 +45,27 @@ type Invocation struct {
 	OwnerIDs     []string `json:"owner_ids"`
 	Capabilities []string `json:"capabilities"`
 	Emits        []string `json:"emits"`
+	ActionClass  string   `json:"action_class,omitempty"`
+}
+type ActionRequirement struct {
+	ActionClass        string   `json:"action_class"`
+	OwnerIDs           []string `json:"owner_ids"`
+	MinimumApprovals   int      `json:"minimum_approvals"`
+	SeparateFromAuthor bool     `json:"separate_from_author"`
+	ApprovalTTLSeconds int      `json:"approval_ttl_seconds"`
+}
+type SimulationCase struct {
+	ID                  string   `json:"id"`
+	Event               string   `json:"event"`
+	ExpectedEffects     []string `json:"expected_effects"`
+	ExpectedPermissions []string `json:"expected_permissions"`
+	MaximumCost         float64  `json:"maximum_cost"`
+}
+type Governance struct {
+	RequiredReviewerIDs []string            `json:"required_reviewer_ids"`
+	RequiredOwnerIDs    []string            `json:"required_owner_ids"`
+	SimulationCases     []SimulationCase    `json:"simulation_cases"`
+	ActionRequirements  []ActionRequirement `json:"action_requirements"`
 }
 type Step struct {
 	ID                 string            `json:"id"`
@@ -67,22 +88,23 @@ type Policy struct {
 	OwnerIDs   []string `json:"owner_ids"`
 }
 type Input struct {
-	Name               string    `json:"name"`
-	Outcome            string    `json:"outcome"`
-	RepositoryRevision string    `json:"repository_revision"`
-	DefinitionPath     string    `json:"definition_path"`
-	Triggers           []Trigger `json:"triggers"`
-	Inputs             []Field   `json:"inputs"`
-	Steps              []Step    `json:"steps"`
-	Outputs            []Field   `json:"outputs"`
-	MaximumCost        float64   `json:"maximum_cost"`
-	Currency           string    `json:"currency"`
-	MaximumConcurrency int       `json:"maximum_concurrency,omitempty"`
-	RateLimit          RateLimit `json:"rate_limit,omitempty"`
-	OwnerIDs           []string  `json:"owner_ids"`
-	CompletionCriteria []string  `json:"completion_criteria"`
-	Policies           []Policy  `json:"policies"`
-	ChangeReason       string    `json:"change_reason"`
+	Name               string     `json:"name"`
+	Outcome            string     `json:"outcome"`
+	RepositoryRevision string     `json:"repository_revision"`
+	DefinitionPath     string     `json:"definition_path"`
+	Triggers           []Trigger  `json:"triggers"`
+	Inputs             []Field    `json:"inputs"`
+	Steps              []Step     `json:"steps"`
+	Outputs            []Field    `json:"outputs"`
+	MaximumCost        float64    `json:"maximum_cost"`
+	Currency           string     `json:"currency"`
+	MaximumConcurrency int        `json:"maximum_concurrency,omitempty"`
+	RateLimit          RateLimit  `json:"rate_limit,omitempty"`
+	OwnerIDs           []string   `json:"owner_ids"`
+	CompletionCriteria []string   `json:"completion_criteria"`
+	Policies           []Policy   `json:"policies"`
+	Governance         Governance `json:"governance,omitempty"`
+	ChangeReason       string     `json:"change_reason"`
 }
 type RateLimit struct {
 	MaximumInvocations int `json:"maximum_invocations"`
@@ -112,16 +134,51 @@ type Activation struct {
 	ActivatedBy string    `json:"activated_by"`
 	ActivatedAt time.Time `json:"activated_at"`
 }
+type CandidateDecision struct {
+	Version   int64     `json:"version"`
+	Kind      string    `json:"kind"`
+	Subject   string    `json:"subject"`
+	ActorID   string    `json:"actor_id"`
+	Decision  string    `json:"decision"`
+	Rationale string    `json:"rationale"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type SimulationResult struct {
+	Version         int64     `json:"version"`
+	CaseID          string    `json:"case_id"`
+	ActorID         string    `json:"actor_id"`
+	Passed          bool      `json:"passed"`
+	Effects         []string  `json:"effects"`
+	Permissions     []string  `json:"permissions"`
+	Cost            float64   `json:"cost"`
+	PolicyConflicts []string  `json:"policy_conflicts"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+type Exception struct {
+	ID        string    `json:"id"`
+	Version   int64     `json:"version"`
+	Scope     string    `json:"scope"`
+	OwnerID   string    `json:"owner_id"`
+	Rationale string    `json:"rationale"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+}
 type Workflow struct {
-	ID                 string       `json:"id"`
-	RepositoryID       string       `json:"repository_id"`
-	CurrentVersion     int64        `json:"current_version"`
-	Versions           []Version    `json:"versions"`
-	EventSubscriptions []string     `json:"event_subscriptions"`
-	EffectiveAuthority Authority    `json:"effective_authority"`
-	Diagnostics        []Diagnostic `json:"diagnostics"`
-	Activation         *Activation  `json:"activation,omitempty"`
-	State              string       `json:"state"`
+	ID                 string              `json:"id"`
+	RepositoryID       string              `json:"repository_id"`
+	CurrentVersion     int64               `json:"current_version"`
+	Versions           []Version           `json:"versions"`
+	EventSubscriptions []string            `json:"event_subscriptions"`
+	EffectiveAuthority Authority           `json:"effective_authority"`
+	Diagnostics        []Diagnostic        `json:"diagnostics"`
+	Activation         *Activation         `json:"activation,omitempty"`
+	CandidateDecisions []CandidateDecision `json:"candidate_decisions"`
+	SimulationResults  []SimulationResult  `json:"simulation_results"`
+	Exceptions         []Exception         `json:"exceptions"`
+	DisabledAt         *time.Time          `json:"disabled_at,omitempty"`
+	DisabledBy         string              `json:"disabled_by,omitempty"`
+	DisableReason      string              `json:"disable_reason,omitempty"`
+	State              string              `json:"state"`
 }
 type Catalog struct {
 	Items []Workflow `json:"items"`
@@ -172,6 +229,16 @@ func valid(in Input) bool {
 	}
 	for _, s := range in.Steps {
 		if !identifier(s.ID) || s.Name == "" || (s.Invocation.Kind != "platform_action" && s.Invocation.Kind != "component" && s.Invocation.Kind != "approved_agent" && s.Invocation.Kind != "manual") || s.Invocation.Reference == "" || s.Invocation.Revision == "" || s.TimeoutSeconds < 1 || s.Retry.MaximumAttempts < 1 || s.MaximumCost < 0 || len(s.CompletionCriteria) == 0 {
+			return false
+		}
+	}
+	for _, c := range in.Governance.SimulationCases {
+		if !identifier(c.ID) || c.Event == "" || len(c.ExpectedEffects) == 0 || c.MaximumCost < 0 {
+			return false
+		}
+	}
+	for _, q := range in.Governance.ActionRequirements {
+		if !identifier(q.ActionClass) || len(q.OwnerIDs) == 0 || q.MinimumApprovals < 1 || q.MinimumApprovals > len(q.OwnerIDs) || q.ApprovalTTLSeconds < 1 {
 			return false
 		}
 	}
@@ -283,7 +350,7 @@ func refresh(x *Workflow) {
 	if x.Activation != nil && x.Activation.Version != x.CurrentVersion {
 		x.State = "draft"
 		x.Activation = nil
-	} else if x.Activation != nil {
+	} else if x.Activation != nil && x.DisabledAt == nil {
 		x.State = "active"
 	} else {
 		x.State = "draft"
@@ -315,6 +382,7 @@ func (s *Store) Revise(repo, id, actor string, expected int64, in Input) (Workfl
 	}
 	x.CurrentVersion++
 	x.Versions = append(x.Versions, Version{x.CurrentVersion, in, actor, s.now().UTC()})
+	s.containExecutions(repo, id, actor, "workflow_authority_changed")
 	refresh(&x)
 	return x, s.save(x)
 }
@@ -334,7 +402,168 @@ func (s *Store) Activate(repo, id, actor string, version int64) (Workflow, error
 	if len(x.Diagnostics) > 0 {
 		return x, ErrBlocked
 	}
+	v := x.Versions[len(x.Versions)-1]
+	for _, c := range v.Governance.SimulationCases {
+		ok := false
+		for _, r := range x.SimulationResults {
+			if r.Version == version && r.CaseID == c.ID && r.Passed && len(r.PolicyConflicts) == 0 {
+				ok = true
+			}
+		}
+		if !ok {
+			return x, ErrBlocked
+		}
+	}
+	for _, id := range v.Governance.RequiredReviewerIDs {
+		ok := false
+		for _, d := range x.CandidateDecisions {
+			if d.Version == version && d.Kind == "review" && d.ActorID == id && d.Decision == "approved" && (!contains(v.OwnerIDs, d.ActorID) || !contains(v.Governance.RequiredOwnerIDs, d.ActorID)) {
+				ok = true
+			}
+		}
+		if !ok {
+			return x, ErrBlocked
+		}
+	}
+	for _, id := range v.Governance.RequiredOwnerIDs {
+		ok := false
+		for _, d := range x.CandidateDecisions {
+			if d.Version == version && d.Kind == "owner_acknowledgement" && d.ActorID == id && d.Decision == "acknowledged" {
+				ok = true
+			}
+		}
+		if !ok {
+			return x, ErrBlocked
+		}
+	}
 	x.Activation = &Activation{version, actor, s.now().UTC()}
+	x.DisabledAt = nil
+	x.DisabledBy = ""
+	x.DisableReason = ""
+	refresh(&x)
+	return x, s.save(x)
+}
+
+func (s *Store) RecordCandidateDecision(repo, id, actor string, version int64, kind, decision, rationale string) (Workflow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, id)
+	if e != nil {
+		return x, e
+	}
+	if version != x.CurrentVersion || rationale == "" || !contains([]string{"review", "owner_acknowledgement"}, kind) {
+		return x, ErrInvalid
+	}
+	v := x.Versions[len(x.Versions)-1]
+	allowed := kind == "review" && contains(v.Governance.RequiredReviewerIDs, actor) || kind == "owner_acknowledgement" && contains(v.Governance.RequiredOwnerIDs, actor)
+	if !allowed || kind == "review" && decision != "approved" && decision != "rejected" || kind == "owner_acknowledgement" && decision != "acknowledged" && decision != "rejected" {
+		return x, ErrConflict
+	}
+	x.CandidateDecisions = append(x.CandidateDecisions, CandidateDecision{version, kind, "workflow_definition", actor, decision, rationale, s.now().UTC()})
+	return x, s.save(x)
+}
+func (s *Store) RecordSimulation(repo, id, actor string, in SimulationResult) (Workflow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, id)
+	if e != nil {
+		return x, e
+	}
+	if in.Version != x.CurrentVersion || in.CaseID == "" || in.Cost < 0 {
+		return x, ErrInvalid
+	}
+	v := x.Versions[len(x.Versions)-1]
+	found := false
+	for _, c := range v.Governance.SimulationCases {
+		if c.ID == in.CaseID && c.MaximumCost >= in.Cost {
+			found = true
+		}
+	}
+	if !found {
+		return x, ErrInvalid
+	}
+	in.ActorID = actor
+	in.CreatedAt = s.now().UTC()
+	x.SimulationResults = append(x.SimulationResults, in)
+	return x, s.save(x)
+}
+func (s *Store) AddException(repo, id, actor string, in Exception) (Workflow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, id)
+	if e != nil {
+		return x, e
+	}
+	if in.Version != x.CurrentVersion || in.Scope == "" || in.Rationale == "" || !in.ExpiresAt.After(s.now().UTC()) || !contains(x.Versions[len(x.Versions)-1].OwnerIDs, actor) {
+		return x, ErrInvalid
+	}
+	in.ID = newID()
+	in.OwnerID = actor
+	in.CreatedAt = s.now().UTC()
+	x.Exceptions = append(x.Exceptions, in)
+	return x, s.save(x)
+}
+func (s *Store) Disable(repo, id, actor, reason string) (Workflow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, id)
+	if e != nil {
+		return x, e
+	}
+	if reason == "" || !contains(x.Versions[len(x.Versions)-1].OwnerIDs, actor) {
+		return x, ErrConflict
+	}
+	now := s.now().UTC()
+	x.DisabledAt = &now
+	x.DisabledBy = actor
+	x.DisableReason = reason
+	s.containExecutions(repo, id, actor, "workflow_emergency_disabled")
+	refresh(&x)
+	return x, s.save(x)
+}
+
+func (s *Store) containExecutions(repo, workflow, actor, reason string) {
+	xs, _ := s.listExecutions(repo, workflow)
+	for _, x := range xs {
+		if executionTerminal(x.State) || x.State == "paused" {
+			continue
+		}
+		now := s.now().UTC()
+		x.State = "paused"
+		x.Revision++
+		x.UpdatedAt = now
+		x.Blockers = append(x.Blockers, reason)
+		for i := range x.Steps {
+			if x.Steps[i].Credential != nil && x.Steps[i].Credential.RevokedAt == nil {
+				x.Steps[i].Credential.RevokedAt = &now
+			}
+			if x.Steps[i].State == "running" {
+				x.Steps[i].State = "paused"
+			}
+		}
+		x.event("effects_contained", actor, "", reason, now)
+		_ = s.saveExecution(x)
+	}
+}
+func (s *Store) Rollback(repo, id, actor string, version int64, reason string) (Workflow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, id)
+	if e != nil {
+		return x, e
+	}
+	if version < 1 || version >= x.CurrentVersion || reason == "" || !contains(x.Versions[len(x.Versions)-1].OwnerIDs, actor) {
+		return x, ErrConflict
+	}
+	prior := x.Versions[version-1]
+	x.CurrentVersion++
+	prior.Number = x.CurrentVersion
+	prior.AuthorID = actor
+	prior.PublishedAt = s.now().UTC()
+	prior.ChangeReason = reason
+	x.Versions = append(x.Versions, prior)
+	x.Activation = nil
+	x.DisabledAt = nil
 	refresh(&x)
 	return x, s.save(x)
 }
