@@ -4145,6 +4145,26 @@ checks and review.
 
 ## Collaborative code investigations
 
+Before historical testing begins, repository writers can open a durable
+regression boundary at `POST
+/repositories/{repository}/regression-investigations`. The origin must be an
+issue, support thread, failed check, release, deployment, or reproduction. Its
+scope captures the expected and regressed behavior, known-good and known-bad
+revision or release, affected environments, an explicit comparability claim,
+severity, owners, and acceptance criteria. Both endpoints resolve to visible
+commits and the known-good commit must be an ancestor of the known-bad commit.
+
+Records live beneath `$REGRESSION_INVESTIGATION_ROOT` (default
+`apps/api/data/regression-investigations`). Detail reads expose missing-input
+blockers and branch references that moved after capture. Version-checked scope
+updates append complete attributed snapshots instead of replacing history.
+The `/evidence`, `/entries`, and `/status` actions retain permitted public or
+repository-visible evidence, discussion, hypotheses, scope notes, and status
+changes; `ready` is rejected while blockers remain. The repository
+`view=investigations` surface presents this agreed search boundary alongside
+the general inquiry canvas. These records coordinate later historical tests
+but grant no Git, agent, release, deployment, or environment authority.
+
 Repository writers open a shared canvas with `POST
 /repositories/{repository}/investigations`, naming a title, framing question,
 and revision. The revision is resolved once; the record, its ordered runs, and

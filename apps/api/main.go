@@ -93,6 +93,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/recoveryinvestigations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/recoveryobjectives"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/recoveryresponses"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/regressioninvestigations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/relationships"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/reliabilityimprovements"
@@ -390,6 +391,14 @@ func main() {
 		investigationRoot = "data/investigations"
 	}
 	investigationStore, err := investigations.New(investigationRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	regressionInvestigationRoot := os.Getenv("REGRESSION_INVESTIGATION_ROOT")
+	if regressionInvestigationRoot == "" {
+		regressionInvestigationRoot = "data/regression-investigations"
+	}
+	regressionInvestigationStore, err := regressioninvestigations.New(regressionInvestigationRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1054,6 +1063,7 @@ func main() {
 	registerCodeIntelligenceHTTP(mux, repositoryCatalog, credentials, relationshipStore)
 	registerQuestionsHTTP(mux, questionStore, repositoryCatalog, credentials, relationshipStore, checkRunStore)
 	registerInvestigationsHTTP(mux, investigationStore, repositoryCatalog, credentials, workspaceStore, questionStore)
+	registerRegressionInvestigationsHTTP(mux, regressionInvestigationStore, repositoryCatalog, credentials, releaseStore)
 	registerImpactAssessmentsHTTP(mux, impactStore, repositoryCatalog, credentials, relationshipStore, investigationStore, releaseStore, deploymentStore, packageStore)
 	registerDecisionsHTTP(mux, decisionStore, repositoryCatalog, credentials, workspaceStore, workspaceRunner, proposalStore)
 	registerDeliveryTeamsHTTP(mux, deliveryTeamStore, repositoryCatalog, credentials, organizationStore, deliveryExecutionStores{changes: changeSessionStore, investigations: investigationStore, decisions: decisionStore, workspaces: workspaceStore}, pullRequestStore, checkRunner)
