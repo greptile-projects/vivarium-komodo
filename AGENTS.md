@@ -13,8 +13,10 @@ stale, expired, unavailable, and inaccessible evidence rather than presenting it
 as proof. Workspaces grant no repository, package, API, agent, credential,
 procurement, selection, trial, integration, deployment, or operational authority.
 The public API is `/adoption-workspaces`, the web surface is `/adoptions`, and
-`adoption_workspace_workflow_test.go` is the black-box boundary for this initial
-shared fit evaluation.
+`adoption_workspace_workflow_test.go` is the black-box boundary for the complete
+evaluation-to-upstream-improvement loop, including failed and inaccessible fit,
+bounded trials, delivery recovery, upstream acceptance and rejection, and an
+exact verified consumer update.
 Accepted workspace participants may assemble candidate-revision-bound trials
 from attested releases or exact revisions, scoped packages and APIs, synthetic
 or explicitly permitted data, declared journeys, policies, sanitized setup,
