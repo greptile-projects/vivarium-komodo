@@ -417,9 +417,99 @@ func publishWorkspaceCheckpoint(store workspaceStore, runner workspaceRunner, re
 			Title             string `json:"title"`
 			Message           string `json:"message"`
 			CreatePullRequest bool   `json:"create_pull_request"`
+			Mode              string `json:"mode"`
 		}
 		if !readJSON(w, r, &in, 32<<10) {
 			return
+		}
+		checkpointID := r.PathValue("checkpoint")
+		checkpoint, checkpointErr := runner.InspectCheckpoint(item, checkpointID)
+		if checkpointErr != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		mode := strings.TrimSpace(in.Mode)
+		if mode == "" && item.Context.Conflict != nil {
+			mode = "resolution_pull_request"
+		}
+		var originPull *pullrequests.PullRequest
+		resolutionIDs, approvalIDs := []string{}, []string{}
+		var resolutionContext *pullrequests.ResolutionContext
+		publishRequest := workspaces.PublishRequest{Branch: in.Branch, Message: in.Message, Mode: mode}
+		if item.Context.Conflict != nil {
+			if mode != "pull_request_branch" && mode != "resolution_pull_request" {
+				writeJSON(w, 422, map[string]string{"error": "invalid_resolution_publication_mode"})
+				return
+			}
+			if checkpoint.Verification == nil || checkpoint.Verification.Status != "passed" {
+				writeJSON(w, 409, map[string]any{"error": "resolution_checkpoint_not_accepted", "verification": checkpoint.Verification})
+				return
+			}
+			approvedOwners := map[string]bool{}
+			for _, decision := range checkpoint.Verification.Decisions {
+				if len(decision.StaleInputKeys) == 0 && decision.Decision == "approved" {
+					approvedOwners[decision.OwnerID] = true
+					approvalIDs = append(approvalIDs, decision.ID)
+				}
+			}
+			for _, ownerID := range item.Context.Conflict.OwnerIDs {
+				if !approvedOwners[ownerID] {
+					writeJSON(w, 409, map[string]string{"error": "resolution_owner_approval_required", "owner_id": ownerID})
+					return
+				}
+			}
+			repositoryMeta, metaErr := repositories.Inspect(storage.ID(item.RepositoryID))
+			if metaErr != nil {
+				writeJSON(w, 409, map[string]string{"error": "resolution_repository_unavailable"})
+				return
+			}
+			currentPolicy, _ := store.EffectivePolicy(item.RepositoryID, repositoryMeta.OrganizationID)
+			_, currentDefinitionDigest, definitionErr := runner.Definition(item.RepositoryID, checkpoint.Verification.Inputs.Target)
+			if definitionErr != nil || checkpoint.Verification.Inputs.Dependency != currentDefinitionDigest || checkpoint.Verification.Inputs.Policy != workspaces.PolicyDigest(currentPolicy) {
+				writeJSON(w, 409, map[string]any{"error": "resolution_verification_stale", "stale_input_keys": []string{"dependency_or_policy"}})
+				return
+			}
+			origin, e := pulls.Get(item.RepositoryID, item.Context.Conflict.PullRequestID)
+			if e != nil || origin.Status != pullrequests.Open {
+				writeJSON(w, 409, map[string]string{"error": "resolution_pull_request_unavailable"})
+				return
+			}
+			originPull = &origin
+			sourceRepo, sourceErr := repositories.Open(storage.ID(item.Context.Conflict.Source.RepositoryID))
+			targetRepo, targetErr := repositories.Open(storage.ID(item.Context.Conflict.Target.RepositoryID))
+			if sourceErr != nil || targetErr != nil {
+				writeJSON(w, 409, map[string]string{"error": "resolution_input_unavailable"})
+				return
+			}
+			sourceRef, sourceErr := sourceRepo.ReadReference(storage.ReferenceName("refs/heads/" + item.Context.Conflict.Source.Branch))
+			targetRef, targetErr := targetRepo.ReadReference(storage.ReferenceName("refs/heads/" + item.Context.Conflict.Target.Branch))
+			if sourceErr != nil || targetErr != nil || string(sourceRef.ObjectID) != checkpoint.Verification.Inputs.Source || string(targetRef.ObjectID) != checkpoint.Verification.Inputs.Target {
+				writeJSON(w, 409, map[string]string{"error": "resolution_inputs_changed"})
+				return
+			}
+			if strings.TrimSpace(in.TargetBranch) != origin.TargetBranch {
+				writeJSON(w, 422, map[string]string{"error": "invalid_resolution_target"})
+				return
+			}
+			if mode == "pull_request_branch" {
+				if origin.SourceRepositoryID != item.RepositoryID || strings.TrimSpace(in.Branch) != origin.SourceBranch {
+					writeJSON(w, 422, map[string]string{"error": "pull_request_branch_not_permitted"})
+					return
+				}
+				in.CreatePullRequest = false
+				publishRequest.ExpectedBranchTip = origin.SourceCommitID
+			} else {
+				if strings.TrimSpace(in.Branch) == origin.SourceBranch || strings.TrimSpace(in.Branch) == origin.TargetBranch {
+					writeJSON(w, 422, map[string]string{"error": "resolution_branch_must_be_new"})
+					return
+				}
+				in.CreatePullRequest = true
+			}
+			publishRequest.ParentCommitIDs = []string{checkpoint.Verification.Inputs.Target, checkpoint.Verification.Inputs.Source}
+			for _, entry := range item.Resolutions {
+				resolutionIDs = append(resolutionIDs, entry.ID)
+			}
+			resolutionContext = &pullrequests.ResolutionContext{OriginPullRequestID: origin.ID, WorkspaceID: item.ID, CheckpointID: checkpointID, VerificationDigest: checkpoint.Verification.Digest, SourceCommitID: checkpoint.Verification.Inputs.Source, TargetCommitID: checkpoint.Verification.Inputs.Target, ResolutionIDs: resolutionIDs, ApprovalIDs: approvalIDs, Commands: append([]string(nil), checkpoint.Reproducibility.Commands...)}
 		}
 		var target storage.Reference
 		if in.CreatePullRequest {
@@ -434,7 +524,7 @@ func publishWorkspaceCheckpoint(store workspaceStore, runner workspaceRunner, re
 				return
 			}
 		}
-		commit, contributors, err := runner.Publish(item, actor.UserID, r.PathValue("checkpoint"), workspaces.PublishRequest{Branch: in.Branch, Message: in.Message})
+		commit, contributors, err := runner.Publish(item, actor.UserID, checkpointID, publishRequest)
 		if errors.Is(err, workspaces.ErrConflict) {
 			writeJSON(w, 409, map[string]string{"error": "checkpoint_publication_conflict"})
 			return
@@ -444,7 +534,17 @@ func publishWorkspaceCheckpoint(store workspaceStore, runner workspaceRunner, re
 			return
 		}
 		var pull *pullrequests.PullRequest
-		if in.CreatePullRequest {
+		if mode == "pull_request_branch" && originPull != nil {
+			updatedPull, e := pulls.SynchronizeSource(item.RepositoryID, originPull.ID, string(commit))
+			if e != nil {
+				writeJSON(w, 409, map[string]string{"error": "resolution_pull_request_changed"})
+				return
+			}
+			pull = &updatedPull
+			if checks != nil {
+				_ = checks.Start(item.RepositoryID, item.RepositoryID, updatedPull.ID, string(commit))
+			}
+		} else if in.CreatePullRequest {
 			targetName := strings.TrimSpace(in.TargetBranch)
 			proposalID, taskID, sessionID := "", "", ""
 			if item.Context.Type == "proposal_task" {
@@ -477,7 +577,10 @@ func publishWorkspaceCheckpoint(store workspaceStore, runner workspaceRunner, re
 					}
 				}
 			}
-			created, e := pulls.Create(pullrequests.CreateParams{RepositoryID: item.RepositoryID, SourceRepositoryID: item.RepositoryID, ProposalID: proposalID, TaskID: taskID, ChangeSessionID: sessionID, OriginPullRequestID: originPullID, AuthorID: actor.UserID, Title: in.Title, Body: body, SourceBranch: strings.TrimSpace(in.Branch), TargetBranch: targetName, SourceCommitID: string(commit), TargetCommitID: string(target.ObjectID), WorkspaceID: item.ID, CheckpointID: r.PathValue("checkpoint"), ContributorIDs: contributors, ReasoningContext: reasoningContext})
+			if originPull != nil {
+				originPullID = originPull.ID
+			}
+			created, e := pulls.Create(pullrequests.CreateParams{RepositoryID: item.RepositoryID, SourceRepositoryID: item.RepositoryID, ProposalID: proposalID, TaskID: taskID, ChangeSessionID: sessionID, OriginPullRequestID: originPullID, AuthorID: actor.UserID, Title: in.Title, Body: body, SourceBranch: strings.TrimSpace(in.Branch), TargetBranch: targetName, SourceCommitID: string(commit), TargetCommitID: string(target.ObjectID), WorkspaceID: item.ID, CheckpointID: checkpointID, ContributorIDs: contributors, ReasoningContext: reasoningContext, ResolutionContext: resolutionContext})
 			if e != nil {
 				writeJSON(w, 422, map[string]string{"error": "invalid_pull_request"})
 				return
@@ -506,7 +609,10 @@ func publishWorkspaceCheckpoint(store workspaceStore, runner workspaceRunner, re
 		if pull != nil {
 			pullID = pull.ID
 		}
-		publication := workspaces.Publication{CommitID: string(commit), Branch: strings.TrimSpace(in.Branch), PullRequestID: pullID, PublisherID: actor.UserID, ContributorIDs: contributors, PublishedAt: time.Now().UTC()}
+		publication := workspaces.Publication{CommitID: string(commit), Branch: strings.TrimSpace(in.Branch), Mode: mode, PullRequestID: pullID, PublisherID: actor.UserID, ContributorIDs: contributors, ResolutionIDs: resolutionIDs, ApprovalIDs: approvalIDs, Commands: append([]string(nil), checkpoint.Reproducibility.Commands...), PublishedAt: time.Now().UTC()}
+		if checkpoint.Verification != nil {
+			publication.SourceCommitID, publication.TargetCommitID, publication.VerificationDigest = checkpoint.Verification.Inputs.Source, checkpoint.Verification.Inputs.Target, checkpoint.Verification.Digest
+		}
 		updated, err := store.Get(item.RepositoryID, item.ID)
 		if pullID != "" {
 			updated, err = store.LinkPublicationPullRequest(item.RepositoryID, item.ID, r.PathValue("checkpoint"), pullID)

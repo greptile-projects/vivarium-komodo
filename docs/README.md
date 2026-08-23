@@ -4223,6 +4223,27 @@ source, target, dependency, or policy invalidates only criteria that name that
 input. These proof records do not publish the checkpoint or grant merge,
 credential, environment, or operational authority.
 
+An accepted checkpoint returns to ordinary review through `POST
+.../checkpoints/{checkpoint}/publication` with `mode` set to
+`pull_request_branch` or `resolution_pull_request`. Publication revalidates the
+live source and target branches, target workspace definition, effective policy,
+affected-owner approvals, and open origin pull request. The first mode can only
+compare-and-swap the same-repository origin source branch; the second creates a
+new target-repository branch and a pull request connected to the origin. The
+resolution commit has both frozen inputs as parents and carries trailers for the
+workspace, checkpoint, verification candidate, semantic resolution entries,
+approvals, and declared commands. The pull request retains the same structured
+context and contributor identities. Checks run on the published commit and
+prior reviews become stale when the origin source is synchronized.
+
+Protected integration remains queue-owned. Every generation is rebuilt against
+the current target and checked on that exact generated commit. The coordinator
+also rechecks the exact-source owner approval immediately before compare-and-
+swap merge. A moved or missing source, withdrawn approval, new change request,
+target advance, or newly conflicting queue head blocks or removes the attempt
+without moving either contribution branch; collaborators can synchronize,
+reapprove, or launch a new conflict workspace and enqueue fresh evidence.
+
 Setup materializes only the captured Git tree beneath `$WORKSPACE_ROOT`
 (default `apps/api/data/workspaces`) and executes each command in Bubblewrap
 without network, credentials, repository metadata, or host filesystem access.

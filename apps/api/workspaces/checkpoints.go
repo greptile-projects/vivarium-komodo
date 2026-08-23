@@ -26,7 +26,14 @@ type CheckpointRequest struct {
 	Reproducibility Reproducibility
 }
 
-type PublishRequest struct{ Branch, Message string }
+type PublishRequest struct {
+	Branch, Message string
+	// ExpectedBranchTip permits a reconciled tree to advance the original
+	// contribution branch without pretending it was based on the target tree.
+	ExpectedBranchTip string
+	ParentCommitIDs   []string
+	Mode              string
+}
 
 // Publish writes only the immutable bytes named by a checkpoint. The mutable
 // workspace is deliberately never walked here.
@@ -92,7 +99,35 @@ func (r *Runner) Publish(w Workspace, actor, checkpointID string, request Publis
 	if w.Context.Type != "repository" {
 		trailers += "\nWorkspace-Context: " + w.Context.Type + "/" + w.Context.ID
 	}
-	content := fmt.Sprintf("tree %s\nparent %s\nauthor %s <%s@users.local> %s\ncommitter %s <%s@users.local> %s\n\n%s%s\n", tree, checkpoint.BaseRevision, actor, actor, stamp, actor, actor, stamp, message, trailers)
+	parents := append([]string(nil), request.ParentCommitIDs...)
+	if len(parents) == 0 {
+		parents = []string{checkpoint.BaseRevision}
+	}
+	parentLines := ""
+	seenParents := map[string]bool{}
+	for _, parent := range parents {
+		if parent != "" && !seenParents[parent] {
+			parentLines += "parent " + parent + "\n"
+			seenParents[parent] = true
+		}
+	}
+	if checkpoint.Verification != nil {
+		trailers += "\nVerification-Candidate: " + checkpoint.Verification.Digest
+		trailers += "\nResolution-Source: " + checkpoint.Verification.Inputs.Source
+		trailers += "\nResolution-Target: " + checkpoint.Verification.Inputs.Target
+		for _, decision := range checkpoint.Verification.Decisions {
+			if len(decision.StaleInputKeys) == 0 && decision.Decision == "approved" {
+				trailers += "\nResolution-Approval: " + decision.ID
+			}
+		}
+	}
+	for _, resolution := range w.Resolutions {
+		trailers += "\nResolution-Entry: " + resolution.ID
+	}
+	for _, command := range checkpoint.Reproducibility.Commands {
+		trailers += "\nResolution-Command: " + strings.ReplaceAll(command, "\n", " ")
+	}
+	content := fmt.Sprintf("tree %s\n%sauthor %s <%s@users.local> %s\ncommitter %s <%s@users.local> %s\n\n%s%s\n", tree, parentLines, actor, actor, stamp, actor, actor, stamp, message, trailers)
 	commit, err := repo.WriteObject(storage.CommitObject, []byte(content))
 	if err != nil {
 		return "", nil, err
@@ -100,7 +135,11 @@ func (r *Runner) Publish(w Workspace, actor, checkpointID string, request Publis
 	refName := storage.ReferenceName("refs/heads/" + branch)
 	ref, readErr := repo.ReadReference(refName)
 	if readErr == nil {
-		if ref.ObjectID != storage.ObjectID(checkpoint.BaseRevision) {
+		expected := checkpoint.BaseRevision
+		if request.ExpectedBranchTip != "" {
+			expected = request.ExpectedBranchTip
+		}
+		if ref.ObjectID != storage.ObjectID(expected) {
 			return "", nil, ErrConflict
 		}
 		err = repo.CompareAndSwapReference(refName, ref.ObjectID, commit)
@@ -129,7 +168,19 @@ func (r *Runner) Publish(w Workspace, actor, checkpointID string, request Publis
 		}
 	}
 	sort.Strings(ids)
-	_, err = r.store.RecordPublication(w.RepositoryID, w.ID, checkpoint.ID, Publication{CommitID: string(commit), Branch: branch, PublisherID: actor, ContributorIDs: ids, PublishedAt: time.Now().UTC()})
+	publication := Publication{CommitID: string(commit), Branch: branch, Mode: request.Mode, PublisherID: actor, ContributorIDs: ids, Commands: append([]string(nil), checkpoint.Reproducibility.Commands...), PublishedAt: time.Now().UTC()}
+	if checkpoint.Verification != nil {
+		publication.SourceCommitID, publication.TargetCommitID, publication.VerificationDigest = checkpoint.Verification.Inputs.Source, checkpoint.Verification.Inputs.Target, checkpoint.Verification.Digest
+		for _, decision := range checkpoint.Verification.Decisions {
+			if len(decision.StaleInputKeys) == 0 && decision.Decision == "approved" {
+				publication.ApprovalIDs = append(publication.ApprovalIDs, decision.ID)
+			}
+		}
+	}
+	for _, resolution := range w.Resolutions {
+		publication.ResolutionIDs = append(publication.ResolutionIDs, resolution.ID)
+	}
+	_, err = r.store.RecordPublication(w.RepositoryID, w.ID, checkpoint.ID, publication)
 	if err != nil {
 		return "", nil, err
 	}
@@ -225,6 +276,12 @@ func writeTree(repo *storage.Repository, files map[string]treeFile) (storage.Obj
 }
 
 func sha(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
+
+// PolicyDigest is the stable identity used by reconciliation verification.
+func PolicyDigest(policy Policy) string {
+	encoded, _ := json.Marshal(policy)
+	return sha(encoded)
+}
 
 func sensitiveCheckpointPath(path string) bool {
 	lower := strings.ToLower(path)

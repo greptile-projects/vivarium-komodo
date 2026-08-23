@@ -273,12 +273,19 @@ type VerificationDecision struct {
 	CreatedAt      time.Time          `json:"created_at"`
 }
 type Publication struct {
-	CommitID       string    `json:"commit_id"`
-	Branch         string    `json:"branch"`
-	PullRequestID  string    `json:"pull_request_id,omitempty"`
-	PublisherID    string    `json:"publisher_id"`
-	ContributorIDs []string  `json:"contributor_ids"`
-	PublishedAt    time.Time `json:"published_at"`
+	CommitID           string    `json:"commit_id"`
+	Branch             string    `json:"branch"`
+	Mode               string    `json:"mode,omitempty"`
+	PullRequestID      string    `json:"pull_request_id,omitempty"`
+	PublisherID        string    `json:"publisher_id"`
+	ContributorIDs     []string  `json:"contributor_ids"`
+	SourceCommitID     string    `json:"source_commit_id,omitempty"`
+	TargetCommitID     string    `json:"target_commit_id,omitempty"`
+	VerificationDigest string    `json:"verification_digest,omitempty"`
+	ResolutionIDs      []string  `json:"resolution_ids,omitempty"`
+	ApprovalIDs        []string  `json:"approval_ids,omitempty"`
+	Commands           []string  `json:"commands,omitempty"`
+	PublishedAt        time.Time `json:"published_at"`
 }
 type Workspace struct {
 	ID                string            `json:"id"`

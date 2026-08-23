@@ -82,6 +82,21 @@ type PullRequest struct {
 	DeliveryEvidence    *DeliveryEvidence    `json:"delivery_evidence,omitempty"`
 	ContributionContext *ContributionContext `json:"contribution_context,omitempty"`
 	FederatedContext    *FederatedContext    `json:"federated_context,omitempty"`
+	ResolutionContext   *ResolutionContext   `json:"resolution_context,omitempty"`
+}
+
+// ResolutionContext carries accepted reconciliation proof into ordinary review.
+// It is descriptive provenance, never review or merge authority.
+type ResolutionContext struct {
+	OriginPullRequestID string   `json:"origin_pull_request_id"`
+	WorkspaceID         string   `json:"workspace_id"`
+	CheckpointID        string   `json:"checkpoint_id"`
+	VerificationDigest  string   `json:"verification_digest"`
+	SourceCommitID      string   `json:"source_commit_id"`
+	TargetCommitID      string   `json:"target_commit_id"`
+	ResolutionIDs       []string `json:"resolution_ids"`
+	ApprovalIDs         []string `json:"approval_ids"`
+	Commands            []string `json:"commands"`
 }
 
 type FederatedContext struct {
@@ -149,6 +164,7 @@ type CreateParams struct {
 	DeliveryEvidence    *DeliveryEvidence
 	ContributionContext *ContributionContext
 	FederatedContext    *FederatedContext
+	ResolutionContext   *ResolutionContext
 }
 
 type Comment struct {
@@ -215,7 +231,7 @@ func (s *Store) Create(params CreateParams) (PullRequest, error) {
 	if params.DeliveryEvidence != nil {
 		params.DeliveryEvidence.RecordedByID, params.DeliveryEvidence.RecordedAt = params.AuthorID, now
 	}
-	item := PullRequest{ID: id, RepositoryID: params.RepositoryID, SourceRepositoryID: params.SourceRepositoryID, ProposalID: params.ProposalID, TaskID: params.TaskID, ChangeSessionID: params.ChangeSessionID, OriginPullRequestID: params.OriginPullRequestID, AuthorID: params.AuthorID, Title: params.Title, Body: params.Body, SourceBranch: params.SourceBranch, TargetBranch: params.TargetBranch, SourceCommitID: params.SourceCommitID, TargetCommitID: params.TargetCommitID, Draft: params.Draft, WorkspaceID: params.WorkspaceID, CheckpointID: params.CheckpointID, ContributorIDs: ContributorIDs(strings.Join(params.ContributorIDs, "\x00")), ReasoningContext: params.ReasoningContext, DeliveryEvidence: params.DeliveryEvidence, ContributionContext: params.ContributionContext, FederatedContext: params.FederatedContext, Status: Open, CreatedAt: now, UpdatedAt: now}
+	item := PullRequest{ID: id, RepositoryID: params.RepositoryID, SourceRepositoryID: params.SourceRepositoryID, ProposalID: params.ProposalID, TaskID: params.TaskID, ChangeSessionID: params.ChangeSessionID, OriginPullRequestID: params.OriginPullRequestID, AuthorID: params.AuthorID, Title: params.Title, Body: params.Body, SourceBranch: params.SourceBranch, TargetBranch: params.TargetBranch, SourceCommitID: params.SourceCommitID, TargetCommitID: params.TargetCommitID, Draft: params.Draft, WorkspaceID: params.WorkspaceID, CheckpointID: params.CheckpointID, ContributorIDs: ContributorIDs(strings.Join(params.ContributorIDs, "\x00")), ReasoningContext: params.ReasoningContext, DeliveryEvidence: params.DeliveryEvidence, ContributionContext: params.ContributionContext, FederatedContext: params.FederatedContext, ResolutionContext: params.ResolutionContext, Status: Open, CreatedAt: now, UpdatedAt: now}
 	if err := s.write(item); err != nil {
 		return PullRequest{}, err
 	}

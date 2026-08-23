@@ -144,6 +144,16 @@ func TestQueueCoordinatorRebuildsLaterCandidateBeforeAtomicMerge(t *testing.T) {
 	run, _ := checks.Create(string(repository.ID), second.ID, remaining[0].CandidateCommitID, checkruns.Definition{Name: "unit", Command: "true", TimeoutSeconds: 1})
 	_, _ = checks.Start(run.ID)
 	_, _ = checks.Complete(run.ID, 0, false, "")
+	// Queue evidence never substitutes for a still-current ordinary approval.
+	if err := pulls.DeleteReview(string(repository.ID), second.ID, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	coordinator.reconcileAll(context.Background())
+	blocked, _ := queue.Get(remaining[0].ID)
+	if blocked.State != "blocked" || blocked.Reason != "approval_withdrawn" {
+		t.Fatalf("withdrawn approval did not contain queue entry: %#v", blocked)
+	}
+	_, _ = pulls.PutReview(string(repository.ID), second.ID, "owner", pullrequests.Approve, second.SourceCommitID)
 	coordinator.reconcileAll(context.Background())
 	secondAfter, _ = pulls.Get(string(repository.ID), second.ID)
 	tip, _ := opened.ReadReference("refs/heads/main")
