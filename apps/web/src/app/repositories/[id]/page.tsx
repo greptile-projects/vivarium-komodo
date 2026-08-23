@@ -445,6 +445,22 @@ type PullRequestCommitList = {
   total_count: number;
 };
 type PullRequestFileList = { items: PullRequestFile[]; total_count: number };
+type ConflictAnalysis = {
+  base_commit_id: string;
+  source: ConflictSide;
+  target: ConflictSide;
+  conflicts: Array<{ kind: "textual" | "structural" | "semantic"; path?: string; symbol?: string; detail: string }>;
+  affected_checks: Array<{ name: string; status: string; run_id?: string; commit_id: string; detail: string }>;
+  complete: boolean;
+  stale: boolean;
+  blockers: Array<{ code: string; message: string }>;
+  mutates_branches: false;
+};
+type ConflictSide = {
+  revision: { repository_id: string; branch: string; commit_id: string; live_commit_id?: string; stale: boolean };
+  commits: PullRequestCommit[];
+  intent: { pull_request_id?: string; proposal_id?: string; task_id?: string; owner_id?: string; title?: string; description?: string; discussion_url?: string; acceptance_criteria: Array<{ criterion: string; status: string; evidence?: string }> };
+};
 type PullRequestCommentList = {
   items: PullRequestComment[];
   total_count: number;
@@ -9568,6 +9584,8 @@ function PullRequestDetail({
                 ? "agent-evaluations"
               : section === "accessibility"
                 ? "accessibility"
+              : section === "conflicts"
+                ? "conflicts"
               : "overview";
   const [item, setItem] = useState<PullRequest>();
   const [commits, setCommits] = useState<PullRequestCommit[]>([]);
@@ -9582,6 +9600,7 @@ function PullRequestDetail({
   const [queuePolicy, setQueuePolicy] = useState<IntegrationQueuePolicy>();
   const [queueEntries, setQueueEntries] = useState<IntegrationQueueEntry[]>([]);
   const [proposal, setProposal] = useState<Proposal>();
+  const [conflicts, setConflicts] = useState<ConflictAnalysis>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const load = useCallback(async () => {
@@ -9604,6 +9623,7 @@ function PullRequestDetail({
         linked,
         policy,
         queue,
+        conflictData,
       ] = await Promise.all([
         get<PullRequestCommitList>(
           `/repositories/${repository}/pull-requests/${id}/commits?per_page=100`,
@@ -9641,6 +9661,7 @@ function PullRequestDetail({
         get<IntegrationQueueEntries>(
           `/repositories/${repository}/integration-queue/entries?branch=${encodeURIComponent(pull.target_branch)}`,
         ),
+        get<ConflictAnalysis>(`/repositories/${repository}/pull-requests/${id}/conflicts`),
       ]);
       setItem(pull);
       setCommits(commitData.items);
@@ -9655,6 +9676,7 @@ function PullRequestDetail({
       setProposal(linked);
       setQueuePolicy(policy);
       setQueueEntries(queue.items);
+      setConflicts(conflictData);
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Pull request unavailable.",
@@ -9777,6 +9799,9 @@ function PullRequestDetail({
         />
       )}
       <nav className="pull-sections" aria-label="Pull request">
+        <button className={active === "conflicts" ? "active" : ""} onClick={() => onSection("conflicts")}>
+          Conflicts <span>{conflicts?.conflicts.length ?? 0}</span>
+        </button>
         <button
           className={active === "agent-evaluations" ? "active" : ""}
           onClick={() => onSection("agent-evaluations")}
@@ -9850,6 +9875,8 @@ function PullRequestDetail({
           comments={comments}
           onSection={onSection}
         />
+      ) : active === "conflicts" && conflicts ? (
+        <ConflictEvidence analysis={conflicts} />
       ) : active === "commits" ? (
         <PullCommits commits={commits} />
       ) : active === "files" ? (
@@ -9901,6 +9928,11 @@ function PullRequestDetail({
       )}
     </section>
   );
+}
+
+function ConflictEvidence({ analysis }: { analysis: ConflictAnalysis }) {
+  const side = (label: string, value: ConflictSide) => <article className="panel conflict-side"><p className="eyebrow">{label} intent</p><h3>{value.intent.title || `${value.revision.branch} branch`}</h3><p>{value.intent.description || "No stated intent was attached; discussion is needed before resolution."}</p><dl><div><dt>Exact revision</dt><dd><code>{short(value.revision.commit_id)}</code>{value.revision.stale && <Badge>stale</Badge>}</dd></div><div><dt>Owner</dt><dd>{value.intent.owner_id ? <Actor id={value.intent.owner_id}/> : "Not identified"}</dd></div></dl>{value.intent.discussion_url && <Link href={value.intent.discussion_url}>Open pull request discussion →</Link>}{value.intent.proposal_id && <p>Decision <code>{short(value.intent.proposal_id)}</code>{value.intent.task_id && <> · task <code>{short(value.intent.task_id)}</code></>}</p>}<h4>Acceptance criteria</h4>{value.intent.acceptance_criteria.length ? <ul>{value.intent.acceptance_criteria.map((criterion, index)=><li key={`${criterion.criterion}-${index}`}><Badge>{criterion.status}</Badge> {criterion.criterion}{criterion.evidence && <small> — {criterion.evidence}</small>}</li>)}</ul> : <p>No explicit acceptance criteria were recorded.</p>}<small>{value.commits.length} commit(s) since base <code>{short(analysis.base_commit_id)}</code></small></article>;
+  return <section className="conflict-evidence"><header className="panel"><div><p className="eyebrow">Read-only exact-revision analysis</p><h3>{analysis.complete ? "Which intentions collide" : "Analysis is incomplete"}</h3><p>Compared both sides against base <code>{short(analysis.base_commit_id)}</code>. This evidence never changes either branch.</p></div><Badge>{analysis.stale ? "stale" : "current"}</Badge></header>{analysis.blockers.map(blocker=><p className="proposal-notice panel" key={blocker.code}><strong>{blocker.code.replaceAll("_", " ")}</strong> — {blocker.message}</p>)}<div className="conflict-sides">{side("Source", analysis.source)}{side("Target", analysis.target)}</div><section className="panel conflict-list"><p className="eyebrow">Detected incompatibilities</p><h3>Evidence, not conflict markers</h3>{analysis.conflicts.length ? analysis.conflicts.map((item,index)=><article key={`${item.kind}-${item.path}-${item.symbol}-${index}`}><Badge>{item.kind}</Badge><strong>{item.path || item.symbol}</strong><p>{item.detail}</p></article>) : <p>No incompatibility was detected for these exact revisions.</p>}</section><section className="panel conflict-list"><p className="eyebrow">Affected checks</p>{analysis.affected_checks.length ? analysis.affected_checks.map(check=><article key={check.run_id || check.name}><Badge>{check.status}</Badge><strong>{check.name}</strong><p>{check.detail} <code>{short(check.commit_id)}</code></p></article>) : <p>No exact-revision check evidence is attached yet; combined behavior still needs verification.</p>}</section></section>;
 }
 
 function PullPreviews({ repository, pull, actor, previews, onChanged }: { repository: string; pull: PullRequest; actor: string; previews: Preview[]; onChanged: () => void }) {

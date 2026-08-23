@@ -3720,6 +3720,9 @@ The repository-scoped JSON contract is:
   participant's current decision with the shared bounded pagination envelope;
 - `GET /repositories/{id}/pull-requests/{pull_request_id}/readiness` reports
   every currently known merge blocker without changing repository state.
+- `GET /repositories/{id}/pull-requests/{pull_request_id}/conflicts` explains
+  the exact source and target intentions, commits, files, symbols, schema or
+  interface overlap, and affected checks without changing either branch;
 - `POST /repositories/{id}/pull-requests/{pull_request_id}/merge` applies a
   ready request to its target branch as a two-parent merge commit; only the
   repository owner may perform it.
@@ -3754,6 +3757,17 @@ directory and the repository object database mounted read-only as an alternate,
 so the readiness request writes neither objects nor references. When missing or
 changed branches prevent a meaningful merge probe, `has_conflicts` is `null`
 and the corresponding branch blockers explain why.
+
+The conflict read derives a common base and side-only histories from the
+request's frozen revisions. Stock Git conflict paths are textual evidence;
+overlapping schema and interface definitions are structural evidence; shared
+declarations in separate files and exact-revision check failures are surfaced
+as independently detected semantic evidence. Each available side links back to
+its pull request, proposal task, discussion, owner, stated purpose, and recorded
+acceptance criteria. Live branch movement marks the analysis stale, while an
+unavailable repository or ancestry makes it incomplete. Missing intent or check
+evidence remains explicit instead of being guessed, and all merge computation
+uses disposable object storage so the read cannot modify a branch or object.
 
 Creation, discussion, and review mutation require authenticated
 `repository:write` access;
