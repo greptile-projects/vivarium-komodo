@@ -210,6 +210,38 @@ func registerRegressionInvestigationsHTTP(m *http.ServeMux, s *ri.Store, repos c
 		v, e := s.AddHypothesis(string(repo.ID), r.PathValue("investigation"), r.PathValue("search"), a.UserID, in)
 		writeRegression(w, v, e, 201)
 	})
+	m.HandleFunc("POST "+base+"/{investigation}/responses", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if a.UserID != repo.OwnerID {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner_required"})
+			return
+		}
+		var in ri.ResponsePlanInput
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		v, e := s.CreateResponse(string(repo.ID), r.PathValue("investigation"), a.UserID, in)
+		writeRegression(w, v, e, http.StatusCreated)
+	})
+	m.HandleFunc("POST "+base+"/{investigation}/responses/{response}/work", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if a.UserID != repo.OwnerID {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner_required"})
+			return
+		}
+		var in ri.ResponseWork
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		v, e := s.AddResponseWork(string(repo.ID), r.PathValue("investigation"), r.PathValue("response"), a.UserID, in)
+		writeRegression(w, v, e, http.StatusCreated)
+	})
 }
 
 func validateSearchGraph(repoID string, repo *storage.Repository, revisions []ri.SearchRevision) bool {

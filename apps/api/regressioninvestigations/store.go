@@ -200,6 +200,58 @@ type CausalHypothesis struct {
 	State        string    `json:"state"`
 	CreatedAt    time.Time `json:"created_at"`
 }
+type ResponseOption struct {
+	ID               string   `json:"id"`
+	Kind             string   `json:"kind"`
+	Title            string   `json:"title"`
+	Summary          string   `json:"summary"`
+	Tradeoffs        []string `json:"tradeoffs"`
+	AffectedReleases []string `json:"affected_releases"`
+	AffectedWork     []string `json:"affected_current_work"`
+	BackportTargets  []string `json:"backport_targets,omitempty"`
+	EvidenceIDs      []string `json:"evidence_ids"`
+}
+type ResponsePlanInput struct {
+	SearchID           string           `json:"search_id"`
+	CulpritGoodKey     string           `json:"culprit_good_key"`
+	CulpritBadKey      string           `json:"culprit_bad_key"`
+	ReproductionIDs    []string         `json:"reproduction_ids"`
+	Constraints        []string         `json:"constraints"`
+	AcceptanceCriteria []string         `json:"acceptance_criteria"`
+	OriginalIntent     string           `json:"original_change_intent"`
+	OriginalAuthorIDs  []string         `json:"original_author_ids"`
+	Options            []ResponseOption `json:"options"`
+	SelectedOptionID   string           `json:"selected_option_id,omitempty"`
+	Rationale          string           `json:"rationale,omitempty"`
+}
+type ResponseWork struct {
+	ID                 string    `json:"id"`
+	Kind               string    `json:"kind"`
+	ResourceID         string    `json:"resource_id"`
+	OwnerID            string    `json:"owner_id"`
+	OwnerKind          string    `json:"owner_kind"`
+	OptionID           string    `json:"option_id"`
+	PullRequestID      string    `json:"pull_request_id,omitempty"`
+	Published          bool      `json:"published"`
+	Intent             string    `json:"original_change_intent"`
+	AuthorIDs          []string  `json:"original_author_ids"`
+	Tradeoffs          []string  `json:"tradeoffs"`
+	BackportTargets    []string  `json:"backport_targets,omitempty"`
+	CulpritRange       []string  `json:"culprit_range"`
+	ReproductionIDs    []string  `json:"reproduction_ids"`
+	Constraints        []string  `json:"constraints"`
+	AcceptanceCriteria []string  `json:"acceptance_criteria"`
+	CreatedByID        string    `json:"created_by_id"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+type ResponsePlan struct {
+	ID string `json:"id"`
+	ResponsePlanInput
+	Work        []ResponseWork `json:"work"`
+	CreatedByID string         `json:"created_by_id"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+}
 type Search struct {
 	ID               string                    `json:"id"`
 	ScenarioID       string                    `json:"scenario_id"`
@@ -220,25 +272,135 @@ type Search struct {
 	UpdatedAt        time.Time                 `json:"updated_at"`
 }
 type Investigation struct {
-	ID           string        `json:"id"`
-	RepositoryID string        `json:"repository_id"`
-	Title        string        `json:"title"`
-	Source       Source        `json:"source"`
-	CreatorID    string        `json:"creator_id"`
-	Version      int64         `json:"version"`
-	Scope        Scope         `json:"scope"`
-	Status       string        `json:"status"`
-	Blockers     []string      `json:"blockers"`
-	StaleInputs  []string      `json:"stale_inputs"`
-	Evidence     []Evidence    `json:"evidence"`
-	Entries      []Entry       `json:"entries"`
-	ScopeChanges []ScopeChange `json:"scope_changes"`
-	Scenarios    []Scenario    `json:"scenarios"`
-	Attempts     []Attempt     `json:"attempts"`
-	Searches     []Search      `json:"searches"`
-	CreatedAt    time.Time     `json:"created_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
+	ID           string         `json:"id"`
+	RepositoryID string         `json:"repository_id"`
+	Title        string         `json:"title"`
+	Source       Source         `json:"source"`
+	CreatorID    string         `json:"creator_id"`
+	Version      int64          `json:"version"`
+	Scope        Scope          `json:"scope"`
+	Status       string         `json:"status"`
+	Blockers     []string       `json:"blockers"`
+	StaleInputs  []string       `json:"stale_inputs"`
+	Evidence     []Evidence     `json:"evidence"`
+	Entries      []Entry        `json:"entries"`
+	ScopeChanges []ScopeChange  `json:"scope_changes"`
+	Scenarios    []Scenario     `json:"scenarios"`
+	Attempts     []Attempt      `json:"attempts"`
+	Searches     []Search       `json:"searches"`
+	Responses    []ResponsePlan `json:"responses"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
 }
+
+func (s *Store) CreateResponse(repo, key, actor string, in ResponsePlanInput) (Investigation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(key)
+	if e != nil || v.RepositoryID != repo {
+		return Investigation{}, ErrNotFound
+	}
+	var q *Search
+	for i := range v.Searches {
+		if v.Searches[i].ID == in.SearchID {
+			q = &v.Searches[i]
+		}
+	}
+	if q == nil {
+		return Investigation{}, ErrNotFound
+	}
+	in.ReproductionIDs, in.Constraints, in.AcceptanceCriteria, in.OriginalAuthorIDs = clean(in.ReproductionIDs), clean(in.Constraints), clean(in.AcceptanceCriteria), clean(in.OriginalAuthorIDs)
+	in.OriginalIntent, in.Rationale, in.SelectedOptionID = strings.TrimSpace(in.OriginalIntent), strings.TrimSpace(in.Rationale), strings.TrimSpace(in.SelectedOptionID)
+	if len(in.Options) != 4 || len(in.ReproductionIDs) == 0 || len(in.Constraints) == 0 || len(in.AcceptanceCriteria) == 0 || in.OriginalIntent == "" {
+		return Investigation{}, ErrConflict
+	}
+	rangeOK, evidence := false, map[string]bool{}
+	for _, r := range q.Ranges {
+		if r.GoodKey == in.CulpritGoodKey && r.BadKey == in.CulpritBadKey && r.Status == "supported" {
+			rangeOK = true
+		}
+	}
+	for _, a := range v.Attempts {
+		evidence[a.ID] = true
+	}
+	for _, x := range v.Evidence {
+		evidence[x.ID] = true
+	}
+	for _, x := range in.ReproductionIDs {
+		if !evidence[x] {
+			return Investigation{}, ErrConflict
+		}
+	}
+	kinds, ids := map[string]bool{}, map[string]bool{}
+	for i := range in.Options {
+		o := &in.Options[i]
+		o.ID, o.Kind, o.Title, o.Summary = strings.TrimSpace(o.ID), strings.TrimSpace(o.Kind), strings.TrimSpace(o.Title), strings.TrimSpace(o.Summary)
+		o.Tradeoffs, o.AffectedReleases, o.AffectedWork, o.BackportTargets, o.EvidenceIDs = clean(o.Tradeoffs), clean(o.AffectedReleases), clean(o.AffectedWork), clean(o.BackportTargets), clean(o.EvidenceIDs)
+		if o.ID == "" || ids[o.ID] || o.Title == "" || o.Summary == "" || len(o.Tradeoffs) == 0 || len(o.EvidenceIDs) == 0 || !map[string]bool{"revert": true, "containment": true, "dependency_adjustment": true, "forward_repair": true}[o.Kind] {
+			return Investigation{}, ErrConflict
+		}
+		for _, x := range o.EvidenceIDs {
+			if !evidence[x] {
+				return Investigation{}, ErrConflict
+			}
+		}
+		ids[o.ID] = true
+		kinds[o.Kind] = true
+	}
+	if !rangeOK || len(kinds) != 4 || (in.SelectedOptionID != "" && (!ids[in.SelectedOptionID] || in.Rationale == "")) {
+		return Investigation{}, ErrConflict
+	}
+	now := s.now().UTC()
+	v.Responses = append(v.Responses, ResponsePlan{ID: id(), ResponsePlanInput: in, CreatedByID: actor, CreatedAt: now, UpdatedAt: now})
+	v.UpdatedAt = now
+	return v, s.write(v)
+}
+
+func (s *Store) AddResponseWork(repo, key, responseID, actor string, in ResponseWork) (Investigation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, e := s.read(key)
+	if e != nil || v.RepositoryID != repo {
+		return Investigation{}, ErrNotFound
+	}
+	var p *ResponsePlan
+	for i := range v.Responses {
+		if v.Responses[i].ID == responseID {
+			p = &v.Responses[i]
+		}
+	}
+	if p == nil {
+		return Investigation{}, ErrNotFound
+	}
+	in.Kind, in.ResourceID, in.OwnerID, in.OwnerKind, in.OptionID, in.PullRequestID = strings.TrimSpace(in.Kind), strings.TrimSpace(in.ResourceID), strings.TrimSpace(in.OwnerID), strings.TrimSpace(in.OwnerKind), strings.TrimSpace(in.OptionID), strings.TrimSpace(in.PullRequestID)
+	validOption := false
+	var option ResponseOption
+	for _, o := range p.Options {
+		if o.ID == in.OptionID {
+			validOption = true
+			option = o
+		}
+	}
+	if !validOption || in.ResourceID == "" || in.OwnerID == "" || !map[string]bool{"task": true, "session": true, "workspace": true}[in.Kind] || !map[string]bool{"human": true, "agent": true}[in.OwnerKind] || (in.Published && in.PullRequestID == "") {
+		return Investigation{}, ErrConflict
+	}
+	in.ID = id()
+	in.Intent = p.OriginalIntent
+	in.AuthorIDs = append([]string{}, p.OriginalAuthorIDs...)
+	in.Tradeoffs = append([]string{}, option.Tradeoffs...)
+	in.BackportTargets = append([]string{}, option.BackportTargets...)
+	in.CulpritRange = []string{p.CulpritGoodKey, p.CulpritBadKey}
+	in.ReproductionIDs = append([]string{}, p.ReproductionIDs...)
+	in.Constraints = append([]string{}, p.Constraints...)
+	in.AcceptanceCriteria = append([]string{}, p.AcceptanceCriteria...)
+	in.CreatedByID = actor
+	in.CreatedAt = s.now().UTC()
+	p.Work = append(p.Work, in)
+	p.UpdatedAt = in.CreatedAt
+	v.UpdatedAt = in.CreatedAt
+	return v, s.write(v)
+}
+
 type Input struct {
 	Title    string     `json:"title"`
 	Source   Source     `json:"source"`
@@ -298,6 +460,7 @@ func (s *Store) List(repo string) ([]Investigation, error) {
 			v.Scenarios = nil
 			v.Attempts = nil
 			v.Searches = nil
+			v.Responses = nil
 			out = append(out, v)
 		}
 	}

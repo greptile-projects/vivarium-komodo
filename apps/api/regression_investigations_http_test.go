@@ -75,6 +75,7 @@ func TestRegressionInvestigationDefinesSharedComparableBoundary(t *testing.T) {
 	if investigation.Status != "ready" || len(investigation.Entries) != 2 || investigation.Entries[0].ActorID != "owner" {
 		t.Fatalf("collaboration trail missing: %#v", investigation)
 	}
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+investigation.ID+"/responses", peer, `{}`, http.StatusForbidden, nil)
 	newBad, _ := opened.WriteObject(storage.CommitObject, []byte(fmt.Sprintf("tree %s\nparent %s\nauthor A <a@example.test> 3 +0000\ncommitter A <a@example.test> 3 +0000\n\nnew bad\n", tree, bad)))
 	_ = opened.UpdateReference(storage.Reference{Name: "refs/heads/main", ObjectID: newBad})
 	workflowJSON(t, server.URL, http.MethodGet, base+"/"+investigation.ID, peer, "", 200, &investigation)
