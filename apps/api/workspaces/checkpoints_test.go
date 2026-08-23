@@ -92,21 +92,23 @@ func TestReconciliationCheckpointRetainsCandidateProofAndTargetedStaleness(t *te
 	file, _ := repository.WriteObject(storage.BlobObject, []byte("base\n"))
 	root, _ := repository.WriteObject(storage.TreeObject, checkpointTreeEntry("100644", "contract.go", file))
 	commit, _ := repository.WriteObject(storage.CommitObject, []byte(fmt.Sprintf("tree %s\nauthor T <t@example> 0 +0000\ncommitter T <t@example> 0 +0000\n\nbase\n", root)))
+	source, _ := repository.WriteObject(storage.CommitObject, []byte(fmt.Sprintf("tree %s\nparent %s\nauthor S <s@example> 1 +0000\ncommitter S <s@example> 1 +0000\n\nsource\n", root, commit)))
+	_ = repository.CreateReference(storage.Reference{Name: "refs/heads/change", ObjectID: source})
 	store, _ := New(t.TempDir())
 	definition := Definition{Version: 1, Commands: []NamedCommand{{Name: "contract compatibility", Command: "go test ./contract"}}, Resources: ResourceLimits{CPUSeconds: 1, MemoryMB: 128, DiskMB: 128, SetupTimeoutSeconds: 1}}
-	context := SourceContext{Type: "pull_request_conflict", Conflict: &ConflictContext{PullRequestID: "pull-1", BaseCommitID: string(commit), Source: ConflictRevision{CommitID: "source-1"}, Target: ConflictRevision{CommitID: string(commit)}, OwnerIDs: []string{"source-owner", "target-owner"}}}
+	context := SourceContext{Type: "pull_request_conflict", Conflict: &ConflictContext{PullRequestID: "pull-1", BaseCommitID: string(commit), Source: ConflictRevision{CommitID: string(source)}, Target: ConflictRevision{CommitID: string(commit)}, OwnerIDs: []string{"source-owner", "target-owner"}}}
 	workspace, _ := store.Create(string(repository.ID()), string(commit), "target-owner", context, Access{}, definition, "deps-1")
 	_ = os.Mkdir(store.Environment(workspace.ID), 0750)
 	_ = os.WriteFile(store.Environment(workspace.ID)+"/contract.go", []byte("resolved\n"), 0640)
 	workspace, _ = store.Finish(workspace.ID, true, "")
-	workspace, _ = store.AddResolution(string(repository.ID()), workspace.ID, "source-owner", ResolutionEntry{Kind: "proposal", Summary: "preserve both", Evidence: []ResolutionEvidence{{Kind: "source", Reference: "criterion", Revision: "source-1"}}, Impacts: []OutcomeImpact{{Kind: "acceptance_criterion", Outcome: "source behavior remains", Disposition: "preserved", Rationale: "covered by reproduction"}}})
+	workspace, _ = store.AddResolution(string(repository.ID()), workspace.ID, "source-owner", ResolutionEntry{Kind: "proposal", Summary: "preserve both", Evidence: []ResolutionEvidence{{Kind: "source", Reference: "criterion", Revision: string(source)}}, Impacts: []OutcomeImpact{{Kind: "acceptance_criterion", Outcome: "source behavior remains", Disposition: "preserved", Rationale: "covered by reproduction"}}})
 	runner := NewRunner(store, gitStore)
 	updated, err := runner.Checkpoint(workspace, "target-owner", CheckpointRequest{Summary: "resolved candidate", Paths: []string{"contract.go"}, Reproducibility: Reproducibility{Commands: []string{"go test ./source-reproduction"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	candidate := updated.Checkpoints[0].Verification
-	if candidate == nil || candidate.Digest == "" || len(candidate.Criteria) != 3 || candidate.Inputs.Source != "source-1" {
+	if candidate == nil || candidate.Digest == "" || len(candidate.Criteria) != 3 || candidate.Inputs.Source != string(source) {
 		t.Fatalf("candidate = %#v", candidate)
 	}
 	ids := []string{}
@@ -142,5 +144,18 @@ func TestReconciliationCheckpointRetainsCandidateProofAndTargetedStaleness(t *te
 	}
 	if _, err = store.AddVerificationDecision(string(repository.ID()), workspace.ID, updated.Checkpoints[0].ID, "runner", VerificationDecision{CriterionIDs: []string{reproductionID}, InputRevisions: candidate.Inputs, Decision: "approved", Rationale: "not an owner"}); err != ErrConflict {
 		t.Fatalf("non-owner decision = %v", err)
+	}
+	checkpoint, err = store.AddVerificationDecision(string(repository.ID()), workspace.ID, updated.Checkpoints[0].ID, "target-owner", VerificationDecision{CriterionIDs: ids, InputRevisions: candidate.Inputs, Decision: "approved", Rationale: "target behavior remains accepted"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, _ := store.Get(string(repository.ID()), workspace.ID)
+	published, _, err := runner.Publish(current, "target-owner", updated.Checkpoints[0].ID, PublishRequest{Branch: "change", Message: "Resolve both contributions", Mode: "pull_request_branch", ExpectedBranchTip: string(source), ParentCommitIDs: []string{string(commit), string(source)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, _ := repository.ReadCommit(published)
+	if len(resolved.Parents) != 2 || resolved.Parents[0] != commit || resolved.Parents[1] != source || !strings.Contains(string(resolved.Content), "Verification-Candidate: "+candidate.Digest) || !strings.Contains(string(resolved.Content), "Resolution-Approval:") || !strings.Contains(string(resolved.Content), "Resolution-Command: go test ./source-reproduction") {
+		t.Fatalf("resolution provenance = %#v %s", resolved.Parents, resolved.Content)
 	}
 }

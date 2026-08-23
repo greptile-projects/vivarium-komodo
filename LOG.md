@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-23T16:38:12Z: Added accepted reconciliation checkpoint publication to the original permitted pull-request branch or a connected resolution pull request, retaining two-input Git and review provenance while revalidating live inputs, policy, dependencies, and owner decisions. Integration queues now recheck current exact-revision approval before atomic merge and preserve blocked conflict/rebuild history.
+
 2026-08-23T15:26:44Z: Added immutable verification candidates for every reconciliation checkpoint, with both-contribution criteria, full attempt evidence, affected-owner decisions, and per-input staleness across candidate, source, target, dependency, and policy revisions. The Workspaces surface now retains proof status, commands, logs, artifacts, coverage, failures, costs, blockers, and decisions without granting publication or merge authority.
 
 2026-08-23T12:50:53Z: Added current-conflict-gated shared reconciliation workspaces that freeze both revision histories, permitted incompatibility evidence, affected owners, repository setup, and target-only publication authority while reusing durable collaboration, checkpoints, and scoped agent controls.

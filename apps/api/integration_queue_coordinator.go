@@ -132,6 +132,26 @@ func (c *integrationQueueCoordinator) reconcileBranch(ctx context.Context, repos
 			}
 			continue
 		}
+		reviews, reviewErr := c.pulls.ListReviews(repositoryID, pull.ID)
+		if reviewErr != nil {
+			return
+		}
+		ownerApproved, changesRequested := false, false
+		for _, review := range reviews {
+			if review.CommitID != entry.SourceCommitID {
+				continue
+			}
+			ownerApproved = ownerApproved || (review.ReviewerID == repository.OwnerID && review.Decision == pullrequests.Approve)
+			changesRequested = changesRequested || review.Decision == pullrequests.RequestChanges
+		}
+		if !ownerApproved || changesRequested {
+			reason := "approval_withdrawn"
+			if changesRequested {
+				reason = "changes_requested"
+			}
+			c.transition(entry, pull, "blocked", reason, false)
+			return
+		}
 
 		runs, runErr := c.checks.List(repositoryID, pull.ID)
 		if runErr != nil {

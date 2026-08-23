@@ -2284,6 +2284,21 @@ whenever dependencies change or the web job fails before it starts.
   unaffected proof and decisions when only source, target, dependency, or policy
   inputs move. Verification grants no publication, merge, credential, or
   environment authority.
+  Publishing reconciliation is a separate accepted-proof transition at the
+  checkpoint's ordinary `/publication` resource. Re-read the live source and
+  target refs, target workspace definition, effective policy, affected-owner
+  approvals, and open origin pull request before writing Git. A target-
+  repository writer may compare-and-swap the exact same-repository origin
+  source branch or create a distinct connected resolution pull request; fork
+  branches never acquire target write authority. Resolution commits retain both
+  frozen parents plus workspace, checkpoint, verification, resolution-entry,
+  approval, command, publisher, and contributor provenance. Synchronizing the
+  origin source makes prior reviews stale, and either route starts ordinary
+  commit-bound checks. Queue candidates are rebuilt against the live target and
+  must retain the current exact-source owner approval immediately before atomic
+  merge. Source movement, withdrawn approval, target drift, or a new merge
+  conflict blocks or removes only the queue attempt and preserves both inputs
+  for another reconciliation.
   Candidate verification is defined by the exact revision's
   `.komodo/checks.json` manifest (schema version `1`). Each named check declares
   a shell command plus optional working directory, timeout, and environment.
