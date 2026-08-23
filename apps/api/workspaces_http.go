@@ -32,6 +32,8 @@ type workspaceStore interface {
 	Grant(string, string, string, string, string, string, []string) (workspaces.Workspace, error)
 	Intervene(string, string, string, string, string, string, int64) (workspaces.Workspace, error)
 	AddResolution(string, string, string, workspaces.ResolutionEntry) (workspaces.Workspace, error)
+	AddVerificationAttempt(string, string, string, string, workspaces.VerificationAttempt) (workspaces.Checkpoint, error)
+	AddVerificationDecision(string, string, string, string, workspaces.VerificationDecision) (workspaces.Checkpoint, error)
 	RecordPublication(string, string, string, workspaces.Publication) (workspaces.Workspace, error)
 	LinkPublicationPullRequest(string, string, string, string) (workspaces.Workspace, error)
 	SetPolicy(string, string, workspaces.Policy) (workspaces.Policy, error)
@@ -79,6 +81,8 @@ func registerWorkspacesHTTP(mux *http.ServeMux, store workspaceStore, runner wor
 	mux.HandleFunc("POST "+base+"/{workspace}/resolutions", workspaceResolution(store, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/checkpoints", createWorkspaceCheckpoint(store, runner, repositories, credentials))
 	mux.HandleFunc("GET "+base+"/{workspace}/checkpoints/{checkpoint}", getWorkspaceCheckpoint(store, runner, repositories, credentials))
+	mux.HandleFunc("POST "+base+"/{workspace}/checkpoints/{checkpoint}/verification-attempts", workspaceVerificationAttempt(store, repositories, credentials))
+	mux.HandleFunc("POST "+base+"/{workspace}/checkpoints/{checkpoint}/verification-decisions", workspaceVerificationDecision(store, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/checkpoints/{checkpoint}/restore", restoreWorkspaceCheckpoint(store, runner, repositories, credentials))
 	var checks checkRunStarter
 	var organizationStore workspaceOrganizationStore
@@ -98,6 +102,51 @@ func registerWorkspacesHTTP(mux *http.ServeMux, store workspaceStore, runner wor
 	mux.HandleFunc("POST "+base+"/{workspace}/controls/{control}/interventions", workspaceIntervention(store, repositories, credentials))
 	mux.HandleFunc("POST "+base+"/{workspace}/checkpoints/{checkpoint}/publication", publishWorkspaceCheckpoint(store, runner, repositories, credentials, plans, pulls, checks))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/conflicts/workspace", createConflictWorkspace(store, runner, repositories, credentials, pulls))
+}
+
+func workspaceVerificationAttempt(store workspaceStore, repositories taskSessionRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in workspaces.VerificationAttempt
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		item, err := store.AddVerificationAttempt(string(repository.ID), r.PathValue("workspace"), r.PathValue("checkpoint"), actor.UserID, in)
+		if errors.Is(err, workspaces.ErrConflict) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_verification_attempt"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		writeJSON(w, http.StatusCreated, item)
+	}
+}
+func workspaceVerificationDecision(store workspaceStore, repositories taskSessionRepositoryStore, credentials authStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in workspaces.VerificationDecision
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		item, err := store.AddVerificationDecision(string(repository.ID), r.PathValue("workspace"), r.PathValue("checkpoint"), actor.UserID, in)
+		if errors.Is(err, workspaces.ErrConflict) {
+			writeJSON(w, 422, map[string]string{"error": "affected_owner_decision_required"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		writeJSON(w, http.StatusCreated, item)
+	}
 }
 
 func workspaceResolution(store workspaceStore, repositories taskSessionRepositoryStore, credentials authStore) http.HandlerFunc {

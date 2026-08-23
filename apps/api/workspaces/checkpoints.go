@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -332,7 +333,59 @@ func (r *Runner) Checkpoint(w Workspace, actor string, request CheckpointRequest
 		reasons = append(reasons, "no reproduction or verification commands were declared")
 	}
 	checkpoint := Checkpoint{ID: id, WorkspaceID: w.ID, RepositoryID: w.RepositoryID, ParentID: strings.TrimSpace(request.ParentID), CreatorID: actor, BaseRevision: w.Revision, Definition: w.Definition, DefinitionDigest: w.DefinitionDigest, Summary: request.Summary, Reproducibility: request.Reproducibility, Changes: changes, Status: CheckpointStatus{Reproducible: len(reasons) == 0, Conflicts: []string{}, MissingDependencies: missingDeps, Reasons: reasons}, CreatedAt: r.store.now().UTC()}
+	if w.Context.Conflict != nil {
+		checkpoint.Verification = buildVerificationCandidate(w, checkpoint)
+	}
 	return r.store.AddCheckpoint(w.RepositoryID, w.ID, checkpoint, blobs)
+}
+
+func buildVerificationCandidate(w Workspace, checkpoint Checkpoint) *VerificationCandidate {
+	encoded, _ := json.Marshal(struct {
+		Base    string
+		Changes []CheckpointChange
+	}{checkpoint.BaseRevision, checkpoint.Changes})
+	policy, _ := json.Marshal(w.Policy)
+	inputs := VerificationInputs{Candidate: sha(encoded), Source: w.Context.Conflict.Source.CommitID, Target: w.Context.Conflict.Target.CommitID, Dependency: checkpoint.DefinitionDigest, Policy: sha(policy)}
+	criteria := []VerificationCriterion{}
+	add := func(kind, description, origin string, affected []string) {
+		key := sha([]byte(kind + "\x00" + description + "\x00" + origin))[:16]
+		criteria = append(criteria, VerificationCriterion{ID: key, Kind: kind, Description: description, Origin: origin, AffectedInputs: affected, OwnerIDs: append([]string(nil), w.Context.Conflict.OwnerIDs...)})
+	}
+	for _, command := range checkpoint.Definition.Commands {
+		kind := "required_check"
+		name := strings.ToLower(command.Name)
+		if strings.Contains(name, "contract") {
+			kind = "contract_scenario"
+		}
+		if strings.Contains(name, "schema") {
+			kind = "schema_scenario"
+		}
+		if strings.Contains(name, "preview") {
+			kind = "preview_acceptance"
+		}
+		if strings.Contains(name, "conflict") {
+			kind = "conflict_test"
+		}
+		add(kind, command.Name+": "+command.Command, "target:.komodo/workspaces.json", []string{"candidate", "target", "dependency", "policy"})
+	}
+	for _, command := range checkpoint.Reproducibility.Commands {
+		add("reproduction", command, "checkpoint:reproducibility", []string{"candidate", "source", "target", "dependency"})
+	}
+	for _, resolution := range w.Resolutions {
+		for _, impact := range resolution.Impacts {
+			if impact.Disposition == "preserved" || impact.Disposition == "changed" {
+				add("acceptance", impact.Outcome, "resolution:"+resolution.ID, []string{"candidate", "source", "target"})
+			}
+		}
+	}
+	if len(criteria) == 0 {
+		add("conflict_scenario", "Resolved paths remain compatible with both frozen contributions", "conflict-analysis:"+w.Context.Conflict.PullRequestID, []string{"candidate", "source", "target"})
+	}
+	digestBody, _ := json.Marshal(struct {
+		Inputs   VerificationInputs
+		Criteria []VerificationCriterion
+	}{inputs, criteria})
+	return &VerificationCandidate{Digest: sha(digestBody), Inputs: inputs, Criteria: criteria, Attempts: []VerificationAttempt{}, Decisions: []VerificationDecision{}, Status: "pending", Blockers: []string{"required verification evidence is incomplete"}}
 }
 
 func missingDependencies(available, declared []string) []string {

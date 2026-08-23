@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
@@ -111,6 +112,10 @@ func TestCurrentConflictLaunchesAuthorityBoundSharedWorkspace(t *testing.T) {
 	_ = json.Unmarshal(response.Body.Bytes(), &created)
 	if response.Code != http.StatusCreated || created.Context.Conflict == nil || created.Context.Conflict.Source.CommitID != string(source) || created.Context.Conflict.Target.CommitID != string(target) || created.Context.Conflict.PublishRepositoryID != string(repository.ID) || len(created.Context.Conflict.OwnerIDs) != 2 {
 		t.Fatalf("workspace = %#v status=%d body=%s", created, response.Code, response.Body.String())
+	}
+	for deadline := time.Now().Add(time.Second); created.State != workspaces.Ready && time.Now().Before(deadline); {
+		time.Sleep(time.Millisecond)
+		created, _ = workspaceStore.Get(string(repository.ID), created.ID)
 	}
 	// Questions and proposed edits must cite one of the workspace's frozen
 	// revisions and make their effect on intended outcomes inspectable.
