@@ -97,6 +97,35 @@ type ConflictEvidence struct {
 	Symbol string `json:"symbol,omitempty"`
 	Detail string `json:"detail"`
 }
+type ResolutionEvidence struct {
+	Kind      string `json:"kind"`
+	Reference string `json:"reference"`
+	Revision  string `json:"revision"`
+	Path      string `json:"path,omitempty"`
+}
+type OutcomeImpact struct {
+	Kind        string `json:"kind"`
+	Outcome     string `json:"outcome"`
+	Disposition string `json:"disposition"`
+	Rationale   string `json:"rationale"`
+}
+
+// ResolutionEntry is an append-only explanation of how a conflict question or
+// edit relates to the frozen intentions. It does not apply code or grant access.
+type ResolutionEntry struct {
+	ID          string               `json:"id"`
+	ParentID    string               `json:"parent_id,omitempty"`
+	Kind        string               `json:"kind"`
+	Summary     string               `json:"summary"`
+	Paths       []string             `json:"paths,omitempty"`
+	Evidence    []ResolutionEvidence `json:"evidence"`
+	Impacts     []OutcomeImpact      `json:"impacts,omitempty"`
+	Assumptions []string             `json:"assumptions,omitempty"`
+	Uncertainty string               `json:"uncertainty,omitempty"`
+	ActorID     string               `json:"actor_id"`
+	ActorKind   string               `json:"actor_kind"`
+	CreatedAt   time.Time            `json:"created_at"`
+}
 type Access struct {
 	RepositoryID string `json:"repository_id"`
 	ActorID      string `json:"actor_id"`
@@ -191,32 +220,64 @@ type Publication struct {
 	PublishedAt    time.Time `json:"published_at"`
 }
 type Workspace struct {
-	ID                string         `json:"id"`
-	RepositoryID      string         `json:"repository_id"`
-	Revision          string         `json:"revision"`
-	CreatorID         string         `json:"creator_id"`
-	Context           SourceContext  `json:"source_context"`
-	Access            Access         `json:"effective_access"`
-	Definition        Definition     `json:"definition"`
-	DefinitionDigest  string         `json:"definition_digest"`
-	State             State          `json:"state"`
-	CreatedAt         time.Time      `json:"created_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
-	SuspendedAt       *time.Time     `json:"suspended_at,omitempty"`
-	ReadyAt           *time.Time     `json:"ready_at,omitempty"`
-	Events            []Event        `json:"setup_evidence"`
-	Activity          []Event        `json:"activity"`
-	Changes           []FileChange   `json:"changes"`
-	Presence          []Presence     `json:"presence"`
-	Controls          []ControlGrant `json:"controls"`
-	Checkpoints       []Checkpoint   `json:"checkpoints"`
-	Policy            Policy         `json:"effective_policy"`
-	ExpiresAt         *time.Time     `json:"expires_at,omitempty"`
-	ExpiryAnnouncedAt *time.Time     `json:"expiry_announced_at,omitempty"`
-	StoppedAt         *time.Time     `json:"stopped_at,omitempty"`
-	RebuildRequired   bool           `json:"rebuild_required"`
-	RebuildReasons    []string       `json:"rebuild_reasons,omitempty"`
-	Consumption       []Consumption  `json:"consumption,omitempty"`
+	ID                string            `json:"id"`
+	RepositoryID      string            `json:"repository_id"`
+	Revision          string            `json:"revision"`
+	CreatorID         string            `json:"creator_id"`
+	Context           SourceContext     `json:"source_context"`
+	Access            Access            `json:"effective_access"`
+	Definition        Definition        `json:"definition"`
+	DefinitionDigest  string            `json:"definition_digest"`
+	State             State             `json:"state"`
+	CreatedAt         time.Time         `json:"created_at"`
+	UpdatedAt         time.Time         `json:"updated_at"`
+	SuspendedAt       *time.Time        `json:"suspended_at,omitempty"`
+	ReadyAt           *time.Time        `json:"ready_at,omitempty"`
+	Events            []Event           `json:"setup_evidence"`
+	Activity          []Event           `json:"activity"`
+	Changes           []FileChange      `json:"changes"`
+	Presence          []Presence        `json:"presence"`
+	Controls          []ControlGrant    `json:"controls"`
+	Checkpoints       []Checkpoint      `json:"checkpoints"`
+	Resolutions       []ResolutionEntry `json:"resolutions,omitempty"`
+	Policy            Policy            `json:"effective_policy"`
+	ExpiresAt         *time.Time        `json:"expires_at,omitempty"`
+	ExpiryAnnouncedAt *time.Time        `json:"expiry_announced_at,omitempty"`
+	StoppedAt         *time.Time        `json:"stopped_at,omitempty"`
+	RebuildRequired   bool              `json:"rebuild_required"`
+	RebuildReasons    []string          `json:"rebuild_reasons,omitempty"`
+	Consumption       []Consumption     `json:"consumption,omitempty"`
+}
+
+func (s *Store) AddResolution(repositoryID, id, actor string, entry ResolutionEntry) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, err := s.read(id)
+	if err != nil || w.RepositoryID != repositoryID || w.Context.Conflict == nil {
+		return Workspace{}, ErrNotFound
+	}
+	if w.State != Ready {
+		return Workspace{}, ErrInvalidTransition
+	}
+	if entry.ParentID != "" {
+		found := false
+		for _, existing := range w.Resolutions {
+			found = found || existing.ID == entry.ParentID
+		}
+		if !found {
+			return Workspace{}, ErrConflict
+		}
+	}
+	b := make([]byte, 12)
+	if _, err = rand.Read(b); err != nil {
+		return Workspace{}, err
+	}
+	now := s.now().UTC()
+	entry.ID, entry.ActorID, entry.CreatedAt = hex.EncodeToString(b), actor, now
+	w.Resolutions = append(w.Resolutions, entry)
+	w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: "resolution_" + entry.Kind, Kind: "intent", ActorID: actor, TargetID: entry.ID, Message: entry.Summary, CreatedAt: now})
+	w.UpdatedAt = now
+	return w, s.write(w)
 }
 
 // Policy is the complete owner-controlled authority and cost envelope. Zero

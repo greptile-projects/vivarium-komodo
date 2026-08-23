@@ -2264,6 +2264,13 @@ whenever dependencies change or the web job fails before it starts.
   defined setup. Its publication repository is the target repository where the
   launcher already has write access; collaboration controls grant only bounded
   workspace access and never copy authority from either repository.
+  Reconciliation workspaces retain an append-only semantic resolution ledger at
+  `POST .../workspaces/{workspace}/resolutions`. Questions, answers, proposals,
+  applied edits, and undo records cite a frozen base, source, target, or
+  workspace revision and identify their effect on acceptance criteria, design
+  decisions, migrations, and user behavior as preserved, intentionally changed,
+  or unknown. Preserve authorship, assumptions, uncertainty, and parent links;
+  the ledger explains work but does not apply code or grant merge authority.
   Candidate verification is defined by the exact revision's
   `.komodo/checks.json` manifest (schema version `1`). Each named check declares
   a shell command plus optional working directory, timeout, and environment.
