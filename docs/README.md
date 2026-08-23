@@ -4179,6 +4179,26 @@ separately from incompatible setup, missing dependencies, flaky execution,
 unsafe fixtures, and untestable revisions, so those gaps remain visible without
 becoming false passing or failing evidence.
 
+`POST .../{investigation}/searches` freezes the scenario's eligible DAG. Local
+commit nodes are checked against the repository's exact ordered parent list,
+including every merge parent; deliberately selected repository and package
+revision nodes retain their own immutable identity. Each node may carry the
+review-relevant diff paths, owners, pull requests, decisions, and summary. The
+response derives the remaining search space, up to four next candidates,
+tested classifications, confidence-scored competing culprit ranges, and a
+graph digest.
+
+Collaborators append classifications beneath `/searches/{search}/classifications`.
+Working and regressed results must cite retained attempts from the bound
+scenario; invalid, flaky, and inconclusive trials remain visible but cannot
+narrow the graph. A merge-introduced transition remains explicitly ambiguous,
+as do multiple supported ranges and invalid boundaries. Causal explanations
+are separate cited records beneath `/hypotheses`, retaining implicated graph
+keys, relevant diff paths, evidence IDs, author kind, confidence, and proposed,
+supported, disputed, or rejected state. The web workspace renders the same
+search, provenance, alternatives, and reasoning rather than presenting an
+opaque bisect verdict.
+
 Repository writers open a shared canvas with `POST
 /repositories/{repository}/investigations`, naming a title, framing question,
 and revision. The revision is resolved once; the record, its ordered runs, and
