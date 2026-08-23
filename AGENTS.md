@@ -2247,6 +2247,16 @@ whenever dependencies change or the web job fails before it starts.
   time, appends an attributable outcome comment, and closes any linked proposal.
   Merge messages retain pull request and proposal IDs plus stable author and
   maintainer IDs so repository history preserves collaboration context.
+  Pull request conflict evidence is a caller-aware read at the request's
+  `/conflicts` resource. It freezes the represented source and target commits,
+  derives their common base, side-only commits and file changes, and reports
+  live branch drift without rewriting either ref. Classify stock-Git merge
+  failures as textual, overlapping schema or interface definitions as
+  structural, and independently overlapping symbols or failed exact-revision
+  checks as semantic evidence. Preserve links to each available pull request,
+  proposal task, discussion, author, description, and recorded completion or
+  contribution criteria; absent intent, checks, inaccessible repositories, and
+  unavailable ancestry remain visible gaps rather than inferred resolution.
   Candidate verification is defined by the exact revision's
   `.komodo/checks.json` manifest (schema version `1`). Each named check declares
   a shell command plus optional working directory, timeout, and environment.
