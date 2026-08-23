@@ -2271,6 +2271,19 @@ whenever dependencies change or the web job fails before it starts.
   decisions, migrations, and user behavior as preserved, intentionally changed,
   or unknown. Preserve authorship, assumptions, uncertainty, and parent links;
   the ledger explains work but does not apply code or grant merge authority.
+  Every reconciliation checkpoint also assembles an immutable verification
+  candidate whose digest binds its captured bytes, frozen source and target,
+  workspace dependency definition, effective policy, and criteria derived from
+  repository commands, declared reproductions, and resolution impacts. Writers
+  append typed required-check, reproduction, contract, schema, preview, and
+  conflict attempts at its `/verification-attempts` resource; attempts retain
+  commands, sanitized logs, content-addressed artifacts, coverage, failures,
+  costs, actor, and exact input revisions. Frozen affected owners append approve
+  or reject decisions at `/verification-decisions`. Reads derive candidate
+  status and stale input keys from each criterion's affected inputs, preserving
+  unaffected proof and decisions when only source, target, dependency, or policy
+  inputs move. Verification grants no publication, merge, credential, or
+  environment authority.
   Candidate verification is defined by the exact revision's
   `.komodo/checks.json` manifest (schema version `1`). Each named check declares
   a shell command plus optional working directory, timeout, and environment.

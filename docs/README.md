@@ -4209,6 +4209,20 @@ edit files themselves: ordinary bounded workspace editing, checkpoints and
 restore provide apply and undo, while existing pause and revoke controls contain
 agent work. None grants merge, secret, credential, or environment authority.
 
+Each reconciliation checkpoint is also an immutable verification candidate.
+Its digest binds the captured result, both frozen contributions, dependency
+definition, effective policy, and the exact required commands, reproductions,
+contract or schema scenarios, preview acceptance, conflict tests, and recorded
+outcome criteria that apply. `POST .../checkpoints/{checkpoint}/verification-attempts`
+retains the evaluated criteria, exact input revisions, commands, sanitized logs,
+content-addressed artifacts, coverage, failures, cost, outcome, and actor.
+Affected owners may append an attributable approval or rejection at the sibling
+`verification-decisions` resource. The public workspace view exposes all of
+that evidence and derives status and per-attempt stale input keys; a changed
+source, target, dependency, or policy invalidates only criteria that name that
+input. These proof records do not publish the checkpoint or grant merge,
+credential, environment, or operational authority.
+
 Setup materializes only the captured Git tree beneath `$WORKSPACE_ROOT`
 (default `apps/api/data/workspaces`) and executes each command in Bubblewrap
 without network, credentials, repository metadata, or host filesystem access.

@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-23T15:26:44Z: Added immutable verification candidates for every reconciliation checkpoint, with both-contribution criteria, full attempt evidence, affected-owner decisions, and per-input staleness across candidate, source, target, dependency, and policy revisions. The Workspaces surface now retains proof status, commands, logs, artifacts, coverage, failures, costs, blockers, and decisions without granting publication or merge authority.
+
 2026-08-23T12:50:53Z: Added current-conflict-gated shared reconciliation workspaces that freeze both revision histories, permitted incompatibility evidence, affected owners, repository setup, and target-only publication authority while reusing durable collaboration, checkpoints, and scoped agent controls.
 
 2026-08-20T03:32:02Z: Added repository- and organization-scoped current security delivery policies with exact threat/scenario/finding/owner evidence enforced across pull merge, integration queues, releases, and deployments, plus expiring requirement overrides and sanitized post-deployment assumption/control signals connected to private response work.

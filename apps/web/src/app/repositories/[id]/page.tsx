@@ -252,6 +252,13 @@ type DevelopmentWorkspace = {
       missing_dependencies: string[];
       reasons: string[];
     };
+	verification?: {
+	  digest: string; status: string; blockers?: string[];
+	  inputs: {candidate:string;source:string;target:string;dependency:string;policy:string};
+	  criteria: Array<{id:string;kind:string;description:string;origin:string;affected_inputs:string[];owner_ids?:string[]}>;
+	  attempts: Array<{id:string;criterion_ids:string[];kind:string;commands:string[];logs?:string[];artifacts?:Array<{name:string;digest:string;media_type?:string}>;coverage?:string[];failures?:string[];cost:number;currency?:string;status:string;stale_input_keys?:string[];actor_id:string}>;
+	  owner_decisions: Array<{id:string;criterion_ids:string[];decision:string;rationale:string;stale_input_keys?:string[];owner_id:string}>;
+	};
   }>;
   resolutions?: Array<{id:string;parent_id?:string;kind:"question"|"answer"|"proposal"|"applied"|"undone";summary:string;paths?:string[];evidence:Array<{kind:string;reference:string;revision:string;path?:string}>;impacts?:Array<{kind:string;outcome:string;disposition:"preserved"|"changed"|"unknown";rationale:string}>;assumptions?:string[];uncertainty?:string;actor_id:string;actor_kind:"human"|"agent";created_at:string}>;
 };
@@ -3606,6 +3613,7 @@ function DevelopmentWorkspaces({
                             </li>
                           ))}
                         </ul>
+						{checkpoint.verification && <section className="workspace-collaboration"><p className="eyebrow">Both-contribution verification</p><h4>Immutable candidate <code>{short(checkpoint.verification.digest)}</code> <Badge tone={checkpoint.verification.status==="passed"?"accent":"warning"}>{checkpoint.verification.status}</Badge></h4><p>Candidate <code>{short(checkpoint.verification.inputs.candidate)}</code> · source <code>{short(checkpoint.verification.inputs.source)}</code> · target <code>{short(checkpoint.verification.inputs.target)}</code> · dependencies <code>{short(checkpoint.verification.inputs.dependency)}</code> · policy <code>{short(checkpoint.verification.inputs.policy)}</code></p>{checkpoint.verification.criteria.map(criterion=><article key={criterion.id}><p><Badge>{criterion.kind.replaceAll("_"," ")}</Badge> {criterion.description}</p><small>{criterion.origin} · invalidated by {criterion.affected_inputs.join(", ")}</small></article>)}{checkpoint.verification.attempts.map(attempt=><article className="panel" key={attempt.id}><p><Badge>{attempt.status}</Badge> {attempt.kind.replaceAll("_"," ")} · {attempt.cost} {attempt.currency||"units"} · by <Actor id={attempt.actor_id}/>{attempt.stale_input_keys?.length?<Badge>stale: {attempt.stale_input_keys.join(", ")}</Badge>:null}</p><pre>{attempt.commands.join("\n")}</pre>{attempt.logs?.map((log,index)=><pre key={index}>{log}</pre>)}{attempt.coverage?.length?<p>Coverage: {attempt.coverage.join(" · ")}</p>:null}{attempt.failures?.map(failure=><p className="form-error" key={failure}>{failure}</p>)}{attempt.artifacts?.map(artifact=><p key={artifact.digest}>{artifact.name} · <code>{short(artifact.digest)}</code> {artifact.media_type}</p>)}</article>)}{checkpoint.verification.owner_decisions.map(decision=><p key={decision.id}><Badge>{decision.decision}</Badge> <Actor id={decision.owner_id}/> — {decision.rationale}{decision.stale_input_keys?.length?` · stale: ${decision.stale_input_keys.join(", ")}`:""}</p>)}{checkpoint.verification.blockers?.map(blocker=><p className="form-error" key={blocker}>{blocker}</p>)}</section>}
                         {inspected.state === "ready" && actor && (
                           <Button
                             size="sm"

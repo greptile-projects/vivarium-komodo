@@ -196,20 +196,81 @@ type CheckpointStatus struct {
 	Reasons             []string `json:"reasons"`
 }
 type Checkpoint struct {
-	ID               string             `json:"id"`
-	WorkspaceID      string             `json:"workspace_id"`
-	RepositoryID     string             `json:"repository_id"`
-	ParentID         string             `json:"parent_id,omitempty"`
-	CreatorID        string             `json:"creator_id"`
-	BaseRevision     string             `json:"base_revision"`
-	Definition       Definition         `json:"environment_definition"`
-	DefinitionDigest string             `json:"definition_digest"`
-	Summary          string             `json:"summary"`
-	Reproducibility  Reproducibility    `json:"reproducibility"`
-	Changes          []CheckpointChange `json:"changes"`
-	Status           CheckpointStatus   `json:"status"`
-	CreatedAt        time.Time          `json:"created_at"`
-	Publication      *Publication       `json:"publication,omitempty"`
+	ID               string                 `json:"id"`
+	WorkspaceID      string                 `json:"workspace_id"`
+	RepositoryID     string                 `json:"repository_id"`
+	ParentID         string                 `json:"parent_id,omitempty"`
+	CreatorID        string                 `json:"creator_id"`
+	BaseRevision     string                 `json:"base_revision"`
+	Definition       Definition             `json:"environment_definition"`
+	DefinitionDigest string                 `json:"definition_digest"`
+	Summary          string                 `json:"summary"`
+	Reproducibility  Reproducibility        `json:"reproducibility"`
+	Changes          []CheckpointChange     `json:"changes"`
+	Status           CheckpointStatus       `json:"status"`
+	CreatedAt        time.Time              `json:"created_at"`
+	Publication      *Publication           `json:"publication,omitempty"`
+	Verification     *VerificationCandidate `json:"verification,omitempty"`
+}
+
+// VerificationCandidate is the immutable proof surface for a reconciliation
+// checkpoint. Attempts and owner decisions are append-only and retain the exact
+// input keys they evaluate so unrelated drift does not discard useful proof.
+type VerificationCandidate struct {
+	Digest    string                  `json:"digest"`
+	Inputs    VerificationInputs      `json:"inputs"`
+	Criteria  []VerificationCriterion `json:"criteria"`
+	Attempts  []VerificationAttempt   `json:"attempts"`
+	Decisions []VerificationDecision  `json:"owner_decisions"`
+	Status    string                  `json:"status"`
+	Blockers  []string                `json:"blockers,omitempty"`
+}
+type VerificationInputs struct {
+	Candidate  string `json:"candidate"`
+	Source     string `json:"source"`
+	Target     string `json:"target"`
+	Dependency string `json:"dependency"`
+	Policy     string `json:"policy"`
+}
+type VerificationCriterion struct {
+	ID             string   `json:"id"`
+	Kind           string   `json:"kind"`
+	Description    string   `json:"description"`
+	Origin         string   `json:"origin"`
+	AffectedInputs []string `json:"affected_inputs"`
+	OwnerIDs       []string `json:"owner_ids,omitempty"`
+}
+type VerificationArtifact struct {
+	Name      string `json:"name"`
+	Digest    string `json:"digest"`
+	MediaType string `json:"media_type,omitempty"`
+}
+type VerificationAttempt struct {
+	ID             string                 `json:"id"`
+	CriterionIDs   []string               `json:"criterion_ids"`
+	Kind           string                 `json:"kind"`
+	InputRevisions VerificationInputs     `json:"input_revisions"`
+	Commands       []string               `json:"commands"`
+	Logs           []string               `json:"logs,omitempty"`
+	Artifacts      []VerificationArtifact `json:"artifacts,omitempty"`
+	Coverage       []string               `json:"coverage,omitempty"`
+	Failures       []string               `json:"failures,omitempty"`
+	Cost           float64                `json:"cost"`
+	Currency       string                 `json:"currency,omitempty"`
+	Status         string                 `json:"status"`
+	StaleInputKeys []string               `json:"stale_input_keys,omitempty"`
+	ActorID        string                 `json:"actor_id"`
+	CreatedAt      time.Time              `json:"created_at"`
+}
+type VerificationDecision struct {
+	ID             string             `json:"id"`
+	CriterionIDs   []string           `json:"criterion_ids"`
+	InputRevisions VerificationInputs `json:"input_revisions"`
+	Decision       string             `json:"decision"`
+	Rationale      string             `json:"rationale"`
+	StaleInputKeys []string           `json:"stale_input_keys,omitempty"`
+	OwnerID        string             `json:"owner_id"`
+	CreatedAt      time.Time          `json:"created_at"`
 }
 type Publication struct {
 	CommitID       string    `json:"commit_id"`
@@ -575,6 +636,157 @@ func (s *Store) AddCheckpoint(repositoryID, workspaceID string, checkpoint Check
 	w.UpdatedAt = now
 	w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: "checkpoint", Kind: "authorship", ActorID: checkpoint.CreatorID, TargetID: checkpoint.ID, Message: checkpoint.Summary, CreatedAt: now})
 	return w, s.write(w)
+}
+
+func verificationStale(expected, got VerificationInputs, keys []string) []string {
+	values := map[string][2]string{"candidate": {expected.Candidate, got.Candidate}, "source": {expected.Source, got.Source}, "target": {expected.Target, got.Target}, "dependency": {expected.Dependency, got.Dependency}, "policy": {expected.Policy, got.Policy}}
+	out := []string{}
+	for _, key := range keys {
+		if pair, ok := values[key]; ok && pair[0] != pair[1] {
+			out = append(out, key)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+func refreshVerification(candidate *VerificationCandidate) {
+	covered, failed := map[string]bool{}, false
+	for i := range candidate.Attempts {
+		keys := []string{}
+		for _, id := range candidate.Attempts[i].CriterionIDs {
+			for _, c := range candidate.Criteria {
+				if c.ID == id {
+					keys = append(keys, c.AffectedInputs...)
+				}
+			}
+		}
+		candidate.Attempts[i].StaleInputKeys = verificationStale(candidate.Inputs, candidate.Attempts[i].InputRevisions, keys)
+		if len(candidate.Attempts[i].StaleInputKeys) == 0 {
+			for _, id := range candidate.Attempts[i].CriterionIDs {
+				if candidate.Attempts[i].Status == "passed" {
+					covered[id] = true
+				}
+			}
+			failed = failed || candidate.Attempts[i].Status == "failed"
+		}
+	}
+	for i := range candidate.Decisions {
+		keys := []string{}
+		for _, id := range candidate.Decisions[i].CriterionIDs {
+			for _, criterion := range candidate.Criteria {
+				if criterion.ID == id {
+					keys = append(keys, criterion.AffectedInputs...)
+				}
+			}
+		}
+		candidate.Decisions[i].StaleInputKeys = verificationStale(candidate.Inputs, candidate.Decisions[i].InputRevisions, keys)
+	}
+	candidate.Blockers = nil
+	for _, criterion := range candidate.Criteria {
+		if !covered[criterion.ID] {
+			candidate.Blockers = append(candidate.Blockers, "missing current evidence: "+criterion.ID)
+		}
+	}
+	for _, decision := range candidate.Decisions {
+		if len(decision.StaleInputKeys) == 0 && decision.Decision == "rejected" {
+			candidate.Blockers = append(candidate.Blockers, "owner rejected behavior change: "+decision.ID)
+		}
+	}
+	switch {
+	case failed:
+		candidate.Status = "failed"
+	case len(candidate.Blockers) > 0:
+		candidate.Status = "blocked"
+	default:
+		candidate.Status = "passed"
+	}
+}
+func criterionSet(candidate *VerificationCandidate, ids []string) bool {
+	if len(ids) == 0 {
+		return false
+	}
+	known := map[string]bool{}
+	for _, c := range candidate.Criteria {
+		known[c.ID] = true
+	}
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if !known[id] || seen[id] {
+			return false
+		}
+		seen[id] = true
+	}
+	return true
+}
+func (s *Store) AddVerificationAttempt(repositoryID, workspaceID, checkpointID, actor string, in VerificationAttempt) (Checkpoint, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, err := s.read(workspaceID)
+	if err != nil || w.RepositoryID != repositoryID {
+		return Checkpoint{}, ErrNotFound
+	}
+	for i := range w.Checkpoints {
+		c := &w.Checkpoints[i]
+		if c.ID != checkpointID || c.Verification == nil {
+			continue
+		}
+		if !criterionSet(c.Verification, in.CriterionIDs) || !map[string]bool{"required_check": true, "reproduction": true, "contract_scenario": true, "schema_scenario": true, "preview_acceptance": true, "conflict_test": true}[in.Kind] || !map[string]bool{"passed": true, "failed": true, "blocked": true}[in.Status] || len(in.Commands) == 0 || in.Cost < 0 {
+			return Checkpoint{}, ErrConflict
+		}
+		for _, a := range in.Artifacts {
+			if a.Name == "" || len(a.Digest) != 64 {
+				return Checkpoint{}, ErrConflict
+			}
+		}
+		in.ID, _ = newID()
+		in.ActorID = actor
+		in.CreatedAt = s.now().UTC()
+		c.Verification.Attempts = append(c.Verification.Attempts, in)
+		refreshVerification(c.Verification)
+		w.UpdatedAt = in.CreatedAt
+		w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: "verification_attempt", Kind: "evidence", ActorID: actor, TargetID: in.ID, Message: in.Status, CreatedAt: in.CreatedAt})
+		if err = s.write(w); err != nil {
+			return Checkpoint{}, err
+		}
+		return *c, nil
+	}
+	return Checkpoint{}, ErrNotFound
+}
+func (s *Store) AddVerificationDecision(repositoryID, workspaceID, checkpointID, actor string, in VerificationDecision) (Checkpoint, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, err := s.read(workspaceID)
+	if err != nil || w.RepositoryID != repositoryID || w.Context.Conflict == nil {
+		return Checkpoint{}, ErrNotFound
+	}
+	owner := false
+	for _, id := range w.Context.Conflict.OwnerIDs {
+		owner = owner || id == actor
+	}
+	if !owner {
+		return Checkpoint{}, ErrConflict
+	}
+	for i := range w.Checkpoints {
+		c := &w.Checkpoints[i]
+		if c.ID != checkpointID || c.Verification == nil {
+			continue
+		}
+		if !criterionSet(c.Verification, in.CriterionIDs) || !map[string]bool{"approved": true, "rejected": true}[in.Decision] || strings.TrimSpace(in.Rationale) == "" {
+			return Checkpoint{}, ErrConflict
+		}
+		in.ID, _ = newID()
+		in.OwnerID = actor
+		in.CreatedAt = s.now().UTC()
+		c.Verification.Decisions = append(c.Verification.Decisions, in)
+		refreshVerification(c.Verification)
+		w.UpdatedAt = in.CreatedAt
+		w.Activity = append(w.Activity, Event{Sequence: int64(len(w.Activity) + 1), Type: "verification_decision", Kind: "decision", ActorID: actor, TargetID: in.ID, Message: in.Decision, CreatedAt: in.CreatedAt})
+		if err = s.write(w); err != nil {
+			return Checkpoint{}, err
+		}
+		return *c, nil
+	}
+	return Checkpoint{}, ErrNotFound
 }
 
 func (s *Store) Blob(digest string) ([]byte, error) {
