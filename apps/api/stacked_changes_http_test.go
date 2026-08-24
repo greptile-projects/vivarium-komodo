@@ -62,6 +62,20 @@ func TestChangeStackPublicBoundary(t *testing.T) {
 	if context.Member.ID != "api" || context.Member.ReviewState != "reviewable_now" || len(context.Authority) != 0 {
 		t.Fatalf("pull stack projection lost: %#v", context)
 	}
+	workflowJSON(t, server.URL, http.MethodPost, root+"/"+stack.ID+"/members/docs/assignments", token, `{"participant_id":"author","participant_kind":"agent","agent_approval_id":"onboarding:approved","authorized_branches":["docs"]}`, 201, &stack)
+	if len(stack.Members[1].Assignments) != 1 || stack.Members[1].Assignments[0].AgentApprovalID == "" {
+		t.Fatalf("agent assignment lost: %#v", stack.Members[1])
+	}
+	assignment := stack.Members[1].Assignments[0]
+	workflowJSON(t, server.URL, http.MethodPost, root+"/"+stack.ID+"/members/docs/workspaces", token, fmt.Sprintf(`{"assignment_id":%q,"kind":"shared","audience":"repository"}`, assignment.ID), 201, &stack)
+	workspace := stack.Members[1].Workspaces[0]
+	if workspace.Outcome != stack.Outcome || workspace.ParentRevision != string(one) || len(workspace.AcceptanceCriteria) != 1 || len(workspace.EditableBranches) != 1 || len(workspace.AuthorityGranted) != 0 {
+		t.Fatalf("scoped workspace preload lost: %#v", workspace)
+	}
+	workflowJSON(t, server.URL, http.MethodPost, root+"/"+stack.ID+"/timeline", token, fmt.Sprintf(`{"member_id":"docs","workspace_id":%q,"kind":"checkpoint","summary":"docs compile against API v1","audience":"repository"}`, workspace.ID), 201, &stack)
+	if len(stack.Timeline) != 1 || stack.Timeline[0].UpstreamRevisions["api"] != string(one) || stack.Timeline[0].State != "current" {
+		t.Fatalf("timeline assumption lost: %#v", stack.Timeline)
+	}
 	newOne, _ := opened.WriteObject(storage.CommitObject, []byte(fmt.Sprintf("tree %s\nparent %s\nauthor A <a@x> 4 +0000\ncommitter A <a@x> 4 +0000\n\nrevised api\n", tree0, base)))
 	newTwo, _ := opened.WriteObject(storage.CommitObject, []byte(fmt.Sprintf("tree %s\nparent %s\nauthor B <b@x> 5 +0000\ncommitter B <b@x> 5 +0000\n\nrebased docs\n", tree1, newOne)))
 	revised := in.Members
@@ -78,6 +92,9 @@ func TestChangeStackPublicBoundary(t *testing.T) {
 	docsRef, _ := opened.ReadReference("refs/heads/docs")
 	if stack.CurrentRevision != 2 || stack.Revisions[0].Status != "applied" || apiRef.ObjectID != newOne || docsRef.ObjectID != newTwo || len(stack.Members[1].Evidence) != 0 {
 		t.Fatalf("atomic rewrite not retained: %#v api=%s docs=%s", stack, apiRef.ObjectID, docsRef.ObjectID)
+	}
+	if len(stack.Members[1].Assignments) != 1 || len(stack.Members[1].Workspaces) != 1 || stack.Timeline[0].State != "upstream_changed" {
+		t.Fatalf("collaboration lineage did not survive restack: %#v", stack)
 	}
 	third, _ := opened.WriteObject(storage.CommitObject, []byte(fmt.Sprintf("tree %s\nparent %s\nauthor A <a@x> 6 +0000\ncommitter A <a@x> 6 +0000\n\nsecond feedback\n", tree1, base)))
 	fourth, _ := opened.WriteObject(storage.CommitObject, []byte(fmt.Sprintf("tree %s\nparent %s\nauthor B <b@x> 7 +0000\ncommitter B <b@x> 7 +0000\n\nsecond downstream rebase\n", tree0, third)))

@@ -89,6 +89,45 @@ type Evidence struct {
 	State                string            `json:"state"`
 	StaleIfMembersChange []string          `json:"stale_if_members_change"`
 }
+type Assignment struct {
+	ID                 string    `json:"id"`
+	ParticipantID      string    `json:"participant_id"`
+	ParticipantKind    string    `json:"participant_kind"`
+	AgentApprovalID    string    `json:"agent_approval_id,omitempty"`
+	AuthorizedBranches []string  `json:"authorized_branches"`
+	AssignedBy         string    `json:"assigned_by"`
+	AssignedAt         time.Time `json:"assigned_at"`
+}
+type Workspace struct {
+	ID                 string            `json:"id"`
+	Kind               string            `json:"kind"`
+	MemberID           string            `json:"member_id"`
+	ParticipantID      string            `json:"participant_id"`
+	Outcome            string            `json:"outcome"`
+	ParentRevision     string            `json:"parent_revision"`
+	MemberRevision     string            `json:"member_revision"`
+	AcceptanceCriteria []string          `json:"acceptance_criteria"`
+	Evidence           []Evidence        `json:"evidence"`
+	UpstreamRevisions  map[string]string `json:"upstream_revisions"`
+	EditableBranches   []string          `json:"editable_branches"`
+	Audience           string            `json:"audience"`
+	AuthorityGranted   []string          `json:"authority_granted"`
+	OpenedBy           string            `json:"opened_by"`
+	OpenedAt           time.Time         `json:"opened_at"`
+}
+type TimelineEvent struct {
+	ID                string            `json:"id"`
+	Kind              string            `json:"kind"`
+	MemberID          string            `json:"member_id"`
+	WorkspaceID       string            `json:"workspace_id,omitempty"`
+	ActorID           string            `json:"actor_id"`
+	Summary           string            `json:"summary"`
+	ProposedMembers   []MemberInput     `json:"proposed_members,omitempty"`
+	UpstreamRevisions map[string]string `json:"upstream_revisions"`
+	State             string            `json:"state"`
+	Audience          string            `json:"audience"`
+	CreatedAt         time.Time         `json:"created_at"`
+}
 type Member struct {
 	MemberInput
 	Position                 int               `json:"position"`
@@ -103,6 +142,8 @@ type Member struct {
 	ReviewState              string            `json:"review_state"`
 	DownstreamEvidenceAtRisk []string          `json:"downstream_evidence_at_risk"`
 	Reviewable               bool              `json:"reviewable"`
+	Assignments              []Assignment      `json:"assignments"`
+	Workspaces               []Workspace       `json:"workspaces"`
 }
 type CommitRewrite struct {
 	MemberID            string `json:"member_id"`
@@ -141,14 +182,15 @@ type Stack struct {
 	ID           string `json:"id"`
 	RepositoryID string `json:"repository_id"`
 	Input
-	Members          []Member   `json:"members"`
-	Status           string     `json:"status"`
-	Blockers         []Blocker  `json:"blockers"`
-	CreatedBy        string     `json:"created_by"`
-	CreatedAt        time.Time  `json:"created_at"`
-	AuthorityGranted []string   `json:"authority_granted"`
-	CurrentRevision  int        `json:"current_revision"`
-	Revisions        []Revision `json:"revisions"`
+	Members          []Member        `json:"members"`
+	Status           string          `json:"status"`
+	Blockers         []Blocker       `json:"blockers"`
+	CreatedBy        string          `json:"created_by"`
+	CreatedAt        time.Time       `json:"created_at"`
+	AuthorityGranted []string        `json:"authority_granted"`
+	CurrentRevision  int             `json:"current_revision"`
+	Revisions        []Revision      `json:"revisions"`
+	Timeline         []TimelineEvent `json:"timeline"`
 }
 
 type Store struct {
@@ -188,7 +230,7 @@ func (s *Store) Create(repo, actor string, in Input, members []Member, blockers 
 		return Stack{}, err
 	}
 	now := time.Now().UTC()
-	x := Stack{ID: id(), RepositoryID: repo, Input: in, Members: members, Blockers: blockers, CreatedBy: actor, CreatedAt: now, AuthorityGranted: []string{}, CurrentRevision: 1, Revisions: []Revision{}}
+	x := Stack{ID: id(), RepositoryID: repo, Input: in, Members: members, Blockers: blockers, CreatedBy: actor, CreatedAt: now, AuthorityGranted: []string{}, CurrentRevision: 1, Revisions: []Revision{}, Timeline: []TimelineEvent{}}
 	x.Status = "reviewable"
 	if len(blockers) > 0 {
 		x.Status = "blocked"
@@ -199,6 +241,129 @@ func (s *Store) Create(repo, actor string, in Input, members []Member, blockers 
 		return Stack{}, err
 	}
 	return x, s.save(x)
+}
+
+func (s *Store) Assign(repo, stack, member, actor, participant, kind, approval string, branches []string) (Stack, error) {
+	if strings.TrimSpace(participant) == "" || (kind != "human" && kind != "agent") || (kind == "agent" && strings.TrimSpace(approval) == "") {
+		return Stack{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.Get(repo, stack)
+	if e != nil {
+		return Stack{}, e
+	}
+	for i := range x.Members {
+		m := &x.Members[i]
+		if m.ID != member {
+			continue
+		}
+		owners := m.BranchOwnerIDs
+		if len(owners) == 0 {
+			owners = m.Authors
+		}
+		if !contains(owners, actor) {
+			return Stack{}, ErrInvalid
+		}
+		if len(branches) == 0 {
+			branches = []string{m.Branch}
+		}
+		for _, b := range branches {
+			if b != m.Branch {
+				return Stack{}, ErrInvalid
+			}
+		}
+		m.Assignments = append(m.Assignments, Assignment{ID: id(), ParticipantID: participant, ParticipantKind: kind, AgentApprovalID: approval, AuthorizedBranches: branches, AssignedBy: actor, AssignedAt: time.Now().UTC()})
+		return x, s.save(x)
+	}
+	return Stack{}, ErrNotFound
+}
+
+func (s *Store) OpenWorkspace(repo, stack, member, actor, assignmentID, kind, audience string) (Stack, error) {
+	allowed := map[string]bool{"session": true, "shared": true, "conflict_resolution": true}
+	if !allowed[kind] || (audience != "repository" && audience != "participants" && audience != "embargoed") {
+		return Stack{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.Get(repo, stack)
+	if e != nil {
+		return Stack{}, e
+	}
+	for i := range x.Members {
+		m := &x.Members[i]
+		if m.ID != member {
+			continue
+		}
+		var a *Assignment
+		for j := range m.Assignments {
+			if m.Assignments[j].ID == assignmentID {
+				a = &m.Assignments[j]
+			}
+		}
+		if a == nil || a.ParticipantID != actor {
+			return Stack{}, ErrInvalid
+		}
+		editable := []string{}
+		if a.ParticipantKind == "human" || contains(a.AuthorizedBranches, m.Branch) {
+			editable = append(editable, m.Branch)
+		}
+		evidence := append([]Evidence{}, m.Evidence...)
+		w := Workspace{ID: id(), Kind: kind, MemberID: m.ID, ParticipantID: actor, Outcome: x.Outcome, ParentRevision: m.BaseRevision, MemberRevision: m.Revision, AcceptanceCriteria: append([]string{}, m.AcceptanceCriteria...), Evidence: evidence, UpstreamRevisions: upstreamFor(x, m.ID), EditableBranches: editable, Audience: audience, AuthorityGranted: []string{}, OpenedBy: actor, OpenedAt: time.Now().UTC()}
+		m.Workspaces = append(m.Workspaces, w)
+		return x, s.save(x)
+	}
+	return Stack{}, ErrNotFound
+}
+
+func (s *Store) AppendTimeline(repo, stack, member, workspace, actor, kind, summary, audience string, proposed []MemberInput) (Stack, error) {
+	allowed := map[string]bool{"checkpoint": true, "question": true, "handoff": true, "proposed_restack": true}
+	if !allowed[kind] || strings.TrimSpace(summary) == "" || (audience != "repository" && audience != "participants" && audience != "embargoed") {
+		return Stack{}, ErrInvalid
+	}
+	if kind != "proposed_restack" && len(proposed) > 0 {
+		return Stack{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.Get(repo, stack)
+	if e != nil {
+		return Stack{}, e
+	}
+	for _, m := range x.Members {
+		if m.ID != member {
+			continue
+		}
+		authorized := false
+		if workspace == "" {
+			owners := m.BranchOwnerIDs
+			if len(owners) == 0 {
+				owners = m.Authors
+			}
+			authorized = contains(owners, actor)
+		} else {
+			for _, w := range m.Workspaces {
+				if w.ID == workspace && w.ParticipantID == actor {
+					authorized = true
+				}
+			}
+		}
+		if !authorized {
+			return Stack{}, ErrInvalid
+		}
+		x.Timeline = append(x.Timeline, TimelineEvent{ID: id(), Kind: kind, MemberID: member, WorkspaceID: workspace, ActorID: actor, Summary: summary, ProposedMembers: proposed, UpstreamRevisions: upstreamFor(x, member), State: "current", Audience: audience, CreatedAt: time.Now().UTC()})
+		return x, s.save(x)
+	}
+	return Stack{}, ErrNotFound
+}
+
+func contains(xs []string, v string) bool {
+	for _, x := range xs {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) PreviewRevision(repo, stack, actor, reason string, expected int, in Input, members []Member, blockers []Blocker) (Stack, error) {
@@ -547,6 +712,20 @@ func Project(x Stack) Stack {
 	}
 	for i := range x.Members {
 		sort.Strings(x.Members[i].DownstreamEvidenceAtRisk)
+	}
+	for i := range x.Timeline {
+		x.Timeline[i].State = "current"
+		for member, revision := range x.Timeline[i].UpstreamRevisions {
+			found := false
+			for _, m := range x.Members {
+				if m.ID == member && m.Revision == revision {
+					found = true
+				}
+			}
+			if !found {
+				x.Timeline[i].State = "upstream_changed"
+			}
+		}
 	}
 	return x
 }
