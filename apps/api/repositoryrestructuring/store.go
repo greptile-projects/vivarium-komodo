@@ -31,6 +31,9 @@ var workKinds = map[string]bool{"branch": true, "pull_request": true, "issue": t
 var workOutcomes = map[string]bool{"continued": true, "blocked": true, "archived": true}
 var migrationKinds = map[string]bool{"clone": true, "fork": true, "package": true, "api": true, "dependency": true, "extension": true, "workflow": true, "documentation": true, "deployment": true, "federated_follower": true}
 var migrationStates = map[string]bool{"planned": true, "redirect_ready": true, "propagating": true, "adopted": true, "blocked": true, "rejected": true, "unavailable": true, "unmigrated": true}
+var cutoverStageKinds = map[string]bool{"pause_writes": true, "activate_destinations": true, "transfer_ownership_policies": true, "publish_refs_redirects": true, "verify_topology": true, "retire_sources": true}
+var cutoverSignalKinds = map[string]bool{"source_health": true, "destination_health": true, "dependency_adoption": true, "git_traffic": true, "collaboration_migration": true, "build": true, "release": true, "permissions": true, "links": true, "supported_consumers": true, "ordinary_contribution": true, "late_write": true, "residual_use": true}
+var verificationSignalKinds = []string{"build", "release", "permissions", "links", "supported_consumers", "ordinary_contribution"}
 
 type Source struct {
 	RepositoryID string   `json:"repository_id"`
@@ -294,6 +297,75 @@ type MigrationPlan struct {
 	AuthorityGranted []string         `json:"authority_granted"`
 }
 
+// Cutover is an owner-controlled, optimistic execution record. It coordinates
+// already-authorized repository operations but never grants that authority.
+type CutoverStage struct {
+	ID             string    `json:"id"`
+	Kind           string    `json:"kind"`
+	OwnerIDs       []string  `json:"owner_ids"`
+	DependsOn      []string  `json:"depends_on,omitempty"`
+	AtomicGroup    string    `json:"atomic_group,omitempty"`
+	SourceIDs      []string  `json:"source_ids,omitempty"`
+	DestinationIDs []string  `json:"destination_ids,omitempty"`
+	State          string    `json:"state"`
+	Summary        string    `json:"summary,omitempty"`
+	Evidence       []string  `json:"evidence,omitempty"`
+	StartedAt      time.Time `json:"started_at,omitempty"`
+	CompletedAt    time.Time `json:"completed_at,omitempty"`
+}
+
+type CutoverInput struct {
+	CandidateID       string            `json:"candidate_id"`
+	RehearsalID       string            `json:"rehearsal_id"`
+	MigrationPlanID   string            `json:"migration_plan_id"`
+	SourceRevisions   map[string]string `json:"source_revisions"`
+	RequiredOwnerIDs  []string          `json:"required_owner_ids"`
+	WriteBoundary     string            `json:"write_boundary"`
+	Stages            []CutoverStage    `json:"stages"`
+	SourceDisposition string            `json:"source_disposition"`
+}
+
+type CutoverApproval struct {
+	ActorID   string    `json:"actor_id"`
+	Decision  string    `json:"decision"`
+	Reason    string    `json:"reason"`
+	Revision  int64     `json:"revision"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type CutoverSignal struct {
+	ID         string    `json:"id"`
+	Kind       string    `json:"kind"`
+	ResourceID string    `json:"resource_id"`
+	Status     string    `json:"status"`
+	Revision   string    `json:"revision,omitempty"`
+	Value      int64     `json:"value,omitempty"`
+	Summary    string    `json:"summary"`
+	ActorID    string    `json:"actor_id"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+type CutoverControl struct {
+	ActorID   string    `json:"actor_id"`
+	Kind      string    `json:"kind"`
+	Reason    string    `json:"reason"`
+	Revision  int64     `json:"revision"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type Cutover struct {
+	ID string `json:"id"`
+	CutoverInput
+	Version          int64             `json:"version"`
+	State            string            `json:"state"`
+	ActiveStageID    string            `json:"active_stage_id,omitempty"`
+	Approvals        []CutoverApproval `json:"approvals"`
+	Signals          []CutoverSignal   `json:"signals"`
+	Controls         []CutoverControl  `json:"controls"`
+	Blockers         []Blocker         `json:"blockers"`
+	RollbackOptions  []string          `json:"rollback_options"`
+	CreatedBy        string            `json:"created_by"`
+	CreatedAt        time.Time         `json:"created_at"`
+	AuthorityGranted []string          `json:"authority_granted"`
+}
+
 type Blocker struct {
 	Kind       string `json:"kind"`
 	ResourceID string `json:"resource_id"`
@@ -310,6 +382,7 @@ type Plan struct {
 	Rehearsals       []Rehearsal     `json:"rehearsals"`
 	WorkMappings     []WorkMapping   `json:"work_mappings"`
 	MigrationPlans   []MigrationPlan `json:"migration_plans"`
+	Cutovers         []Cutover       `json:"cutovers"`
 	Blockers         []Blocker       `json:"blockers"`
 	AuthorityGranted []string        `json:"authority_granted"`
 	CreatedAt        time.Time       `json:"created_at"`
@@ -331,7 +404,7 @@ func (s *Store) Create(repositoryID, actorID string, in Input) (*Plan, error) {
 	if !valid(in) {
 		return nil, ErrInvalid
 	}
-	p := &Plan{ID: id("rsp"), RepositoryID: repositoryID, CreatorID: actorID, Input: in, Findings: []Finding{}, Candidates: []Candidate{}, Rehearsals: []Rehearsal{}, WorkMappings: []WorkMapping{}, MigrationPlans: []MigrationPlan{}, AuthorityGranted: []string{}, CreatedAt: time.Now().UTC()}
+	p := &Plan{ID: id("rsp"), RepositoryID: repositoryID, CreatorID: actorID, Input: in, Findings: []Finding{}, Candidates: []Candidate{}, Rehearsals: []Rehearsal{}, WorkMappings: []WorkMapping{}, MigrationPlans: []MigrationPlan{}, Cutovers: []Cutover{}, AuthorityGranted: []string{}, CreatedAt: time.Now().UTC()}
 	p.Blockers = blockers(in.Inventory)
 	if err := s.write(p); err != nil {
 		return nil, err
@@ -358,9 +431,10 @@ func (s *Store) AddMigrationPlan(repositoryID, planID, actorID string, in Migrat
 			return nil, ErrInvalid
 		}
 		seen[t.ID] = true
-		redirects[t.CurrentLocation] = t.ReplacementLocation
 		if t.CurrentLocation == t.ReplacementLocation {
 			blockers = append(blockers, Blocker{Kind: "redirect_loop", ResourceID: t.ID, Detail: "replacement resolves to the current location"})
+		} else {
+			redirects[t.CurrentLocation] = t.ReplacementLocation
 		}
 		if prior := locations[t.ReplacementLocation]; prior != "" {
 			blockers = append(blockers, Blocker{Kind: "namespace_collision", ResourceID: t.ID, Detail: "replacement location is also claimed by " + prior})
@@ -452,6 +526,454 @@ func (s *Store) RecordMigrationEvent(repositoryID, planID, migrationID, actorID 
 func candidateExists(p Plan, id string) bool {
 	for _, c := range p.Candidates {
 		if c.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Store) AddCutover(repositoryID, planID, actorID string, in CutoverInput) (*Plan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.read(repositoryID, planID)
+	if err != nil {
+		return nil, err
+	}
+	if !validCutover(*p, in) {
+		return nil, ErrInvalid
+	}
+	bs := cutoverPrerequisiteBlockers(*p, in)
+	state := "awaiting_approvals"
+	if len(bs) > 0 {
+		state = "blocked"
+	}
+	for i := range in.Stages {
+		in.Stages[i].State = "pending"
+		in.Stages[i].Summary = ""
+		in.Stages[i].Evidence = nil
+	}
+	c := Cutover{ID: id("cut"), CutoverInput: in, Version: 1, State: state, Approvals: []CutoverApproval{}, Signals: []CutoverSignal{}, Controls: []CutoverControl{}, Blockers: bs, RollbackOptions: []string{"resume source writes before authority publication", "restore prior refs, redirects, ownership, and policies before source retirement"}, CreatedBy: actorID, CreatedAt: time.Now().UTC(), AuthorityGranted: []string{}}
+	p.Cutovers = append(p.Cutovers, c)
+	if err = s.writeUnlocked(p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (s *Store) DecideCutover(repositoryID, planID, cutoverID, actorID, decision, reason string, expected int64) (*Plan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.read(repositoryID, planID)
+	if err != nil {
+		return nil, err
+	}
+	c := cutoverByID(p, cutoverID)
+	if c == nil {
+		return nil, ErrNotFound
+	}
+	if expected != c.Version {
+		return nil, ErrConflict
+	}
+	if !contains(c.RequiredOwnerIDs, actorID) {
+		return nil, ErrForbidden
+	}
+	if (decision != "approved" && decision != "rejected") || strings.TrimSpace(reason) == "" {
+		return nil, ErrInvalid
+	}
+	c.Version++
+	c.Approvals = append(c.Approvals, CutoverApproval{ActorID: actorID, Decision: decision, Reason: reason, Revision: c.Version, CreatedAt: time.Now().UTC()})
+	c.Blockers = cutoverPrerequisiteBlockers(*p, c.CutoverInput)
+	if decision == "rejected" {
+		c.Blockers = append(c.Blockers, Blocker{Kind: "owner_rejected", ResourceID: actorID, Detail: reason})
+		c.State = "blocked"
+	} else if allCutoverOwnersApproved(c.RequiredOwnerIDs, c.Approvals) && len(c.Blockers) == 0 {
+		c.State = "ready"
+	}
+	if err = s.writeUnlocked(p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (s *Store) ControlCutover(repositoryID, planID, cutoverID, actorID, kind, reason string, expected int64) (*Plan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.read(repositoryID, planID)
+	if err != nil {
+		return nil, err
+	}
+	c := cutoverByID(p, cutoverID)
+	if c == nil {
+		return nil, ErrNotFound
+	}
+	if expected != c.Version {
+		return nil, ErrConflict
+	}
+	if !contains(c.RequiredOwnerIDs, actorID) {
+		return nil, ErrForbidden
+	}
+	if strings.TrimSpace(reason) == "" {
+		return nil, ErrInvalid
+	}
+	switch kind {
+	case "start":
+		if c.State != "ready" || !allCutoverOwnersApproved(c.RequiredOwnerIDs, c.Approvals) {
+			return nil, ErrInvalid
+		}
+		c.State = "running"
+	case "pause":
+		if c.State != "running" {
+			return nil, ErrInvalid
+		}
+		c.State = "paused"
+	case "resume":
+		if c.State != "paused" {
+			return nil, ErrInvalid
+		}
+		c.State = "running"
+	case "rollback":
+		if c.State != "running" && c.State != "paused" && c.State != "failed" {
+			return nil, ErrInvalid
+		}
+		if stageSucceeded(c.Stages, "retire_sources") {
+			return nil, ErrInvalid
+		}
+		c.State = "rolled_back"
+		c.ActiveStageID = ""
+		for i := range c.Stages {
+			if c.Stages[i].State == "active" || c.Stages[i].State == "succeeded" {
+				c.Stages[i].State = "rolled_back"
+			}
+		}
+	default:
+		return nil, ErrInvalid
+	}
+	c.Version++
+	c.Controls = append(c.Controls, CutoverControl{ActorID: actorID, Kind: kind, Reason: reason, Revision: c.Version, CreatedAt: time.Now().UTC()})
+	if err = s.writeUnlocked(p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (s *Store) UpdateCutoverStage(repositoryID, planID, cutoverID, stageID, actorID, state, summary string, evidence []string, expected int64) (*Plan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.read(repositoryID, planID)
+	if err != nil {
+		return nil, err
+	}
+	c := cutoverByID(p, cutoverID)
+	if c == nil {
+		return nil, ErrNotFound
+	}
+	if expected != c.Version {
+		return nil, ErrConflict
+	}
+	if c.State != "running" || strings.TrimSpace(summary) == "" || (state != "active" && state != "succeeded" && state != "failed") {
+		return nil, ErrInvalid
+	}
+	for i := range c.Stages {
+		stage := &c.Stages[i]
+		if stage.ID != stageID {
+			continue
+		}
+		if !contains(stage.OwnerIDs, actorID) {
+			return nil, ErrForbidden
+		}
+		if state == "active" && (stage.State != "pending" || !dependenciesSucceeded(c.Stages, stage.DependsOn)) {
+			return nil, ErrInvalid
+		}
+		if (state == "succeeded" || state == "failed") && stage.State != "active" {
+			return nil, ErrInvalid
+		}
+		if state == "succeeded" && len(evidence) == 0 {
+			return nil, ErrInvalid
+		}
+		if stage.Kind == "retire_sources" && state == "active" {
+			c.Blockers = cutoverCompletionBlockers(*p, *c)
+			if len(c.Blockers) > 0 {
+				return nil, ErrInvalid
+			}
+		}
+		now := time.Now().UTC()
+		stage.State = state
+		stage.Summary = summary
+		stage.Evidence = evidence
+		if state == "active" {
+			stage.StartedAt = now
+			c.ActiveStageID = stage.ID
+		} else {
+			stage.CompletedAt = now
+			c.ActiveStageID = ""
+		}
+		if state == "failed" {
+			c.State = "failed"
+			c.Blockers = append(c.Blockers, Blocker{Kind: "stage_failed", ResourceID: stage.ID, Detail: summary})
+		}
+		if state == "succeeded" && stage.Kind == "retire_sources" {
+			c.State = "completed"
+		}
+		c.Version++
+		if err = s.writeUnlocked(p); err != nil {
+			return nil, err
+		}
+		return p, nil
+	}
+	return nil, ErrNotFound
+}
+
+func (s *Store) RecordCutoverSignal(repositoryID, planID, cutoverID, actorID string, in CutoverSignal, expected int64) (*Plan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.read(repositoryID, planID)
+	if err != nil {
+		return nil, err
+	}
+	c := cutoverByID(p, cutoverID)
+	if c == nil {
+		return nil, ErrNotFound
+	}
+	if expected != c.Version || !cutoverSignalKinds[in.Kind] || in.ResourceID == "" || in.Status == "" || strings.TrimSpace(in.Summary) == "" {
+		return nil, ErrInvalid
+	}
+	if !isPlanOwner(*p, actorID) {
+		return nil, ErrForbidden
+	}
+	in.ID = id("sig")
+	in.ActorID = actorID
+	in.CreatedAt = time.Now().UTC()
+	c.Signals = append(c.Signals, in)
+	c.Version++
+	c.Blockers = cutoverCompletionBlockers(*p, *c)
+	if (in.Kind == "late_write" || in.Kind == "residual_use") && (in.Value > 0 || in.Status == "failed") {
+		c.State = "paused"
+		c.ActiveStageID = ""
+	}
+	if err = s.writeUnlocked(p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func validCutover(p Plan, in CutoverInput) bool {
+	if in.CandidateID == "" || in.RehearsalID == "" || in.MigrationPlanID == "" || len(in.SourceRevisions) != len(p.Sources) || len(in.RequiredOwnerIDs) == 0 || in.WriteBoundary == "" || len(in.Stages) == 0 || (in.SourceDisposition != "read_only" && in.SourceDisposition != "archived" && in.SourceDisposition != "removed") {
+		return false
+	}
+	ids, kinds := map[string]bool{}, map[string]bool{}
+	knownOwners, knownSources, knownDestinations := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for _, source := range p.Sources {
+		knownSources[source.RepositoryID] = true
+		for _, owner := range source.OwnerIDs {
+			knownOwners[owner] = true
+			if !contains(in.RequiredOwnerIDs, owner) {
+				return false
+			}
+		}
+	}
+	for _, destination := range p.Destinations {
+		knownDestinations[destination.ID] = true
+		for _, owner := range destination.OwnerIDs {
+			knownOwners[owner] = true
+			if !contains(in.RequiredOwnerIDs, owner) {
+				return false
+			}
+		}
+	}
+	for _, owner := range in.RequiredOwnerIDs {
+		if !knownOwners[owner] {
+			return false
+		}
+	}
+	for _, s := range in.Stages {
+		if s.ID == "" || ids[s.ID] || !cutoverStageKinds[s.Kind] || len(s.OwnerIDs) == 0 || (s.Kind == "publish_refs_redirects" && s.AtomicGroup == "") {
+			return false
+		}
+		for _, owner := range s.OwnerIDs {
+			if !knownOwners[owner] {
+				return false
+			}
+		}
+		for _, source := range s.SourceIDs {
+			if !knownSources[source] {
+				return false
+			}
+		}
+		for _, destination := range s.DestinationIDs {
+			if !knownDestinations[destination] {
+				return false
+			}
+		}
+		ids[s.ID] = true
+		kinds[s.Kind] = true
+	}
+	for _, s := range in.Stages {
+		for _, d := range s.DependsOn {
+			if !ids[d] || d == s.ID {
+				return false
+			}
+		}
+	}
+	for _, s := range in.Stages {
+		if cutoverDependencyCycle(in.Stages, s.ID, map[string]bool{}) {
+			return false
+		}
+	}
+	for k := range cutoverStageKinds {
+		if !kinds[k] {
+			return false
+		}
+	}
+	return true
+}
+func cutoverDependencyCycle(stages []CutoverStage, id string, path map[string]bool) bool {
+	if path[id] {
+		return true
+	}
+	next := map[string]bool{}
+	for k, v := range path {
+		next[k] = v
+	}
+	next[id] = true
+	for _, s := range stages {
+		if s.ID == id {
+			for _, d := range s.DependsOn {
+				if cutoverDependencyCycle(stages, d, next) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func cutoverPrerequisiteBlockers(p Plan, in CutoverInput) []Blocker {
+	bs := []Blocker{}
+	for _, s := range p.Sources {
+		if in.SourceRevisions[s.RepositoryID] != s.Revision {
+			bs = append(bs, Blocker{Kind: "stale_source", ResourceID: s.RepositoryID, Detail: "cutover does not bind the planned source revision"})
+		}
+	}
+	found := false
+	for _, r := range p.Rehearsals {
+		if r.ID == in.RehearsalID && r.CandidateID == in.CandidateID {
+			found = true
+			if r.Status != "passed" {
+				bs = append(bs, Blocker{Kind: "rehearsal_not_passing", ResourceID: r.ID, Detail: "current candidate rehearsal is blocked"})
+			}
+		}
+	}
+	if !found {
+		bs = append(bs, Blocker{Kind: "missing_rehearsal", ResourceID: in.RehearsalID, Detail: "candidate-bound rehearsal was not found"})
+	}
+	mf := false
+	for _, m := range p.MigrationPlans {
+		if m.ID == in.MigrationPlanID && m.CandidateID == in.CandidateID {
+			mf = true
+		}
+	}
+	if !mf {
+		bs = append(bs, Blocker{Kind: "missing_migration_plan", ResourceID: in.MigrationPlanID, Detail: "candidate-bound downstream plan was not found"})
+	}
+	return bs
+}
+func cutoverCompletionBlockers(p Plan, c Cutover) []Blocker {
+	bs := cutoverPrerequisiteBlockers(p, c.CutoverInput)
+	for _, k := range verificationSignalKinds {
+		if !latestSignalPassed(c.Signals, k) {
+			bs = append(bs, Blocker{Kind: "missing_verification", ResourceID: k, Detail: "current passing topology verification is required"})
+		}
+	}
+	for i, s := range c.Signals {
+		if (s.Kind == "late_write" || s.Kind == "residual_use") && signalIsLatest(c.Signals, i) && (s.Value > 0 || s.Status == "failed") {
+			bs = append(bs, Blocker{Kind: s.Kind, ResourceID: s.ResourceID, Detail: s.Summary})
+		}
+	}
+	for _, m := range p.MigrationPlans {
+		if m.ID == c.MigrationPlanID {
+			for _, t := range m.Targets {
+				if t.State != "adopted" {
+					bs = append(bs, Blocker{Kind: "residual_use", ResourceID: t.ID, Detail: "downstream target has not adopted the new topology"})
+				}
+			}
+		}
+	}
+	for _, w := range p.WorkMappings {
+		if w.Status != "continued" && w.Status != "archived" {
+			bs = append(bs, Blocker{Kind: "collaboration_not_migrated", ResourceID: w.ID, Detail: "open work has not reached its declared destination outcome"})
+		}
+	}
+	return bs
+}
+func signalIsLatest(signals []CutoverSignal, at int) bool {
+	for i := at + 1; i < len(signals); i++ {
+		if signals[i].Kind == signals[at].Kind && signals[i].ResourceID == signals[at].ResourceID {
+			return false
+		}
+	}
+	return true
+}
+func cutoverByID(p *Plan, id string) *Cutover {
+	for i := range p.Cutovers {
+		if p.Cutovers[i].ID == id {
+			return &p.Cutovers[i]
+		}
+	}
+	return nil
+}
+func allCutoverOwnersApproved(owners []string, ds []CutoverApproval) bool {
+	for _, o := range owners {
+		ok := false
+		for i := len(ds) - 1; i >= 0; i-- {
+			if ds[i].ActorID == o {
+				ok = ds[i].Decision == "approved"
+				break
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+func dependenciesSucceeded(stages []CutoverStage, ids []string) bool {
+	for _, id := range ids {
+		ok := false
+		for _, s := range stages {
+			if s.ID == id && s.State == "succeeded" {
+				ok = true
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+func stageSucceeded(stages []CutoverStage, kind string) bool {
+	for _, s := range stages {
+		if s.Kind == kind && s.State == "succeeded" {
+			return true
+		}
+	}
+	return false
+}
+func latestSignalPassed(signals []CutoverSignal, kind string) bool {
+	for i := len(signals) - 1; i >= 0; i-- {
+		if signals[i].Kind == kind {
+			return signals[i].Status == "passed" || signals[i].Status == "healthy"
+		}
+	}
+	return false
+}
+func isPlanOwner(p Plan, actor string) bool {
+	for _, s := range p.Sources {
+		if contains(s.OwnerIDs, actor) {
+			return true
+		}
+	}
+	for _, d := range p.Destinations {
+		if contains(d.OwnerIDs, actor) {
 			return true
 		}
 	}
