@@ -5844,6 +5844,24 @@ hidden behind a coordinator-controlled complete flag. The `view=propagation`
 workspace presents this coverage without granting review, queue, merge,
 release, deployment, environment, telemetry, or operational authority.
 
+A current owner exception can contain an inaccessible or rejected target for
+at most 30 days. Reads retain the original disposition and failed or rejected
+receipts, project the target as `excepted`, and automatically restore its
+blockers when the exception expires. Owner equivalence decisions are likewise
+append-only, but only the latest decision on a current passing attempt grants
+delivery eligibility; a later rejection or request for changes supersedes an
+earlier acceptance.
+
+`propagation_workflow_test.go` proves the complete public-API and stock-Git path
+from one verified security repair through directly applicable branches,
+divergent adaptations, independently owned federated consumers, human and agent
+contributions, equivalent-behavior evidence, ordinary target governance,
+release recovery, bounded containment, and observed supported-user coverage.
+The retained campaign includes an already-fixed consumer, failed adaptation,
+stale assessment, inaccessible repository, rejected upstream release, and
+failed first publication without treating shared intent or a clean patch as
+target authority or behavioral proof.
+
 ## Propagation contributions
 
 `POST /repositories/{repository}/propagation-campaigns/{campaign}/targets/{target}/contributions`

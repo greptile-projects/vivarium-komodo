@@ -544,17 +544,22 @@ func acceptedProof(x Campaign, targetID string) bool {
 		if a.TargetID != targetID || a.Stale || !a.Passing {
 			continue
 		}
-		for _, d := range a.OwnerDecisions {
-			if d.Decision == "accepted" {
-				return true
-			}
+		// Decisions are an append-only history. Only the owner's latest
+		// disposition is current; an earlier acceptance cannot outlive a later
+		// rejection or request for changes.
+		if n := len(a.OwnerDecisions); n > 0 && a.OwnerDecisions[n-1].Decision == "accepted" {
+			return true
 		}
 	}
 	return false
 }
 
 func deliveryCoverage(x Campaign) Coverage {
-	c := Coverage{Targets: []TargetCoverage{}, Blockers: append([]Blocker{}, blockers(x.Input)...)}
+	c := Coverage{Targets: []TargetCoverage{}, Blockers: []Blocker{}}
+	initial := map[string][]Blocker{}
+	for _, b := range blockers(x.Input) {
+		initial[b.TargetID] = append(initial[b.TargetID], b)
+	}
 	required := map[string]bool{}
 	if x.CompletionPolicy.Mode == "required_targets" {
 		for _, id := range x.CompletionPolicy.RequiredTargetIDs {
@@ -562,7 +567,7 @@ func deliveryCoverage(x Campaign) Coverage {
 		}
 	}
 	for _, t := range x.Targets {
-		v := TargetCoverage{TargetID: t.ID, State: "awaiting_equivalence", NextActions: []string{"accept current equivalence evidence"}, Blockers: []Blocker{}}
+		v := TargetCoverage{TargetID: t.ID, State: "awaiting_equivalence", NextActions: []string{"accept current equivalence evidence"}, Blockers: append([]Blocker{}, initial[t.ID]...)}
 		latest := map[string]DeliveryEvent{}
 		for _, e := range x.DeliveryEvents {
 			if e.TargetID == t.ID {
@@ -594,7 +599,10 @@ func deliveryCoverage(x Campaign) Coverage {
 			}
 		}
 		if e, ok := latest["exception"]; ok && e.ExceptionExpires.After(time.Now().UTC()) {
-			v.State, v.Paused, v.NextActions = "excepted", false, []string{"resolve bounded exception before " + e.ExceptionExpires.Format(time.RFC3339)}
+			// A current bounded owner exception contains this target's gap for
+			// completion without deleting the underlying disposition or failed
+			// receipts. Expiry automatically restores those blockers on reads.
+			v.State, v.Paused, v.Blockers, v.NextActions = "excepted", false, []Blocker{}, []string{"resolve bounded exception before " + e.ExceptionExpires.Format(time.RFC3339)}
 		}
 		if e, ok := latest["superseded"]; ok {
 			v.State, v.Paused, v.NextActions = "superseded", false, []string{"assess the replacement target: " + e.ConsumerReference}
