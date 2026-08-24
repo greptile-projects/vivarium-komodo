@@ -43,6 +43,20 @@ func registerHistoryRemediationsHTTP(mux *http.ServeMux, s *historyremediations.
 			writeJSON(w, 200, x)
 		}
 	})
+	mux.HandleFunc("POST "+base+"/{remediation}/reachability", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		var in historyremediations.ReachabilityInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.AddReachability(string(repo.ID), r.PathValue("remediation"), a.UserID, in)
+		if !historyRemediationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
 }
 func historyRemediationError(w http.ResponseWriter, e error) bool {
 	if e == nil {

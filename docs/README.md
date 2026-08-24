@@ -5754,6 +5754,22 @@ rewrite, release, package, artifact, environment, disclosure, or operational
 authority. Durable state defaults to `$HISTORY_REMEDIATION_ROOT`
 (`apps/api/data/history-remediations`).
 
+Named remediation participants append collaboration-graph observations at
+`POST /repositories/{repository}/history-remediations/{remediation}/reachability`.
+Each observation classifies one branch, tag, pull request, fork, federated
+contribution, workspace, checkpoint, cache, package, release artifact,
+documentation publication, deployment, backup, or active clone as `confirmed`,
+`suspected`, `unreachable`, `independently_controlled`, or `unverifiable`.
+It binds the copy to exact affected object IDs, payload-free evidence citations,
+an attributable summary and uncertainty, and identifiers for derived
+credentials or classified data plus their current state. Independently
+controlled copies name their controller instead of implying that the response
+team can rewrite them. The detail and collection projections return a derived
+status count, unique affected-object list, and derived-exposure count; newly
+discovered copies append to this map and its history without replacing prior
+observations or exposing restricted bytes. Repository-read authority alone is
+insufficient: the actor must also be a named remediation participant.
+
 ## Design-time threat models
 
 Repository threat models are immutable analysis records under

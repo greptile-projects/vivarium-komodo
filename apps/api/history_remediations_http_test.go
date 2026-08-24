@@ -35,6 +35,15 @@ func TestHistoryRemediationHTTPIsRestrictedAndOwnerOpened(t *testing.T) {
 	}
 	var x historyremediations.Remediation
 	_ = json.Unmarshal(w.Body.Bytes(), &x)
+	reach := historyremediations.ReachabilityInput{CopyKind: "fork", Reference: "fork:responder/repair", RepositoryID: "fork-repository", Revision: "feedface", ObjectIDs: []string{"deadbeef"}, Status: "independently_controlled", ControlledBy: "responder", Summary: "The fork advertises a ref that reaches the affected object ID.", Uncertainty: "The fork owner must verify non-advertised refs.", Citations: []historyremediations.Citation{{Kind: "ref_advertisement", Reference: "snapshot:fork-1", Digest: "sha256:refs", Access: "available"}}}
+	b, _ = json.Marshal(reach)
+	r = httptest.NewRequest(http.MethodPost, "/repositories/"+string(repo.ID)+"/history-remediations/"+x.ID+"/reachability", bytes.NewReader(b))
+	r.Header.Set("Authorization", "Bearer "+responder)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 201 || !bytes.Contains(w.Body.Bytes(), []byte(`"independently_controlled"`)) {
+		t.Fatalf("reachability=%d %s", w.Code, w.Body.String())
+	}
 	for _, tc := range []struct {
 		token string
 		want  int
