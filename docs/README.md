@@ -6094,3 +6094,22 @@ causes an owner-controlled rollback; and a concurrent stock Git push pauses the
 second cutover until the commit is incorporated and the write fence is restored.
 Every record remains evidence and coordination, never a grant of repository,
 consumer, package, federation, release, credential, or operational authority.
+
+## Collaborative change stacks
+
+`POST /repositories/{repository}/change-stacks` turns a large outcome into an
+explicit ordered review graph. The request names the shared outcome and exact
+target, then identifies each existing or proposed branch, optional pull request,
+exact revision, parent member, authors, and acceptance criteria. The durable
+projection reports each member's delta from its parent and cumulative scope from
+the target, including commit and changed-path summaries, while retaining the
+effective repository permissions that permit reading or publication.
+
+Graph and Git facts are evidence, not mutation instructions. Missing commits or
+parents, dependency cycles, unrelated histories, duplicate revisions or trees,
+and inaccessible or moved branches block review publication and stay visible in
+`view=stacks`; creating or reading a stack never rewrites a ref.
+`POST .../members/{member}/publications` accepts only the member's exact frozen,
+blocker-free revision and records its publisher. Stack records grant no branch,
+pull-request, review, merge, credential, or operational authority. Durable state
+defaults beneath `$STACKED_CHANGE_ROOT`.

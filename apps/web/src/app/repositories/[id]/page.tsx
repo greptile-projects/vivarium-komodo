@@ -9,6 +9,7 @@ import { CollaborativeInvestigations } from "@/components/collaborative-investig
 import { RegressionInvestigations } from "@/components/regression-investigations";
 import { PropagationCampaigns } from "@/components/propagation-campaigns";
 import { RepositoryRestructuring } from "@/components/repository-restructuring";
+import { ChangeStacks } from "@/components/change-stacks";
 import { ImpactAssessments } from "@/components/impact-assessments";
 import { TechnicalDecisions } from "@/components/technical-decisions";
 import { DeliveryTeams } from "@/components/delivery-teams";
@@ -1331,6 +1332,8 @@ export default function RepositoryPage({
                           ? "propagation"
                         : query.view === "restructuring"
                           ? "restructuring"
+                        : query.view === "stacks"
+                          ? "stacks"
                         : query.view === "impact"
                           ? "impact"
                           : query.view === "decisions"
@@ -1434,6 +1437,7 @@ export default function RepositoryPage({
         view === "investigations" ||
         view === "propagation" ||
         view === "restructuring" ||
+        view === "stacks" ||
         view === "decisions" ||
         view === "teams" ||
         view === "funds" ||
@@ -1852,6 +1856,10 @@ export default function RepositoryPage({
           <Branch size={15} />
           Restructure
         </button>
+        <button className={view === "stacks" ? "active" : ""} onClick={() => navigate({ view: "stacks", ref, path: "" })}>
+          <GitPullRequest size={15} />
+          Stacks
+        </button>
         <button
           className={view === "investigations" ? "active" : ""}
           onClick={() => navigate({ view: "investigations", ref, path: "" })}
@@ -2060,6 +2068,8 @@ export default function RepositoryPage({
         <PropagationCampaigns repository={repository.id} actor={actor} />
       ) : view === "restructuring" ? (
         <RepositoryRestructuring repository={repository.id} revision={ref} />
+      ) : view === "stacks" ? (
+        <ChangeStacks repository={repository.id} revision={ref} />
       ) : view === "impact" ? (
         <ImpactAssessments
           repository={repository.id}

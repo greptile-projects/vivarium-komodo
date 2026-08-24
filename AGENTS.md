@@ -3642,3 +3642,19 @@ retained trail includes corrected path collision and signature evidence,
 unmappable review, unavailable federation, failed package release, permission
 mismatch with rollback, and a concurrent push without transferring any source,
 destination, consumer, package, federation, or operational authority.
+
+Collaborative change stacks live beneath `$STACKED_CHANGE_ROOT` (default
+`apps/api/data/stacked-changes`). Repository writers define one shared outcome,
+target branch and exact target revision plus an ordered set of existing or new
+branches and optional pull requests. Every member freezes its exact revision,
+declared parent, authors, and acceptance criteria. Reads derive the individual
+scope against that parent and cumulative scope against the target, commit count,
+changed paths, base relationships, dependencies, effective read/publish/branch
+permissions, and the first reviewable layers. Missing commits or dependencies,
+cycles, unrelated histories, duplicate revisions or resulting trees, moved or
+inaccessible existing branches remain explicit blockers and no branch is
+rewritten. A writer may publish only a blocker-free member's exact frozen
+revision for review; publication retains attribution and grants no Git,
+pull-request, review, branch-update, merge, credential, or operational
+authority. The public API is `/repositories/{repository}/change-stacks` and the
+repository web surface is `view=stacks`.
