@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -23,7 +24,9 @@ func TestChangeStackPublicBoundary(t *testing.T) {
 	opened, _ := repos.Open(repository.ID)
 	tree0, _ := opened.WriteObject(storage.TreeObject, nil)
 	base, _ := opened.WriteObject(storage.CommitObject, []byte(fmt.Sprintf("tree %s\nauthor A <a@x> 1 +0000\ncommitter A <a@x> 1 +0000\n\nbase\n", tree0)))
-	tree1, _ := opened.WriteObject(storage.TreeObject, []byte("100644 api.go\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"))
+	blob, _ := opened.WriteObject(storage.BlobObject, []byte("package api\n"))
+	rawBlob, _ := hex.DecodeString(string(blob))
+	tree1, _ := opened.WriteObject(storage.TreeObject, append([]byte("100644 api.go\x00"), rawBlob...))
 	one, _ := opened.WriteObject(storage.CommitObject, []byte(fmt.Sprintf("tree %s\nparent %s\nauthor A <a@x> 2 +0000\ncommitter A <a@x> 2 +0000\n\napi\n", tree1, base)))
 	two, _ := opened.WriteObject(storage.CommitObject, []byte(fmt.Sprintf("tree %s\nparent %s\nauthor B <b@x> 3 +0000\ncommitter B <b@x> 3 +0000\n\ndocs\n", tree0, one)))
 	_ = opened.CreateReference(storage.Reference{Name: "refs/heads/main", ObjectID: base})
@@ -47,7 +50,8 @@ func TestChangeStackPublicBoundary(t *testing.T) {
 	}
 	workflowJSON(t, server.URL, http.MethodPost, root+"/"+stack.ID+"/members/docs/publications", token, fmt.Sprintf(`{"revision":%q}`, two), 201, &stack)
 	workflowJSON(t, server.URL, http.MethodPost, root+"/"+stack.ID+"/members/docs/evidence", token, fmt.Sprintf(`{"revision":%q,"kind":"review_decision","reference":"review:7","scope":"layer"}`, two), 201, &stack)
-	if len(stack.Members[1].Evidence) != 1 || stack.Members[1].Evidence[0].UpstreamRevisions["api"] != string(one) || stack.Members[1].Evidence[0].State != "current" || len(stack.Members[0].DownstreamEvidenceAtRisk) != 1 || len(stack.Members[1].IndividualScope.Changes) == 0 || len(stack.Members[1].CumulativeScope.CommitIDs) != 2 {
+	workflowJSON(t, server.URL, http.MethodPost, root+"/"+stack.ID+"/members/docs/evidence", token, fmt.Sprintf(`{"revision":%q,"kind":"check","reference":"check:docs","scope":"cumulative"}`, two), 201, &stack)
+	if len(stack.Members[1].Evidence) != 2 || stack.Members[1].Evidence[0].UpstreamRevisions["api"] != string(one) || stack.Members[1].Evidence[0].State != "current" || len(stack.Members[0].DownstreamEvidenceAtRisk) != 2 || len(stack.Members[1].IndividualScope.Changes) == 0 || len(stack.Members[1].CumulativeScope.CommitIDs) != 2 {
 		t.Fatalf("layer review context lost: %#v", stack)
 	}
 	var context struct {
@@ -57,6 +61,35 @@ func TestChangeStackPublicBoundary(t *testing.T) {
 	workflowJSON(t, server.URL, http.MethodGet, "/repositories/"+string(repository.ID)+"/pull-requests/pull:1/stack-context", token, "", 200, &context)
 	if context.Member.ID != "api" || context.Member.ReviewState != "reviewable_now" || len(context.Authority) != 0 {
 		t.Fatalf("pull stack projection lost: %#v", context)
+	}
+	newOne, _ := opened.WriteObject(storage.CommitObject, []byte(fmt.Sprintf("tree %s\nparent %s\nauthor A <a@x> 4 +0000\ncommitter A <a@x> 4 +0000\n\nrevised api\n", tree0, base)))
+	newTwo, _ := opened.WriteObject(storage.CommitObject, []byte(fmt.Sprintf("tree %s\nparent %s\nauthor B <b@x> 5 +0000\ncommitter B <b@x> 5 +0000\n\nrebased docs\n", tree1, newOne)))
+	revised := in.Members
+	revised[0].Revision = string(newOne)
+	revised[1].Revision = string(newTwo)
+	revisionBody, _ := json.Marshal(map[string]any{"expected_revision": 1, "reason": "Address first-layer feedback", "members": revised})
+	workflowJSON(t, server.URL, http.MethodPost, root+"/"+stack.ID+"/revisions", token, string(revisionBody), 201, &stack)
+	preview := stack.Revisions[len(stack.Revisions)-1]
+	if preview.Status != "ready" || len(preview.CommitRewrites) != 2 || len(preview.ReviewInvalidations) != 2 || len(preview.CheckImpacts) != 1 || preview.BranchUpdates[0].ExpectedRevision != string(one) || preview.BranchUpdates[1].ExpectedRevision != "" {
+		t.Fatalf("rewrite preview lost: %#v", preview)
+	}
+	workflowJSON(t, server.URL, http.MethodPost, fmt.Sprintf("%s/%s/revisions/2/apply", root, stack.ID), token, `{}`, 200, &stack)
+	apiRef, _ := opened.ReadReference("refs/heads/api")
+	docsRef, _ := opened.ReadReference("refs/heads/docs")
+	if stack.CurrentRevision != 2 || stack.Revisions[0].Status != "applied" || apiRef.ObjectID != newOne || docsRef.ObjectID != newTwo || len(stack.Members[1].Evidence) != 0 {
+		t.Fatalf("atomic rewrite not retained: %#v api=%s docs=%s", stack, apiRef.ObjectID, docsRef.ObjectID)
+	}
+	third, _ := opened.WriteObject(storage.CommitObject, []byte(fmt.Sprintf("tree %s\nparent %s\nauthor A <a@x> 6 +0000\ncommitter A <a@x> 6 +0000\n\nsecond feedback\n", tree1, base)))
+	fourth, _ := opened.WriteObject(storage.CommitObject, []byte(fmt.Sprintf("tree %s\nparent %s\nauthor B <b@x> 7 +0000\ncommitter B <b@x> 7 +0000\n\nsecond downstream rebase\n", tree0, third)))
+	revised[0].Revision, revised[1].Revision = string(third), string(fourth)
+	revisionBody, _ = json.Marshal(map[string]any{"expected_revision": 2, "reason": "Preview concurrent protection", "members": revised})
+	workflowJSON(t, server.URL, http.MethodPost, root+"/"+stack.ID+"/revisions", token, string(revisionBody), 201, &stack)
+	_ = opened.UpdateReference(storage.Reference{Name: "refs/heads/api", ObjectID: one})
+	workflowJSON(t, server.URL, http.MethodPost, fmt.Sprintf("%s/%s/revisions/3/apply", root, stack.ID), token, `{}`, 409, &stack)
+	docsRef, _ = opened.ReadReference("refs/heads/docs")
+	failed := stack.Revisions[len(stack.Revisions)-1]
+	if failed.Status != "failed" || failed.Blockers[len(failed.Blockers)-1].Kind != "concurrent_push_or_failed_rewrite" || docsRef.ObjectID != newTwo || stack.CurrentRevision != 2 {
+		t.Fatalf("concurrent push was not atomically contained: %#v docs=%s", failed, docsRef.ObjectID)
 	}
 	workflowJSON(t, server.URL, http.MethodPost, root+"/"+stack.ID+"/members/docs/publications", token, fmt.Sprintf(`{"revision":%q}`, one), 422, nil)
 	bad := in

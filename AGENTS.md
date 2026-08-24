@@ -3669,3 +3669,16 @@ or unpublished and enumerate downstream evidence IDs that a change to each
 upstream member would stale. Bindings cite existing records without replacing
 their native authorship, access, review, approval, check, preview, agent, merge,
 or other authority controls.
+
+Change-stack revisions are immutable propagation previews over one exact current
+version. Writers may propose a complete reordered member set after creating the
+replacement commits with stock Git; reads retain old-to-new commit and base
+mappings, authorship continuity, branch ref expectations, review invalidations,
+check reruns, and conflict or ownership blockers before apply. Only declared
+branch owners may apply, and one optimistic Git ref transaction publishes every
+authorized local branch or none. Concurrent pushes, shared branches, revoked
+access, failed or unrelated rewrites, and members owned by another repository
+remain actionable retained states. Applied revisions preserve prior stack,
+publication, evidence, and attempt lineage and grant no Git, repository,
+pull-request, review, check, force-push, merge, credential, or operational
+authority.

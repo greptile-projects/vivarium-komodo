@@ -6128,3 +6128,23 @@ derive `reviewable_now`, `provisional`, and `not_published` states and report th
 IDs of downstream evidence that an upstream member change would stale. The
 binding is citation and invalidation context only; the referenced resource keeps
 its native authorship, access, decision, and authority rules.
+
+`POST .../revisions` previews a complete replacement member order against the
+stack's optimistic `current_revision`. Contributors first create and upload
+replacement commits with stock Git, then identify the revised, reordered,
+inserted, removed, or rebased members. The immutable preview reports every old
+and new commit/base mapping, whether authorship was preserved, expected and
+published branch tips, evidence that loses currency, checks that must rerun, and
+all Git graph conflicts before any branch moves.
+
+`POST .../revisions/{revision}/apply` is available only to repository writers
+who are also declared owners of every affected branch. It uses one optimistic
+Git reference transaction, so a concurrent push or failed rewrite publishes no
+partial downstream stack. Shared branches, revoked branch access, members from
+independently governed repositories, unrelated histories, and ownership gaps
+stay as typed blockers; an apply failure is retained with recovery detail. A
+successful apply advances the stack version, clears revision-bound review and
+publication state from the new tips, and preserves every prior preview,
+attribution, and evidence record in revision lineage. These actions coordinate
+existing Git authority and do not manufacture force-push, review, check, merge,
+repository, credential, or external-repository authority.
