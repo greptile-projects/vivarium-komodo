@@ -5979,3 +5979,24 @@ revision, and affected inventory IDs must belong to the frozen plan. The
 what moves, remains, becomes authoritative, and limits rollback. No endpoint
 creates a destination, moves history, changes visibility or ownership, or
 grants source or destination write authority.
+
+Repository writers assemble evidence for candidate projects at
+`POST /repositories/{repository}/restructuring-plans/{plan}/candidates`. The
+append-only snapshot names exact mappings and, per destination, its object graph
+digest, default ref and commit, object and byte totals, and evidence for selected
+history, authorship, signatures where possible, tags, licenses, provenance, and
+cross-repository links. Changed or missing evidence, collisions, duplicated
+history, broken ancestry, missing objects, policy gaps, unmovable resources,
+costs, and owner decisions remain explicit; freezing a candidate neither creates
+a repository nor publishes a ref.
+
+`POST .../{plan}/rehearsals` appends a bounded attempt against one immutable
+candidate. A complete passing attempt reports stock Git clone, fetch, and push;
+builds and checks; package and API resolution; documentation; workspaces; and
+representative consumer journeys, each with a public-surface reference,
+sanitized summary, result, and cost. Missing domains, failed or blocked checks,
+reported preservation issues, and budget overruns derive blockers instead of a
+successful import. The `view=restructuring` workspace exposes provenance,
+decisions, results, costs, and blockers before original repositories or active
+work are redirected; these records grant no Git, repository, package, API,
+workspace, credential, redirect, or operational authority.

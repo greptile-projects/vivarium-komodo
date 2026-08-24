@@ -3575,3 +3575,17 @@ and findings grant no source or destination repository, Git, identity, owner,
 visibility, migration, or operational authority. The public API is
 `/repositories/{repository}/restructuring-plans` and the repository web surface
 is `view=restructuring`.
+
+Repository writers may assemble immutable candidate repository records beneath
+an exact restructuring plan without creating destinations or publishing refs.
+Each candidate freezes selected mappings, destination object-graph digests,
+default refs and commits, object counts and sizes, selected history, authorship,
+signature and tag outcomes, license and provenance evidence, cross-repository
+links, assembly cost, gaps, and required decisions. Append-only bounded
+rehearsals exercise stock Git clone, fetch, and push plus builds, checks, package
+and API resolution, documentation, workspaces, and representative consumer
+journeys. Missing domains, failures, blocked work, budget overruns, duplicated
+history, broken ancestry, path collisions, missing objects, changed signatures,
+policy gaps, and resources that cannot move remain attributable blockers.
+Candidates and rehearsals grant no repository, Git, package, API, workspace,
+redirect, credential, or operational authority.

@@ -22,6 +22,9 @@ var resourceKinds = map[string]bool{"ref": true, "pull_request": true, "issue": 
 var dispositions = map[string]bool{"move": true, "remain": true, "copy": true, "split": true, "redirect": true, "retire": true, "unresolved": true}
 var accessStates = map[string]bool{"accessible": true, "inaccessible": true, "ambiguous": true, "shared": true}
 var historyModes = map[string]bool{"full": true, "path_history": true, "selected_commits": true, "squash": true, "none": true}
+var preservationStates = map[string]bool{"preserved": true, "changed": true, "missing": true, "not_applicable": true}
+var rehearsalDomains = map[string]bool{"git_clone": true, "git_fetch": true, "git_push": true, "build": true, "checks": true, "package_resolution": true, "api_resolution": true, "documentation": true, "workspaces": true, "consumer_journey": true}
+var resultStates = map[string]bool{"passed": true, "failed": true, "blocked": true, "not_run": true}
 
 type Source struct {
 	RepositoryID string   `json:"repository_id"`
@@ -110,6 +113,73 @@ type Finding struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type PreservationEvidence struct {
+	Kind      string `json:"kind"`
+	Reference string `json:"reference"`
+	Source    string `json:"source,omitempty"`
+	Candidate string `json:"candidate,omitempty"`
+	Status    string `json:"status"`
+	Digest    string `json:"digest,omitempty"`
+	Detail    string `json:"detail"`
+}
+
+type CandidateRepository struct {
+	DestinationID string                 `json:"destination_id"`
+	ObjectDigest  string                 `json:"object_digest"`
+	DefaultRef    string                 `json:"default_ref"`
+	DefaultCommit string                 `json:"default_commit"`
+	ObjectCount   int                    `json:"object_count"`
+	SizeBytes     int64                  `json:"size_bytes"`
+	Evidence      []PreservationEvidence `json:"evidence"`
+}
+
+type CandidateInput struct {
+	MappingIDs           []string               `json:"mapping_ids"`
+	Repositories         []CandidateRepository  `json:"repositories"`
+	CrossRepositoryLinks []PreservationEvidence `json:"cross_repository_links"`
+	Issues               []PreservationEvidence `json:"issues"`
+	AssemblyCost         int64                  `json:"assembly_cost"`
+	RequiredDecisions    []string               `json:"required_decisions"`
+}
+
+type Candidate struct {
+	ID string `json:"id"`
+	CandidateInput
+	CreatedBy        string    `json:"created_by"`
+	CreatedAt        time.Time `json:"created_at"`
+	AuthorityGranted []string  `json:"authority_granted"`
+}
+
+type RehearsalCheck struct {
+	Domain    string `json:"domain"`
+	Status    string `json:"status"`
+	Command   string `json:"command"`
+	Reference string `json:"reference"`
+	Digest    string `json:"digest,omitempty"`
+	Summary   string `json:"summary"`
+	Cost      int64  `json:"cost"`
+}
+
+type RehearsalInput struct {
+	CandidateID       string                 `json:"candidate_id"`
+	Environment       string                 `json:"environment"`
+	Budget            int64                  `json:"budget"`
+	ObservedCost      int64                  `json:"observed_cost"`
+	Checks            []RehearsalCheck       `json:"checks"`
+	Issues            []PreservationEvidence `json:"issues"`
+	RequiredDecisions []string               `json:"required_decisions"`
+}
+
+type Rehearsal struct {
+	ID string `json:"id"`
+	RehearsalInput
+	Status           string    `json:"status"`
+	Blockers         []Blocker `json:"blockers"`
+	RecordedBy       string    `json:"recorded_by"`
+	RecordedAt       time.Time `json:"recorded_at"`
+	AuthorityGranted []string  `json:"authority_granted"`
+}
+
 type Blocker struct {
 	Kind       string `json:"kind"`
 	ResourceID string `json:"resource_id"`
@@ -121,10 +191,12 @@ type Plan struct {
 	RepositoryID string `json:"repository_id"`
 	CreatorID    string `json:"creator_id"`
 	Input
-	Findings         []Finding `json:"findings"`
-	Blockers         []Blocker `json:"blockers"`
-	AuthorityGranted []string  `json:"authority_granted"`
-	CreatedAt        time.Time `json:"created_at"`
+	Findings         []Finding   `json:"findings"`
+	Candidates       []Candidate `json:"candidates"`
+	Rehearsals       []Rehearsal `json:"rehearsals"`
+	Blockers         []Blocker   `json:"blockers"`
+	AuthorityGranted []string    `json:"authority_granted"`
+	CreatedAt        time.Time   `json:"created_at"`
 }
 
 type Store struct {
@@ -143,9 +215,82 @@ func (s *Store) Create(repositoryID, actorID string, in Input) (*Plan, error) {
 	if !valid(in) {
 		return nil, ErrInvalid
 	}
-	p := &Plan{ID: id("rsp"), RepositoryID: repositoryID, CreatorID: actorID, Input: in, Findings: []Finding{}, AuthorityGranted: []string{}, CreatedAt: time.Now().UTC()}
+	p := &Plan{ID: id("rsp"), RepositoryID: repositoryID, CreatorID: actorID, Input: in, Findings: []Finding{}, Candidates: []Candidate{}, Rehearsals: []Rehearsal{}, AuthorityGranted: []string{}, CreatedAt: time.Now().UTC()}
 	p.Blockers = blockers(in.Inventory)
 	if err := s.write(p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (s *Store) AddCandidate(repositoryID, planID, actorID string, in CandidateInput) (*Plan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.read(repositoryID, planID)
+	if err != nil {
+		return nil, err
+	}
+	if !validCandidate(*p, in) {
+		return nil, ErrInvalid
+	}
+	p.Candidates = append(p.Candidates, Candidate{ID: id("cand"), CandidateInput: in, CreatedBy: actorID, CreatedAt: time.Now().UTC(), AuthorityGranted: []string{}})
+	if err = s.writeUnlocked(p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (s *Store) AddRehearsal(repositoryID, planID, actorID string, in RehearsalInput) (*Plan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.read(repositoryID, planID)
+	if err != nil {
+		return nil, err
+	}
+	var candidate *Candidate
+	for _, c := range p.Candidates {
+		if c.ID == in.CandidateID {
+			copy := c
+			candidate = &copy
+		}
+	}
+	if candidate == nil || strings.TrimSpace(in.Environment) == "" || in.Budget < 0 || in.ObservedCost < 0 || len(in.Checks) == 0 {
+		return nil, ErrInvalid
+	}
+	seen := map[string]bool{}
+	blockers := []Blocker{}
+	for _, c := range in.Checks {
+		if !rehearsalDomains[c.Domain] || seen[c.Domain] || !resultStates[c.Status] || c.Command == "" || c.Reference == "" || c.Summary == "" || c.Cost < 0 {
+			return nil, ErrInvalid
+		}
+		seen[c.Domain] = true
+		if c.Status != "passed" {
+			blockers = append(blockers, Blocker{Kind: c.Status, ResourceID: c.Domain, Detail: c.Summary})
+		}
+	}
+	for domain := range rehearsalDomains {
+		if !seen[domain] {
+			blockers = append(blockers, Blocker{Kind: "missing_domain", ResourceID: domain, Detail: "required rehearsal domain was not exercised"})
+		}
+	}
+	if in.ObservedCost > in.Budget {
+		blockers = append(blockers, Blocker{Kind: "budget_exceeded", ResourceID: in.CandidateID, Detail: "observed rehearsal cost exceeded its bound"})
+	}
+	issues := append(append(append([]PreservationEvidence{}, candidate.Issues...), candidate.CrossRepositoryLinks...), in.Issues...)
+	for _, issue := range issues {
+		if !validEvidence(issue) {
+			return nil, ErrInvalid
+		}
+		if issue.Status != "preserved" && issue.Status != "not_applicable" {
+			blockers = append(blockers, Blocker{Kind: issue.Kind, ResourceID: issue.Reference, Detail: issue.Detail})
+		}
+	}
+	status := "passed"
+	if len(blockers) > 0 {
+		status = "blocked"
+	}
+	p.Rehearsals = append(p.Rehearsals, Rehearsal{ID: id("rhs"), RehearsalInput: in, Status: status, Blockers: blockers, RecordedBy: actorID, RecordedAt: time.Now().UTC(), AuthorityGranted: []string{}})
+	if err = s.writeUnlocked(p); err != nil {
 		return nil, err
 	}
 	return p, nil
@@ -250,6 +395,51 @@ func valid(in Input) bool {
 			}
 		}
 		items[x.ID] = true
+	}
+	return true
+}
+
+func validEvidence(x PreservationEvidence) bool {
+	return x.Kind != "" && x.Reference != "" && preservationStates[x.Status] && strings.TrimSpace(x.Detail) != ""
+}
+
+func validCandidate(p Plan, in CandidateInput) bool {
+	if len(in.MappingIDs) == 0 || len(in.Repositories) == 0 || in.AssemblyCost < 0 {
+		return false
+	}
+	mappings := map[string]bool{}
+	destinations := map[string]bool{}
+	for _, x := range p.Mappings {
+		mappings[x.ID] = true
+	}
+	for _, x := range p.Destinations {
+		destinations[x.ID] = true
+	}
+	seen := map[string]bool{}
+	for _, x := range in.MappingIDs {
+		if !mappings[x] || seen[x] {
+			return false
+		}
+		seen[x] = true
+	}
+	seen = map[string]bool{}
+	for _, r := range in.Repositories {
+		if !destinations[r.DestinationID] || seen[r.DestinationID] || r.ObjectDigest == "" || r.DefaultRef == "" || r.DefaultCommit == "" || r.ObjectCount < 1 || r.SizeBytes < 0 || len(r.Evidence) == 0 {
+			return false
+		}
+		seen[r.DestinationID] = true
+		for _, e := range r.Evidence {
+			if !validEvidence(e) {
+				return false
+			}
+		}
+	}
+	for _, xs := range [][]PreservationEvidence{in.CrossRepositoryLinks, in.Issues} {
+		for _, e := range xs {
+			if !validEvidence(e) {
+				return false
+			}
+		}
 	}
 	return true
 }
