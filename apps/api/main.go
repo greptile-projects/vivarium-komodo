@@ -114,6 +114,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityreports"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityscenarios"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/serviceobjectives"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/stackedchanges"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/supportquestions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/testscenarios"
@@ -418,6 +419,14 @@ func main() {
 		repositoryRestructuringRoot = "data/repository-restructuring"
 	}
 	repositoryRestructuringStore, err := repositoryrestructuring.New(repositoryRestructuringRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	stackedChangeRoot := os.Getenv("STACKED_CHANGE_ROOT")
+	if stackedChangeRoot == "" {
+		stackedChangeRoot = "data/stacked-changes"
+	}
+	stackedChangeStore, err := stackedchanges.New(stackedChangeRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1093,6 +1102,7 @@ func main() {
 	registerRegressionInvestigationsHTTP(mux, regressionInvestigationStore, repositoryCatalog, credentials, releaseStore, checkRunStore)
 	registerPropagationCampaignsHTTP(mux, propagationCampaignStore, repositoryCatalog, credentials)
 	registerRepositoryRestructuringHTTP(mux, repositoryRestructuringStore, repositoryCatalog, credentials)
+	registerStackedChangesHTTP(mux, stackedChangeStore, repositoryCatalog, credentials)
 	registerImpactAssessmentsHTTP(mux, impactStore, repositoryCatalog, credentials, relationshipStore, investigationStore, releaseStore, deploymentStore, packageStore)
 	registerDecisionsHTTP(mux, decisionStore, repositoryCatalog, credentials, workspaceStore, workspaceRunner, proposalStore)
 	registerDeliveryTeamsHTTP(mux, deliveryTeamStore, repositoryCatalog, credentials, organizationStore, deliveryExecutionStores{changes: changeSessionStore, investigations: investigationStore, decisions: decisionStore, workspaces: workspaceStore}, pullRequestStore, checkRunner)
