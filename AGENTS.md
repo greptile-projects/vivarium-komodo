@@ -3589,3 +3589,15 @@ history, broken ancestry, path collisions, missing objects, changed signatures,
 policy gaps, and resources that cannot move remain attributable blockers.
 Candidates and rehearsals grant no repository, Git, package, API, workspace,
 redirect, credential, or operational authority.
+
+Open work remains beneath the exact restructuring plan as revisioned mappings
+for branches, pull requests, issues, proposals, tasks, decisions, checks,
+sessions, workspaces, and queues. Each mapping freezes source revision,
+authorship, discussion, reviews, dependencies, acceptance criteria, audience,
+and one or more dependency-connected destination contributions. Independently
+owned work requires its declared owners' current approval; each destination
+owner records whether its contribution continued, blocked, or archived after
+cutover. Optimistic revisions reject conflicting actions, while changed source
+revisions, embargoed context, removed access, rejected mappings, and work that
+cannot migrate remain explicit blockers. These records preserve continuity but
+grant the plan owner no authority over source work or destination contributions.
