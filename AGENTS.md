@@ -2166,6 +2166,15 @@ whenever dependencies change or the web job fails before it starts.
   regression. These proof and delivery records grant no test execution, Git,
   quality-policy, review, merge, release, deployment, environment, telemetry,
   rollback, or operational authority.
+  `regression_recovery_workflow_test.go` is the black-box boundary for the
+  complete report-to-sustained-recovery loop through the public API and stock
+  Git history. It retains attributed user impact, reproducible human-agent
+  experiments, flaky and unbuildable midpoints, a rejected dependency culprit,
+  merge-introduced ambiguity and supported causal reasoning, containment and
+  owner-gated work, failed revert review, exact forward-repair and backport
+  proofs, ordinary delivery, revoked reporter access, production disagreement,
+  corrected rollout observation, and quality-plan regression coverage without
+  treating investigation records as execution or delivery authority.
   Prospective impact assessments live beneath `$IMPACT_ASSESSMENT_ROOT`
   (default `apps/api/data/impact-assessments`) and begin from selected code,
   symbols, an exact current investigation conclusion, or a proposed diff. Keep
