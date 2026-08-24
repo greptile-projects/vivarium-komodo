@@ -69,6 +69,29 @@ func TestPropagationCampaignPublicBoundary(t *testing.T) {
 		t.Fatalf("equivalence matrix lost: %#v", campaign.EquivalenceAttempts)
 	}
 	workflowJSON(t, server.URL, http.MethodPost, base+"/"+campaign.ID+"/targets/stable/equivalence-attempts/"+campaign.EquivalenceAttempts[0].ID+"/decisions", ownerToken, `{"decision":"accepted","rationale":"behavioral proof reviewed"}`, 201, &campaign)
+	delivery := base + "/" + campaign.ID + "/targets/stable/delivery-events"
+	workflowJSON(t, server.URL, http.MethodPost, delivery, token, `{"kind":"review","status":"succeeded","resource_reference":"pull:stable","revision":"target-adaptation-1","summary":"owner review passed"}`, 403, nil)
+	for _, event := range []string{
+		`{"kind":"review","status":"succeeded","resource_reference":"pull:stable","revision":"target-adaptation-1","summary":"ordinary review passed"}`,
+		`{"kind":"queue","status":"succeeded","resource_reference":"queue:stable","revision":"target-adaptation-1","summary":"required checks admitted the pull"}`,
+		`{"kind":"merge","status":"succeeded","resource_reference":"pull:stable","revision":"merge-stable-1","summary":"target owner merged"}`,
+		`{"kind":"release","status":"succeeded","resource_reference":"release:v2.4.1","revision":"merge-stable-1","summary":"attested stable release published"}`,
+		`{"kind":"deploy","status":"failed","resource_reference":"deployment:stable-1","revision":"merge-stable-1","summary":"canary health failed","supported_users":100,"reached_users":10,"exposure_unit":"maintained installations"}`,
+	} {
+		workflowJSON(t, server.URL, http.MethodPost, delivery, ownerToken, event, 201, &campaign)
+	}
+	if !campaign.Coverage.Targets[0].Paused || campaign.Coverage.ReachedUsers != 10 || campaign.Coverage.Complete {
+		t.Fatalf("failed target was not selectively paused: %#v", campaign.Coverage)
+	}
+	workflowJSON(t, server.URL, http.MethodPost, delivery, ownerToken, `{"kind":"deploy","status":"succeeded","resource_reference":"deployment:stable-2","revision":"merge-stable-1","summary":"replacement canary healthy","supported_users":100,"reached_users":100,"exposure_unit":"maintained installations"}`, 201, &campaign)
+	workflowJSON(t, server.URL, http.MethodPost, delivery, ownerToken, `{"kind":"outcome","status":"succeeded","resource_reference":"observation:stable-2","revision":"merge-stable-1","summary":"required behavior observed","supported_users":100,"reached_users":100,"exposure_unit":"maintained installations","outcome":"legacy input succeeds without regression"}`, 201, &campaign)
+	if campaign.Coverage.ReachedUsers != 100 || campaign.Coverage.Targets[0].ObservedOutcome == "" {
+		t.Fatalf("delivered exposure was not projected: %#v", campaign.Coverage)
+	}
+	workflowJSON(t, server.URL, http.MethodPost, delivery, ownerToken, `{"kind":"consumer_discovered","status":"succeeded","resource_reference":"inventory:runtime","revision":"merge-stable-1","summary":"runtime inventory found another supported consumer","consumer_reference":"consumer:hidden"}`, 201, &campaign)
+	if campaign.Coverage.Complete || campaign.Coverage.Targets[0].NextActions[0] != "add and assess the newly discovered consumer" {
+		t.Fatalf("new consumer was hidden by delivery: %#v", campaign.Coverage)
+	}
 	bad := fmt.Sprintf(`{"title":"bad","intent":"bad","acceptance_criteria":["x"],"source":{"kind":"policy_change","repository_id":%q,"resource_id":"p","revision":"missing","commit_ids":["missing"]},"targets":[]}`, repository.ID)
 	workflowJSON(t, server.URL, http.MethodPost, base, token, bad, 422, nil)
 }
