@@ -3482,3 +3482,20 @@ rejection, bounded human-agent preview exploration, targeted stale evidence, a
 minimized finding and agent-authored repair, failed-first and durable regression
 proof, missing and flaky platform containment, rejected risk bypass, exact pull,
 merge-queue, and release matrices, and attributable post-release verification.
+
+Restricted repository-history remediations live beneath
+`$HISTORY_REMEDIATION_ROOT` (default `apps/api/data/history-remediations`). A
+repository owner opens one from an exact security finding, privacy incident,
+support case, or selected object before further inspection, freezing a
+payload-free description and reason, disclosure audience, response owners,
+participants, exact object IDs and digests, and affected repositories, refs,
+releases, packages, artifacts, and environments. Discovery evidence retains
+only exact references, revisions, digests, audience-safe summaries, access
+status, and attribution. False matches, inaccessible or expired evidence,
+legal holds, conflicting retention or continuity commitments, and pending or
+denied named approvals remain derived blockers. Only the creator, response
+owners, named participants, and approval owners can discover the record through
+`/repositories/{repository}/history-remediations`; the repository web surface
+is `view=security`. These starting-point records grant no object inspection,
+Git rewrite, repository, release, package, artifact, environment, disclosure,
+credential, or operational authority.

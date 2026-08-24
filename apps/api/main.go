@@ -50,6 +50,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/federatedagents"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/federation"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/governance"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/historyremediations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/impactassessments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/inbox"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/incidents"
@@ -568,6 +569,14 @@ func main() {
 		securityExpectationRoot = "data/security-expectations"
 	}
 	securityExpectationStore, err := securityexpectations.New(securityExpectationRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	historyRemediationRoot := os.Getenv("HISTORY_REMEDIATION_ROOT")
+	if historyRemediationRoot == "" {
+		historyRemediationRoot = "data/history-remediations"
+	}
+	historyRemediationStore, err := historyremediations.New(historyRemediationRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1095,6 +1104,7 @@ func main() {
 	registerCapabilityProofsHTTP(mux, capabilityProofStore, repositoryCatalog, credentials)
 	registerCapabilityRemovalsHTTP(mux, capabilityRemovalStore, repositoryCatalog, credentials)
 	registerSecurityExpectationsHTTP(mux, securityExpectationStore, repositoryCatalog, credentials)
+	registerHistoryRemediationsHTTP(mux, historyRemediationStore, repositoryCatalog, credentials)
 	registerThreatModelsHTTP(mux, threatModelStore, repositoryCatalog, credentials, threatModelSources{pulls: pullRequestStore, plans: proposalStore, scenarios: securityScenarioStore})
 	registerSecurityScenariosHTTP(mux, securityScenarioStore, threatModelStore, repositoryCatalog, credentials, pullRequestStore, previewStore)
 	registerSecurityDeliveryHTTP(mux, securityDeliveryStore, threatModelStore, securityScenarioStore, repositoryCatalog, organizationStore, credentials)
