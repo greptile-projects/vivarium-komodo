@@ -124,6 +124,54 @@ func registerPropagationCampaignsHTTP(mux *http.ServeMux, store *propagationcamp
 		}
 		writeJSON(w, http.StatusCreated, x)
 	})
+	mux.HandleFunc("POST "+base+"/{campaign}/equivalence-specifications", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in propagationcampaigns.EquivalenceSpecificationInput
+		if !readJSON(w, r, &in, 512<<10) {
+			return
+		}
+		x, err := store.DefineEquivalence(string(repo.ID), r.PathValue("campaign"), actor.UserID, in)
+		if propagationCampaignError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
+	mux.HandleFunc("POST "+base+"/{campaign}/targets/{target}/equivalence-attempts", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in propagationcampaigns.EquivalenceAttemptInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, err := store.RecordEquivalenceAttempt(string(repo.ID), r.PathValue("campaign"), r.PathValue("target"), actor.UserID, in)
+		if propagationCampaignError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
+	mux.HandleFunc("POST "+base+"/{campaign}/targets/{target}/equivalence-attempts/{attempt}/decisions", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Decision  string `json:"decision"`
+			Rationale string `json:"rationale"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		x, err := store.DecideEquivalence(string(repo.ID), r.PathValue("campaign"), r.PathValue("target"), r.PathValue("attempt"), actor.UserID, in.Decision, in.Rationale)
+		if propagationCampaignError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
 }
 
 func propagationCampaignError(w http.ResponseWriter, err error) bool {

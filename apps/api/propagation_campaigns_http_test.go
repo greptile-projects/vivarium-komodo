@@ -59,6 +59,16 @@ func TestPropagationCampaignPublicBoundary(t *testing.T) {
 	if len(campaign.Contributions) != 1 || campaign.Contributions[0].SourceIntent != campaign.Intent || len(campaign.Contributions[0].AuthorityGranted) != 0 {
 		t.Fatalf("contribution provenance or authority boundary lost: %#v", campaign.Contributions)
 	}
+	spec := propagationcampaigns.EquivalenceSpecificationInput{SourceRevision: string(commit), Environment: "networkless", MaximumCost: 2, Currency: "USD", TimeoutSeconds: 60, Scenarios: []propagationcampaigns.EquivalenceScenario{{ID: "legacy", Behavior: "legacy input works", SourceEvidence: []string{"correction-1"}, Commands: []string{"go test ./..."}, RequiredCoverage: []string{"legacy"}, OrdinaryCheckNames: []string{"unit"}}}}
+	specBody, _ := json.Marshal(spec)
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+campaign.ID+"/equivalence-specifications", token, string(specBody), 201, &campaign)
+	attempt := propagationcampaigns.EquivalenceAttemptInput{SpecificationID: campaign.EquivalenceSpecifications[0].ID, AssessmentID: assessmentID, ContributionID: campaign.Contributions[0].ID, SourceRevision: string(commit), TargetRevision: "target-1", AdaptationRevision: "target-adaptation-1", Environment: "networkless", BoundInputs: []propagationcampaigns.BoundInput{{Key: "source", Revision: string(commit)}, {Key: "target", Revision: "target-1"}, {Key: "dependency:parser", Revision: "v2"}}, Evidence: []propagationcampaigns.ScenarioEvidence{{ScenarioID: "legacy", Status: "passed", Commands: []string{"go test ./..."}, OrdinaryChecks: []string{"unit"}, Logs: []string{"PASS"}, Artifacts: []propagationcampaigns.Artifact{{Name: "junit", Digest: "sha256:abc", MediaType: "application/xml", Size: 10}}, Coverage: []string{"legacy"}, ResidualDifference: "stable adapter differs internally"}}, Cost: 1, Currency: "USD", DurationSeconds: 12}
+	attemptBody, _ := json.Marshal(attempt)
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+campaign.ID+"/targets/stable/equivalence-attempts", token, string(attemptBody), 201, &campaign)
+	if len(campaign.EquivalenceAttempts) != 1 || !campaign.EquivalenceAttempts[0].Passing || campaign.EquivalenceAttempts[0].Evidence[0].ResidualDifference == "" {
+		t.Fatalf("equivalence matrix lost: %#v", campaign.EquivalenceAttempts)
+	}
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+campaign.ID+"/targets/stable/equivalence-attempts/"+campaign.EquivalenceAttempts[0].ID+"/decisions", ownerToken, `{"decision":"accepted","rationale":"behavioral proof reviewed"}`, 201, &campaign)
 	bad := fmt.Sprintf(`{"title":"bad","intent":"bad","acceptance_criteria":["x"],"source":{"kind":"policy_change","repository_id":%q,"resource_id":"p","revision":"missing","commit_ids":["missing"]},"targets":[]}`, repository.ID)
 	workflowJSON(t, server.URL, http.MethodPost, base, token, bad, 422, nil)
 }

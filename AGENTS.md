@@ -2207,6 +2207,18 @@ whenever dependencies change or the web job fails before it starts.
   independently owned target's pull request must cite an ordinary fork or
   federated contribution path. Plans grant no task, session, workspace, fork,
   repository, Git, review, merge, release, or operational authority.
+  Campaign authors may freeze reusable behavioral scenarios derived from the
+  exact source outcome, including source evidence, required coverage, ordinary
+  check names, bounded environment, timeout, and cost. Append-only target
+  attempts bind the current applicability assessment, contribution adaptation,
+  source and target revisions, dependencies, and assumptions, and retain
+  commands, sanitized logs, content-addressed artifacts, coverage, costs, and
+  residual implementation differences. Unsupported scenarios prove equivalence
+  only with their predeclared substitute evidence. A newer attempt invalidates
+  prior evidence for that target alone; other target revisions remain current.
+  Named target owners accept, reject, or request changes without granting test,
+  runner, repository, Git, review, merge, release, deployment, environment, or
+  operational authority. The resulting matrix remains in `view=propagation`.
   Prospective impact assessments live beneath `$IMPACT_ASSESSMENT_ROOT`
   (default `apps/api/data/impact-assessments`) and begin from selected code,
   symbols, an exact current investigation conclusion, or a proposed diff. Keep
