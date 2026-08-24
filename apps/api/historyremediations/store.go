@@ -279,22 +279,80 @@ type Publication struct {
 	PublishedBy          string             `json:"published_by"`
 	PublishedAt          time.Time          `json:"published_at"`
 }
+type CompletionPolicy struct {
+	RequiredDomains []string `json:"required_domains"`
+	MaximumAgeHours int      `json:"maximum_age_hours"`
+}
+type ContainmentCheck struct {
+	ID        string    `json:"id"`
+	Domain    string    `json:"domain"`
+	Reference string    `json:"reference"`
+	Revision  string    `json:"revision,omitempty"`
+	Status    string    `json:"status"`
+	Digest    string    `json:"digest"`
+	Summary   string    `json:"summary"`
+	OwnerID   string    `json:"owner_id"`
+	ExpiresAt time.Time `json:"expires_at,omitempty"`
+}
+type ContainmentRoundInput struct {
+	Policy CompletionPolicy   `json:"completion_policy"`
+	Checks []ContainmentCheck `json:"checks"`
+}
+type ContainmentRound struct {
+	ID string `json:"id"`
+	ContainmentRoundInput
+	Status     string    `json:"status"`
+	Blockers   []Blocker `json:"blockers"`
+	RecordedBy string    `json:"recorded_by"`
+	RecordedAt time.Time `json:"recorded_at"`
+}
+type CollaborationMigrationInput struct {
+	Kind                string   `json:"kind"`
+	Reference           string   `json:"reference"`
+	Action              string   `json:"action"`
+	ReplacementRevision string   `json:"replacement_revision"`
+	DiscussionReference string   `json:"discussion_reference"`
+	Attribution         []string `json:"attribution"`
+	Receipt             string   `json:"receipt"`
+}
+type CollaborationMigration struct {
+	ID string `json:"id"`
+	CollaborationMigrationInput
+	ActorID    string    `json:"actor_id"`
+	RecordedAt time.Time `json:"recorded_at"`
+}
+type RecoveryInput struct {
+	Flow      string   `json:"flow"`
+	Reference string   `json:"reference"`
+	RoundID   string   `json:"round_id"`
+	CheckIDs  []string `json:"check_ids"`
+	Decision  string   `json:"decision"`
+}
+type RecoveryDecision struct {
+	ID string `json:"id"`
+	RecoveryInput
+	ActorID    string    `json:"actor_id"`
+	RecordedAt time.Time `json:"recorded_at"`
+}
 type RefPublisher func([]RefReplacement) error
 type Remediation struct {
-	ID                  string                `json:"id"`
-	RepositoryID        string                `json:"repository_id"`
-	CreatedByID         string                `json:"created_by_id"`
-	Input               Input                 `json:"definition"`
-	Blockers            []Blocker             `json:"blockers"`
-	Events              []Event               `json:"history"`
-	Reachability        []ReachabilityFinding `json:"reachability_map"`
-	ReachabilitySummary ReachabilitySummary   `json:"reachability_summary"`
-	RewriteRules        []RewriteRule         `json:"rewrite_rules"`
-	Candidates          []RewriteCandidate    `json:"rewrite_candidates"`
-	Rehearsals          []Rehearsal           `json:"rewrite_rehearsals"`
-	Publications        []Publication         `json:"publications"`
-	CreatedAt           time.Time             `json:"created_at"`
-	UpdatedAt           time.Time             `json:"updated_at"`
+	ID                      string                   `json:"id"`
+	RepositoryID            string                   `json:"repository_id"`
+	CreatedByID             string                   `json:"created_by_id"`
+	Input                   Input                    `json:"definition"`
+	Blockers                []Blocker                `json:"blockers"`
+	Events                  []Event                  `json:"history"`
+	Reachability            []ReachabilityFinding    `json:"reachability_map"`
+	ReachabilitySummary     ReachabilitySummary      `json:"reachability_summary"`
+	RewriteRules            []RewriteRule            `json:"rewrite_rules"`
+	Candidates              []RewriteCandidate       `json:"rewrite_candidates"`
+	Rehearsals              []Rehearsal              `json:"rewrite_rehearsals"`
+	Publications            []Publication            `json:"publications"`
+	ContainmentRounds       []ContainmentRound       `json:"containment_rounds"`
+	CollaborationMigrations []CollaborationMigration `json:"collaboration_migrations"`
+	RecoveryDecisions       []RecoveryDecision       `json:"recovery_decisions"`
+	CreatedAt               time.Time                `json:"created_at"`
+	UpdatedAt               time.Time                `json:"updated_at"`
 }
 type Catalog struct {
 	Items []Remediation `json:"items"`
@@ -624,6 +682,133 @@ func (s *Store) RecordMigration(repo, id, targetID, actor string, in MigrationDe
 	x.Events = append(x.Events, Event{int64(len(x.Events) + 1), "migration." + in.Status, actor, now})
 	return x, s.save(x)
 }
+
+var containmentDomains = []string{"repository_reachability", "object_access", "fork_federation", "package_artifact", "credential_rotation", "deployment", "cache", "protected_recovery_copy"}
+
+func validContainment(in ContainmentRoundInput, now time.Time) ([]Blocker, bool) {
+	if in.Policy.MaximumAgeHours <= 0 || len(in.Policy.RequiredDomains) == 0 || len(in.Checks) == 0 {
+		return nil, false
+	}
+	allowed := map[string]bool{}
+	for _, d := range containmentDomains {
+		allowed[d] = true
+	}
+	required := map[string]bool{}
+	for _, d := range in.Policy.RequiredDomains {
+		if !allowed[d] || required[d] {
+			return nil, false
+		}
+		required[d] = true
+	}
+	seen, present := map[string]bool{}, map[string]bool{}
+	blockers := []Blocker{}
+	for _, c := range in.Checks {
+		if c.ID == "" || seen[c.ID] || !allowed[c.Domain] || c.Reference == "" || c.Digest == "" || c.Summary == "" || c.OwnerID == "" || !text(c.Reference) || !text(c.Summary) || !oneOf(c.Status, "passed", "failed", "unreachable", "independent_copy", "legal_hold", "reintroduced", "exception") {
+			return nil, false
+		}
+		seen[c.ID], present[c.Domain] = true, true
+		if c.Status != "passed" {
+			blockers = append(blockers, Blocker{Kind: "containment_" + c.Status, Subject: c.Reference, Detail: c.Summary, AttributedTo: c.OwnerID})
+		}
+		if !c.ExpiresAt.IsZero() && !c.ExpiresAt.After(now) {
+			blockers = append(blockers, Blocker{Kind: "containment_evidence_expired", Subject: c.Reference, Detail: "containment evidence is no longer current", AttributedTo: c.OwnerID})
+		}
+	}
+	for d := range required {
+		if !present[d] {
+			blockers = append(blockers, Blocker{Kind: "containment_check_missing", Subject: d, Detail: "completion policy requires a current check", AttributedTo: "system"})
+		}
+	}
+	return blockers, true
+}
+
+func (s *Store) AddContainmentRound(repo, id, actor string, in ContainmentRoundInput) (Remediation, error) {
+	now := s.now().UTC()
+	blockers, ok := validContainment(in, now)
+	if actor == "" || !ok {
+		return Remediation{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, id)
+	if e != nil || !responder(x, actor) || len(x.Publications) == 0 {
+		return Remediation{}, ErrNotFound
+	}
+	status := "passed"
+	if len(blockers) > 0 {
+		status = "residuals"
+	}
+	r := ContainmentRound{ID: ident(), ContainmentRoundInput: in, Status: status, Blockers: blockers, RecordedBy: actor, RecordedAt: now}
+	x.ContainmentRounds = append(x.ContainmentRounds, r)
+	x.UpdatedAt = now
+	x.Events = append(x.Events, Event{int64(len(x.Events) + 1), "containment.rechecked." + status, actor, now})
+	return x, s.save(x)
+}
+
+func (s *Store) MigrateCollaboration(repo, id, actor string, in CollaborationMigrationInput) (Remediation, error) {
+	if actor == "" || !oneOf(in.Kind, "pull_request", "workspace") || !oneOf(in.Action, "migrate", "close") || in.Reference == "" || in.ReplacementRevision == "" || in.DiscussionReference == "" || len(in.Attribution) == 0 || in.Receipt == "" || !text(in.DiscussionReference) || !text(in.Receipt) {
+		return Remediation{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, id)
+	if e != nil || !responder(x, actor) {
+		return Remediation{}, ErrNotFound
+	}
+	now := s.now().UTC()
+	x.CollaborationMigrations = append(x.CollaborationMigrations, CollaborationMigration{ID: ident(), CollaborationMigrationInput: in, ActorID: actor, RecordedAt: now})
+	x.UpdatedAt = now
+	x.Events = append(x.Events, Event{int64(len(x.Events) + 1), "collaboration." + in.Action, actor, now})
+	return x, s.save(x)
+}
+
+func (s *Store) DecideRecovery(repo, id, actor string, in RecoveryInput) (Remediation, error) {
+	if actor == "" || !oneOf(in.Flow, "push", "automation", "release", "contribution") || in.Reference == "" || in.RoundID == "" || len(in.CheckIDs) == 0 || in.Decision != "resume" {
+		return Remediation{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, id)
+	if e != nil || !responder(x, actor) {
+		return Remediation{}, ErrNotFound
+	}
+	var round *ContainmentRound
+	for i := range x.ContainmentRounds {
+		if x.ContainmentRounds[i].ID == in.RoundID {
+			round = &x.ContainmentRounds[i]
+		}
+	}
+	if round == nil {
+		return Remediation{}, ErrInvalid
+	}
+	if !round.RecordedAt.Add(time.Duration(round.Policy.MaximumAgeHours) * time.Hour).After(s.now().UTC()) {
+		return Remediation{}, ErrInvalid
+	}
+	checks := map[string]ContainmentCheck{}
+	for _, c := range round.Checks {
+		checks[c.ID] = c
+	}
+	for _, cid := range in.CheckIDs {
+		c, ok := checks[cid]
+		if !ok || c.Status != "passed" || (!c.ExpiresAt.IsZero() && !c.ExpiresAt.After(s.now().UTC())) {
+			return Remediation{}, ErrInvalid
+		}
+	}
+	now := s.now().UTC()
+	x.RecoveryDecisions = append(x.RecoveryDecisions, RecoveryDecision{ID: ident(), RecoveryInput: in, ActorID: actor, RecordedAt: now})
+	x.UpdatedAt = now
+	// Remove only the matching flow pause; other containment remains active.
+	for pi := range x.Publications {
+		for i := range x.Publications[pi].Pauses {
+			p := &x.Publications[pi].Pauses[i]
+			if (p.Kind == in.Flow || (in.Flow == "automation" && (p.Kind == "queue" || p.Kind == "session" || p.Kind == "workflow"))) && p.Reference == in.Reference {
+				p.Status = "resumed"
+			}
+		}
+	}
+	x.Events = append(x.Events, Event{int64(len(x.Events) + 1), "collaboration." + in.Flow + ".resumed", actor, now})
+	return x, s.save(x)
+}
 func summarize(xs []ReachabilityFinding) ReachabilitySummary {
 	s := ReachabilitySummary{ByStatus: map[string]int{}}
 	objects := map[string]bool{}
@@ -659,7 +844,7 @@ func (s *Store) Create(repo, actor string, in Input) (Remediation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now().UTC()
-	x := Remediation{ID: ident(), RepositoryID: repo, CreatedByID: actor, Input: in, Blockers: derive(in), Events: []Event{{1, "remediation.opened", actor, now}}, Reachability: []ReachabilityFinding{}, ReachabilitySummary: summarize(nil), RewriteRules: []RewriteRule{}, Candidates: []RewriteCandidate{}, Rehearsals: []Rehearsal{}, Publications: []Publication{}, CreatedAt: now, UpdatedAt: now}
+	x := Remediation{ID: ident(), RepositoryID: repo, CreatedByID: actor, Input: in, Blockers: derive(in), Events: []Event{{1, "remediation.opened", actor, now}}, Reachability: []ReachabilityFinding{}, ReachabilitySummary: summarize(nil), RewriteRules: []RewriteRule{}, Candidates: []RewriteCandidate{}, Rehearsals: []Rehearsal{}, Publications: []Publication{}, ContainmentRounds: []ContainmentRound{}, CollaborationMigrations: []CollaborationMigration{}, RecoveryDecisions: []RecoveryDecision{}, CreatedAt: now, UpdatedAt: now}
 	return x, s.save(x)
 }
 func (s *Store) AddRewriteRule(repo, id, actor string, in RewriteRuleInput) (Remediation, error) {
@@ -863,6 +1048,30 @@ func (s *Store) read(repo, id string) (Remediation, error) {
 	}
 	if x.Publications == nil {
 		x.Publications = []Publication{}
+	}
+	if x.ContainmentRounds == nil {
+		x.ContainmentRounds = []ContainmentRound{}
+	}
+	if x.CollaborationMigrations == nil {
+		x.CollaborationMigrations = []CollaborationMigration{}
+	}
+	if x.RecoveryDecisions == nil {
+		x.RecoveryDecisions = []RecoveryDecision{}
+	}
+	for i := range x.ContainmentRounds {
+		r := &x.ContainmentRounds[i]
+		if r.Policy.MaximumAgeHours > 0 && !r.RecordedAt.Add(time.Duration(r.Policy.MaximumAgeHours)*time.Hour).After(s.now().UTC()) {
+			found := false
+			for _, b := range r.Blockers {
+				if b.Kind == "containment_round_expired" {
+					found = true
+				}
+			}
+			if !found {
+				r.Blockers = append(r.Blockers, Blocker{Kind: "containment_round_expired", Subject: r.ID, Detail: "completion policy requires a newer containment recheck", AttributedTo: "system"})
+			}
+			r.Status = "residuals"
+		}
 	}
 	x.ReachabilitySummary = summarize(x.Reachability)
 	return x, nil

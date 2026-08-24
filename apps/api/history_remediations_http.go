@@ -142,6 +142,48 @@ func registerHistoryRemediationsHTTP(mux *http.ServeMux, s *historyremediations.
 			writeJSON(w, 200, x)
 		}
 	})
+	mux.HandleFunc("POST "+base+"/{remediation}/containment-rounds", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in historyremediations.ContainmentRoundInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.AddContainmentRound(string(repo.ID), r.PathValue("remediation"), a.UserID, in)
+		if !historyRemediationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{remediation}/collaboration-migrations", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in historyremediations.CollaborationMigrationInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.MigrateCollaboration(string(repo.ID), r.PathValue("remediation"), a.UserID, in)
+		if !historyRemediationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{remediation}/recovery-decisions", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in historyremediations.RecoveryInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.DecideRecovery(string(repo.ID), r.PathValue("remediation"), a.UserID, in)
+		if !historyRemediationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
 }
 
 func publishReplacementRefs(repo *storage.Repository, refs []historyremediations.RefReplacement) error {

@@ -172,6 +172,14 @@ type Remediation = {
   rewrite_candidates: Candidate[];
   rewrite_rehearsals: Rehearsal[];
   publications: Publication[];
+  containment_rounds: Array<{
+    id: string; status: string; recorded_at: string;
+    completion_policy: { required_domains: string[]; maximum_age_hours: number };
+    checks: Array<{ id: string; domain: string; reference: string; status: string; summary: string; owner_id: string }>;
+    blockers: Array<{ kind: string; subject: string; detail: string; attributed_to: string }>;
+  }>;
+  collaboration_migrations: Array<{ id: string; kind: string; reference: string; action: string; replacement_revision: string; discussion_reference: string; attribution: string[] }>;
+  recovery_decisions: Array<{ id: string; flow: string; reference: string; round_id: string; decision: string; actor_id: string }>;
   updated_at: string;
   created_at: string;
 };
@@ -784,6 +792,28 @@ export function HistoryRemediations({
                 </form>
               </details>
             )}
+          <h4>Containment and scoped recovery</h4>
+          {x.containment_rounds.length === 0 ? <p>No post-publication containment recheck has been recorded.</p> : (
+            <ul>{x.containment_rounds.map((round) => <li key={round.id}>
+              <Badge>{round.status}</Badge> {round.checks.map((c) => `${c.domain.replaceAll("_", " ")}: ${c.status}`).join(" · ")}
+              {round.blockers.length > 0 && <> · residuals: {round.blockers.map((b) => `${b.subject}: ${b.detail}`).join(" · ")}</>}
+            </li>)}</ul>
+          )}
+          <ul>
+            {x.collaboration_migrations.map((m) => <li key={m.id}><Badge>{m.action}</Badge> {m.kind.replaceAll("_", " ")} {m.reference} → <code>{m.replacement_revision}</code> · discussion {m.discussion_reference} · attribution {m.attribution.join(", ")}</li>)}
+            {x.recovery_decisions.map((d) => <li key={d.id}><Badge>{d.decision}</Badge> {d.flow} {d.reference} · evidence round {d.round_id} · {d.actor_id}</li>)}
+          </ul>
+          {actor && x.publications.length > 0 && <details>
+            <summary>Recheck containment, preserve collaboration, or resume a passing flow</summary>
+            {[
+              ["containment-rounds", { completion_policy: { required_domains: ["repository_reachability","object_access","fork_federation","package_artifact","credential_rotation","deployment","cache","protected_recovery_copy"], maximum_age_hours: 24 }, checks: ["repository_reachability","object_access","fork_federation","package_artifact","credential_rotation","deployment","cache","protected_recovery_copy"].map((domain) => ({ id: `${domain}-check`, domain, reference: `${domain}:evidence`, status: "passed", digest: `sha256:${domain}`, summary: "Current payload-free containment evidence.", owner_id: actor, expires_at: "2099-01-01T00:00:00Z" })) }],
+              ["collaboration-migrations", { kind: "pull_request", reference: "pull-request-id", action: "migrate", replacement_revision: x.publications.at(-1)?.refs.at(0)?.new_revision, discussion_reference: "preserved-discussion-reference", attribution: [actor], receipt: "Discussion and attribution preserved against the replacement revision." }],
+              ["recovery-decisions", { flow: "push", reference: "push:affected", round_id: x.containment_rounds.at(-1)?.id || "passing-round-id", check_ids: x.containment_rounds.at(-1)?.checks.filter((c) => c.status === "passed").map((c) => c.id) || [], decision: "resume" }],
+            ].map(([path,payload]) => <form className="workspace-form" key={String(path)} onSubmit={(e) => void append(e,x.id,String(path))}>
+              <strong>{String(path).replaceAll("-", " ")}</strong><textarea name="payload" rows={12} defaultValue={JSON.stringify(payload,null,2)} required /><Button type="submit">Record {String(path).replaceAll("-", " ")}</Button>
+            </form>)}
+            <small>Residual independent copies, unreachable peers, legal holds, reintroduced objects, and exceptions remain blockers. A recovery decision resumes only its named flow using current passing checks.</small>
+          </details>}
           <ul>
             {x.definition.discovery_evidence.map((e) => (
               <li key={e.id}>
