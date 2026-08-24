@@ -109,6 +109,21 @@ func registerPropagationCampaignsHTTP(mux *http.ServeMux, store *propagationcamp
 		}
 		writeJSON(w, http.StatusCreated, x)
 	})
+	mux.HandleFunc("POST "+base+"/{campaign}/targets/{target}/contributions", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in propagationcampaigns.ContributionInput
+		if !readJSON(w, r, &in, 512<<10) {
+			return
+		}
+		x, err := store.CreateContribution(string(repo.ID), r.PathValue("campaign"), r.PathValue("target"), actor.UserID, in)
+		if propagationCampaignError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
 }
 
 func propagationCampaignError(w http.ResponseWriter, err error) bool {

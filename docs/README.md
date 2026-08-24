@@ -5823,3 +5823,16 @@ new target revision makes only earlier assessments for that target stale, while
 preserving their findings and owner decisions and leaving other campaign targets
 current. These records remain analysis and grant no target Git, review, merge,
 release, deployment, credential, environment, or operational authority.
+
+## Propagation contributions
+
+`POST /repositories/{repository}/propagation-campaigns/{campaign}/targets/{target}/contributions`
+turns one current applicable assessment into a locally reviewable plan. It
+freezes original authors, selected source commits, local rationale, constraints,
+acceptance criteria, citation-only context, and dependency-ordered human or
+agent tasks. Tasks may reference ordinary scoped sessions, workspaces, forks,
+pull requests, and federated pull requests; those resources keep their native
+access and review checks. A direct application cannot claim deviations, while
+every adapted application must explain them. Unknown and inaccessible targets
+are blocked, and cross-repository pull requests require a fork or federation
+reference so campaign ownership never becomes implicit write or merge authority.
