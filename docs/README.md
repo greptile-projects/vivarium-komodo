@@ -5956,3 +5956,26 @@ access and review checks. A direct application cannot claim deviations, while
 every adapted application must explain them. Unknown and inaccessible targets
 are blocked, and cross-repository pull requests require a fork or federation
 reference so campaign ownership never becomes implicit write or merge authority.
+
+## Repository restructuring plans
+
+`POST /repositories/{repository}/restructuring-plans` freezes a reviewable
+boundary-change proposal before any repository identity changes. The anchoring
+repository must be an exact readable commit; every selected source, destination,
+content/history mapping, owner, visibility, default branch, retained identity,
+deadline, success criterion, and rollback limit remains explicit. Inventory
+items use `ref`, `pull_request`, `issue`, `task`, `release`, `package`,
+`documentation`, `policy`, `workspace`, `automation`, `consumer`, or
+`federated_relationship` and retain their exact revision and a `move`, `remain`,
+`copy`, `split`, `redirect`, `retire`, or `unresolved` disposition.
+
+`GET /repositories/{repository}/restructuring-plans` and its item route project
+inaccessible, ambiguous, shared, and unresolved resources as blockers instead
+of treating missing evidence as a successful inventory. Any repository reader,
+including a read-only agent, can append a cited impact finding through
+`/{plan}/findings`; citations require a repository, reference, and exact
+revision, and affected inventory IDs must belong to the frozen plan. The
+`view=restructuring` web workspace provides plan and finding forms and explains
+what moves, remains, becomes authoritative, and limits rollback. No endpoint
+creates a destination, moves history, changes visibility or ownership, or
+grants source or destination write authority.

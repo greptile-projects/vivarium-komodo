@@ -102,6 +102,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/reliabilityinvestigations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/reliabilitypolicies"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/repositoryrestructuring"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/roadmapdelivery"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/roadmapvalidations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/runtimeinvestigations"
@@ -409,6 +410,14 @@ func main() {
 		propagationCampaignRoot = "data/propagation-campaigns"
 	}
 	propagationCampaignStore, err := propagationcampaigns.New(propagationCampaignRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	repositoryRestructuringRoot := os.Getenv("REPOSITORY_RESTRUCTURING_ROOT")
+	if repositoryRestructuringRoot == "" {
+		repositoryRestructuringRoot = "data/repository-restructuring"
+	}
+	repositoryRestructuringStore, err := repositoryrestructuring.New(repositoryRestructuringRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1083,6 +1092,7 @@ func main() {
 	registerInvestigationsHTTP(mux, investigationStore, repositoryCatalog, credentials, workspaceStore, questionStore)
 	registerRegressionInvestigationsHTTP(mux, regressionInvestigationStore, repositoryCatalog, credentials, releaseStore, checkRunStore)
 	registerPropagationCampaignsHTTP(mux, propagationCampaignStore, repositoryCatalog, credentials)
+	registerRepositoryRestructuringHTTP(mux, repositoryRestructuringStore, repositoryCatalog, credentials)
 	registerImpactAssessmentsHTTP(mux, impactStore, repositoryCatalog, credentials, relationshipStore, investigationStore, releaseStore, deploymentStore, packageStore)
 	registerDecisionsHTTP(mux, decisionStore, repositoryCatalog, credentials, workspaceStore, workspaceRunner, proposalStore)
 	registerDeliveryTeamsHTTP(mux, deliveryTeamStore, repositoryCatalog, credentials, organizationStore, deliveryExecutionStores{changes: changeSessionStore, investigations: investigationStore, decisions: decisionStore, workspaces: workspaceStore}, pullRequestStore, checkRunner)

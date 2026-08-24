@@ -3558,3 +3558,20 @@ independently rewritten fork, unavailable federated peer, migrated pull
 discussion, protected backup, reintroduced object, stale-clone push rejection,
 and current evidence-gated restoration of ordinary contribution without
 claiming control over every copy.
+
+Reviewable repository restructuring plans live beneath
+`$REPOSITORY_RESTRUCTURING_ROOT` (default
+`apps/api/data/repository-restructuring`). Repository writers open a plan from
+selected exact-revision source repositories before identities change and define
+destination names, owners, visibility, default branches, retained identities,
+content paths, history treatment, deadlines, success criteria, and rollback
+limits. The immutable inventory covers refs, pull requests, issues, tasks,
+releases, packages, documentation, policies, workspaces, automation, consumers,
+and federated relationships with exact references, revisions, owners, access,
+disposition, and destination mappings. Inaccessible, ambiguous, shared, and
+unresolved resources remain derived blockers. Repository readers, including
+read-only agents, may append only exact-revision cited impact findings; plans
+and findings grant no source or destination repository, Git, identity, owner,
+visibility, migration, or operational authority. The public API is
+`/repositories/{repository}/restructuring-plans` and the repository web surface
+is `view=restructuring`.

@@ -8,6 +8,7 @@ import { GroundedQuestions } from "@/components/grounded-questions";
 import { CollaborativeInvestigations } from "@/components/collaborative-investigations";
 import { RegressionInvestigations } from "@/components/regression-investigations";
 import { PropagationCampaigns } from "@/components/propagation-campaigns";
+import { RepositoryRestructuring } from "@/components/repository-restructuring";
 import { ImpactAssessments } from "@/components/impact-assessments";
 import { TechnicalDecisions } from "@/components/technical-decisions";
 import { DeliveryTeams } from "@/components/delivery-teams";
@@ -1328,6 +1329,8 @@ export default function RepositoryPage({
                         ? "investigations"
                         : query.view === "propagation"
                           ? "propagation"
+                        : query.view === "restructuring"
+                          ? "restructuring"
                         : query.view === "impact"
                           ? "impact"
                           : query.view === "decisions"
@@ -1430,6 +1433,7 @@ export default function RepositoryPage({
         view === "intelligence" ||
         view === "investigations" ||
         view === "propagation" ||
+        view === "restructuring" ||
         view === "decisions" ||
         view === "teams" ||
         view === "funds" ||
@@ -1842,6 +1846,13 @@ export default function RepositoryPage({
           Propagation
         </button>
         <button
+          className={view === "restructuring" ? "active" : ""}
+          onClick={() => navigate({ view: "restructuring", ref, path: "" })}
+        >
+          <Branch size={15} />
+          Restructure
+        </button>
+        <button
           className={view === "investigations" ? "active" : ""}
           onClick={() => navigate({ view: "investigations", ref, path: "" })}
         >
@@ -2047,6 +2058,8 @@ export default function RepositoryPage({
         </>
       ) : view === "propagation" ? (
         <PropagationCampaigns repository={repository.id} actor={actor} />
+      ) : view === "restructuring" ? (
+        <RepositoryRestructuring repository={repository.id} revision={ref} />
       ) : view === "impact" ? (
         <ImpactAssessments
           repository={repository.id}
