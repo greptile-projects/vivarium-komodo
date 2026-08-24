@@ -6072,3 +6072,25 @@ A late write or residual use pauses the transition; a later current zero-use
 observation may support explicit owner resume without deleting the earlier
 event. Only after these checks may the declared policy make old repositories
 read-only, archive them, or remove them.
+
+### Complete repository restructuring workflow
+
+`repository_restructuring_workflow_test.go` proves the public
+topology-change-to-continuing-collaboration boundary used by the Restructure
+web workspace. A maintainer extracts a shared parser from a monorepo with stock
+Git ancestry, authorship, signature, build, package-client, and consumer
+evidence; divides a live cross-cutting pull request into dependency-connected
+contributions; and lets independently governed human, agent, package,
+documentation, workflow, release, and federated owners report their own
+migrations. The team then atomically cuts over the entry points, ships and
+verifies an ordinary contribution through the new repositories, and retires
+the compatibility boundary only after every current signal passes.
+
+The same retained run demonstrates correction and containment: a colliding
+path and broken signature require a replacement candidate; an obsolete review
+cannot authorize migrated work; the first package release fails; a federated
+consumer remains unavailable until its owner returns; a permission mismatch
+causes an owner-controlled rollback; and a concurrent stock Git push pauses the
+second cutover until the commit is incorporated and the write fence is restored.
+Every record remains evidence and coordination, never a grant of repository,
+consumer, package, federation, release, credential, or operational authority.
