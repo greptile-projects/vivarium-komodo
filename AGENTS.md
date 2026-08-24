@@ -3550,4 +3550,11 @@ mapping and owner-specific instructions. Independently controlled targets must
 acknowledge or perform their own rewrite; coordination never grants authority
 over them. Active push containment rejects stock Git receive requests with
 actionable migration guidance so stale automation cannot silently restore the
-removed lineage.
+removed lineage. `history_remediation_workflow_test.go` is the black-box
+boundary for the complete exposure-to-contained-history loop. It retains
+payload-free agent analysis, a corrected false match, a signed-commit outcome,
+failed rehearsal, atomic partial-ref rejection, credential rotation,
+independently rewritten fork, unavailable federated peer, migrated pull
+discussion, protected backup, reintroduced object, stale-clone push rejection,
+and current evidence-gated restoration of ordinary contribution without
+claiming control over every copy.
