@@ -3601,3 +3601,17 @@ cutover. Optimistic revisions reject conflicting actions, while changed source
 revisions, embargoed context, removed access, rejected mappings, and work that
 cannot migrate remain explicit blockers. These records preserve continuity but
 grant the plan owner no authority over source work or destination contributions.
+
+Downstream migration plans beneath an immutable restructuring candidate expose
+every affected clone, fork, package, API, dependency, extension, workflow,
+documentation link, deployment, and federated follower with its independent
+owners, audience, old and authoritative locations, machine-readable mappings,
+safe synchronization steps, compatibility deadline, current state, and next
+action. Public Git moves require a signed redirect or explicit replacement
+remote. Target owners append ordinary pull-request, release, revision, and
+evidence outcomes; restructuring ownership cannot report adoption for them.
+Redirect loops, namespace collisions, expired credential references,
+unavailable peers, rejection, blockage, and unmigrated targets remain explicit
+in `view=restructuring`. These records grant no Git, consumer, package, API,
+extension, workflow, deployment, federation, credential, merge, release, or
+operational authority.

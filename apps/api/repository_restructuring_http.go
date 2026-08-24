@@ -129,6 +129,36 @@ func registerRepositoryRestructuringHTTP(mux *http.ServeMux, s *repositoryrestru
 		}
 		writeJSON(w, http.StatusCreated, plan)
 	})
+	mux.HandleFunc("POST "+base+"/{plan}/migration-plans", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in repositoryrestructuring.MigrationPlanInput
+		if !readJSON(w, r, &in, 2<<20) {
+			return
+		}
+		plan, err := s.AddMigrationPlan(string(repo.ID), r.PathValue("plan"), actor.UserID, in)
+		if restructuringError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, plan)
+	})
+	mux.HandleFunc("POST "+base+"/{plan}/migration-plans/{migration}/events", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in repositoryrestructuring.MigrationEvent
+		if !readJSON(w, r, &in, 512<<10) {
+			return
+		}
+		plan, err := s.RecordMigrationEvent(string(repo.ID), r.PathValue("plan"), r.PathValue("migration"), actor.UserID, in)
+		if restructuringError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, plan)
+	})
 	mux.HandleFunc("POST "+base+"/{plan}/work-mappings/{mapping}/decisions", func(w http.ResponseWriter, r *http.Request) {
 		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
 		if !ok {

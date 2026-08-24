@@ -50,6 +50,23 @@ func TestRepositoryRestructuringPlanPublicBoundary(t *testing.T) {
 	if len(plan.Candidates) != 1 || len(plan.Candidates[0].AuthorityGranted) != 0 || plan.Candidates[0].Repositories[0].Evidence[0].Status != "preserved" {
 		t.Fatalf("candidate provenance lost: %#v", plan.Candidates)
 	}
+	migration := repositoryrestructuring.MigrationPlanInput{CandidateID: plan.Candidates[0].ID, Revision: string(commit), Targets: []repositoryrestructuring.MigrationTarget{
+		{ID: "clone", Kind: "clone", OwnerIDs: []string{"collaborator"}, Audience: "public", CurrentLocation: "https://git.example/monolith", ReplacementLocation: "https://git.example/parser", RedirectSignature: "ed25519:signed-redirect", Mappings: map[string]string{"refs/heads/main": "refs/heads/main"}, Synchronization: []string{"git remote set-url origin https://git.example/parser", "git fetch --prune origin"}, CompatibilityUntil: due, State: "redirect_ready", NextAction: "developers should update origin and fetch"},
+		{ID: "consumer", Kind: "dependency", OwnerIDs: []string{"consumer-owner"}, Audience: "repository", CurrentLocation: "pkg:monolith/parser", ReplacementLocation: "pkg:parser", Mappings: map[string]string{"monolith/parser": "parser"}, Synchronization: []string{"update the lockfile through an ordinary pull request"}, CompatibilityUntil: due, State: "unmigrated", NextAction: "consumer owner should open a dependency pull request"},
+		{ID: "peer", Kind: "federated_follower", OwnerIDs: []string{"peer-owner"}, Audience: "public", CurrentLocation: "fed:monolith", ReplacementLocation: "fed:parser", Mappings: map[string]string{"repository": "parser"}, Synchronization: []string{"verify the signed discovery document before following"}, CompatibilityUntil: due, State: "unavailable", NextAction: "retry when the independently governed peer is reachable"},
+		{ID: "stale-docs", Kind: "documentation", OwnerIDs: []string{"docs-owner"}, Audience: "public", CurrentLocation: "https://git.example/parser", ReplacementLocation: "https://git.example/parser", Mappings: map[string]string{"old-guide": "new-guide"}, Synchronization: []string{"replace links through an ordinary documentation pull request"}, CompatibilityUntil: due, State: "planned", NextAction: "renew access and resolve the colliding redirect", CredentialReference: "credential:docs", CredentialExpiresAt: time.Now().UTC().Add(-time.Hour)},
+	}}
+	b, _ = json.Marshal(migration)
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+plan.ID+"/migration-plans", writer, string(b), 201, &plan)
+	if len(plan.MigrationPlans) != 1 || len(plan.MigrationPlans[0].Blockers) != 5 || len(plan.MigrationPlans[0].AuthorityGranted) != 0 {
+		t.Fatalf("migration visibility or authority lost: %#v", plan.MigrationPlans)
+	}
+	consumerOwner := issueAccess(t, credentials, "consumer-owner", auth.API, auth.RepositoryRead)
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+plan.ID+"/migration-plans/"+plan.MigrationPlans[0].ID+"/events", writer, `{"target_id":"consumer","state":"adopted","revision":"consumer-2","pull_request_reference":"consumer/pull:9","next_action":"release the independently reviewed consumer revision"}`, 403, nil)
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+plan.ID+"/migration-plans/"+plan.MigrationPlans[0].ID+"/events", consumerOwner, `{"target_id":"consumer","state":"adopted","revision":"consumer-2","pull_request_reference":"consumer/pull:9","release_reference":"consumer:v2","evidence":{"lockfile":"sha256:lock"},"next_action":"use the new package identity"}`, 201, &plan)
+	if plan.MigrationPlans[0].Targets[1].State != "adopted" || plan.MigrationPlans[0].Events[0].ActorID != "consumer-owner" {
+		t.Fatalf("owner propagation outcome lost: %#v", plan.MigrationPlans[0])
+	}
 	checks := []repositoryrestructuring.RehearsalCheck{}
 	for _, domain := range []string{"git_clone", "git_fetch", "git_push", "build", "checks", "package_resolution", "api_resolution", "documentation", "workspaces", "consumer_journey"} {
 		status := "passed"

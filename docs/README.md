@@ -6021,3 +6021,25 @@ and resources that cannot migrate stay visible as blockers. The restructuring
 owner cannot approve or continue independently owned work merely by owning the
 plan. The `view=restructuring` workspace exposes the retained context,
 connected contributions, decisions, outcomes, and next blockers.
+
+### Migrating downstream locations
+
+`POST .../{plan}/migration-plans` freezes the consumer-facing transition for an
+exact candidate and revision. Every affected clone, fork, package, API,
+dependency, extension, workflow, documentation link, deployment, and federated
+follower names its owners and audience; old and replacement locations; a
+machine-readable dependency, link, or ref mapping; stock-safe synchronization
+instructions; compatibility deadline; migration state; and a concrete next
+action. Clone and fork moves require either a signed redirect or an explicit
+replacement remote, so stock Git users can discover and verify the new origin.
+
+The service derives redirect loops, replacement namespace collisions, expired
+credential references, unavailable peers, rejections, blocked propagation, and
+unmigrated consumers as visible blockers. `POST
+.../{plan}/migration-plans/{migration}/events` is limited to the declared
+target owner and retains exact revisions plus ordinary pull-request, release,
+and non-secret evidence references. A restructuring coordinator therefore
+cannot count an independently governed consumer as adopted or acquire its
+merge, release, deployment, package, API, federation, credential, or
+operational authority. The Restructure workspace presents compatibility and
+safe synchronization guidance alongside current owner-specific next actions.
