@@ -43,6 +43,29 @@ func TestRepositoryRestructuringPlanPublicBoundary(t *testing.T) {
 	if len(plan.Findings) != 1 || plan.Findings[0].ActorID != "reader-agent" || len(plan.AuthorityGranted) != 0 {
 		t.Fatalf("read-only finding boundary lost: %#v", plan)
 	}
+	candidate := repositoryrestructuring.CandidateInput{MappingIDs: []string{"parser-code"}, Repositories: []repositoryrestructuring.CandidateRepository{{DestinationID: "parser", ObjectDigest: "sha256:objects", DefaultRef: "refs/heads/main", DefaultCommit: string(commit), ObjectCount: 3, SizeBytes: 512, Evidence: []repositoryrestructuring.PreservationEvidence{{Kind: "file_history", Reference: "pkg/parser", Source: string(commit), Candidate: string(commit), Status: "preserved", Digest: "sha256:history", Detail: "selected file ancestry is reachable"}, {Kind: "authorship", Reference: string(commit), Status: "preserved", Detail: "author and committer identities match"}, {Kind: "signature", Reference: string(commit), Status: "not_applicable", Detail: "source commit is unsigned"}, {Kind: "tag", Reference: "v1.0.0", Status: "preserved", Detail: "annotated tag target is retained"}, {Kind: "license_provenance", Reference: "LICENSE", Status: "preserved", Digest: "sha256:license", Detail: "license blob and source attribution match"}}}}, CrossRepositoryLinks: []repositoryrestructuring.PreservationEvidence{{Kind: "package_link", Reference: "app->parser", Status: "changed", Detail: "consumer must resolve the new package identity"}}, Issues: []repositoryrestructuring.PreservationEvidence{{Kind: "path_collision", Reference: "parser/README.md", Status: "changed", Detail: "two mapped files require an owner choice"}}, AssemblyCost: 8, RequiredDecisions: []string{"Choose the parser README source"}}
+	b, _ = json.Marshal(candidate)
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+plan.ID+"/candidates", reader, string(b), 401, nil)
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+plan.ID+"/candidates", writer, string(b), 201, &plan)
+	if len(plan.Candidates) != 1 || len(plan.Candidates[0].AuthorityGranted) != 0 || plan.Candidates[0].Repositories[0].Evidence[0].Status != "preserved" {
+		t.Fatalf("candidate provenance lost: %#v", plan.Candidates)
+	}
+	checks := []repositoryrestructuring.RehearsalCheck{}
+	for _, domain := range []string{"git_clone", "git_fetch", "git_push", "build", "checks", "package_resolution", "api_resolution", "documentation", "workspaces", "consumer_journey"} {
+		status := "passed"
+		summary := domain + " worked through the public surface"
+		if domain == "package_resolution" {
+			status = "failed"
+			summary = "consumer still resolves the monolith package"
+		}
+		checks = append(checks, repositoryrestructuring.RehearsalCheck{Domain: domain, Status: status, Command: "stock-" + domain, Reference: "run:" + domain, Digest: "sha256:" + domain, Summary: summary, Cost: 1})
+	}
+	rehearsal := repositoryrestructuring.RehearsalInput{CandidateID: plan.Candidates[0].ID, Environment: "networkless candidate sandbox", Budget: 9, ObservedCost: 10, Checks: checks, Issues: []repositoryrestructuring.PreservationEvidence{{Kind: "duplicated_history", Reference: "commit:shared", Status: "changed", Detail: "shared commit occurs in both candidate object graphs"}, {Kind: "unmovable_resource", Reference: "peer:offline", Status: "missing", Detail: "federated peer cannot be rehearsed"}}, RequiredDecisions: []string{"Select package compatibility alias", "Ask peer owner to verify links"}}
+	b, _ = json.Marshal(rehearsal)
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+plan.ID+"/rehearsals", writer, string(b), 201, &plan)
+	if len(plan.Rehearsals) != 1 || plan.Rehearsals[0].Status != "blocked" || len(plan.Rehearsals[0].Blockers) != 6 || len(plan.Rehearsals[0].AuthorityGranted) != 0 {
+		t.Fatalf("rehearsal blockers hidden: %#v", plan.Rehearsals)
+	}
 	bad := in
 	bad.Sources[0].Revision = "missing"
 	bad.Mappings[0].SourceRevision = "missing"

@@ -84,6 +84,36 @@ func registerRepositoryRestructuringHTTP(mux *http.ServeMux, s *repositoryrestru
 		}
 		writeJSON(w, http.StatusCreated, plan)
 	})
+	mux.HandleFunc("POST "+base+"/{plan}/candidates", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in repositoryrestructuring.CandidateInput
+		if !readJSON(w, r, &in, 2<<20) {
+			return
+		}
+		plan, err := s.AddCandidate(string(repo.ID), r.PathValue("plan"), actor.UserID, in)
+		if restructuringError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, plan)
+	})
+	mux.HandleFunc("POST "+base+"/{plan}/rehearsals", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in repositoryrestructuring.RehearsalInput
+		if !readJSON(w, r, &in, 2<<20) {
+			return
+		}
+		plan, err := s.AddRehearsal(string(repo.ID), r.PathValue("plan"), actor.UserID, in)
+		if restructuringError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, plan)
+	})
 }
 
 func restructuringError(w http.ResponseWriter, err error) bool {
