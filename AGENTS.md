@@ -614,6 +614,7 @@ paused pilot without deleting prior evidence. A pilot always projects merge,
 deploy, disclosure, and authoritative mutation as false and grants no durable
 agent identity, Git, review, release, credential, environment, or operational
 authority.
+
 Evaluated-agent onboarding records live in the same store beneath repository
 `/agent-evaluations/onboardings` and organization `/agent-onboardings`
 resources. Owners bind exact clean, accepted trial and profile versions to
@@ -3682,3 +3683,15 @@ remain actionable retained states. Applied revisions preserve prior stack,
 publication, evidence, and attempt lineage and grant no Git, repository,
 pull-request, review, check, force-push, merge, credential, or operational
 authority.
+
+Stack members may also retain branch-owner-created human or approved-agent
+assignments. An agent assignment names its existing approval and may authorize
+only the member's declared source branch. Assigned participants can open a
+session, shared workspace, or conflict-resolution workspace preloaded with the
+shared outcome, exact parent and member revisions, acceptance criteria,
+permitted evidence, and transitive upstream assumptions. Workspaces grant no
+authority of their own. Checkpoints, questions, handoffs, and proposed restacks
+form an append-only stack timeline; reads mark entries when an upstream
+assumption changes. Repository, participant-only, and embargoed audiences
+preserve ordinary disclosure, while cross-repository members and branch updates
+continue to require their native owner and repository permissions.

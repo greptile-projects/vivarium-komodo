@@ -117,6 +117,67 @@ func registerStackedChangesHTTP(mux *http.ServeMux, s *stackedchanges.Store, rep
 		}
 		writeJSON(w, 201, stackedchanges.Project(x))
 	})
+	mux.HandleFunc("POST "+base+"/{stack}/members/{member}/assignments", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ParticipantID      string   `json:"participant_id"`
+			ParticipantKind    string   `json:"participant_kind"`
+			AgentApprovalID    string   `json:"agent_approval_id"`
+			AuthorizedBranches []string `json:"authorized_branches"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		x, e := s.Assign(string(repo.ID), r.PathValue("stack"), r.PathValue("member"), actor.UserID, in.ParticipantID, in.ParticipantKind, in.AgentApprovalID, in.AuthorizedBranches)
+		if stackError(w, e) {
+			return
+		}
+		writeJSON(w, 201, projectStackPermissions(x, actor))
+	})
+	mux.HandleFunc("POST "+base+"/{stack}/members/{member}/workspaces", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			AssignmentID string `json:"assignment_id"`
+			Kind         string `json:"kind"`
+			Audience     string `json:"audience"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		x, e := s.OpenWorkspace(string(repo.ID), r.PathValue("stack"), r.PathValue("member"), actor.UserID, in.AssignmentID, in.Kind, in.Audience)
+		if stackError(w, e) {
+			return
+		}
+		writeJSON(w, 201, projectStackPermissions(x, actor))
+	})
+	mux.HandleFunc("POST "+base+"/{stack}/timeline", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			MemberID        string                       `json:"member_id"`
+			WorkspaceID     string                       `json:"workspace_id"`
+			Kind            string                       `json:"kind"`
+			Summary         string                       `json:"summary"`
+			Audience        string                       `json:"audience"`
+			ProposedMembers []stackedchanges.MemberInput `json:"proposed_members"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.AppendTimeline(string(repo.ID), r.PathValue("stack"), in.MemberID, in.WorkspaceID, actor.UserID, in.Kind, in.Summary, in.Audience, in.ProposedMembers)
+		if stackError(w, e) {
+			return
+		}
+		writeJSON(w, 201, projectStackPermissions(x, actor))
+	})
 	mux.HandleFunc("POST "+base+"/{stack}/revisions", func(w http.ResponseWriter, r *http.Request) {
 		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -142,6 +203,14 @@ func registerStackedChangesHTTP(mux *http.ServeMux, s *stackedchanges.Store, rep
 			return
 		}
 		members, blockers := analyzeChangeStack(opened, candidate, true, true)
+		for i := range members {
+			for _, prior := range current.Members {
+				if prior.ID == members[i].ID {
+					members[i].Assignments = prior.Assignments
+					members[i].Workspaces = prior.Workspaces
+				}
+			}
+		}
 		otherStacks, _ := s.List(string(repo.ID))
 		for _, m := range members {
 			for _, other := range otherStacks {
@@ -275,6 +344,38 @@ func projectStackPermissions(x stackedchanges.Stack, actor auth.Grant) stackedch
 			reason = "caller may request an optimistic atomic update of this owned branch"
 		}
 		x.Members[i].EffectivePermissions = stackedchanges.Permission{Read: true, Publish: canPublish, UpdateBranch: canUpdate, Reason: reason}
+		for j := range x.Members[i].Workspaces {
+			workspace := &x.Members[i].Workspaces[j]
+			if workspace.Audience == "repository" || workspace.ParticipantID == actor.UserID || stackContains(owners, actor.UserID) {
+				continue
+			}
+			workspace.Outcome = "restricted collaboration workspace"
+			workspace.AcceptanceCriteria = nil
+			workspace.Evidence = nil
+			workspace.UpstreamRevisions = nil
+			workspace.EditableBranches = nil
+		}
+	}
+	// Restricted collaboration metadata remains visible, but its body and proposed
+	// restack are disclosed only to the originating participant or branch owner.
+	for i := range x.Timeline {
+		if x.Timeline[i].Audience == "repository" {
+			continue
+		}
+		visible := x.Timeline[i].ActorID == actor.UserID
+		for _, m := range x.Members {
+			if m.ID == x.Timeline[i].MemberID {
+				owners := m.BranchOwnerIDs
+				if len(owners) == 0 {
+					owners = m.Authors
+				}
+				visible = visible || stackContains(owners, actor.UserID)
+			}
+		}
+		if !visible {
+			x.Timeline[i].Summary = "embargoed collaboration event"
+			x.Timeline[i].ProposedMembers = nil
+		}
 	}
 	return x
 }
