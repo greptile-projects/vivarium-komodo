@@ -7,6 +7,7 @@ import { Badge, Button } from "@/components/ui";
 import { GroundedQuestions } from "@/components/grounded-questions";
 import { CollaborativeInvestigations } from "@/components/collaborative-investigations";
 import { RegressionInvestigations } from "@/components/regression-investigations";
+import { PropagationCampaigns } from "@/components/propagation-campaigns";
 import { ImpactAssessments } from "@/components/impact-assessments";
 import { TechnicalDecisions } from "@/components/technical-decisions";
 import { DeliveryTeams } from "@/components/delivery-teams";
@@ -1324,6 +1325,8 @@ export default function RepositoryPage({
                       ? "intelligence"
                       : query.view === "investigations"
                         ? "investigations"
+                        : query.view === "propagation"
+                          ? "propagation"
                         : query.view === "impact"
                           ? "impact"
                           : query.view === "decisions"
@@ -1425,6 +1428,7 @@ export default function RepositoryPage({
         view === "workspaces" ||
         view === "intelligence" ||
         view === "investigations" ||
+        view === "propagation" ||
         view === "decisions" ||
         view === "teams" ||
         view === "funds" ||
@@ -1830,6 +1834,13 @@ export default function RepositoryPage({
           Impact
         </button>
         <button
+          className={view === "propagation" ? "active" : ""}
+          onClick={() => navigate({ view: "propagation", path: "" })}
+        >
+          <Branch size={15} />
+          Propagation
+        </button>
+        <button
           className={view === "investigations" ? "active" : ""}
           onClick={() => navigate({ view: "investigations", ref, path: "" })}
         >
@@ -2033,6 +2044,8 @@ export default function RepositoryPage({
           <RegressionInvestigations repository={repository.id} revision={ref} />
           <CollaborativeInvestigations repository={repository.id} revision={ref} selected={query.investigation} conversation={query.conversation} />
         </>
+      ) : view === "propagation" ? (
+        <PropagationCampaigns repository={repository.id} actor={actor} />
       ) : view === "impact" ? (
         <ImpactAssessments
           repository={repository.id}

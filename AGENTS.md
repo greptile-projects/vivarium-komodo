@@ -2175,6 +2175,19 @@ whenever dependencies change or the web job fails before it starts.
   proofs, ordinary delivery, revoked reporter access, production disagreement,
   corrected rollout observation, and quality-plan regression coverage without
   treating investigation records as execution or delivery authority.
+  Cross-line change propagation campaigns live beneath
+  `$PROPAGATION_CAMPAIGN_ROOT` (default `apps/api/data/propagation-campaigns`).
+  Repository writers open one only from an exact locally readable commit set
+  and a merged pull request, security repair, regression correction, policy
+  change, package release, or interface evolution. The immutable campaign
+  retains intent, acceptance criteria, evidence references, ordered target
+  release lines, repositories, packages, owners, deadlines, and completion
+  policy. Every target carries an observed authority basis and an explicit
+  pending, unknown, unsupported, inaccessible, or already-equivalent
+  disposition; dependency cycles and implicit non-pending states are rejected.
+  Reads expose non-equivalent gaps as blockers in `view=propagation` without
+  granting target repository, package, Git, review, merge, release, deployment,
+  credential, environment, or operational authority.
   Prospective impact assessments live beneath `$IMPACT_ASSESSMENT_ROOT`
   (default `apps/api/data/impact-assessments`) and begin from selected code,
   symbols, an exact current investigation conclusion, or a proposed diff. Keep
