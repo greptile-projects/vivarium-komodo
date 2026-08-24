@@ -114,6 +114,58 @@ func registerRepositoryRestructuringHTTP(mux *http.ServeMux, s *repositoryrestru
 		}
 		writeJSON(w, http.StatusCreated, plan)
 	})
+	mux.HandleFunc("POST "+base+"/{plan}/work-mappings", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in repositoryrestructuring.WorkMappingInput
+		if !readJSON(w, r, &in, 2<<20) {
+			return
+		}
+		plan, err := s.AddWorkMapping(string(repo.ID), r.PathValue("plan"), actor.UserID, in)
+		if restructuringError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, plan)
+	})
+	mux.HandleFunc("POST "+base+"/{plan}/work-mappings/{mapping}/decisions", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Decision        string `json:"decision"`
+			Reason          string `json:"reason"`
+			ExpectedVersion int64  `json:"expected_version"`
+		}
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		plan, err := s.DecideWorkMapping(string(repo.ID), r.PathValue("plan"), r.PathValue("mapping"), actor.UserID, in.Decision, in.Reason, in.ExpectedVersion)
+		if restructuringError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, plan)
+	})
+	mux.HandleFunc("POST "+base+"/{plan}/work-mappings/{mapping}/outcomes", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			repositoryrestructuring.WorkOutcome
+			ExpectedVersion int64 `json:"expected_version"`
+		}
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		plan, err := s.RecordWorkOutcome(string(repo.ID), r.PathValue("plan"), r.PathValue("mapping"), actor.UserID, in.WorkOutcome, in.ExpectedVersion)
+		if restructuringError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, plan)
+	})
 }
 
 func restructuringError(w http.ResponseWriter, err error) bool {
@@ -125,6 +177,10 @@ func restructuringError(w http.ResponseWriter, err error) bool {
 		writeJSON(w, 404, map[string]string{"error": "restructuring_plan_not_found"})
 	case errors.Is(err, repositoryrestructuring.ErrInvalid):
 		writeJSON(w, 422, map[string]string{"error": "invalid_restructuring_plan"})
+	case errors.Is(err, repositoryrestructuring.ErrForbidden):
+		writeJSON(w, 403, map[string]string{"error": "restructuring_owner_required"})
+	case errors.Is(err, repositoryrestructuring.ErrConflict):
+		writeJSON(w, 409, map[string]string{"error": "stale_restructuring_revision"})
 	default:
 		writeJSON(w, 500, map[string]string{"error": "internal_error"})
 	}

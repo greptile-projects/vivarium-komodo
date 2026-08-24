@@ -17,6 +17,8 @@ import (
 
 var ErrNotFound = errors.New("repository restructuring plan not found")
 var ErrInvalid = errors.New("invalid repository restructuring plan")
+var ErrForbidden = errors.New("repository restructuring action forbidden")
+var ErrConflict = errors.New("repository restructuring revision conflict")
 
 var resourceKinds = map[string]bool{"ref": true, "pull_request": true, "issue": true, "task": true, "release": true, "package": true, "documentation": true, "policy": true, "workspace": true, "automation": true, "consumer": true, "federated_relationship": true}
 var dispositions = map[string]bool{"move": true, "remain": true, "copy": true, "split": true, "redirect": true, "retire": true, "unresolved": true}
@@ -25,6 +27,8 @@ var historyModes = map[string]bool{"full": true, "path_history": true, "selected
 var preservationStates = map[string]bool{"preserved": true, "changed": true, "missing": true, "not_applicable": true}
 var rehearsalDomains = map[string]bool{"git_clone": true, "git_fetch": true, "git_push": true, "build": true, "checks": true, "package_resolution": true, "api_resolution": true, "documentation": true, "workspaces": true, "consumer_journey": true}
 var resultStates = map[string]bool{"passed": true, "failed": true, "blocked": true, "not_run": true}
+var workKinds = map[string]bool{"branch": true, "pull_request": true, "issue": true, "proposal": true, "task": true, "decision": true, "check": true, "session": true, "workspace": true, "queue": true}
+var workOutcomes = map[string]bool{"continued": true, "blocked": true, "archived": true}
 
 type Source struct {
 	RepositoryID string   `json:"repository_id"`
@@ -180,6 +184,64 @@ type Rehearsal struct {
 	AuthorityGranted []string  `json:"authority_granted"`
 }
 
+// WorkMapping carries an open collaboration object across one or more new
+// boundaries without treating the restructuring owner as its owner.
+type WorkMappingInput struct {
+	InventoryItemID    string            `json:"inventory_item_id"`
+	SourceRevision     string            `json:"source_revision"`
+	Kind               string            `json:"kind"`
+	Authorship         []string          `json:"authorship"`
+	Discussion         []string          `json:"discussion"`
+	Reviews            []WorkReview      `json:"reviews"`
+	Dependencies       []string          `json:"dependencies"`
+	AcceptanceCriteria []string          `json:"acceptance_criteria"`
+	ContextAudience    string            `json:"context_audience"`
+	Destinations       []WorkDestination `json:"destinations"`
+}
+
+type WorkReview struct {
+	ActorID   string `json:"actor_id"`
+	Revision  string `json:"revision"`
+	Decision  string `json:"decision"`
+	Reference string `json:"reference"`
+}
+type WorkDestination struct {
+	DestinationID  string   `json:"destination_id"`
+	Kind           string   `json:"kind"`
+	Reference      string   `json:"reference"`
+	Revision       string   `json:"revision"`
+	ContributionID string   `json:"contribution_id,omitempty"`
+	DependsOn      []string `json:"depends_on,omitempty"`
+}
+type WorkDecision struct {
+	ActorID   string    `json:"actor_id"`
+	Decision  string    `json:"decision"`
+	Revision  int64     `json:"revision"`
+	Reason    string    `json:"reason"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type WorkOutcome struct {
+	DestinationID string    `json:"destination_id"`
+	ActorID       string    `json:"actor_id"`
+	Status        string    `json:"status"`
+	Revision      string    `json:"revision,omitempty"`
+	Reference     string    `json:"reference,omitempty"`
+	Reason        string    `json:"reason"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+type WorkMapping struct {
+	ID string `json:"id"`
+	WorkMappingInput
+	Version          int64          `json:"version"`
+	Status           string         `json:"status"`
+	Blockers         []Blocker      `json:"blockers"`
+	Decisions        []WorkDecision `json:"decisions"`
+	Outcomes         []WorkOutcome  `json:"outcomes"`
+	CreatedBy        string         `json:"created_by"`
+	CreatedAt        time.Time      `json:"created_at"`
+	AuthorityGranted []string       `json:"authority_granted"`
+}
+
 type Blocker struct {
 	Kind       string `json:"kind"`
 	ResourceID string `json:"resource_id"`
@@ -191,12 +253,13 @@ type Plan struct {
 	RepositoryID string `json:"repository_id"`
 	CreatorID    string `json:"creator_id"`
 	Input
-	Findings         []Finding   `json:"findings"`
-	Candidates       []Candidate `json:"candidates"`
-	Rehearsals       []Rehearsal `json:"rehearsals"`
-	Blockers         []Blocker   `json:"blockers"`
-	AuthorityGranted []string    `json:"authority_granted"`
-	CreatedAt        time.Time   `json:"created_at"`
+	Findings         []Finding     `json:"findings"`
+	Candidates       []Candidate   `json:"candidates"`
+	Rehearsals       []Rehearsal   `json:"rehearsals"`
+	WorkMappings     []WorkMapping `json:"work_mappings"`
+	Blockers         []Blocker     `json:"blockers"`
+	AuthorityGranted []string      `json:"authority_granted"`
+	CreatedAt        time.Time     `json:"created_at"`
 }
 
 type Store struct {
@@ -215,12 +278,129 @@ func (s *Store) Create(repositoryID, actorID string, in Input) (*Plan, error) {
 	if !valid(in) {
 		return nil, ErrInvalid
 	}
-	p := &Plan{ID: id("rsp"), RepositoryID: repositoryID, CreatorID: actorID, Input: in, Findings: []Finding{}, Candidates: []Candidate{}, Rehearsals: []Rehearsal{}, AuthorityGranted: []string{}, CreatedAt: time.Now().UTC()}
+	p := &Plan{ID: id("rsp"), RepositoryID: repositoryID, CreatorID: actorID, Input: in, Findings: []Finding{}, Candidates: []Candidate{}, Rehearsals: []Rehearsal{}, WorkMappings: []WorkMapping{}, AuthorityGranted: []string{}, CreatedAt: time.Now().UTC()}
 	p.Blockers = blockers(in.Inventory)
 	if err := s.write(p); err != nil {
 		return nil, err
 	}
 	return p, nil
+}
+
+func (s *Store) AddWorkMapping(repositoryID, planID, actorID string, in WorkMappingInput) (*Plan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.read(repositoryID, planID)
+	if err != nil {
+		return nil, err
+	}
+	item, ok := inventoryByID(p, in.InventoryItemID)
+	if !ok || !validWorkMapping(*p, item, in) {
+		return nil, ErrInvalid
+	}
+	bs := []Blocker{}
+	if item.Revision != in.SourceRevision {
+		bs = append(bs, Blocker{Kind: "stale_revision", ResourceID: item.ID, Detail: "source work changed after the restructuring inventory"})
+	}
+	if item.Access == "inaccessible" {
+		bs = append(bs, Blocker{Kind: "removed_access", ResourceID: item.ID, Detail: item.Reason})
+	}
+	if in.ContextAudience == "embargoed" {
+		bs = append(bs, Blocker{Kind: "embargoed_context", ResourceID: item.ID, Detail: "context cannot be projected to every destination"})
+	}
+	if item.Disposition == "retire" || item.Disposition == "unresolved" {
+		bs = append(bs, Blocker{Kind: "cannot_migrate", ResourceID: item.ID, Detail: item.Reason})
+	}
+	status := "proposed"
+	if len(bs) > 0 {
+		status = "blocked"
+	}
+	p.WorkMappings = append(p.WorkMappings, WorkMapping{ID: id("wrk"), WorkMappingInput: in, Version: 1, Status: status, Blockers: bs, Decisions: []WorkDecision{}, Outcomes: []WorkOutcome{}, CreatedBy: actorID, CreatedAt: time.Now().UTC(), AuthorityGranted: []string{}})
+	if err = s.writeUnlocked(p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (s *Store) DecideWorkMapping(repositoryID, planID, mappingID, actorID, decision, reason string, expected int64) (*Plan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.read(repositoryID, planID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range p.WorkMappings {
+		m := &p.WorkMappings[i]
+		if m.ID != mappingID {
+			continue
+		}
+		item, _ := inventoryByID(p, m.InventoryItemID)
+		if !contains(item.OwnerIDs, actorID) {
+			return nil, ErrForbidden
+		}
+		if expected != m.Version {
+			return nil, ErrConflict
+		}
+		if decision != "approved" && decision != "rejected" || strings.TrimSpace(reason) == "" {
+			return nil, ErrInvalid
+		}
+		m.Version++
+		m.Decisions = append(m.Decisions, WorkDecision{ActorID: actorID, Decision: decision, Revision: m.Version, Reason: reason, CreatedAt: time.Now().UTC()})
+		if decision == "rejected" {
+			m.Status = "blocked"
+			m.Blockers = append(m.Blockers, Blocker{Kind: "owner_rejected", ResourceID: item.ID, Detail: reason})
+		} else if len(m.Blockers) == 0 && allOwnersApproved(item.OwnerIDs, m.Decisions) {
+			m.Status = "approved"
+		}
+		if err = s.writeUnlocked(p); err != nil {
+			return nil, err
+		}
+		return p, nil
+	}
+	return nil, ErrNotFound
+}
+
+func (s *Store) RecordWorkOutcome(repositoryID, planID, mappingID, actorID string, in WorkOutcome, expected int64) (*Plan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.read(repositoryID, planID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range p.WorkMappings {
+		m := &p.WorkMappings[i]
+		if m.ID != mappingID {
+			continue
+		}
+		if expected != m.Version {
+			return nil, ErrConflict
+		}
+		item, _ := inventoryByID(p, m.InventoryItemID)
+		d, ok := destinationByID(p, in.DestinationID)
+		if !ok || !workOutcomes[in.Status] || strings.TrimSpace(in.Reason) == "" {
+			return nil, ErrInvalid
+		}
+		if !contains(item.OwnerIDs, actorID) && !contains(d.OwnerIDs, actorID) {
+			return nil, ErrForbidden
+		}
+		if in.Status == "continued" && (m.Status != "approved" || in.Reference == "" || in.Revision == "") {
+			return nil, ErrInvalid
+		}
+		in.ActorID = actorID
+		in.CreatedAt = time.Now().UTC()
+		m.Outcomes = append(m.Outcomes, in)
+		m.Version++
+		if in.Status != "continued" {
+			m.Status = in.Status
+			m.Blockers = append(m.Blockers, Blocker{Kind: in.Status, ResourceID: in.DestinationID, Detail: in.Reason})
+		} else if allDestinationsContinued(m.Destinations, m.Outcomes) {
+			m.Status = "continued"
+		}
+		if err = s.writeUnlocked(p); err != nil {
+			return nil, err
+		}
+		return p, nil
+	}
+	return nil, ErrNotFound
 }
 
 func (s *Store) AddCandidate(repositoryID, planID, actorID string, in CandidateInput) (*Plan, error) {
@@ -444,6 +624,84 @@ func validCandidate(p Plan, in CandidateInput) bool {
 	return true
 }
 
+func inventoryByID(p *Plan, id string) (InventoryItem, bool) {
+	for _, x := range p.Inventory {
+		if x.ID == id {
+			return x, true
+		}
+	}
+	return InventoryItem{}, false
+}
+func destinationByID(p *Plan, id string) (Destination, bool) {
+	for _, x := range p.Destinations {
+		if x.ID == id {
+			return x, true
+		}
+	}
+	return Destination{}, false
+}
+func contains(xs []string, v string) bool {
+	for _, x := range xs {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+func validWorkMapping(p Plan, item InventoryItem, in WorkMappingInput) bool {
+	if item.ID == "" || !workKinds[in.Kind] || in.SourceRevision == "" || len(in.Authorship) == 0 || len(in.AcceptanceCriteria) == 0 || len(in.Destinations) == 0 {
+		return false
+	}
+	if in.ContextAudience != "public" && in.ContextAudience != "repository" && in.ContextAudience != "owners" && in.ContextAudience != "embargoed" {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, d := range in.Destinations {
+		dest, ok := destinationByID(&p, d.DestinationID)
+		_ = dest
+		if !ok || seen[d.DestinationID] || !workKinds[d.Kind] || d.Reference == "" || d.Revision == "" {
+			return false
+		}
+		seen[d.DestinationID] = true
+	}
+	for _, r := range in.Reviews {
+		if r.ActorID == "" || r.Revision == "" || r.Decision == "" || r.Reference == "" {
+			return false
+		}
+	}
+	return true
+}
+func allOwnersApproved(owners []string, ds []WorkDecision) bool {
+	for _, o := range owners {
+		ok := false
+		for i := len(ds) - 1; i >= 0; i-- {
+			if ds[i].ActorID == o {
+				ok = ds[i].Decision == "approved"
+				break
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+func allDestinationsContinued(ds []WorkDestination, os []WorkOutcome) bool {
+	for _, d := range ds {
+		ok := false
+		for i := len(os) - 1; i >= 0; i-- {
+			if os[i].DestinationID == d.DestinationID {
+				ok = os[i].Status == "continued"
+				break
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func blockers(items []InventoryItem) []Blocker {
 	out := []Blocker{}
 	for _, x := range items {
@@ -489,6 +747,9 @@ func (s *Store) read(r, p string) (*Plan, error) {
 	var x Plan
 	if json.Unmarshal(b, &x) != nil {
 		return nil, ErrInvalid
+	}
+	if x.WorkMappings == nil {
+		x.WorkMappings = []WorkMapping{}
 	}
 	return &x, nil
 }

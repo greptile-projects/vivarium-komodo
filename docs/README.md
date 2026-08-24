@@ -6000,3 +6000,24 @@ successful import. The `view=restructuring` workspace exposes provenance,
 decisions, results, costs, and blockers before original repositories or active
 work are redirected; these records grant no Git, repository, package, API,
 workspace, credential, redirect, or operational authority.
+
+### Carrying open work across a restructuring
+
+`POST .../{plan}/work-mappings` proposes how an inventoried branch, pull
+request, issue, proposal, task, decision, check, session, workspace, or queue
+continues. The mapping freezes its exact source revision, authorship,
+discussion, reviews, dependencies, acceptance criteria, audience, and exact
+destination references. Work spanning boundaries uses connected contribution
+IDs and dependency edges, so it does not lose shared intent or masquerade as a
+single detached commit.
+
+Declared work owners inspect and decide mappings at
+`.../work-mappings/{mapping}/decisions`; optimistic versions reject concurrent
+or obsolete approval. Destination or work owners then record `continued`,
+`blocked`, or `archived` outcomes at `.../{mapping}/outcomes`. Continuation
+requires an approved current mapping and an exact destination revision and
+reference. Changed sources, owner rejection, embargoed context, removed access,
+and resources that cannot migrate stay visible as blockers. The restructuring
+owner cannot approve or continue independently owned work merely by owning the
+plan. The `view=restructuring` workspace exposes the retained context,
+connected contributions, decisions, outcomes, and next blockers.
