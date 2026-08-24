@@ -145,3 +145,80 @@ func TestContributionPreservesIntentAuthorshipAdaptationAndBoundaries(t *testing
 		t.Fatalf("ordinary fork rejected: %v", err)
 	}
 }
+
+func TestEquivalenceMatrixRequiresExactBoundedProofAndSelectiveInvalidation(t *testing.T) {
+	s, _ := New(t.TempDir())
+	now := time.Now().UTC()
+	targets := []Target{
+		{ID: "stable", RepositoryID: "origin", ReleaseLine: "v2", Revision: "stable-1", OwnerIDs: []string{"owner"}, Deadline: now, Disposition: "pending", Authority: Authority{Access: "write", Basis: "membership", ObservedAt: now}},
+		{ID: "peer", RepositoryID: "peer", ReleaseLine: "v1", Revision: "peer-1", Deadline: now, Disposition: "pending", Authority: Authority{Access: "read", Basis: "federation", ObservedAt: now}},
+	}
+	c, err := s.Create("origin", "author", Input{Title: "equivalence", Intent: "same parser behavior", AcceptanceCriteria: []string{"legacy accepted", "strict remains"}, Source: Source{Kind: "regression_correction", RepositoryID: "origin", ResourceID: "repair", Revision: "source-1", CommitIDs: []string{"source-1"}}, Targets: targets, CompletionPolicy: CompletionPolicy{Mode: "all_supported"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range targets {
+		a := assessment(target.Revision, true)
+		a.SourceRevision = "source-1"
+		a.Classification = "adaptation_required"
+		c, err = s.Assess("origin", c.ID, target.ID, "analyst", a)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	spec := EquivalenceSpecificationInput{SourceRevision: "source-1", Environment: "networkless-go-1.25", MaximumCost: 5, Currency: "USD", TimeoutSeconds: 300, Scenarios: []EquivalenceScenario{
+		{ID: "legacy", Behavior: "legacy header is accepted", SourceEvidence: []string{"test:source-1"}, Commands: []string{"go test ./parser -run Legacy"}, RequiredCoverage: []string{"legacy-header"}, OrdinaryCheckNames: []string{"unit"}},
+		{ID: "strict", Behavior: "invalid syntax remains rejected", SourceEvidence: []string{"requirement:strict"}, Commands: []string{"go test ./parser -run Strict"}, RequiredCoverage: []string{"strict-rejection"}, OrdinaryCheckNames: []string{"unit"}, SubstituteAllowed: true, SubstituteRequirement: "owner-reviewed conformance trace"},
+	}}
+	c, err = s.DefineEquivalence("origin", c.ID, "author", spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := func(targetID, targetRevision, dependency string, unsupported bool) EquivalenceAttemptInput {
+		status, substitute := "passed", []string(nil)
+		if unsupported {
+			status = "unsupported"
+			substitute = []string{"owner-reviewed trace artifact sha256:def"}
+		}
+		return EquivalenceAttemptInput{SpecificationID: c.EquivalenceSpecifications[0].ID, AssessmentID: func() string {
+			for _, a := range c.Assessments {
+				if a.TargetID == targetID {
+					return a.ID
+				}
+			}
+			return ""
+		}(), SourceRevision: "source-1", TargetRevision: targetRevision, AdaptationRevision: targetRevision + "-adapt", Environment: spec.Environment, BoundInputs: []BoundInput{{Key: "source", Revision: "source-1"}, {Key: "target", Revision: targetRevision}, {Key: "dependency:parser", Revision: dependency}, {Key: "assumption:header-format", Revision: "v1"}}, Evidence: []ScenarioEvidence{{ScenarioID: "legacy", Status: "passed", Commands: []string{"go test ./..."}, OrdinaryChecks: []string{"unit"}, Logs: []string{"PASS legacy"}, Artifacts: []Artifact{{Name: "junit", Digest: "sha256:abc", MediaType: "application/xml", Size: 12}}, Coverage: []string{"legacy-header"}}, {ScenarioID: "strict", Status: status, Commands: []string{"go test ./..."}, OrdinaryChecks: []string{"unit"}, Logs: []string{"conformance retained"}, Coverage: []string{"strict-rejection"}, SubstituteEvidence: substitute, ResidualDifference: "different internal parser"}}, Cost: 1.25, Currency: "USD", DurationSeconds: 20}
+	}
+	c, err = s.RecordEquivalenceAttempt("origin", c.ID, "stable", "runner", attempt("stable", "stable-1", "dep-1", false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err = s.RecordEquivalenceAttempt("origin", c.ID, "peer", "runner", attempt("peer", "peer-1", "dep-old", true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err = s.RecordEquivalenceAttempt("origin", c.ID, "stable", "runner", attempt("stable", "stable-1", "dep-2", false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.EquivalenceAttempts[0].Stale || c.EquivalenceAttempts[1].Stale || c.EquivalenceAttempts[2].Stale || !c.EquivalenceAttempts[1].Passing {
+		t.Fatalf("selective matrix staleness/substitute failed: %#v", c.EquivalenceAttempts)
+	}
+	if _, err = s.DecideEquivalence("origin", c.ID, "stable", c.EquivalenceAttempts[2].ID, "not-owner", "accepted", "proof reviewed"); err != ErrForbidden {
+		t.Fatalf("non-owner decided: %v", err)
+	}
+	c, err = s.DecideEquivalence("origin", c.ID, "stable", c.EquivalenceAttempts[2].ID, "owner", "accepted", "ordinary checks and coverage prove the behavior")
+	if err != nil || len(c.EquivalenceAttempts[2].OwnerDecisions) != 1 {
+		t.Fatalf("owner decision lost: %#v %v", c, err)
+	}
+	bad := attempt("peer", "peer-1", "dep-old", true)
+	bad.Evidence[1].SubstituteEvidence = nil
+	if _, err = s.RecordEquivalenceAttempt("origin", c.ID, "peer", "runner", bad); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.Get("origin", c.ID)
+	last := got.EquivalenceAttempts[len(got.EquivalenceAttempts)-1]
+	if last.Passing || len(last.Blockers) == 0 || last.Blockers[0].Kind != "missing_substitute_evidence" {
+		t.Fatalf("unsupported test became proof: %#v", last)
+	}
+}

@@ -177,15 +177,100 @@ type Contribution struct {
 	CreatedAt           time.Time `json:"created_at"`
 	AuthorityGranted    []string  `json:"authority_granted"`
 }
+
+// EquivalenceScenario is derived from the source outcome, rather than from an
+// implementation detail that may not exist on every target.
+type EquivalenceScenario struct {
+	ID                    string   `json:"id"`
+	Behavior              string   `json:"behavior"`
+	SourceEvidence        []string `json:"source_evidence"`
+	Commands              []string `json:"commands"`
+	RequiredCoverage      []string `json:"required_coverage"`
+	OrdinaryCheckNames    []string `json:"ordinary_check_names"`
+	SubstituteAllowed     bool     `json:"substitute_allowed"`
+	SubstituteRequirement string   `json:"substitute_requirement,omitempty"`
+}
+
+type EquivalenceSpecificationInput struct {
+	SourceRevision string                `json:"source_revision"`
+	Scenarios      []EquivalenceScenario `json:"scenarios"`
+	Environment    string                `json:"environment"`
+	MaximumCost    float64               `json:"maximum_cost"`
+	Currency       string                `json:"currency"`
+	TimeoutSeconds int                   `json:"timeout_seconds"`
+}
+
+type EquivalenceSpecification struct {
+	ID        string `json:"id"`
+	CreatorID string `json:"creator_id"`
+	EquivalenceSpecificationInput
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type BoundInput struct {
+	Key      string `json:"key"`
+	Revision string `json:"revision"`
+}
+type Artifact struct {
+	Name      string `json:"name"`
+	Digest    string `json:"digest"`
+	MediaType string `json:"media_type"`
+	Size      int64  `json:"size"`
+}
+type ScenarioEvidence struct {
+	ScenarioID         string     `json:"scenario_id"`
+	Status             string     `json:"status"`
+	Commands           []string   `json:"commands"`
+	OrdinaryChecks     []string   `json:"ordinary_checks"`
+	Logs               []string   `json:"logs"`
+	Artifacts          []Artifact `json:"artifacts"`
+	Coverage           []string   `json:"coverage"`
+	SubstituteEvidence []string   `json:"substitute_evidence,omitempty"`
+	ResidualDifference string     `json:"residual_difference,omitempty"`
+}
+type EquivalenceAttemptInput struct {
+	SpecificationID    string             `json:"specification_id"`
+	AssessmentID       string             `json:"assessment_id"`
+	ContributionID     string             `json:"contribution_id,omitempty"`
+	SourceRevision     string             `json:"source_revision"`
+	TargetRevision     string             `json:"target_revision"`
+	AdaptationRevision string             `json:"adaptation_revision,omitempty"`
+	Environment        string             `json:"environment"`
+	BoundInputs        []BoundInput       `json:"bound_inputs"`
+	Evidence           []ScenarioEvidence `json:"evidence"`
+	Cost               float64            `json:"cost"`
+	Currency           string             `json:"currency"`
+	DurationSeconds    int                `json:"duration_seconds"`
+}
+type OwnerDecision struct {
+	ID        string    `json:"id"`
+	OwnerID   string    `json:"owner_id"`
+	Decision  string    `json:"decision"`
+	Rationale string    `json:"rationale"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type EquivalenceAttempt struct {
+	ID       string `json:"id"`
+	TargetID string `json:"target_id"`
+	RunnerID string `json:"runner_id"`
+	EquivalenceAttemptInput
+	OwnerDecisions []OwnerDecision `json:"owner_decisions"`
+	CreatedAt      time.Time       `json:"created_at"`
+	Stale          bool            `json:"stale"`
+	Passing        bool            `json:"passing"`
+	Blockers       []Blocker       `json:"blockers,omitempty"`
+}
 type Campaign struct {
 	ID           string `json:"id"`
 	RepositoryID string `json:"repository_id"`
 	CreatorID    string `json:"creator_id"`
 	Input
-	Blockers      []Blocker      `json:"blockers"`
-	Assessments   []Assessment   `json:"assessments,omitempty"`
-	Contributions []Contribution `json:"contributions,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
+	Blockers                  []Blocker                  `json:"blockers"`
+	Assessments               []Assessment               `json:"assessments,omitempty"`
+	Contributions             []Contribution             `json:"contributions,omitempty"`
+	EquivalenceSpecifications []EquivalenceSpecification `json:"equivalence_specifications,omitempty"`
+	EquivalenceAttempts       []EquivalenceAttempt       `json:"equivalence_attempts,omitempty"`
+	CreatedAt                 time.Time                  `json:"created_at"`
 }
 
 func validContribution(in ContributionInput, c Campaign, t Target, a Assessment) bool {
@@ -276,6 +361,18 @@ func currentAssessments(v []Assessment) []Assessment {
 		latest[v[i].TargetID] = i
 	}
 	out := append([]Assessment(nil), v...)
+	for i := range out {
+		out[i].Stale = latest[out[i].TargetID] != i
+	}
+	return out
+}
+
+func currentAttempts(v []EquivalenceAttempt) []EquivalenceAttempt {
+	latest := map[string]int{}
+	for i := range v {
+		latest[v[i].TargetID] = i
+	}
+	out := append([]EquivalenceAttempt(nil), v...)
 	for i := range out {
 		out[i].Stale = latest[out[i].TargetID] != i
 	}
@@ -414,17 +511,186 @@ func (s *Store) Get(repo, campaign string) (Campaign, error) {
 	if e == nil {
 		e = json.Unmarshal(b, &x)
 		x.Assessments = currentAssessments(x.Assessments)
+		x.EquivalenceAttempts = currentAttempts(x.EquivalenceAttempts)
 	}
 	return x, e
 }
 
 func (s *Store) save(x Campaign) error {
 	x.Assessments = currentAssessments(x.Assessments)
+	x.EquivalenceAttempts = currentAttempts(x.EquivalenceAttempts)
 	b, err := json.MarshalIndent(x, "", "  ")
 	if err == nil {
 		err = os.WriteFile(s.path(x.RepositoryID, x.ID), b, 0640)
 	}
 	return err
+}
+
+func validSpecification(in EquivalenceSpecificationInput, source string) bool {
+	if in.SourceRevision != source || strings.TrimSpace(in.Environment) == "" || in.MaximumCost <= 0 || in.Currency == "" || in.TimeoutSeconds <= 0 || in.TimeoutSeconds > 86400 || len(in.Scenarios) == 0 || len(in.Scenarios) > 100 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, q := range in.Scenarios {
+		if q.ID == "" || seen[q.ID] || strings.TrimSpace(q.Behavior) == "" || !textList(q.SourceEvidence, true) || !textList(q.Commands, true) || !textList(q.RequiredCoverage, true) || !textList(q.OrdinaryCheckNames, true) || (q.SubstituteAllowed && strings.TrimSpace(q.SubstituteRequirement) == "") {
+			return false
+		}
+		seen[q.ID] = true
+	}
+	return true
+}
+
+func (s *Store) DefineEquivalence(repo, campaign, actor string, in EquivalenceSpecificationInput) (Campaign, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, err := s.Get(repo, campaign)
+	if err != nil {
+		return x, err
+	}
+	if actor == "" || !validSpecification(in, x.Source.Revision) {
+		return Campaign{}, ErrInvalid
+	}
+	x.EquivalenceSpecifications = append(x.EquivalenceSpecifications, EquivalenceSpecification{ID: id(), CreatorID: actor, EquivalenceSpecificationInput: in, CreatedAt: s.now().UTC()})
+	err = s.save(x)
+	return x, err
+}
+
+func findSpec(x Campaign, id string) (EquivalenceSpecification, bool) {
+	for _, v := range x.EquivalenceSpecifications {
+		if v.ID == id {
+			return v, true
+		}
+	}
+	return EquivalenceSpecification{}, false
+}
+func findAssessment(x Campaign, targetID, id string) (Assessment, bool) {
+	for _, v := range x.Assessments {
+		if v.ID == id && v.TargetID == targetID {
+			return v, true
+		}
+	}
+	return Assessment{}, false
+}
+
+func validateAttempt(in EquivalenceAttemptInput, x Campaign, t Target, spec EquivalenceSpecification, a Assessment) (bool, []Blocker) {
+	if a.Stale || in.SourceRevision != x.Source.Revision || in.TargetRevision != a.TargetRevision || in.Environment != spec.Environment || in.Currency != spec.Currency || in.Cost < 0 || in.Cost > spec.MaximumCost || in.DurationSeconds < 0 || in.DurationSeconds > spec.TimeoutSeconds || len(in.BoundInputs) < 2 || len(in.Evidence) != len(spec.Scenarios) {
+		return false, nil
+	}
+	inputs := map[string]string{}
+	for _, b := range in.BoundInputs {
+		if b.Key == "" || b.Revision == "" || inputs[b.Key] != "" {
+			return false, nil
+		}
+		inputs[b.Key] = b.Revision
+	}
+	if inputs["source"] != x.Source.Revision || inputs["target"] != in.TargetRevision {
+		return false, nil
+	}
+	if t.Revision != "" && in.TargetRevision != t.Revision {
+		return false, nil
+	}
+	if a.Classification == "adaptation_required" && in.AdaptationRevision == "" {
+		return false, nil
+	}
+	if in.ContributionID != "" {
+		matched := false
+		for _, c := range x.Contributions {
+			matched = matched || c.ID == in.ContributionID && c.TargetID == t.ID && c.AssessmentID == a.ID
+		}
+		if !matched {
+			return false, nil
+		}
+	}
+	scenarios := map[string]EquivalenceScenario{}
+	for _, q := range spec.Scenarios {
+		scenarios[q.ID] = q
+	}
+	seen := map[string]bool{}
+	var blockers []Blocker
+	for _, ev := range in.Evidence {
+		q, ok := scenarios[ev.ScenarioID]
+		if !ok || seen[ev.ScenarioID] || !map[string]bool{"passed": true, "failed": true, "unsupported": true}[ev.Status] || !textList(ev.Commands, true) || !textList(ev.OrdinaryChecks, true) || !textList(ev.Logs, true) {
+			return false, nil
+		}
+		seen[ev.ScenarioID] = true
+		if ev.Status == "unsupported" && (!q.SubstituteAllowed || !textList(ev.SubstituteEvidence, true)) {
+			blockers = append(blockers, Blocker{TargetID: t.ID, Kind: "missing_substitute_evidence", Detail: "unsupported scenario " + q.ID + " requires its declared substitute evidence"})
+		}
+		if ev.Status == "failed" {
+			blockers = append(blockers, Blocker{TargetID: t.ID, Kind: "failed_scenario", Detail: q.ID})
+		}
+		coverage := map[string]bool{}
+		for _, c := range ev.Coverage {
+			coverage[c] = true
+		}
+		for _, c := range q.RequiredCoverage {
+			if !coverage[c] {
+				blockers = append(blockers, Blocker{TargetID: t.ID, Kind: "missing_coverage", Detail: q.ID + ": " + c})
+			}
+		}
+	}
+	return true, blockers
+}
+
+func (s *Store) RecordEquivalenceAttempt(repo, campaign, targetID, actor string, in EquivalenceAttemptInput) (Campaign, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, err := s.Get(repo, campaign)
+	if err != nil {
+		return x, err
+	}
+	t, ok := target(x, targetID)
+	if !ok {
+		return Campaign{}, ErrNotFound
+	}
+	spec, ok := findSpec(x, in.SpecificationID)
+	if !ok {
+		return Campaign{}, ErrNotFound
+	}
+	a, ok := findAssessment(x, targetID, in.AssessmentID)
+	if !ok {
+		return Campaign{}, ErrNotFound
+	}
+	valid, blockers := validateAttempt(in, x, t, spec, a)
+	if !valid {
+		return Campaign{}, ErrInvalid
+	}
+	passing := len(blockers) == 0
+	x.EquivalenceAttempts = append(x.EquivalenceAttempts, EquivalenceAttempt{ID: id(), TargetID: targetID, RunnerID: actor, EquivalenceAttemptInput: in, OwnerDecisions: []OwnerDecision{}, CreatedAt: s.now().UTC(), Passing: passing, Blockers: blockers})
+	x.EquivalenceAttempts = currentAttempts(x.EquivalenceAttempts)
+	err = s.save(x)
+	return x, err
+}
+
+func (s *Store) DecideEquivalence(repo, campaign, targetID, attemptID, actor, decision, rationale string) (Campaign, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, err := s.Get(repo, campaign)
+	if err != nil {
+		return x, err
+	}
+	t, ok := target(x, targetID)
+	if !ok {
+		return Campaign{}, ErrNotFound
+	}
+	owner := false
+	for _, v := range append(append([]string{}, t.OwnerIDs...), t.Authority.OwnerIDs...) {
+		owner = owner || v == actor
+	}
+	if !owner {
+		return Campaign{}, ErrForbidden
+	}
+	if !map[string]bool{"accepted": true, "rejected": true, "changes_requested": true}[decision] || strings.TrimSpace(rationale) == "" {
+		return Campaign{}, ErrInvalid
+	}
+	for i := range x.EquivalenceAttempts {
+		if x.EquivalenceAttempts[i].ID == attemptID && x.EquivalenceAttempts[i].TargetID == targetID {
+			x.EquivalenceAttempts[i].OwnerDecisions = append(x.EquivalenceAttempts[i].OwnerDecisions, OwnerDecision{ID: id(), OwnerID: actor, Decision: decision, Rationale: rationale, CreatedAt: s.now().UTC()})
+			err = s.save(x)
+			return x, err
+		}
+	}
+	return Campaign{}, ErrNotFound
 }
 
 func (s *Store) Assess(repo, campaign, targetID, actor string, in AssessmentInput) (Campaign, error) {
