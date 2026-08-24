@@ -6113,3 +6113,18 @@ and inaccessible or moved branches block review publication and stay visible in
 blocker-free revision and records its publisher. Stack records grant no branch,
 pull-request, review, merge, credential, or operational authority. Durable state
 defaults beneath `$STACKED_CHANGE_ROOT`.
+
+Each member projection also includes its exact commit IDs and complete file
+patches both against the declared parent (`individual_scope`) and against the
+stack target (`cumulative_scope`). A pull request linked to a member exposes the
+same frozen view at `GET /repositories/{repository}/pull-requests/{pull}/stack-context`,
+including every upstream member revision, so a focused approval cannot silently
+cover inherited work.
+
+`POST .../members/{member}/evidence` binds an existing discussion, review
+decision, owner acknowledgement, check, preview, or agent finding to either the
+focused layer or cumulative candidate at the member's exact revision. Reads
+derive `reviewable_now`, `provisional`, and `not_published` states and report the
+IDs of downstream evidence that an upstream member change would stale. The
+binding is citation and invalidation context only; the referenced resource keeps
+its native authorship, access, decision, and authority rules.

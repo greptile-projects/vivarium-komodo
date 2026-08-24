@@ -59,6 +59,24 @@ func registerStackedChangesHTTP(mux *http.ServeMux, s *stackedchanges.Store, rep
 		}
 		writeJSON(w, 200, projectStackPermissions(x, actor))
 	})
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull}/stack-context", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
+		if !ok {
+			return
+		}
+		x, m, e := s.FindByPull(string(repo.ID), r.PathValue("pull"))
+		if stackError(w, e) {
+			return
+		}
+		x = projectStackPermissions(x, actor)
+		for _, candidate := range x.Members {
+			if candidate.ID == m.ID {
+				m = candidate
+				break
+			}
+		}
+		writeJSON(w, 200, map[string]any{"stack_id": x.ID, "title": x.Title, "outcome": x.Outcome, "target_branch": x.TargetBranch, "target_revision": x.TargetRevision, "member": m, "members": x.Members, "authority_granted": []string{}})
+	})
 	mux.HandleFunc("POST "+base+"/{stack}/members/{member}/publications", func(w http.ResponseWriter, r *http.Request) {
 		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -76,9 +94,30 @@ func registerStackedChangesHTTP(mux *http.ServeMux, s *stackedchanges.Store, rep
 		}
 		writeJSON(w, 201, x)
 	})
+	mux.HandleFunc("POST "+base+"/{stack}/members/{member}/evidence", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Revision  string `json:"revision"`
+			Kind      string `json:"kind"`
+			Reference string `json:"reference"`
+			Scope     string `json:"scope"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		x, e := s.BindEvidence(string(repo.ID), r.PathValue("stack"), r.PathValue("member"), in.Revision, actor.UserID, in.Kind, in.Reference, in.Scope)
+		if stackError(w, e) {
+			return
+		}
+		writeJSON(w, 201, stackedchanges.Project(x))
+	})
 }
 
 func projectStackPermissions(x stackedchanges.Stack, actor auth.Grant) stackedchanges.Stack {
+	x = stackedchanges.Project(x)
 	canPublish := false
 	for _, scope := range actor.Scopes {
 		if scope == auth.RepositoryWrite {
@@ -225,7 +264,7 @@ func ancestor(r *storage.Repository, base, tip storage.ObjectID) bool {
 	return false
 }
 func scope(r *storage.Repository, from, to string) stackedchanges.Scope {
-	s := stackedchanges.Scope{FromRevision: from, ToRevision: to, ChangedPaths: []string{}}
+	s := stackedchanges.Scope{FromRevision: from, ToRevision: to, ChangedPaths: []string{}, CommitIDs: []string{}, Changes: []stackedchanges.Change{}}
 	if !ancestor(r, storage.ObjectID(from), storage.ObjectID(to)) {
 		return s
 	}
@@ -254,6 +293,16 @@ func scope(r *storage.Repository, from, to string) stackedchanges.Scope {
 		s.ChangedPaths = append(s.ChangedPaths, p)
 	}
 	sort.Strings(s.ChangedPaths)
+	if changes, e := filesBetween(r, storage.ObjectID(to), storage.ObjectID(from)); e == nil {
+		for _, c := range changes {
+			s.Changes = append(s.Changes, stackedchanges.Change{Path: c.Path, Status: c.Status, Additions: c.Additions, Deletions: c.Deletions, Binary: c.Binary, Patch: c.Patch})
+		}
+	}
+	if commits, e := commitsBetween(r, storage.ObjectID(to), storage.ObjectID(from)); e == nil {
+		for _, c := range commits {
+			s.CommitIDs = append(s.CommitIDs, c.ID)
+		}
+	}
 	seen := map[storage.ObjectID]bool{}
 	q := []storage.ObjectID{storage.ObjectID(to)}
 	for len(q) > 0 {

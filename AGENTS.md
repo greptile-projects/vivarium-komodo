@@ -3658,3 +3658,14 @@ revision for review; publication retains attribution and grants no Git,
 pull-request, review, branch-update, merge, credential, or operational
 authority. The public API is `/repositories/{repository}/change-stacks` and the
 repository web surface is `view=stacks`.
+
+Stack member reads carry complete commit and file-patch scope against both the
+declared parent and target, plus exact transitive upstream revisions. Linked
+pull requests expose that context at their `/stack-context` resource.
+Discussion, review decision, owner acknowledgement, check, preview, and agent
+finding references may be bound to a layer or cumulative candidate at one exact
+member revision. Reads derive whether the layer is reviewable now, provisional,
+or unpublished and enumerate downstream evidence IDs that a change to each
+upstream member would stale. Bindings cite existing records without replacing
+their native authorship, access, review, approval, check, preview, agent, merge,
+or other authority controls.
