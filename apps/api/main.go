@@ -1073,7 +1073,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok"}`))
 	})
-	registerGitHTTP(mux, repositoryCatalog, credentials)
+	registerGitHTTP(mux, repositoryCatalog, credentials, historyRemediationStore)
 	registerRepositoriesHTTP(mux, repositoryCatalog, credentials)
 	registerOrganizationsHTTP(mux, organizationStore, repositoryCatalog, userStore, packageStore, releaseStore, pullRequestStore, incidentStore, proposalStore, relationshipStore, securityReportStore, credentials, activityStore)
 	registerGovernanceHTTP(mux, governanceStore, repositoryCatalog, organizationStore, credentials)

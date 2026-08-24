@@ -31,11 +31,12 @@ type gitRepositoryStore interface {
 type repositoryCollaboratorStore interface {
 	IsCollaborator(storage.ID, string) (bool, error)
 }
+type gitHistoryPolicy interface{ PushPause(string) (bool, string) }
 
-func registerGitHTTP(mux *http.ServeMux, repositoryStore gitRepositoryStore, credentials credentialAuthenticator) {
+func registerGitHTTP(mux *http.ServeMux, repositoryStore gitRepositoryStore, credentials credentialAuthenticator, policies ...gitHistoryPolicy) {
 	mux.HandleFunc("GET /repositories/{repository}/info/refs", advertiseRepository(repositoryStore, credentials))
 	mux.HandleFunc("POST /repositories/{repository}/git-upload-pack", uploadPack(repositoryStore, credentials))
-	mux.HandleFunc("POST /repositories/{repository}/git-receive-pack", receivePack(repositoryStore, credentials))
+	mux.HandleFunc("POST /repositories/{repository}/git-receive-pack", receivePack(repositoryStore, credentials, policies...))
 }
 
 func advertiseRepository(repositoryStore gitRepositoryStore, credentials credentialAuthenticator) http.HandlerFunc {
@@ -90,7 +91,7 @@ func uploadPack(repositoryStore gitRepositoryStore, credentials credentialAuthen
 	}
 }
 
-func receivePack(repositoryStore gitRepositoryStore, credentials credentialAuthenticator) http.HandlerFunc {
+func receivePack(repositoryStore gitRepositoryStore, credentials credentialAuthenticator, policies ...gitHistoryPolicy) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, owner, grant, ok := authorizeGitRepository(w, r, repositoryStore, credentials, auth.GitWrite)
 		if !ok {
@@ -99,6 +100,12 @@ func receivePack(repositoryStore gitRepositoryStore, credentials credentialAuthe
 		if contentType := r.Header.Get("Content-Type"); contentType != "application/x-git-receive-pack-request" {
 			http.Error(w, "unsupported media type", http.StatusUnsupportedMediaType)
 			return
+		}
+		for _, policy := range policies {
+			if paused, guidance := policy.PushPause(r.PathValue("repository")); paused {
+				http.Error(w, "history rewrite migration in progress: "+guidance, http.StatusConflict)
+				return
+			}
 		}
 		defaultBranch, err := repository.DefaultBranch()
 		if err != nil {
