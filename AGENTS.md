@@ -2188,6 +2188,16 @@ whenever dependencies change or the web job fails before it starts.
   Reads expose non-equivalent gaps as blockers in `view=propagation` without
   granting target repository, package, Git, review, merge, release, deployment,
   credential, environment, or operational authority.
+  Permitted campaign targets retain append-only applicability assessments bound
+  to exact source and target revisions. Each assessment compares histories,
+  symbols, dependencies, interfaces, schemas, prior fixes, and release
+  commitments with citations before classifying the target as directly
+  applicable, already satisfied, adaptation required, conflicting, or not
+  applicable. An already-satisfied result requires identified behavioral proof;
+  similarity alone is only comparison evidence. Humans and read-only agents may
+  append cited findings, risks, and uncertainty, while only named target owners
+  acknowledge or request changes. A later assessment stales prior assessments
+  for that target only and preserves every other target's current analysis.
   Prospective impact assessments live beneath `$IMPACT_ASSESSMENT_ROOT`
   (default `apps/api/data/impact-assessments`) and begin from selected code,
   symbols, an exact current investigation conclusion, or a proposed diff. Keep
