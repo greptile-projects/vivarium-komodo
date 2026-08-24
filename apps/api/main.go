@@ -82,6 +82,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/projectincubators"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/projectlife"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/projectreadiness"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/propagationcampaigns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/protectionplans"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
@@ -399,6 +400,14 @@ func main() {
 		regressionInvestigationRoot = "data/regression-investigations"
 	}
 	regressionInvestigationStore, err := regressioninvestigations.New(regressionInvestigationRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	propagationCampaignRoot := os.Getenv("PROPAGATION_CAMPAIGN_ROOT")
+	if propagationCampaignRoot == "" {
+		propagationCampaignRoot = "data/propagation-campaigns"
+	}
+	propagationCampaignStore, err := propagationcampaigns.New(propagationCampaignRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1064,6 +1073,7 @@ func main() {
 	registerQuestionsHTTP(mux, questionStore, repositoryCatalog, credentials, relationshipStore, checkRunStore)
 	registerInvestigationsHTTP(mux, investigationStore, repositoryCatalog, credentials, workspaceStore, questionStore)
 	registerRegressionInvestigationsHTTP(mux, regressionInvestigationStore, repositoryCatalog, credentials, releaseStore, checkRunStore)
+	registerPropagationCampaignsHTTP(mux, propagationCampaignStore, repositoryCatalog, credentials)
 	registerImpactAssessmentsHTTP(mux, impactStore, repositoryCatalog, credentials, relationshipStore, investigationStore, releaseStore, deploymentStore, packageStore)
 	registerDecisionsHTTP(mux, decisionStore, repositoryCatalog, credentials, workspaceStore, workspaceRunner, proposalStore)
 	registerDeliveryTeamsHTTP(mux, deliveryTeamStore, repositoryCatalog, credentials, organizationStore, deliveryExecutionStores{changes: changeSessionStore, investigations: investigationStore, decisions: decisionStore, workspaces: workspaceStore}, pullRequestStore, checkRunner)

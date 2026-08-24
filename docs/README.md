@@ -4145,6 +4145,33 @@ checks and review.
 
 ## Collaborative code investigations
 
+## Coordinated change propagation
+
+Authorized repository collaborators can open an immutable campaign with `POST
+/repositories/{repository}/propagation-campaigns`. The source identifies one
+merged pull request, security repair, regression correction, policy change,
+package release, or interface evolution, plus its exact locally readable
+revision and commit objects, retained evidence references, intent, and
+acceptance criteria. Invalid or unavailable source commits are rejected.
+
+Targets identify a local repository ID or external repository reference,
+release line, optional exact revision, packages, accountable owners, deadline,
+dependency order, and a snapshot of the observed access and authority basis.
+They must explicitly remain `pending`, `unknown`, `unsupported`,
+`inaccessible`, or `already_equivalent`; every non-pending disposition needs a
+reason and dependency cycles are rejected. Completion can require every
+supported target or a named subset, and may deliberately count an
+already-equivalent target. Unknown, unsupported, inaccessible, and unaccepted
+equivalent states remain visible blockers.
+
+Collection and detail reads use ordinary repository access, while creation
+requires repository write access. The `view=propagation` workspace exposes the
+same source provenance, target order, ownership, deadlines, authority snapshot,
+and blockers. State defaults beneath `$PROPAGATION_CAMPAIGN_ROOT` at
+`apps/api/data/propagation-campaigns`; neither a campaign nor its target list
+grants Git, repository, package, review, merge, release, deployment, credential,
+environment, or operational authority.
+
 Before historical testing begins, repository writers can open a durable
 regression boundary at `POST
 /repositories/{repository}/regression-investigations`. The origin must be an
