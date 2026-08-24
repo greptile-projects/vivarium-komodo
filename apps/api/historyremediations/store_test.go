@@ -3,6 +3,7 @@ package historyremediations
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestRestrictedHistoryRemediationScope(t *testing.T) {
@@ -23,6 +24,34 @@ func TestRestrictedHistoryRemediationScope(t *testing.T) {
 	}
 	if c, e := s.Catalog("repo", "legal"); e != nil || len(c.Items) != 1 {
 		t.Fatalf("approval owner catalog=%#v %v", c, e)
+	}
+}
+
+func TestImmutableRewriteCandidateAndBoundedRehearsal(t *testing.T) {
+	s, _ := New(t.TempDir())
+	in := Input{Title: "Repair", Source: Source{Kind: "selected_object", ID: "object:1"}, ContentDescription: "Unsafe bytes omitted.", Reason: "Contain copies.", Audience: "owners_only", ResponseOwnerIDs: []string{"responder"}, Objects: []Object{{ID: "object-1", RepositoryID: "repo", Kind: "blob", ObjectID: "badblob", Match: "confirmed", AttributedTo: "owner"}}, Scope: []Scope{{Kind: "repository", Reference: "repo"}, {Kind: "ref", Reference: "refs/heads/main", Revision: "oldtip"}}, Evidence: []Evidence{{ID: "e", Kind: "scan", Reference: "scan:1", Digest: "sha256:scan", Summary: "Object ID matched; bytes omitted.", Status: "available", RecordedBy: "owner"}}, Approvals: []Approval{{Kind: "repository_owner", OwnerID: "owner", Required: true, Status: "approved"}}}
+	x, _ := s.Create("repo", "owner", in)
+	x, e := s.AddRewriteRule("repo", x.ID, "responder", RewriteRuleInput{Kind: "replace_object", ObjectIDs: []string{"badblob"}, ReplacementDigest: "sha256:sanitized", PreserveAuthorship: true, PreserveTimestamps: true, SignaturePolicy: "preserve_if_unchanged", Rationale: "Replace the unsafe blob with a reviewed placeholder."})
+	if e != nil || len(x.RewriteRules) != 1 {
+		t.Fatalf("rule=%+v %v", x, e)
+	}
+	c := RewriteCandidateInput{RuleIDs: []string{x.RewriteRules[0].ID}, Refs: []RefReplacement{{Reference: "refs/heads/main", OldRevision: "oldtip", NewRevision: "newtip"}}, CommitMap: []CommitMapping{{OldCommit: "oldtip", NewCommit: "newtip", AuthorshipPreserved: true, SignatureStatus: "broken"}}, UnaffectedDigest: "sha256:unchanged-tree-set", CandidateDigest: "sha256:candidate", ChangedObjectIDs: []string{"badblob", "oldtip", "newtip"}, StorageBeforeBytes: 1000, StorageAfterBytes: 800, RollbackUntil: time.Now().Add(time.Hour), RollbackLimits: []string{"Independent clones cannot be rolled back centrally."}, CollaboratorActions: []string{"Fetch replacement refs and rebase unpublished work."}, LinkImpacts: []LinkImpact{{Kind: "commit_link", Reference: "issue:1", Status: "broken", Action: "Use the restricted commit map."}}, UnrewritableResources: []string{"fork:independent"}}
+	x, e = s.AddCandidate("repo", x.ID, "responder", c)
+	if e != nil || len(x.Candidates) != 1 || x.Candidates[0].Published {
+		t.Fatalf("candidate=%+v %v", x, e)
+	}
+	checks := []RehearsalCheck{}
+	for _, d := range []string{"integrity", "build", "check", "release", "dependency", "clone", "fetch"} {
+		checks = append(checks, RehearsalCheck{Domain: d, Status: "passed", Reference: "run:" + d, Digest: "sha256:" + d, Summary: "Scenario completed against the isolated candidate."})
+	}
+	checks[3].Status = "failed"
+	checks[3].Summary = "Signed release references the replaced commit and must be rebuilt."
+	x, e = s.AddRehearsal("repo", x.ID, "responder", RehearsalInput{CandidateID: x.Candidates[0].ID, Environment: "networkless-workspace:1", BudgetMinutes: 30, BudgetCost: 500, Checks: checks, ObservedMinutes: 12, ObservedCost: 100})
+	if e != nil || len(x.Rehearsals) != 1 || x.Rehearsals[0].Status != "blocked" || len(x.Rehearsals[0].Blockers) != 1 {
+		t.Fatalf("rehearsal=%+v %v", x, e)
+	}
+	if _, e = s.AddCandidate("repo", x.ID, "responder", RewriteCandidateInput{}); !errors.Is(e, ErrInvalid) {
+		t.Fatalf("invalid candidate=%v", e)
 	}
 }
 

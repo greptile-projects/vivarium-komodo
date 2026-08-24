@@ -137,6 +137,95 @@ type ReachabilitySummary struct {
 	AffectedObjectIDs    []string       `json:"affected_object_ids"`
 	DerivedExposureCount int            `json:"derived_exposure_count"`
 }
+
+// RewriteRule is immutable once appended. It describes transformation intent
+// without retaining the affected payload or a replacement value.
+type RewriteRule struct {
+	ID                 string    `json:"id"`
+	Kind               string    `json:"kind"`
+	ObjectIDs          []string  `json:"object_ids"`
+	Path               string    `json:"path,omitempty"`
+	ReplacementDigest  string    `json:"replacement_digest,omitempty"`
+	PreserveAuthorship bool      `json:"preserve_authorship"`
+	PreserveTimestamps bool      `json:"preserve_timestamps"`
+	SignaturePolicy    string    `json:"signature_policy"`
+	Rationale          string    `json:"rationale"`
+	CreatedBy          string    `json:"created_by"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+type RewriteRuleInput struct {
+	Kind               string   `json:"kind"`
+	ObjectIDs          []string `json:"object_ids"`
+	Path               string   `json:"path,omitempty"`
+	ReplacementDigest  string   `json:"replacement_digest,omitempty"`
+	PreserveAuthorship bool     `json:"preserve_authorship"`
+	PreserveTimestamps bool     `json:"preserve_timestamps"`
+	SignaturePolicy    string   `json:"signature_policy"`
+	Rationale          string   `json:"rationale"`
+}
+type RefReplacement struct {
+	Reference   string `json:"reference"`
+	OldRevision string `json:"old_revision"`
+	NewRevision string `json:"new_revision"`
+}
+type CommitMapping struct {
+	OldCommit           string `json:"old_commit"`
+	NewCommit           string `json:"new_commit"`
+	AuthorshipPreserved bool   `json:"authorship_preserved"`
+	SignatureStatus     string `json:"signature_status"`
+}
+type LinkImpact struct {
+	Kind      string `json:"kind"`
+	Reference string `json:"reference"`
+	Status    string `json:"status"`
+	Action    string `json:"action,omitempty"`
+}
+type RewriteCandidateInput struct {
+	RuleIDs               []string         `json:"rule_ids"`
+	Refs                  []RefReplacement `json:"refs"`
+	CommitMap             []CommitMapping  `json:"commit_map"`
+	UnaffectedDigest      string           `json:"unaffected_content_digest"`
+	CandidateDigest       string           `json:"candidate_digest"`
+	ChangedObjectIDs      []string         `json:"changed_object_ids"`
+	StorageBeforeBytes    int64            `json:"storage_before_bytes"`
+	StorageAfterBytes     int64            `json:"storage_after_bytes"`
+	RollbackUntil         time.Time        `json:"rollback_until"`
+	RollbackLimits        []string         `json:"rollback_limits"`
+	CollaboratorActions   []string         `json:"collaborator_actions"`
+	LinkImpacts           []LinkImpact     `json:"link_impacts"`
+	UnrewritableResources []string         `json:"unrewritable_resources"`
+}
+type RewriteCandidate struct {
+	ID string `json:"id"`
+	RewriteCandidateInput
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+	Published bool      `json:"published"`
+}
+type RehearsalCheck struct {
+	Domain    string `json:"domain"`
+	Status    string `json:"status"`
+	Reference string `json:"reference"`
+	Digest    string `json:"digest,omitempty"`
+	Summary   string `json:"summary"`
+}
+type RehearsalInput struct {
+	CandidateID     string           `json:"candidate_id"`
+	Environment     string           `json:"environment"`
+	BudgetMinutes   int              `json:"budget_minutes"`
+	BudgetCost      int64            `json:"budget_cost"`
+	Checks          []RehearsalCheck `json:"checks"`
+	ObservedMinutes int              `json:"observed_minutes"`
+	ObservedCost    int64            `json:"observed_cost"`
+}
+type Rehearsal struct {
+	ID string `json:"id"`
+	RehearsalInput
+	Status     string    `json:"status"`
+	Blockers   []Blocker `json:"blockers"`
+	RecordedBy string    `json:"recorded_by"`
+	RecordedAt time.Time `json:"recorded_at"`
+}
 type Remediation struct {
 	ID                  string                `json:"id"`
 	RepositoryID        string                `json:"repository_id"`
@@ -146,6 +235,9 @@ type Remediation struct {
 	Events              []Event               `json:"history"`
 	Reachability        []ReachabilityFinding `json:"reachability_map"`
 	ReachabilitySummary ReachabilitySummary   `json:"reachability_summary"`
+	RewriteRules        []RewriteRule         `json:"rewrite_rules"`
+	Candidates          []RewriteCandidate    `json:"rewrite_candidates"`
+	Rehearsals          []Rehearsal           `json:"rewrite_rehearsals"`
 	CreatedAt           time.Time             `json:"created_at"`
 	UpdatedAt           time.Time             `json:"updated_at"`
 }
@@ -265,6 +357,77 @@ func validReachability(in ReachabilityInput) bool {
 	}
 	return true
 }
+func validRule(in RewriteRuleInput) bool {
+	if !oneOf(in.Kind, "remove_object", "replace_object", "remove_path", "replace_path", "rewrite_metadata") || len(in.ObjectIDs) == 0 || !oneOf(in.SignaturePolicy, "preserve_if_unchanged", "resign", "accept_breakage") || in.Rationale == "" || !text(in.Path) || !text(in.ReplacementDigest) || !text(in.Rationale) {
+		return false
+	}
+	if strings.HasPrefix(in.Kind, "replace_") && in.ReplacementDigest == "" {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, id := range in.ObjectIDs {
+		if id == "" || seen[id] {
+			return false
+		}
+		seen[id] = true
+	}
+	return true
+}
+func validCandidate(in RewriteCandidateInput) bool {
+	if len(in.RuleIDs) == 0 || len(in.Refs) == 0 || len(in.CommitMap) == 0 || in.UnaffectedDigest == "" || in.CandidateDigest == "" || len(in.ChangedObjectIDs) == 0 || in.StorageBeforeBytes < 0 || in.StorageAfterBytes < 0 || in.RollbackUntil.IsZero() || !text(in.UnaffectedDigest) || !text(in.CandidateDigest) {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, r := range in.Refs {
+		if r.Reference == "" || r.OldRevision == "" || r.NewRevision == "" || r.OldRevision == r.NewRevision || seen[r.Reference] {
+			return false
+		}
+		seen[r.Reference] = true
+	}
+	seen = map[string]bool{}
+	for _, m := range in.CommitMap {
+		if m.OldCommit == "" || m.NewCommit == "" || m.OldCommit == m.NewCommit || seen[m.OldCommit] || !oneOf(m.SignatureStatus, "preserved", "broken", "resigned", "unsigned") {
+			return false
+		}
+		seen[m.OldCommit] = true
+	}
+	for _, x := range append(append([]string{}, in.RollbackLimits...), in.CollaboratorActions...) {
+		if x == "" || !text(x) {
+			return false
+		}
+	}
+	for _, x := range in.LinkImpacts {
+		if x.Kind == "" || x.Reference == "" || !oneOf(x.Status, "preserved", "broken", "redirectable", "unknown") || !text(x.Action) {
+			return false
+		}
+	}
+	return true
+}
+func rehearsalBlockers(in RehearsalInput) ([]Blocker, bool) {
+	required := map[string]bool{"integrity": false, "build": false, "check": false, "release": false, "dependency": false, "clone": false, "fetch": false}
+	out := []Blocker{}
+	for _, c := range in.Checks {
+		if _, ok := required[c.Domain]; !ok || !oneOf(c.Status, "passed", "failed", "blocked", "not_applicable") || c.Reference == "" || c.Summary == "" || !text(c.Summary) {
+			return nil, false
+		}
+		required[c.Domain] = true
+		if c.Status != "passed" {
+			out = append(out, Blocker{"rehearsal_" + c.Status, c.Domain, c.Summary, c.Reference})
+		}
+	}
+	for d, ok := range required {
+		if !ok {
+			out = append(out, Blocker{"missing_rehearsal_check", d, "required rehearsal domain was not run", "system"})
+		}
+	}
+	if in.BudgetMinutes <= 0 || in.BudgetCost < 0 || in.ObservedMinutes < 0 || in.ObservedCost < 0 || in.Environment == "" || in.CandidateID == "" {
+		return nil, false
+	}
+	if in.ObservedMinutes > in.BudgetMinutes || in.ObservedCost > in.BudgetCost {
+		out = append(out, Blocker{"budget_exhausted", in.CandidateID, "rehearsal exceeded its declared bound", "system"})
+	}
+	return out, true
+}
 func summarize(xs []ReachabilityFinding) ReachabilitySummary {
 	s := ReachabilitySummary{ByStatus: map[string]int{}}
 	objects := map[string]bool{}
@@ -300,7 +463,100 @@ func (s *Store) Create(repo, actor string, in Input) (Remediation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now().UTC()
-	x := Remediation{ID: ident(), RepositoryID: repo, CreatedByID: actor, Input: in, Blockers: derive(in), Events: []Event{{1, "remediation.opened", actor, now}}, Reachability: []ReachabilityFinding{}, ReachabilitySummary: summarize(nil), CreatedAt: now, UpdatedAt: now}
+	x := Remediation{ID: ident(), RepositoryID: repo, CreatedByID: actor, Input: in, Blockers: derive(in), Events: []Event{{1, "remediation.opened", actor, now}}, Reachability: []ReachabilityFinding{}, ReachabilitySummary: summarize(nil), RewriteRules: []RewriteRule{}, Candidates: []RewriteCandidate{}, Rehearsals: []Rehearsal{}, CreatedAt: now, UpdatedAt: now}
+	return x, s.save(x)
+}
+func (s *Store) AddRewriteRule(repo, id, actor string, in RewriteRuleInput) (Remediation, error) {
+	if actor == "" || !validRule(in) {
+		return Remediation{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, id)
+	if e != nil || !responder(x, actor) {
+		return Remediation{}, ErrNotFound
+	}
+	affected := map[string]bool{}
+	for _, o := range x.Input.Objects {
+		if o.Match == "confirmed" {
+			affected[o.ObjectID] = true
+		}
+	}
+	for _, oid := range in.ObjectIDs {
+		if !affected[oid] {
+			return Remediation{}, ErrInvalid
+		}
+	}
+	now := s.now().UTC()
+	x.RewriteRules = append(x.RewriteRules, RewriteRule{ID: ident(), Kind: in.Kind, ObjectIDs: append([]string{}, in.ObjectIDs...), Path: in.Path, ReplacementDigest: in.ReplacementDigest, PreserveAuthorship: in.PreserveAuthorship, PreserveTimestamps: in.PreserveTimestamps, SignaturePolicy: in.SignaturePolicy, Rationale: in.Rationale, CreatedBy: actor, CreatedAt: now})
+	x.UpdatedAt = now
+	x.Events = append(x.Events, Event{int64(len(x.Events) + 1), "rewrite_rule.created", actor, now})
+	return x, s.save(x)
+}
+func (s *Store) AddCandidate(repo, id, actor string, in RewriteCandidateInput) (Remediation, error) {
+	if actor == "" || !validCandidate(in) {
+		return Remediation{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, id)
+	if e != nil || !responder(x, actor) {
+		return Remediation{}, ErrNotFound
+	}
+	rules := map[string]bool{}
+	for _, r := range x.RewriteRules {
+		rules[r.ID] = true
+	}
+	for _, rid := range in.RuleIDs {
+		if !rules[rid] {
+			return Remediation{}, ErrInvalid
+		}
+	}
+	scoped := map[string]string{}
+	for _, v := range x.Input.Scope {
+		if v.Kind == "ref" {
+			scoped[v.Reference] = v.Revision
+		}
+	}
+	for _, r := range in.Refs {
+		if scoped[r.Reference] != r.OldRevision {
+			return Remediation{}, ErrInvalid
+		}
+	}
+	now := s.now().UTC()
+	x.Candidates = append(x.Candidates, RewriteCandidate{ID: ident(), RewriteCandidateInput: in, CreatedBy: actor, CreatedAt: now, Published: false})
+	x.UpdatedAt = now
+	x.Events = append(x.Events, Event{int64(len(x.Events) + 1), "rewrite_candidate.assembled", actor, now})
+	return x, s.save(x)
+}
+func (s *Store) AddRehearsal(repo, id, actor string, in RehearsalInput) (Remediation, error) {
+	blockers, ok := rehearsalBlockers(in)
+	if actor == "" || !ok {
+		return Remediation{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, id)
+	if e != nil || !responder(x, actor) {
+		return Remediation{}, ErrNotFound
+	}
+	found := false
+	for _, c := range x.Candidates {
+		if c.ID == in.CandidateID && !c.Published {
+			found = true
+		}
+	}
+	if !found {
+		return Remediation{}, ErrInvalid
+	}
+	now := s.now().UTC()
+	status := "passed"
+	if len(blockers) > 0 {
+		status = "blocked"
+	}
+	x.Rehearsals = append(x.Rehearsals, Rehearsal{ID: ident(), RehearsalInput: in, Status: status, Blockers: blockers, RecordedBy: actor, RecordedAt: now})
+	x.UpdatedAt = now
+	x.Events = append(x.Events, Event{int64(len(x.Events) + 1), "rewrite_rehearsal." + status, actor, now})
 	return x, s.save(x)
 }
 func (s *Store) AddReachability(repo, id, actor string, in ReachabilityInput) (Remediation, error) {
@@ -345,6 +601,17 @@ func participant(x Remediation, actor string) bool {
 	}
 	return false
 }
+func responder(x Remediation, actor string) bool {
+	if actor == x.CreatedByID {
+		return true
+	}
+	for _, id := range x.Input.ResponseOwnerIDs {
+		if actor == id {
+			return true
+		}
+	}
+	return false
+}
 func (s *Store) Get(repo, id, actor string) (Remediation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -381,6 +648,15 @@ func (s *Store) read(repo, id string) (Remediation, error) {
 	x.Blockers = derive(x.Input)
 	if x.Reachability == nil {
 		x.Reachability = []ReachabilityFinding{}
+	}
+	if x.RewriteRules == nil {
+		x.RewriteRules = []RewriteRule{}
+	}
+	if x.Candidates == nil {
+		x.Candidates = []RewriteCandidate{}
+	}
+	if x.Rehearsals == nil {
+		x.Rehearsals = []Rehearsal{}
 	}
 	x.ReachabilitySummary = summarize(x.Reachability)
 	return x, nil

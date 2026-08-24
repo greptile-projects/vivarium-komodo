@@ -57,6 +57,48 @@ func registerHistoryRemediationsHTTP(mux *http.ServeMux, s *historyremediations.
 			writeJSON(w, 201, x)
 		}
 	})
+	mux.HandleFunc("POST "+base+"/{remediation}/rewrite-rules", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in historyremediations.RewriteRuleInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.AddRewriteRule(string(repo.ID), r.PathValue("remediation"), a.UserID, in)
+		if !historyRemediationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{remediation}/rewrite-candidates", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in historyremediations.RewriteCandidateInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.AddCandidate(string(repo.ID), r.PathValue("remediation"), a.UserID, in)
+		if !historyRemediationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{remediation}/rewrite-rehearsals", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in historyremediations.RehearsalInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.AddRehearsal(string(repo.ID), r.PathValue("remediation"), a.UserID, in)
+		if !historyRemediationError(w, e) {
+			writeJSON(w, 201, x)
+		}
+	})
 }
 func historyRemediationError(w http.ResponseWriter, e error) bool {
 	if e == nil {

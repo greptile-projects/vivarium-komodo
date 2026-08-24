@@ -3509,3 +3509,16 @@ credential or data references. Reads derive confirmed, suspected, unreachable,
 independently controlled, and unverifiable counts and preserve uncertainty;
 new findings update the summary without granting inspection or control of a
 copy.
+
+Authorized response owners may append immutable payload-free rewrite rules and
+assemble private candidates against exact selected refs beneath the same
+remediation. Candidates retain replacement digests, unaffected-content proof,
+authorship and signature outcomes, a restricted old-to-new commit map, changed
+objects, storage effects, broken links, rollback limits, collaborator actions,
+and independently controlled or otherwise unrewritable resources without
+publishing refs. Append-only bounded rehearsals cover repository integrity,
+build, checks, release, dependencies, and representative clone and fetch
+behavior in an isolated environment; missing, failed, blocked, or over-budget
+domains remain explicit blockers. These planning records grant no Git rewrite,
+ref update, mapping disclosure, release, collaborator, credential, environment,
+or operational authority.

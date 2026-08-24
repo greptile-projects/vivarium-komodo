@@ -44,6 +44,15 @@ func TestHistoryRemediationHTTPIsRestrictedAndOwnerOpened(t *testing.T) {
 	if w.Code != 201 || !bytes.Contains(w.Body.Bytes(), []byte(`"independently_controlled"`)) {
 		t.Fatalf("reachability=%d %s", w.Code, w.Body.String())
 	}
+	rule := historyremediations.RewriteRuleInput{Kind: "remove_object", ObjectIDs: []string{"deadbeef"}, PreserveAuthorship: true, PreserveTimestamps: true, SignaturePolicy: "accept_breakage", Rationale: "Remove the affected object while retaining original author metadata."}
+	b, _ = json.Marshal(rule)
+	r = httptest.NewRequest(http.MethodPost, "/repositories/"+string(repo.ID)+"/history-remediations/"+x.ID+"/rewrite-rules", bytes.NewReader(b))
+	r.Header.Set("Authorization", "Bearer "+owner)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 201 || !bytes.Contains(w.Body.Bytes(), []byte(`"rewrite_rule.created"`)) {
+		t.Fatalf("rewrite rule=%d %s", w.Code, w.Body.String())
+	}
 	for _, tc := range []struct {
 		token string
 		want  int
