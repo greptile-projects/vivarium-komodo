@@ -5730,6 +5730,30 @@ post-release verification. The boundary also proves that unsafe fixtures,
 affected stale exploration, a failed first repair, missing and flaky platforms,
 and an invalid override remain visible blockers until corrected.
 
+## Restricted repository-history remediation
+
+`/repositories/{repository}/history-remediations` gives repository owners a
+private coordination boundary before sensitive history repair causes more
+people or tools to inspect unsafe content. Creation binds an exact security
+finding, privacy incident, support case, or selected object to a payload-free
+description, reason, disclosure audience, response owners, participants, and
+required approval owners. Exact object IDs and optional paths and digests name
+what should disappear; typed scope entries cover repositories, refs, releases,
+packages, artifacts, and environments.
+
+Discovery evidence stores only an evidence reference, revision, digest,
+audience-safe summary, availability, reason, and recorder. Credential-shaped
+text and private-key material are rejected. Confirmed matches remain distinct
+from attributable false matches and inaccessible objects. Inaccessible or
+expired evidence, legal holds, conflicting retention or continuity promises,
+and pending or denied approvals remain visible blockers. Collection and detail
+reads omit the workspace entirely unless the caller is its creator, a response
+owner, a named participant, or an approval owner. The `view=security` surface
+provides the same private starting point and explicitly grants no inspection,
+rewrite, release, package, artifact, environment, disclosure, or operational
+authority. Durable state defaults to `$HISTORY_REMEDIATION_ROOT`
+(`apps/api/data/history-remediations`).
+
 ## Design-time threat models
 
 Repository threat models are immutable analysis records under

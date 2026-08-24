@@ -40,6 +40,7 @@ import { AssuranceDelivery } from "@/components/assurance-delivery";
 import { SecurityExpectations } from "@/components/security-expectations";
 import { ThreatModels } from "@/components/threat-models";
 import { SecurityScenarios } from "@/components/security-scenarios";
+import { HistoryRemediations } from "@/components/history-remediations";
 import { QualityGates } from "@/components/quality-gates";
 import { TestScenarios } from "@/components/test-scenarios";
 import { ExploratorySessions } from "@/components/exploratory-sessions";
@@ -1934,7 +1935,7 @@ export default function RepositoryPage({
       ) : view === "capabilities" ? (
         <><CapabilityInventories repository={repository.id} actor={actor} /><CapabilityRetirements repository={repository.id} actor={actor} /><CapabilityProofs repository={repository.id} actor={actor} /><CapabilityRemovals repository={repository.id} actor={actor} /></>
       ) : view === "security" ? (
-        <><SecurityExpectations repository={repository.id} actor={actor} /><ThreatModels repository={repository.id} actor={actor} /><SecurityScenarios repository={repository.id} actor={actor} /></>
+        <><HistoryRemediations repository={repository.id} actor={actor} /><SecurityExpectations repository={repository.id} actor={actor} /><ThreatModels repository={repository.id} actor={actor} /><SecurityScenarios repository={repository.id} actor={actor} /></>
       ) : view === "quality" ? (
         <><QualityGates repository={repository.id} actor={actor} /><QualityPlans repository={repository.id} actor={actor} /><TestScenarios repository={repository.id} actor={actor} /><ExploratorySessions repository={repository.id} actor={actor} /></>
       ) : view === "governance" ? (
