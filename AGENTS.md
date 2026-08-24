@@ -2227,6 +2227,13 @@ whenever dependencies change or the web job fails before it starts.
   exceptions, superseded targets, and newly discovered consumers remain visible
   coverage gaps. Completion is derived from required target outcomes and cannot
   be declared while a required delivery or discovered consumer is unresolved.
+  `propagation_workflow_test.go` is the black-box boundary for the complete
+  verified-repair-to-ecosystem-coverage loop through the public API and stock
+  Git histories. It retains direct and divergent human-agent adaptations,
+  federation, already-fixed and inaccessible consumers, selective assessment
+  and evidence staleness, a failed adaptation, rejected upstream delivery,
+  release recovery, bounded owner exceptions, local governance, costs, and
+  observed supported-user outcomes without transferring target authority.
   Prospective impact assessments live beneath `$IMPACT_ASSESSMENT_ROOT`
   (default `apps/api/data/impact-assessments`) and begin from selected code,
   symbols, an exact current investigation conclusion, or a proposed diff. Keep

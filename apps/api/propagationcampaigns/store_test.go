@@ -211,6 +211,10 @@ func TestEquivalenceMatrixRequiresExactBoundedProofAndSelectiveInvalidation(t *t
 	if err != nil || len(c.EquivalenceAttempts[2].OwnerDecisions) != 1 {
 		t.Fatalf("owner decision lost: %#v %v", c, err)
 	}
+	c, err = s.DecideEquivalence("origin", c.ID, "stable", c.EquivalenceAttempts[2].ID, "owner", "changes_requested", "a later review found missing local governance")
+	if err != nil || acceptedProof(c, "stable") {
+		t.Fatalf("superseded acceptance remained current: %#v %v", c.EquivalenceAttempts[2].OwnerDecisions, err)
+	}
 	bad := attempt("peer", "peer-1", "dep-old", true)
 	bad.Evidence[1].SubstituteEvidence = nil
 	if _, err = s.RecordEquivalenceAttempt("origin", c.ID, "peer", "runner", bad); err != nil {
