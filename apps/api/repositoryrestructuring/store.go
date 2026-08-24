@@ -29,6 +29,8 @@ var rehearsalDomains = map[string]bool{"git_clone": true, "git_fetch": true, "gi
 var resultStates = map[string]bool{"passed": true, "failed": true, "blocked": true, "not_run": true}
 var workKinds = map[string]bool{"branch": true, "pull_request": true, "issue": true, "proposal": true, "task": true, "decision": true, "check": true, "session": true, "workspace": true, "queue": true}
 var workOutcomes = map[string]bool{"continued": true, "blocked": true, "archived": true}
+var migrationKinds = map[string]bool{"clone": true, "fork": true, "package": true, "api": true, "dependency": true, "extension": true, "workflow": true, "documentation": true, "deployment": true, "federated_follower": true}
+var migrationStates = map[string]bool{"planned": true, "redirect_ready": true, "propagating": true, "adopted": true, "blocked": true, "rejected": true, "unavailable": true, "unmigrated": true}
 
 type Source struct {
 	RepositoryID string   `json:"repository_id"`
@@ -242,6 +244,56 @@ type WorkMapping struct {
 	AuthorityGranted []string       `json:"authority_granted"`
 }
 
+// MigrationTarget is one independently governed downstream use of an old
+// location. Redirect and mapping metadata is descriptive; only its owner can
+// report propagation or adoption.
+type MigrationTarget struct {
+	ID                  string            `json:"id"`
+	Kind                string            `json:"kind"`
+	OwnerIDs            []string          `json:"owner_ids"`
+	Audience            string            `json:"audience"`
+	CurrentLocation     string            `json:"current_location"`
+	ReplacementLocation string            `json:"replacement_location"`
+	ReplacementRemote   string            `json:"replacement_remote,omitempty"`
+	RedirectSignature   string            `json:"redirect_signature,omitempty"`
+	Mappings            map[string]string `json:"mappings"`
+	Synchronization     []string          `json:"synchronization"`
+	CompatibilityUntil  time.Time         `json:"compatibility_until"`
+	State               string            `json:"state"`
+	NextAction          string            `json:"next_action"`
+	CredentialReference string            `json:"credential_reference,omitempty"`
+	CredentialExpiresAt time.Time         `json:"credential_expires_at,omitempty"`
+}
+
+type MigrationPlanInput struct {
+	CandidateID string            `json:"candidate_id"`
+	Revision    string            `json:"revision"`
+	Targets     []MigrationTarget `json:"targets"`
+}
+
+type MigrationEvent struct {
+	ID                   string            `json:"id"`
+	TargetID             string            `json:"target_id"`
+	ActorID              string            `json:"actor_id"`
+	State                string            `json:"state"`
+	Revision             string            `json:"revision,omitempty"`
+	PullRequestReference string            `json:"pull_request_reference,omitempty"`
+	ReleaseReference     string            `json:"release_reference,omitempty"`
+	Evidence             map[string]string `json:"evidence,omitempty"`
+	NextAction           string            `json:"next_action"`
+	CreatedAt            time.Time         `json:"created_at"`
+}
+
+type MigrationPlan struct {
+	ID string `json:"id"`
+	MigrationPlanInput
+	Events           []MigrationEvent `json:"events"`
+	Blockers         []Blocker        `json:"blockers"`
+	CreatedBy        string           `json:"created_by"`
+	CreatedAt        time.Time        `json:"created_at"`
+	AuthorityGranted []string         `json:"authority_granted"`
+}
+
 type Blocker struct {
 	Kind       string `json:"kind"`
 	ResourceID string `json:"resource_id"`
@@ -253,13 +305,14 @@ type Plan struct {
 	RepositoryID string `json:"repository_id"`
 	CreatorID    string `json:"creator_id"`
 	Input
-	Findings         []Finding     `json:"findings"`
-	Candidates       []Candidate   `json:"candidates"`
-	Rehearsals       []Rehearsal   `json:"rehearsals"`
-	WorkMappings     []WorkMapping `json:"work_mappings"`
-	Blockers         []Blocker     `json:"blockers"`
-	AuthorityGranted []string      `json:"authority_granted"`
-	CreatedAt        time.Time     `json:"created_at"`
+	Findings         []Finding       `json:"findings"`
+	Candidates       []Candidate     `json:"candidates"`
+	Rehearsals       []Rehearsal     `json:"rehearsals"`
+	WorkMappings     []WorkMapping   `json:"work_mappings"`
+	MigrationPlans   []MigrationPlan `json:"migration_plans"`
+	Blockers         []Blocker       `json:"blockers"`
+	AuthorityGranted []string        `json:"authority_granted"`
+	CreatedAt        time.Time       `json:"created_at"`
 }
 
 type Store struct {
@@ -278,12 +331,131 @@ func (s *Store) Create(repositoryID, actorID string, in Input) (*Plan, error) {
 	if !valid(in) {
 		return nil, ErrInvalid
 	}
-	p := &Plan{ID: id("rsp"), RepositoryID: repositoryID, CreatorID: actorID, Input: in, Findings: []Finding{}, Candidates: []Candidate{}, Rehearsals: []Rehearsal{}, WorkMappings: []WorkMapping{}, AuthorityGranted: []string{}, CreatedAt: time.Now().UTC()}
+	p := &Plan{ID: id("rsp"), RepositoryID: repositoryID, CreatorID: actorID, Input: in, Findings: []Finding{}, Candidates: []Candidate{}, Rehearsals: []Rehearsal{}, WorkMappings: []WorkMapping{}, MigrationPlans: []MigrationPlan{}, AuthorityGranted: []string{}, CreatedAt: time.Now().UTC()}
 	p.Blockers = blockers(in.Inventory)
 	if err := s.write(p); err != nil {
 		return nil, err
 	}
 	return p, nil
+}
+
+func (s *Store) AddMigrationPlan(repositoryID, planID, actorID string, in MigrationPlanInput) (*Plan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.read(repositoryID, planID)
+	if err != nil {
+		return nil, err
+	}
+	if in.Revision == "" || len(in.Targets) == 0 || !candidateExists(*p, in.CandidateID) {
+		return nil, ErrInvalid
+	}
+	seen, locations := map[string]bool{}, map[string]string{}
+	redirects := map[string]string{}
+	blockers := []Blocker{}
+	for i := range in.Targets {
+		t := &in.Targets[i]
+		if t.ID == "" || seen[t.ID] || !migrationKinds[t.Kind] || len(t.OwnerIDs) == 0 || t.CurrentLocation == "" || t.ReplacementLocation == "" || len(t.Mappings) == 0 || len(t.Synchronization) == 0 || t.CompatibilityUntil.IsZero() || !migrationStates[t.State] || t.NextAction == "" || (t.Audience != "public" && t.Audience != "repository" && t.Audience != "owner") {
+			return nil, ErrInvalid
+		}
+		seen[t.ID] = true
+		redirects[t.CurrentLocation] = t.ReplacementLocation
+		if t.CurrentLocation == t.ReplacementLocation {
+			blockers = append(blockers, Blocker{Kind: "redirect_loop", ResourceID: t.ID, Detail: "replacement resolves to the current location"})
+		}
+		if prior := locations[t.ReplacementLocation]; prior != "" {
+			blockers = append(blockers, Blocker{Kind: "namespace_collision", ResourceID: t.ID, Detail: "replacement location is also claimed by " + prior})
+		} else {
+			locations[t.ReplacementLocation] = t.ID
+		}
+		if (t.Kind == "clone" || t.Kind == "fork") && t.RedirectSignature == "" && t.ReplacementRemote == "" {
+			return nil, ErrInvalid
+		}
+		if !t.CredentialExpiresAt.IsZero() && !t.CredentialExpiresAt.After(time.Now().UTC()) {
+			blockers = append(blockers, Blocker{Kind: "stale_credential", ResourceID: t.ID, Detail: "propagation credential reference is expired"})
+		}
+		if t.State == "unavailable" || t.State == "rejected" || t.State == "unmigrated" || t.State == "blocked" {
+			blockers = append(blockers, Blocker{Kind: t.State, ResourceID: t.ID, Detail: t.NextAction})
+		}
+	}
+	for _, t := range in.Targets {
+		if t.CurrentLocation == t.ReplacementLocation {
+			continue
+		}
+		visited := map[string]bool{t.CurrentLocation: true}
+		for at := t.ReplacementLocation; redirects[at] != ""; at = redirects[at] {
+			if visited[at] {
+				blockers = append(blockers, Blocker{Kind: "redirect_loop", ResourceID: t.ID, Detail: "replacement locations form a redirect loop"})
+				break
+			}
+			visited[at] = true
+		}
+	}
+	p.MigrationPlans = append(p.MigrationPlans, MigrationPlan{ID: id("mig"), MigrationPlanInput: in, Events: []MigrationEvent{}, Blockers: blockers, CreatedBy: actorID, CreatedAt: time.Now().UTC(), AuthorityGranted: []string{}})
+	if err = s.writeUnlocked(p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (s *Store) RecordMigrationEvent(repositoryID, planID, migrationID, actorID string, in MigrationEvent) (*Plan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.read(repositoryID, planID)
+	if err != nil {
+		return nil, err
+	}
+	for mi := range p.MigrationPlans {
+		m := &p.MigrationPlans[mi]
+		if m.ID != migrationID {
+			continue
+		}
+		for ti := range m.Targets {
+			t := &m.Targets[ti]
+			if t.ID != in.TargetID {
+				continue
+			}
+			if !contains(t.OwnerIDs, actorID) {
+				return nil, ErrForbidden
+			}
+			if !migrationStates[in.State] || in.NextAction == "" {
+				return nil, ErrInvalid
+			}
+			if in.State == "adopted" && (in.Revision == "" || (in.PullRequestReference == "" && in.ReleaseReference == "")) {
+				return nil, ErrInvalid
+			}
+			in.ID = id("evt")
+			in.ActorID = actorID
+			in.CreatedAt = time.Now().UTC()
+			t.State = in.State
+			t.NextAction = in.NextAction
+			m.Events = append(m.Events, in)
+			filtered := m.Blockers[:0]
+			for _, b := range m.Blockers {
+				if b.ResourceID != t.ID {
+					filtered = append(filtered, b)
+				}
+			}
+			m.Blockers = filtered
+			if in.State == "blocked" || in.State == "rejected" || in.State == "unavailable" || in.State == "unmigrated" {
+				m.Blockers = append(m.Blockers, Blocker{Kind: in.State, ResourceID: t.ID, Detail: in.NextAction})
+			}
+			if err = s.writeUnlocked(p); err != nil {
+				return nil, err
+			}
+			return p, nil
+		}
+		return nil, ErrInvalid
+	}
+	return nil, ErrNotFound
+}
+
+func candidateExists(p Plan, id string) bool {
+	for _, c := range p.Candidates {
+		if c.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) AddWorkMapping(repositoryID, planID, actorID string, in WorkMappingInput) (*Plan, error) {
@@ -750,6 +922,9 @@ func (s *Store) read(r, p string) (*Plan, error) {
 	}
 	if x.WorkMappings == nil {
 		x.WorkMappings = []WorkMapping{}
+	}
+	if x.MigrationPlans == nil {
+		x.MigrationPlans = []MigrationPlan{}
 	}
 	return &x, nil
 }
