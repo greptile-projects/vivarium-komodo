@@ -6043,3 +6043,32 @@ cannot count an independently governed consumer as adopted or acquire its
 merge, release, deployment, package, API, federation, credential, or
 operational authority. The Restructure workspace presents compatibility and
 safe synchronization guidance alongside current owner-specific next actions.
+
+### Cutting over repository authority
+
+`POST .../{plan}/cutovers` prepares an optimistic execution bound to one exact
+candidate, its current passing rehearsal, the candidate's downstream migration
+plan, and every frozen source revision. It declares required source and
+destination owners, the conflicting-write boundary, final source disposition,
+and dependency-ordered `pause_writes`, `activate_destinations`,
+`transfer_ownership_policies`, `publish_refs_redirects`, `verify_topology`, and
+`retire_sources` stages. Cycles and stale or missing prerequisites are rejected
+or retained as blockers. Preparing a cutover does not create a repository or
+grant any owner, policy, Git, credential, merge, release, or environment power.
+
+Named owners append revision-checked decisions at `.../{cutover}/approvals` and
+use `.../controls` to start, pause, resume, or roll back before source
+retirement. Named stage owners append active, succeeded, or failed receipts at
+`.../stages/{stage}`; atomic groups identify refs and redirects that must move
+together. `.../signals` retains source and destination health, dependency
+adoption, Git traffic, collaboration migration, late writes, residual use, and
+completion proof. The Restructure workspace shows active control, progress,
+blockers, health, evidence, and rollback choices live.
+
+Source retirement cannot start until current passing build, release,
+permission, link, supported-consumer, and ordinary-contribution signals exist,
+every downstream target has adopted, and mapped work is continued or archived.
+A late write or residual use pauses the transition; a later current zero-use
+observation may support explicit owner resume without deleting the earlier
+event. Only after these checks may the declared policy make old repositories
+read-only, archive them, or remove them.

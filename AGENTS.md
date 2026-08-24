@@ -3615,3 +3615,19 @@ unavailable peers, rejection, blockage, and unmigrated targets remain explicit
 in `view=restructuring`. These records grant no Git, consumer, package, API,
 extension, workflow, deployment, federation, credential, merge, release, or
 operational authority.
+
+Owner-controlled repository authority cutovers remain beneath the exact plan
+and bind one immutable candidate, its current passing rehearsal, downstream
+migration plan, and every source revision. Required source and destination
+owners approve optimistically before dependency-ordered stages may pause the
+declared write boundary, activate destinations, transfer scoped ownership and
+policies, atomically publish grouped refs and redirects, verify the topology,
+and retire sources as read-only, archived, or removed. Append-only controls,
+stage receipts, source and destination health, dependency adoption, Git
+traffic, collaboration migration, and completion signals expose live control
+and rollback options. Current passing build, release, permission, link,
+supported-consumer, and ordinary-contribution evidence is required before
+source retirement; late writes, residual use, unmigrated work, failed stages,
+or stale prerequisites pause or block cleanup. Cutover coordination grants no
+repository, Git, owner, policy, credential, merge, release, deployment,
+environment, or operational authority.

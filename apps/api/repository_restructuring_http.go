@@ -159,6 +159,97 @@ func registerRepositoryRestructuringHTTP(mux *http.ServeMux, s *repositoryrestru
 		}
 		writeJSON(w, http.StatusCreated, plan)
 	})
+	mux.HandleFunc("POST "+base+"/{plan}/cutovers", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in repositoryrestructuring.CutoverInput
+		if !readJSON(w, r, &in, 2<<20) {
+			return
+		}
+		plan, err := s.AddCutover(string(repo.ID), r.PathValue("plan"), actor.UserID, in)
+		if restructuringError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, plan)
+	})
+	mux.HandleFunc("POST "+base+"/{plan}/cutovers/{cutover}/approvals", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Decision        string `json:"decision"`
+			Reason          string `json:"reason"`
+			ExpectedVersion int64  `json:"expected_version"`
+		}
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		plan, err := s.DecideCutover(string(repo.ID), r.PathValue("plan"), r.PathValue("cutover"), actor.UserID, in.Decision, in.Reason, in.ExpectedVersion)
+		if restructuringError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, plan)
+	})
+	mux.HandleFunc("POST "+base+"/{plan}/cutovers/{cutover}/controls", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Kind            string `json:"kind"`
+			Reason          string `json:"reason"`
+			ExpectedVersion int64  `json:"expected_version"`
+		}
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		plan, err := s.ControlCutover(string(repo.ID), r.PathValue("plan"), r.PathValue("cutover"), actor.UserID, in.Kind, in.Reason, in.ExpectedVersion)
+		if restructuringError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, plan)
+	})
+	mux.HandleFunc("POST "+base+"/{plan}/cutovers/{cutover}/stages/{stage}", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			State           string   `json:"state"`
+			Summary         string   `json:"summary"`
+			Evidence        []string `json:"evidence"`
+			ExpectedVersion int64    `json:"expected_version"`
+		}
+		if !readJSON(w, r, &in, 512<<10) {
+			return
+		}
+		plan, err := s.UpdateCutoverStage(string(repo.ID), r.PathValue("plan"), r.PathValue("cutover"), r.PathValue("stage"), actor.UserID, in.State, in.Summary, in.Evidence, in.ExpectedVersion)
+		if restructuringError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, plan)
+	})
+	mux.HandleFunc("POST "+base+"/{plan}/cutovers/{cutover}/signals", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			repositoryrestructuring.CutoverSignal
+			ExpectedVersion int64 `json:"expected_version"`
+		}
+		if !readJSON(w, r, &in, 512<<10) {
+			return
+		}
+		plan, err := s.RecordCutoverSignal(string(repo.ID), r.PathValue("plan"), r.PathValue("cutover"), actor.UserID, in.CutoverSignal, in.ExpectedVersion)
+		if restructuringError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, plan)
+	})
 	mux.HandleFunc("POST "+base+"/{plan}/work-mappings/{mapping}/decisions", func(w http.ResponseWriter, r *http.Request) {
 		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
 		if !ok {
