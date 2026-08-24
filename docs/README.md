@@ -5782,6 +5782,36 @@ discovered copies append to this map and its history without replacing prior
 observations or exposing restricted bytes. Repository-read authority alone is
 insufficient: the actor must also be a named remediation participant.
 
+Response owners append payload-free rewrite rules, exact-ref private candidates,
+and bounded seven-domain rehearsals beneath the remediation. Candidate previews
+retain old-to-new commit mappings, authorship and signature outcomes, unaffected
+content proof, storage and link effects, rollback limits, collaborator actions,
+and copies the coordinator cannot rewrite. Publication requires current
+approvals and the latest passing candidate rehearsal, atomically replaces every
+selected ref, records an independent attestation and credential rotation or
+revocation receipts, quarantines changed object IDs, and pauses affected Git and
+collaboration flows with migration guidance. A failed atomic ref transaction
+publishes neither a partial replacement nor a success record.
+
+Containment rounds apply a declared evidence-age policy across repository and
+object reachability, forks and federation, packages and artifacts, rotated
+credentials, deployments, caches, and protected recovery copies. Offline peers,
+legal holds, expired evidence, and reintroduced objects remain attributable
+residuals. Independent copy owners publish only their own acknowledgement or
+rewrite receipt; response owners can migrate pull-request or workspace context
+without losing discussion and authorship. Push, automation, release, and
+contribution resume independently from named current passing checks, so one
+safe flow never silently clears every pause.
+
+`history_remediation_workflow_test.go` proves the complete private
+exposure-to-contained-history loop through the public API used by
+`view=security` and stock Git. It covers branch, fork, pull, package, artifact,
+deployment, and unavailable federated reachability; payload-free agent help; a
+false-match correction; signed-commit replacement; failed-then-passing
+rehearsal; atomic partial-ref rejection; rotation and publication; independent
+fork migration; protected-backup and reintroduction recovery; actionable stale
+clone rejection; and evidence-gated return to ordinary contribution.
+
 ## Design-time threat models
 
 Repository threat models are immutable analysis records under
