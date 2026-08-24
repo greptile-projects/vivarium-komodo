@@ -1,6 +1,9 @@
 package historyremediations
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestRestrictedHistoryRemediationScope(t *testing.T) {
 	s, _ := New(t.TempDir())
@@ -20,6 +23,20 @@ func TestRestrictedHistoryRemediationScope(t *testing.T) {
 	}
 	if c, e := s.Catalog("repo", "legal"); e != nil || len(c.Items) != 1 {
 		t.Fatalf("approval owner catalog=%#v %v", c, e)
+	}
+}
+
+func TestReachabilityMapRetainsStatusesObjectsAndDerivedExposure(t *testing.T) {
+	s, _ := New(t.TempDir())
+	in := Input{Title: "Repair", Source: Source{Kind: "selected_object", ID: "object:1"}, ContentDescription: "Unsafe bytes omitted.", Reason: "Contain copies.", Audience: "owners_only", ResponseOwnerIDs: []string{"owner"}, Objects: []Object{{ID: "object-1", RepositoryID: "repo", Kind: "blob", ObjectID: "deadbeef", Match: "confirmed", AttributedTo: "owner"}}, Scope: []Scope{{Kind: "repository", Reference: "repo"}}, Evidence: []Evidence{{ID: "e", Kind: "scan", Reference: "scan:1", Digest: "sha256:scan", Summary: "Object ID matched; bytes omitted.", Status: "available", RecordedBy: "owner"}}, Approvals: []Approval{{Kind: "repository_owner", OwnerID: "owner", Required: true, Status: "pending"}}}
+	x, _ := s.Create("repo", "owner", in)
+	add := ReachabilityInput{CopyKind: "active_clone", Reference: "clone:developer-7", ObjectIDs: []string{"deadbeef"}, DerivedExposures: []DerivedExposure{{Kind: "credential", Reference: "credential:deploy-key", State: "rotated"}}, Status: "unverifiable", Summary: "Clone was active after exposure discovery; contents were not inspected.", Uncertainty: "Owner has not acknowledged migration.", Citations: []Citation{{Kind: "clone_activity", Reference: "event:7", Digest: "sha256:activity", Access: "restricted"}}}
+	x, err := s.AddReachability("repo", x.ID, "owner", add)
+	if err != nil || len(x.Reachability) != 1 || x.ReachabilitySummary.ByStatus["unverifiable"] != 1 || x.ReachabilitySummary.DerivedExposureCount != 1 {
+		t.Fatalf("map=%+v err=%v", x, err)
+	}
+	if _, err = s.AddReachability("repo", x.ID, "stranger", add); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("stranger err=%v", err)
 	}
 }
 

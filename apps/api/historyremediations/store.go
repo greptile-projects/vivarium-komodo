@@ -91,15 +91,63 @@ type Event struct {
 	ActorID   string    `json:"actor_id"`
 	CreatedAt time.Time `json:"created_at"`
 }
+type Citation struct {
+	Kind      string `json:"kind"`
+	Reference string `json:"reference"`
+	Revision  string `json:"revision,omitempty"`
+	Digest    string `json:"digest"`
+	Access    string `json:"access"`
+}
+type DerivedExposure struct {
+	Kind      string `json:"kind"`
+	Reference string `json:"reference"`
+	State     string `json:"state"`
+}
+type ReachabilityFinding struct {
+	ID               string            `json:"id"`
+	CopyKind         string            `json:"copy_kind"`
+	Reference        string            `json:"reference"`
+	RepositoryID     string            `json:"repository_id,omitempty"`
+	Revision         string            `json:"revision,omitempty"`
+	ObjectIDs        []string          `json:"object_ids"`
+	DerivedExposures []DerivedExposure `json:"derived_exposures"`
+	Status           string            `json:"status"`
+	ControlledBy     string            `json:"controlled_by,omitempty"`
+	Summary          string            `json:"summary"`
+	Uncertainty      string            `json:"uncertainty,omitempty"`
+	Citations        []Citation        `json:"citations"`
+	RecordedBy       string            `json:"recorded_by"`
+	RecordedAt       time.Time         `json:"recorded_at"`
+}
+type ReachabilityInput struct {
+	CopyKind         string            `json:"copy_kind"`
+	Reference        string            `json:"reference"`
+	RepositoryID     string            `json:"repository_id,omitempty"`
+	Revision         string            `json:"revision,omitempty"`
+	ObjectIDs        []string          `json:"object_ids"`
+	DerivedExposures []DerivedExposure `json:"derived_exposures"`
+	Status           string            `json:"status"`
+	ControlledBy     string            `json:"controlled_by,omitempty"`
+	Summary          string            `json:"summary"`
+	Uncertainty      string            `json:"uncertainty,omitempty"`
+	Citations        []Citation        `json:"citations"`
+}
+type ReachabilitySummary struct {
+	ByStatus             map[string]int `json:"by_status"`
+	AffectedObjectIDs    []string       `json:"affected_object_ids"`
+	DerivedExposureCount int            `json:"derived_exposure_count"`
+}
 type Remediation struct {
-	ID           string    `json:"id"`
-	RepositoryID string    `json:"repository_id"`
-	CreatedByID  string    `json:"created_by_id"`
-	Input        Input     `json:"definition"`
-	Blockers     []Blocker `json:"blockers"`
-	Events       []Event   `json:"history"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID                  string                `json:"id"`
+	RepositoryID        string                `json:"repository_id"`
+	CreatedByID         string                `json:"created_by_id"`
+	Input               Input                 `json:"definition"`
+	Blockers            []Blocker             `json:"blockers"`
+	Events              []Event               `json:"history"`
+	Reachability        []ReachabilityFinding `json:"reachability_map"`
+	ReachabilitySummary ReachabilitySummary   `json:"reachability_summary"`
+	CreatedAt           time.Time             `json:"created_at"`
+	UpdatedAt           time.Time             `json:"updated_at"`
 }
 type Catalog struct {
 	Items []Remediation `json:"items"`
@@ -191,6 +239,48 @@ func derive(in Input) []Blocker {
 	}
 	return out
 }
+func validReachability(in ReachabilityInput) bool {
+	if !oneOf(in.CopyKind, "branch", "tag", "pull_request", "fork", "federated_contribution", "workspace", "checkpoint", "cache", "package", "release_artifact", "documentation", "deployment", "backup", "active_clone") || in.Reference == "" || !text(in.Reference) || !text(in.Revision) || len(in.ObjectIDs) == 0 || !oneOf(in.Status, "confirmed", "suspected", "unreachable", "independently_controlled", "unverifiable") || in.Summary == "" || !text(in.Summary) || !text(in.Uncertainty) || len(in.Citations) == 0 {
+		return false
+	}
+	if in.Status == "independently_controlled" && in.ControlledBy == "" {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, id := range in.ObjectIDs {
+		if id == "" || seen[id] {
+			return false
+		}
+		seen[id] = true
+	}
+	for _, d := range in.DerivedExposures {
+		if !oneOf(d.Kind, "credential", "personal_data", "restricted_data", "derived_data") || d.Reference == "" || !text(d.Reference) || !oneOf(d.State, "active", "rotated", "revoked", "deleted", "unknown") {
+			return false
+		}
+	}
+	for _, c := range in.Citations {
+		if c.Kind == "" || c.Reference == "" || c.Digest == "" || !text(c.Kind) || !text(c.Reference) || !text(c.Revision) || !text(c.Digest) || !oneOf(c.Access, "available", "restricted", "inaccessible", "expired") {
+			return false
+		}
+	}
+	return true
+}
+func summarize(xs []ReachabilityFinding) ReachabilitySummary {
+	s := ReachabilitySummary{ByStatus: map[string]int{}}
+	objects := map[string]bool{}
+	for _, x := range xs {
+		s.ByStatus[x.Status]++
+		s.DerivedExposureCount += len(x.DerivedExposures)
+		for _, id := range x.ObjectIDs {
+			objects[id] = true
+		}
+	}
+	for id := range objects {
+		s.AffectedObjectIDs = append(s.AffectedObjectIDs, id)
+	}
+	sort.Strings(s.AffectedObjectIDs)
+	return s
+}
 func ident() string                          { var b [12]byte; _, _ = rand.Read(b[:]); return hex.EncodeToString(b[:]) }
 func (s *Store) path(repo, id string) string { return filepath.Join(s.root, repo, id+".json") }
 func (s *Store) save(x Remediation) error {
@@ -210,7 +300,33 @@ func (s *Store) Create(repo, actor string, in Input) (Remediation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now().UTC()
-	x := Remediation{ident(), repo, actor, in, derive(in), []Event{{1, "remediation.opened", actor, now}}, now, now}
+	x := Remediation{ID: ident(), RepositoryID: repo, CreatedByID: actor, Input: in, Blockers: derive(in), Events: []Event{{1, "remediation.opened", actor, now}}, Reachability: []ReachabilityFinding{}, ReachabilitySummary: summarize(nil), CreatedAt: now, UpdatedAt: now}
+	return x, s.save(x)
+}
+func (s *Store) AddReachability(repo, id, actor string, in ReachabilityInput) (Remediation, error) {
+	if actor == "" || !validReachability(in) {
+		return Remediation{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, id)
+	if e != nil || !participant(x, actor) {
+		return Remediation{}, ErrNotFound
+	}
+	affected := map[string]bool{}
+	for _, object := range x.Input.Objects {
+		affected[object.ObjectID] = true
+	}
+	for _, objectID := range in.ObjectIDs {
+		if !affected[objectID] {
+			return Remediation{}, ErrInvalid
+		}
+	}
+	now := s.now().UTC()
+	x.Reachability = append(x.Reachability, ReachabilityFinding{ID: ident(), CopyKind: in.CopyKind, Reference: in.Reference, RepositoryID: in.RepositoryID, Revision: in.Revision, ObjectIDs: append([]string{}, in.ObjectIDs...), DerivedExposures: append([]DerivedExposure{}, in.DerivedExposures...), Status: in.Status, ControlledBy: in.ControlledBy, Summary: in.Summary, Uncertainty: in.Uncertainty, Citations: append([]Citation{}, in.Citations...), RecordedBy: actor, RecordedAt: now})
+	x.ReachabilitySummary = summarize(x.Reachability)
+	x.UpdatedAt = now
+	x.Events = append(x.Events, Event{Sequence: int64(len(x.Events) + 1), Type: "reachability.recorded", ActorID: actor, CreatedAt: now})
 	return x, s.save(x)
 }
 func participant(x Remediation, actor string) bool {
@@ -263,6 +379,10 @@ func (s *Store) read(repo, id string) (Remediation, error) {
 		return Remediation{}, ErrNotFound
 	}
 	x.Blockers = derive(x.Input)
+	if x.Reachability == nil {
+		x.Reachability = []ReachabilityFinding{}
+	}
+	x.ReachabilitySummary = summarize(x.Reachability)
 	return x, nil
 }
 func (s *Store) list(repo string) ([]Remediation, error) {

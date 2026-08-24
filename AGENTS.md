@@ -3499,3 +3499,13 @@ owners, named participants, and approval owners can discover the record through
 is `view=security`. These starting-point records grant no object inspection,
 Git rewrite, repository, release, package, artifact, environment, disclosure,
 credential, or operational authority.
+
+Each restricted remediation also retains an append-only reachability map across
+branches, tags, pull requests, forks, federated contributions, workspaces,
+checkpoints, caches, packages, release artifacts, documentation, deployments,
+backups, and active clones. Named participants, including read-only agents, may
+append only cited payload-free findings that bind exact object IDs and derived
+credential or data references. Reads derive confirmed, suspected, unreachable,
+independently controlled, and unverifiable counts and preserve uncertainty;
+new findings update the summary without granting inspection or control of a
+copy.
