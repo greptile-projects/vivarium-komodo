@@ -2151,6 +2151,21 @@ whenever dependencies change or the web job fails before it starts.
   published pull-request links carry that preloaded context but grant no Git,
   rollback, review, merge, release, deployment, environment, or operational
   authority.
+  Exact repair and backport candidates continue beneath the response. Each
+  freezes its commit or attested release, investigation and scenario versions,
+  affected checks and requirements, regression criteria, and the introducing
+  change's intent and acceptance criteria. A proof must cite the same historical
+  scenario at the candidate commit, both known-working and known-regressed
+  baselines, and a complete passing result for every frozen check, requirement,
+  and criterion; partial results and stale baselines remain blockers. A
+  maintainable scenario may cite its quality-plan entry and required-check name.
+  Append-only review, merge, release, deployment, and observed-outcome events
+  retain exact revisions and resources. A failed backport, reverted valid
+  behavior, or production disagreement reopens both the candidate and its
+  investigation instead of allowing a green delivery status to close the
+  regression. These proof and delivery records grant no test execution, Git,
+  quality-policy, review, merge, release, deployment, environment, telemetry,
+  rollback, or operational authority.
   Prospective impact assessments live beneath `$IMPACT_ASSESSMENT_ROOT`
   (default `apps/api/data/impact-assessments`) and begin from selected code,
   symbols, an exact current investigation conclusion, or a proposed diff. Keep

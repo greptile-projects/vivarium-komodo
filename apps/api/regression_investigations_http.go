@@ -242,6 +242,47 @@ func registerRegressionInvestigationsHTTP(m *http.ServeMux, s *ri.Store, repos c
 		v, e := s.AddResponseWork(string(repo.ID), r.PathValue("investigation"), r.PathValue("response"), a.UserID, in)
 		writeRegression(w, v, e, http.StatusCreated)
 	})
+	m.HandleFunc("POST "+base+"/{investigation}/corrections", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in ri.CorrectionCandidateInput
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		opened, e := repos.Open(repo.ID)
+		if e != nil || !resolveRegressionTarget(string(repo.ID), opened, releaseStore, builds, &in.Target) {
+			writeJSON(w, 422, map[string]string{"error": "invalid_correction_target"})
+			return
+		}
+		v, e := s.CreateCorrection(string(repo.ID), r.PathValue("investigation"), a.UserID, in)
+		writeRegression(w, v, e, http.StatusCreated)
+	})
+	m.HandleFunc("POST "+base+"/{investigation}/corrections/{candidate}/proofs", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in ri.CorrectionProof
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		v, e := s.AddCorrectionProof(string(repo.ID), r.PathValue("investigation"), r.PathValue("candidate"), a.UserID, in)
+		writeRegression(w, v, e, http.StatusCreated)
+	})
+	m.HandleFunc("POST "+base+"/{investigation}/corrections/{candidate}/delivery", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in ri.DeliveryEvent
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		v, e := s.AddCorrectionDelivery(string(repo.ID), r.PathValue("investigation"), r.PathValue("candidate"), a.UserID, in)
+		writeRegression(w, v, e, http.StatusCreated)
+	})
 }
 
 func validateSearchGraph(repoID string, repo *storage.Repository, revisions []ri.SearchRevision) bool {
