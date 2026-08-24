@@ -76,3 +76,41 @@ func TestRejectsSensitivePayloadShapedText(t *testing.T) {
 		t.Fatalf("error=%v", e)
 	}
 }
+
+func TestApprovedPublicationIsAtomicAndContainsDistributedRestoration(t *testing.T) {
+	s, _ := New(t.TempDir())
+	in := Input{Title: "Rewrite", Source: Source{Kind: "security_finding", ID: "f1"}, ContentDescription: "Restricted blob omitted.", Reason: "Remove exposed lineage.", Audience: "response_team", ResponseOwnerIDs: []string{"maintainer"}, Objects: []Object{{ID: "o", RepositoryID: "repo", Kind: "blob", ObjectID: "bad", Match: "confirmed", AttributedTo: "scanner"}}, Scope: []Scope{{Kind: "repository", Reference: "repo"}, {Kind: "ref", Reference: "refs/heads/main", Revision: "old"}}, Evidence: []Evidence{{ID: "e", Kind: "scan", Reference: "s", Digest: "sha256:s", Summary: "Exact object match without payload.", Status: "available", RecordedBy: "scanner"}}, Approvals: []Approval{{Kind: "repository_owner", OwnerID: "owner", Required: true, Status: "approved"}}}
+	x, _ := s.Create("repo", "owner", in)
+	x, _ = s.AddRewriteRule("repo", x.ID, "maintainer", RewriteRuleInput{Kind: "remove_object", ObjectIDs: []string{"bad"}, PreserveAuthorship: true, PreserveTimestamps: true, SignaturePolicy: "resign", Rationale: "Remove the restricted object."})
+	x, _ = s.AddCandidate("repo", x.ID, "maintainer", RewriteCandidateInput{RuleIDs: []string{x.RewriteRules[0].ID}, Refs: []RefReplacement{{Reference: "refs/heads/main", OldRevision: "old", NewRevision: "new"}}, CommitMap: []CommitMapping{{OldCommit: "old", NewCommit: "new", AuthorshipPreserved: true, SignatureStatus: "resigned"}}, UnaffectedDigest: "sha256:same", CandidateDigest: "sha256:candidate", ChangedObjectIDs: []string{"bad"}, StorageBeforeBytes: 1, StorageAfterBytes: 0, RollbackUntil: time.Now().Add(time.Hour), RollbackLimits: []string{"Independent copies remain owner controlled."}, CollaboratorActions: []string{"Fetch and reset to the replacement ref."}})
+	checks := []RehearsalCheck{}
+	for _, d := range []string{"integrity", "build", "check", "release", "dependency", "clone", "fetch"} {
+		checks = append(checks, RehearsalCheck{Domain: d, Status: "passed", Reference: "run:" + d, Summary: "passed"})
+	}
+	x, _ = s.AddRehearsal("repo", x.ID, "maintainer", RehearsalInput{CandidateID: x.Candidates[0].ID, Environment: "isolated", BudgetMinutes: 10, BudgetCost: 10, Checks: checks, ObservedMinutes: 1, ObservedCost: 1})
+	pauses := []Pause{}
+	for _, k := range []string{"push", "queue", "session", "workflow", "release"} {
+		pauses = append(pauses, Pause{Kind: k, Reference: k + ":all", Status: "paused", Guidance: "Fetch replacement refs; do not push an old tip."})
+	}
+	called := false
+	x, err := s.Publish("repo", x.ID, "maintainer", PublicationInput{CandidateID: x.Candidates[0].ID, ExpectedUpdatedAt: x.UpdatedAt, Attestation: Attestation{Digest: "sha256:candidate", SignerID: "reviewer", Signature: "ed25519:sig"}, QuarantinedObjectIDs: []string{"bad"}, CredentialActions: []CredentialAction{{Reference: "deploy-key", Action: "rotate", Receipt: "rotation:1"}}, Pauses: pauses, MigrationTargets: []MigrationTarget{{ID: "fork", Kind: "fork", Reference: "fork:one", OwnerID: "fork-owner", Audience: "owner", Authority: "independent_owner", Instructions: "Acknowledge and rewrite the fork locally.", Mapping: "redacted", Status: "pending"}}}, func(refs []RefReplacement) error {
+		called = true
+		if len(refs) != 1 {
+			return errors.New("refs")
+		}
+		return nil
+	})
+	if err != nil || !called || len(x.Publications) != 1 || !x.Candidates[0].Published {
+		t.Fatalf("publication=%+v called=%v err=%v", x, called, err)
+	}
+	if paused, guidance := s.PushPause("repo"); !paused || guidance == "" {
+		t.Fatalf("push policy=%v %q", paused, guidance)
+	}
+	x, err = s.RecordMigration("repo", x.ID, "fork", "fork-owner", MigrationDecisionInput{Status: "acknowledged", Receipt: "Owner accepted responsibility for the independent rewrite."})
+	if err != nil || x.Publications[0].MigrationTargets[0].Status != "acknowledged" || x.Publications[0].MigrationTargets[0].Receipt == "" {
+		t.Fatalf("migration=%+v err=%v", x.Publications[0].MigrationTargets[0], err)
+	}
+	if _, err = s.Get("repo", x.ID, "fork-owner"); err != nil {
+		t.Fatalf("target owner projection: %v", err)
+	}
+}

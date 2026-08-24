@@ -226,6 +226,60 @@ type Rehearsal struct {
 	RecordedBy string    `json:"recorded_by"`
 	RecordedAt time.Time `json:"recorded_at"`
 }
+type Attestation struct {
+	Digest    string `json:"digest"`
+	SignerID  string `json:"signer_id"`
+	Signature string `json:"signature"`
+}
+type CredentialAction struct {
+	Reference string `json:"reference"`
+	Action    string `json:"action"`
+	Receipt   string `json:"receipt"`
+}
+type Pause struct {
+	Kind      string `json:"kind"`
+	Reference string `json:"reference"`
+	Status    string `json:"status"`
+	Guidance  string `json:"guidance"`
+}
+type MigrationTarget struct {
+	ID           string `json:"id"`
+	Kind         string `json:"kind"`
+	Reference    string `json:"reference"`
+	OwnerID      string `json:"owner_id"`
+	Audience     string `json:"audience"`
+	Authority    string `json:"authority"`
+	Instructions string `json:"instructions"`
+	Mapping      string `json:"mapping"`
+	Status       string `json:"status"`
+	Receipt      string `json:"receipt,omitempty"`
+}
+type MigrationDecisionInput struct {
+	Status  string `json:"status"`
+	Receipt string `json:"receipt"`
+}
+type PublicationInput struct {
+	CandidateID          string             `json:"candidate_id"`
+	ExpectedUpdatedAt    time.Time          `json:"expected_updated_at"`
+	Attestation          Attestation        `json:"attestation"`
+	QuarantinedObjectIDs []string           `json:"quarantined_object_ids"`
+	CredentialActions    []CredentialAction `json:"credential_actions"`
+	Pauses               []Pause            `json:"pauses"`
+	MigrationTargets     []MigrationTarget  `json:"migration_targets"`
+}
+type Publication struct {
+	ID                   string             `json:"id"`
+	CandidateID          string             `json:"candidate_id"`
+	Refs                 []RefReplacement   `json:"refs"`
+	Attestation          Attestation        `json:"attestation"`
+	QuarantinedObjectIDs []string           `json:"quarantined_object_ids"`
+	CredentialActions    []CredentialAction `json:"credential_actions"`
+	Pauses               []Pause            `json:"pauses"`
+	MigrationTargets     []MigrationTarget  `json:"migration_targets"`
+	PublishedBy          string             `json:"published_by"`
+	PublishedAt          time.Time          `json:"published_at"`
+}
+type RefPublisher func([]RefReplacement) error
 type Remediation struct {
 	ID                  string                `json:"id"`
 	RepositoryID        string                `json:"repository_id"`
@@ -238,6 +292,7 @@ type Remediation struct {
 	RewriteRules        []RewriteRule         `json:"rewrite_rules"`
 	Candidates          []RewriteCandidate    `json:"rewrite_candidates"`
 	Rehearsals          []Rehearsal           `json:"rewrite_rehearsals"`
+	Publications        []Publication         `json:"publications"`
 	CreatedAt           time.Time             `json:"created_at"`
 	UpdatedAt           time.Time             `json:"updated_at"`
 }
@@ -428,6 +483,147 @@ func rehearsalBlockers(in RehearsalInput) ([]Blocker, bool) {
 	}
 	return out, true
 }
+func validPublication(in PublicationInput) bool {
+	if in.CandidateID == "" || in.ExpectedUpdatedAt.IsZero() || in.Attestation.Digest == "" || in.Attestation.SignerID == "" || in.Attestation.Signature == "" || len(in.QuarantinedObjectIDs) == 0 || len(in.Pauses) == 0 || len(in.MigrationTargets) == 0 || !text(in.Attestation.Digest) || !text(in.Attestation.Signature) {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, id := range in.QuarantinedObjectIDs {
+		if id == "" || seen[id] {
+			return false
+		}
+		seen[id] = true
+	}
+	for _, a := range in.CredentialActions {
+		if a.Reference == "" || !oneOf(a.Action, "revoke", "rotate") || a.Receipt == "" || !text(a.Receipt) {
+			return false
+		}
+	}
+	kinds := map[string]bool{}
+	for _, p := range in.Pauses {
+		if !oneOf(p.Kind, "push", "queue", "session", "workflow", "release") || p.Reference == "" || p.Status != "paused" || p.Guidance == "" || !text(p.Guidance) {
+			return false
+		}
+		kinds[p.Kind] = true
+	}
+	for _, kind := range []string{"push", "queue", "session", "workflow", "release"} {
+		if !kinds[kind] {
+			return false
+		}
+	}
+	seen = map[string]bool{}
+	for _, m := range in.MigrationTargets {
+		if m.ID == "" || seen[m.ID] || !oneOf(m.Kind, "local_branch", "fork", "federated_copy", "open_pull_request", "integration") || m.Reference == "" || m.OwnerID == "" || !oneOf(m.Audience, "owner", "participants", "public") || !oneOf(m.Authority, "coordinator", "independent_owner") || m.Instructions == "" || !oneOf(m.Mapping, "full", "redacted", "unavailable") || !oneOf(m.Status, "pending", "acknowledged", "migrated") || !text(m.Instructions) {
+			return false
+		}
+		seen[m.ID] = true
+	}
+	return true
+}
+
+// Publish atomically swaps every selected ref through the repository storage
+// callback before recording containment and migration state. Independent targets
+// remain instructions and acknowledgements, never delegated authority.
+func (s *Store) Publish(repo, id, actor string, in PublicationInput, publish RefPublisher) (Remediation, error) {
+	if actor == "" || publish == nil || !validPublication(in) {
+		return Remediation{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, id)
+	if e != nil || !responder(x, actor) {
+		return Remediation{}, ErrNotFound
+	}
+	if !x.UpdatedAt.Equal(in.ExpectedUpdatedAt) || len(derive(x.Input)) != 0 || len(x.Publications) != 0 {
+		return Remediation{}, ErrInvalid
+	}
+	var candidate *RewriteCandidate
+	for i := range x.Candidates {
+		if x.Candidates[i].ID == in.CandidateID && !x.Candidates[i].Published {
+			candidate = &x.Candidates[i]
+		}
+	}
+	if candidate == nil || in.Attestation.Digest != candidate.CandidateDigest {
+		return Remediation{}, ErrInvalid
+	}
+	passed := false
+	for _, rehearsal := range x.Rehearsals {
+		if rehearsal.CandidateID == candidate.ID {
+			passed = rehearsal.Status == "passed"
+		}
+	}
+	if !passed {
+		return Remediation{}, ErrInvalid
+	}
+	changed := map[string]bool{}
+	for _, oid := range candidate.ChangedObjectIDs {
+		changed[oid] = true
+	}
+	for _, oid := range in.QuarantinedObjectIDs {
+		if !changed[oid] {
+			return Remediation{}, ErrInvalid
+		}
+	}
+	if e = publish(candidate.Refs); e != nil {
+		return Remediation{}, e
+	}
+	now := s.now().UTC()
+	candidate.Published = true
+	p := Publication{ID: ident(), CandidateID: candidate.ID, Refs: append([]RefReplacement{}, candidate.Refs...), Attestation: in.Attestation, QuarantinedObjectIDs: append([]string{}, in.QuarantinedObjectIDs...), CredentialActions: append([]CredentialAction{}, in.CredentialActions...), Pauses: append([]Pause{}, in.Pauses...), MigrationTargets: append([]MigrationTarget{}, in.MigrationTargets...), PublishedBy: actor, PublishedAt: now}
+	x.Publications = append(x.Publications, p)
+	x.UpdatedAt = now
+	x.Events = append(x.Events, Event{int64(len(x.Events) + 1), "rewrite.published", actor, now})
+	return x, s.save(x)
+}
+
+func (s *Store) PushPause(repo string) (bool, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	xs, e := s.list(repo)
+	if e != nil {
+		return false, ""
+	}
+	for _, x := range xs {
+		for _, p := range x.Publications {
+			for _, pause := range p.Pauses {
+				if pause.Kind == "push" && pause.Status == "paused" {
+					return true, pause.Guidance
+				}
+			}
+		}
+	}
+	return false, ""
+}
+
+func (s *Store) RecordMigration(repo, id, targetID, actor string, in MigrationDecisionInput) (Remediation, error) {
+	if actor == "" || targetID == "" || !oneOf(in.Status, "acknowledged", "migrated") || in.Receipt == "" || !text(in.Receipt) {
+		return Remediation{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, id)
+	if e != nil {
+		return Remediation{}, ErrNotFound
+	}
+	found := false
+	for pi := range x.Publications {
+		for mi := range x.Publications[pi].MigrationTargets {
+			m := &x.Publications[pi].MigrationTargets[mi]
+			if m.ID == targetID && m.OwnerID == actor && m.Status == "pending" {
+				m.Status = in.Status
+				m.Receipt = in.Receipt
+				found = true
+			}
+		}
+	}
+	if !found {
+		return Remediation{}, ErrNotFound
+	}
+	now := s.now().UTC()
+	x.UpdatedAt = now
+	x.Events = append(x.Events, Event{int64(len(x.Events) + 1), "migration." + in.Status, actor, now})
+	return x, s.save(x)
+}
 func summarize(xs []ReachabilityFinding) ReachabilitySummary {
 	s := ReachabilitySummary{ByStatus: map[string]int{}}
 	objects := map[string]bool{}
@@ -463,7 +659,7 @@ func (s *Store) Create(repo, actor string, in Input) (Remediation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now().UTC()
-	x := Remediation{ID: ident(), RepositoryID: repo, CreatedByID: actor, Input: in, Blockers: derive(in), Events: []Event{{1, "remediation.opened", actor, now}}, Reachability: []ReachabilityFinding{}, ReachabilitySummary: summarize(nil), RewriteRules: []RewriteRule{}, Candidates: []RewriteCandidate{}, Rehearsals: []Rehearsal{}, CreatedAt: now, UpdatedAt: now}
+	x := Remediation{ID: ident(), RepositoryID: repo, CreatedByID: actor, Input: in, Blockers: derive(in), Events: []Event{{1, "remediation.opened", actor, now}}, Reachability: []ReachabilityFinding{}, ReachabilitySummary: summarize(nil), RewriteRules: []RewriteRule{}, Candidates: []RewriteCandidate{}, Rehearsals: []Rehearsal{}, Publications: []Publication{}, CreatedAt: now, UpdatedAt: now}
 	return x, s.save(x)
 }
 func (s *Store) AddRewriteRule(repo, id, actor string, in RewriteRuleInput) (Remediation, error) {
@@ -599,6 +795,13 @@ func participant(x Remediation, actor string) bool {
 			return true
 		}
 	}
+	for _, p := range x.Publications {
+		for _, m := range p.MigrationTargets {
+			if actor == m.OwnerID {
+				return true
+			}
+		}
+	}
 	return false
 }
 func responder(x Remediation, actor string) bool {
@@ -657,6 +860,9 @@ func (s *Store) read(repo, id string) (Remediation, error) {
 	}
 	if x.Rehearsals == nil {
 		x.Rehearsals = []Rehearsal{}
+	}
+	if x.Publications == nil {
+		x.Publications = []Publication{}
 	}
 	x.ReachabilitySummary = summarize(x.Reachability)
 	return x, nil

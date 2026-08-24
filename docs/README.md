@@ -3942,6 +3942,18 @@ by symbolic `HEAD` keeps `HEAD` intact, letting later clones select the same
 unborn default branch and a later push recreate it. Receive policy rejects
 updates outside `refs/heads/*` while incoming objects remain quarantined.
 
+An approved repository-history remediation may replace all selected refs in a
+single `git update-ref` transaction. Its publication retains the attestation,
+old-to-new refs, quarantined object IDs, credential rotation or revocation
+receipts, and explicit push, queue, session, workflow, and release pauses.
+While a push pause is active, stock Git receives an actionable conflict telling
+the collaborator or bot to fetch the replacement refs and migrate before
+retrying. The restricted remediation API also projects owner-appropriate
+instructions and full, redacted, or unavailable mappings for local branches,
+forks, federated copies, open pull requests, and integrations. Independent
+owners acknowledge or execute their own rewrite; the coordinator receives no
+authority over their repository or automation.
+
 The API compatibility suite proves the complete workflow as one black-box
 session. After provisioning an empty repository, it uses only an unmodified Git
 client and the smart-HTTP URL to exercise both the complete default-branch

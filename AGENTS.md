@@ -3522,3 +3522,16 @@ behavior in an isolated environment; missing, failed, blocked, or over-budget
 domains remain explicit blockers. These planning records grant no Git rewrite,
 ref update, mapping disclosure, release, collaborator, credential, environment,
 or operational authority.
+
+After every current required approval and a passing latest rehearsal, an
+authorized response maintainer may atomically publish one attested candidate's
+exact replacement refs. Publication quarantines named changed objects from
+ordinary reachability, retains credential revocation or rotation receipts, and
+pauses affected pushes, queues, sessions, workflows, and releases with explicit
+recovery guidance. Each local branch, fork, federated copy, open pull request,
+or integration receives an audience-bounded full, redacted, or unavailable
+mapping and owner-specific instructions. Independently controlled targets must
+acknowledge or perform their own rewrite; coordination never grants authority
+over them. Active push containment rejects stock Git receive requests with
+actionable migration guidance so stale automation cannot silently restore the
+removed lineage.

@@ -73,6 +73,41 @@ type Rehearsal = {
   }>;
   blockers: Array<{ kind: string; subject: string; detail: string }>;
 };
+type Publication = {
+  id: string;
+  candidate_id: string;
+  refs: Array<{
+    reference: string;
+    old_revision: string;
+    new_revision: string;
+  }>;
+  quarantined_object_ids: string[];
+  credential_actions: Array<{
+    reference: string;
+    action: string;
+    receipt: string;
+  }>;
+  pauses: Array<{
+    kind: string;
+    reference: string;
+    status: string;
+    guidance: string;
+  }>;
+  migration_targets: Array<{
+    id: string;
+    kind: string;
+    reference: string;
+    owner_id: string;
+    audience: string;
+    authority: string;
+    instructions: string;
+    mapping: string;
+    status: string;
+    receipt?: string;
+  }>;
+  published_by: string;
+  published_at: string;
+};
 type Remediation = {
   id: string;
   created_by_id: string;
@@ -136,6 +171,8 @@ type Remediation = {
   rewrite_rules: Rule[];
   rewrite_candidates: Candidate[];
   rewrite_rehearsals: Rehearsal[];
+  publications: Publication[];
+  updated_at: string;
   created_at: string;
 };
 const starter = (repo: string) =>
@@ -616,6 +653,137 @@ export function HistoryRemediations({
             </details>
           )}
           <h4>Payload-free discovery evidence</h4>
+          <h4>Published replacement and migration</h4>
+          {x.publications.length === 0 ? (
+            <p>No replacement refs have been published.</p>
+          ) : (
+            x.publications.map((p) => (
+              <div key={p.id} className="access-list">
+                <p>
+                  <Badge>published</Badge>{" "}
+                  {p.refs
+                    .map(
+                      (r) =>
+                        `${r.reference}: ${r.old_revision} → ${r.new_revision}`,
+                    )
+                    .join(" · ")}{" "}
+                  · quarantined objects: {p.quarantined_object_ids.join(", ")}
+                </p>
+                <ul>
+                  {p.pauses.map((v) => (
+                    <li key={`${v.kind}-${v.reference}`}>
+                      <Badge>{v.status}</Badge> {v.kind} {v.reference} —{" "}
+                      {v.guidance}
+                    </li>
+                  ))}
+                </ul>
+                <ul>
+                  {p.migration_targets.map((m) => (
+                    <li key={m.id}>
+                      <Badge>{m.status}</Badge> {m.kind.replaceAll("_", " ")}{" "}
+                      {m.reference} · owner {m.owner_id} · {m.mapping} mapping —{" "}
+                      {m.instructions}
+                      {m.authority === "independent_owner" &&
+                        " The coordinator cannot rewrite this target."}
+                      {m.receipt && <> · receipt {m.receipt}</>}
+                      {m.owner_id === actor && m.status === "pending" && (
+                        <form
+                          className="workspace-form"
+                          onSubmit={(e) =>
+                            void append(e, x.id, `migration-targets/${m.id}`)
+                          }
+                        >
+                          <textarea
+                            hidden
+                            name="payload"
+                            defaultValue={JSON.stringify({
+                              status: "acknowledged",
+                              receipt:
+                                "Owner reviewed the mapping and will perform the independent rewrite.",
+                            })}
+                          />
+                          <Button type="submit">Acknowledge mapping</Button>
+                        </form>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          )}
+          {actor &&
+            x.publications.length === 0 &&
+            x.rewrite_candidates.some((c) => !c.published) && (
+              <details>
+                <summary>
+                  Publish attested replacement refs and containment
+                </summary>
+                <form
+                  className="workspace-form"
+                  onSubmit={(e) => void append(e, x.id, "publications")}
+                >
+                  <textarea
+                    name="payload"
+                    rows={24}
+                    required
+                    aria-label="Publication and migration plan as JSON"
+                    defaultValue={JSON.stringify(
+                      {
+                        candidate_id: x.rewrite_candidates.findLast(
+                          (c) => !c.published,
+                        )?.id,
+                        expected_updated_at: x.updated_at,
+                        attestation: {
+                          digest: x.rewrite_candidates.findLast(
+                            (c) => !c.published,
+                          )?.candidate_digest,
+                          signer_id: "independent-reviewer-id",
+                          signature: "ed25519:signature",
+                        },
+                        quarantined_object_ids: x.rewrite_candidates.findLast(
+                          (c) => !c.published,
+                        )?.changed_object_ids,
+                        credential_actions: [],
+                        pauses: [
+                          "push",
+                          "queue",
+                          "session",
+                          "workflow",
+                          "release",
+                        ].map((kind) => ({
+                          kind,
+                          reference: `${kind}:affected`,
+                          status: "paused",
+                          guidance:
+                            "Fetch replacement refs and follow the mapping before resuming.",
+                        })),
+                        migration_targets: [
+                          {
+                            id: "target-1",
+                            kind: "local_branch",
+                            reference: "branch-or-copy",
+                            owner_id: "target-owner-id",
+                            audience: "owner",
+                            authority: "independent_owner",
+                            instructions:
+                              "Fetch the replacement refs, preserve unpublished work, then acknowledge or perform the rewrite.",
+                            mapping: "redacted",
+                            status: "pending",
+                          },
+                        ],
+                      },
+                      null,
+                      2,
+                    )}
+                  />
+                  <Button type="submit">Atomically publish replacement</Button>
+                  <small>
+                    Requires current approvals and a passing candidate
+                    rehearsal. Independent targets retain their own authority.
+                  </small>
+                </form>
+              </details>
+            )}
           <ul>
             {x.definition.discovery_evidence.map((e) => (
               <li key={e.id}>
