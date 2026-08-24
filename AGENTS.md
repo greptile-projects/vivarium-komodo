@@ -3523,6 +3523,22 @@ domains remain explicit blockers. These planning records grant no Git rewrite,
 ref update, mapping disclosure, release, collaborator, credential, environment,
 or operational authority.
 
+After publication, append-only containment rounds freeze a completion policy
+and continuously recheck repository reachability, ordinary object access, fork
+and federation acknowledgements, package and artifact replacement, credential
+rotation, deployments, caches, and protected recovery copies. Each check keeps
+its exact reference, revision, digest, owner, validity, and payload-free result;
+missing, failed, expired, unreachable, independently retained, legally held,
+reintroduced, or excepted copies remain attributable blockers rather than an
+erasure claim. Response owners may migrate or close superseded pull requests
+and workspaces while retaining discussion and attribution against an exact
+replacement revision. Push, automation, release, and contribution pauses may
+be resumed independently only from named current passing checks in an exact
+round, so evidence for one flow never reopens every collaboration surface.
+These recovery records grant no copy, repository, fork, federation, package,
+artifact, credential, deployment, cache, backup, pull-request, workspace,
+release, or operational authority.
+
 After every current required approval and a passing latest rehearsal, an
 authorized response maintainer may atomically publish one attested candidate's
 exact replacement refs. Publication quarantines named changed objects from

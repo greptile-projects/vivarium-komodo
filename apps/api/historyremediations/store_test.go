@@ -114,3 +114,47 @@ func TestApprovedPublicationIsAtomicAndContainsDistributedRestoration(t *testing
 		t.Fatalf("target owner projection: %v", err)
 	}
 }
+
+func TestContainmentRechecksPreserveResidualsAndGateScopedRecovery(t *testing.T) {
+	s, _ := New(t.TempDir())
+	in := Input{Title: "Rewrite", Source: Source{Kind: "security_finding", ID: "f"}, ContentDescription: "Unsafe object omitted.", Reason: "Contain it.", Audience: "owners_only", ResponseOwnerIDs: []string{"owner"}, Objects: []Object{{ID: "o", RepositoryID: "repo", Kind: "blob", ObjectID: "bad", Match: "confirmed", AttributedTo: "scanner"}}, Scope: []Scope{{Kind: "repository", Reference: "repo"}, {Kind: "ref", Reference: "refs/heads/main", Revision: "old"}}, Evidence: []Evidence{{ID: "e", Kind: "scan", Reference: "scan", Digest: "sha256:e", Summary: "Payload-free match.", Status: "available", RecordedBy: "scanner"}}, Approvals: []Approval{{Kind: "repository_owner", OwnerID: "owner", Required: true, Status: "approved"}}}
+	x, _ := s.Create("repo", "owner", in)
+	x, _ = s.AddRewriteRule("repo", x.ID, "owner", RewriteRuleInput{Kind: "remove_object", ObjectIDs: []string{"bad"}, PreserveAuthorship: true, SignaturePolicy: "resign", Rationale: "Remove it."})
+	x, _ = s.AddCandidate("repo", x.ID, "owner", RewriteCandidateInput{RuleIDs: []string{x.RewriteRules[0].ID}, Refs: []RefReplacement{{Reference: "refs/heads/main", OldRevision: "old", NewRevision: "new"}}, CommitMap: []CommitMapping{{OldCommit: "old", NewCommit: "new", AuthorshipPreserved: true, SignatureStatus: "resigned"}}, UnaffectedDigest: "sha256:u", CandidateDigest: "sha256:c", ChangedObjectIDs: []string{"bad"}, RollbackUntil: time.Now().Add(time.Hour)})
+	checks := []RehearsalCheck{}
+	for _, d := range []string{"integrity", "build", "check", "release", "dependency", "clone", "fetch"} {
+		checks = append(checks, RehearsalCheck{Domain: d, Status: "passed", Reference: "run:" + d, Summary: "passed"})
+	}
+	x, _ = s.AddRehearsal("repo", x.ID, "owner", RehearsalInput{CandidateID: x.Candidates[0].ID, Environment: "isolated", BudgetMinutes: 1, BudgetCost: 1, Checks: checks})
+	pauses := []Pause{}
+	for _, k := range []string{"push", "queue", "session", "workflow", "release"} {
+		pauses = append(pauses, Pause{Kind: k, Reference: k + ":affected", Status: "paused", Guidance: "migrate"})
+	}
+	x, _ = s.Publish("repo", x.ID, "owner", PublicationInput{CandidateID: x.Candidates[0].ID, ExpectedUpdatedAt: x.UpdatedAt, Attestation: Attestation{Digest: "sha256:c", SignerID: "reviewer", Signature: "sig"}, QuarantinedObjectIDs: []string{"bad"}, Pauses: pauses, MigrationTargets: []MigrationTarget{{ID: "fork", Kind: "fork", Reference: "fork:1", OwnerID: "fork-owner", Audience: "owner", Authority: "independent_owner", Instructions: "rewrite", Mapping: "redacted", Status: "pending"}}}, func([]RefReplacement) error { return nil })
+	all := append([]string{}, containmentDomains...)
+	cs := []ContainmentCheck{}
+	for i, d := range all {
+		status := "passed"
+		if d == "fork_federation" {
+			status = "unreachable"
+		}
+		cs = append(cs, ContainmentCheck{ID: d, Domain: d, Reference: d + ":1", Status: status, Digest: "sha256:" + d, Summary: "Current payload-free verification.", OwnerID: "owner", ExpiresAt: time.Now().Add(time.Hour)})
+		_ = i
+	}
+	x, err := s.AddContainmentRound("repo", x.ID, "owner", ContainmentRoundInput{Policy: CompletionPolicy{RequiredDomains: all, MaximumAgeHours: 24}, Checks: cs})
+	if err != nil || x.ContainmentRounds[0].Status != "residuals" || len(x.ContainmentRounds[0].Blockers) != 1 {
+		t.Fatalf("round=%+v err=%v", x.ContainmentRounds, err)
+	}
+	_, err = s.DecideRecovery("repo", x.ID, "owner", RecoveryInput{Flow: "push", Reference: "push:affected", RoundID: x.ContainmentRounds[0].ID, CheckIDs: []string{"fork_federation"}, Decision: "resume"})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unsafe resume=%v", err)
+	}
+	x, err = s.DecideRecovery("repo", x.ID, "owner", RecoveryInput{Flow: "push", Reference: "push:affected", RoundID: x.ContainmentRounds[0].ID, CheckIDs: []string{"repository_reachability", "object_access"}, Decision: "resume"})
+	if err != nil || x.Publications[0].Pauses[0].Status != "resumed" {
+		t.Fatalf("resume=%+v %v", x.RecoveryDecisions, err)
+	}
+	x, err = s.MigrateCollaboration("repo", x.ID, "owner", CollaborationMigrationInput{Kind: "pull_request", Reference: "pull:7", Action: "migrate", ReplacementRevision: "new", DiscussionReference: "discussion:pull:7", Attribution: []string{"author", "reviewer"}, Receipt: "Replacement pull retains discussion and authorship links."})
+	if err != nil || len(x.CollaborationMigrations) != 1 {
+		t.Fatalf("migration=%+v %v", x.CollaborationMigrations, err)
+	}
+}
