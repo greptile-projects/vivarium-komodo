@@ -53,6 +53,9 @@ type MemberInput struct {
 	ParentID           string   `json:"parent_id,omitempty"`
 	Authors            []string `json:"authors"`
 	AcceptanceCriteria []string `json:"acceptance_criteria"`
+	RepositoryID       string   `json:"repository_id,omitempty"`
+	BranchOwnerIDs     []string `json:"branch_owner_ids,omitempty"`
+	BranchAccess       string   `json:"branch_access,omitempty"`
 }
 type Input struct {
 	Title          string        `json:"title"`
@@ -101,16 +104,51 @@ type Member struct {
 	DownstreamEvidenceAtRisk []string          `json:"downstream_evidence_at_risk"`
 	Reviewable               bool              `json:"reviewable"`
 }
+type CommitRewrite struct {
+	MemberID            string `json:"member_id"`
+	OldCommit           string `json:"old_commit,omitempty"`
+	NewCommit           string `json:"new_commit"`
+	OldBase             string `json:"old_base,omitempty"`
+	NewBase             string `json:"new_base"`
+	Kind                string `json:"kind"`
+	AuthorshipPreserved bool   `json:"authorship_preserved"`
+}
+type BranchUpdate struct {
+	MemberID          string `json:"member_id"`
+	Branch            string `json:"branch"`
+	ExpectedRevision  string `json:"expected_revision,omitempty"`
+	PublishedRevision string `json:"published_revision"`
+	State             string `json:"state"`
+}
+type Revision struct {
+	Number              int             `json:"number"`
+	PreviousNumber      int             `json:"previous_number"`
+	Reason              string          `json:"reason"`
+	PreviousMembers     []Member        `json:"previous_members"`
+	Members             []Member        `json:"members"`
+	CommitRewrites      []CommitRewrite `json:"commit_rewrites"`
+	BranchUpdates       []BranchUpdate  `json:"branch_updates"`
+	ReviewInvalidations []string        `json:"review_invalidations"`
+	CheckImpacts        []string        `json:"check_impacts"`
+	Blockers            []Blocker       `json:"blockers"`
+	Status              string          `json:"status"`
+	CreatedBy           string          `json:"created_by"`
+	CreatedAt           time.Time       `json:"created_at"`
+	AppliedBy           string          `json:"applied_by,omitempty"`
+	AppliedAt           *time.Time      `json:"applied_at,omitempty"`
+}
 type Stack struct {
 	ID           string `json:"id"`
 	RepositoryID string `json:"repository_id"`
 	Input
-	Members          []Member  `json:"members"`
-	Status           string    `json:"status"`
-	Blockers         []Blocker `json:"blockers"`
-	CreatedBy        string    `json:"created_by"`
-	CreatedAt        time.Time `json:"created_at"`
-	AuthorityGranted []string  `json:"authority_granted"`
+	Members          []Member   `json:"members"`
+	Status           string     `json:"status"`
+	Blockers         []Blocker  `json:"blockers"`
+	CreatedBy        string     `json:"created_by"`
+	CreatedAt        time.Time  `json:"created_at"`
+	AuthorityGranted []string   `json:"authority_granted"`
+	CurrentRevision  int        `json:"current_revision"`
+	Revisions        []Revision `json:"revisions"`
 }
 
 type Store struct {
@@ -138,6 +176,9 @@ func validate(in Input) error {
 		if m.ID == "" || m.Branch == "" || m.Revision == "" || len(m.Authors) == 0 || len(m.AcceptanceCriteria) == 0 || seen[m.ID] || (m.BranchState != "existing" && m.BranchState != "new") {
 			return ErrInvalid
 		}
+		if m.BranchAccess != "" && m.BranchAccess != "current" && m.BranchAccess != "revoked" {
+			return ErrInvalid
+		}
 		seen[m.ID] = true
 	}
 	return nil
@@ -147,7 +188,7 @@ func (s *Store) Create(repo, actor string, in Input, members []Member, blockers 
 		return Stack{}, err
 	}
 	now := time.Now().UTC()
-	x := Stack{ID: id(), RepositoryID: repo, Input: in, Members: members, Blockers: blockers, CreatedBy: actor, CreatedAt: now, AuthorityGranted: []string{}}
+	x := Stack{ID: id(), RepositoryID: repo, Input: in, Members: members, Blockers: blockers, CreatedBy: actor, CreatedAt: now, AuthorityGranted: []string{}, CurrentRevision: 1, Revisions: []Revision{}}
 	x.Status = "reviewable"
 	if len(blockers) > 0 {
 		x.Status = "blocked"
@@ -158,6 +199,184 @@ func (s *Store) Create(repo, actor string, in Input, members []Member, blockers 
 		return Stack{}, err
 	}
 	return x, s.save(x)
+}
+
+func (s *Store) PreviewRevision(repo, stack, actor, reason string, expected int, in Input, members []Member, blockers []Blocker) (Stack, error) {
+	if err := validate(in); err != nil || strings.TrimSpace(reason) == "" {
+		return Stack{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.Get(repo, stack)
+	if e != nil {
+		return Stack{}, e
+	}
+	if expected != x.CurrentRevision {
+		return Stack{}, ErrInvalid
+	}
+	r := Revision{Number: len(x.Revisions) + 2, PreviousNumber: expected, Reason: reason, PreviousMembers: x.Members, Members: members, Blockers: blockers, Status: "ready", CreatedBy: actor, CreatedAt: time.Now().UTC(), CommitRewrites: []CommitRewrite{}, BranchUpdates: []BranchUpdate{}, ReviewInvalidations: []string{}, CheckImpacts: []string{}}
+	old := map[string]Member{}
+	for _, m := range x.Members {
+		old[m.ID] = m
+	}
+	seenBranch := map[string]string{}
+	for _, m := range members {
+		o, exists := old[m.ID]
+		kind := "insert"
+		if exists {
+			kind = "unchanged"
+			if o.Revision != m.Revision {
+				kind = "rewrite"
+			}
+			if o.BaseRevision != m.BaseRevision {
+				kind = "rebase"
+			}
+			if o.Position != m.Position && o.Revision == m.Revision {
+				kind = "reorder"
+			}
+		}
+		if kind != "unchanged" {
+			r.CommitRewrites = append(r.CommitRewrites, CommitRewrite{MemberID: m.ID, OldCommit: o.Revision, NewCommit: m.Revision, OldBase: o.BaseRevision, NewBase: m.BaseRevision, Kind: kind, AuthorshipPreserved: sameStrings(o.Authors, m.Authors)})
+		}
+		expectedTip := ""
+		if exists && o.Branch == m.Branch && o.BranchState == "existing" {
+			expectedTip = o.Revision
+		}
+		r.BranchUpdates = append(r.BranchUpdates, BranchUpdate{MemberID: m.ID, Branch: m.Branch, ExpectedRevision: expectedTip, PublishedRevision: m.Revision, State: "pending"})
+		if prior := seenBranch[m.Branch]; prior != "" {
+			r.Blockers = append(r.Blockers, Blocker{Kind: "shared_branch", MemberID: m.ID, Detail: "branch is also used by " + prior})
+		}
+		seenBranch[m.Branch] = m.ID
+		if exists && (o.Revision != m.Revision || o.BaseRevision != m.BaseRevision) {
+			for _, ev := range o.Evidence {
+				r.ReviewInvalidations = append(r.ReviewInvalidations, ev.ID)
+				if ev.Kind == "check" {
+					r.CheckImpacts = append(r.CheckImpacts, ev.Reference)
+				}
+			}
+		}
+	}
+	for id, o := range old {
+		found := false
+		for _, m := range members {
+			if m.ID == id {
+				found = true
+			}
+		}
+		if !found {
+			r.CommitRewrites = append(r.CommitRewrites, CommitRewrite{MemberID: id, OldCommit: o.Revision, OldBase: o.BaseRevision, Kind: "remove", AuthorshipPreserved: true})
+			for _, ev := range o.Evidence {
+				r.ReviewInvalidations = append(r.ReviewInvalidations, ev.ID)
+				if ev.Kind == "check" {
+					r.CheckImpacts = append(r.CheckImpacts, ev.Reference)
+				}
+			}
+		}
+	}
+	r.Blockers = dedupe(r.Blockers)
+	sort.Strings(r.ReviewInvalidations)
+	sort.Strings(r.CheckImpacts)
+	if len(r.Blockers) > 0 {
+		r.Status = "blocked"
+	}
+	x.Revisions = append(x.Revisions, r)
+	return x, s.save(x)
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	x := append([]string{}, a...)
+	y := append([]string{}, b...)
+	sort.Strings(x)
+	sort.Strings(y)
+	for i := range x {
+		if x[i] != y[i] {
+			return false
+		}
+	}
+	return true
+}
+func dedupe(xs []Blocker) []Blocker {
+	out := []Blocker{}
+	seen := map[string]bool{}
+	for _, x := range xs {
+		k := x.Kind + "|" + x.MemberID + "|" + x.Detail
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+func (s *Store) RevisionForApply(repo, stack string, number int) (Stack, Revision, error) {
+	x, e := s.Get(repo, stack)
+	if e != nil {
+		return Stack{}, Revision{}, e
+	}
+	for _, r := range x.Revisions {
+		if r.Number == number {
+			if r.Status != "ready" || r.PreviousNumber != x.CurrentRevision {
+				return Stack{}, Revision{}, ErrInvalid
+			}
+			return x, r, nil
+		}
+	}
+	return Stack{}, Revision{}, ErrNotFound
+}
+func (s *Store) FinishApply(repo, stack string, number int, actor string, applyErr error) (Stack, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.Get(repo, stack)
+	if e != nil {
+		return Stack{}, e
+	}
+	for i := range x.Revisions {
+		r := &x.Revisions[i]
+		if r.Number != number {
+			continue
+		}
+		if r.Status != "ready" || r.PreviousNumber != x.CurrentRevision {
+			return Stack{}, ErrInvalid
+		}
+		if applyErr != nil {
+			r.Status = "failed"
+			r.Blockers = append(r.Blockers, Blocker{Kind: "concurrent_push_or_failed_rewrite", Detail: applyErr.Error()})
+			for j := range r.BranchUpdates {
+				r.BranchUpdates[j].State = "not_applied"
+			}
+			return x, s.save(x)
+		}
+		now := time.Now().UTC()
+		r.Status = "applied"
+		r.AppliedBy = actor
+		r.AppliedAt = &now
+		for j := range r.BranchUpdates {
+			r.BranchUpdates[j].State = "published"
+		}
+		x.Input.Members = memberInputs(r.Members)
+		x.Members = r.Members
+		x.Blockers = r.Blockers
+		x.Status = "reviewable"
+		x.CurrentRevision = number
+		for i := range x.Members {
+			x.Members[i].BranchState = "existing"
+			x.Members[i].Evidence = []Evidence{}
+			x.Members[i].Publications = []Publication{}
+		}
+		x.Input.Members = memberInputs(x.Members)
+		return x, s.save(x)
+	}
+	return Stack{}, ErrNotFound
+}
+func memberInputs(ms []Member) []MemberInput {
+	out := make([]MemberInput, len(ms))
+	for i := range ms {
+		out[i] = ms[i].MemberInput
+	}
+	return out
 }
 func (s *Store) save(x Stack) error {
 	b, e := json.MarshalIndent(x, "", "  ")

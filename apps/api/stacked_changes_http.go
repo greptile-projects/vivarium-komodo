@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"net/http"
+	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
@@ -27,7 +30,7 @@ func registerStackedChangesHTTP(mux *http.ServeMux, s *stackedchanges.Store, rep
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
 		}
-		members, blockers := analyzeChangeStack(opened, in, true)
+		members, blockers := analyzeChangeStack(opened, in, true, false)
 		x, e := s.Create(string(repo.ID), actor.UserID, in, members, blockers)
 		if stackError(w, e) {
 			return
@@ -114,6 +117,142 @@ func registerStackedChangesHTTP(mux *http.ServeMux, s *stackedchanges.Store, rep
 		}
 		writeJSON(w, 201, stackedchanges.Project(x))
 	})
+	mux.HandleFunc("POST "+base+"/{stack}/revisions", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedRevision int                          `json:"expected_revision"`
+			Reason           string                       `json:"reason"`
+			Members          []stackedchanges.MemberInput `json:"members"`
+		}
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		current, e := s.Get(string(repo.ID), r.PathValue("stack"))
+		if stackError(w, e) {
+			return
+		}
+		candidate := current.Input
+		candidate.Members = in.Members
+		opened, e := repos.Open(repo.ID)
+		if e != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		members, blockers := analyzeChangeStack(opened, candidate, true, true)
+		otherStacks, _ := s.List(string(repo.ID))
+		for _, m := range members {
+			for _, other := range otherStacks {
+				if other.ID != current.ID {
+					for _, used := range other.Members {
+						if used.Branch == m.Branch {
+							blockers = append(blockers, stackedchanges.Blocker{Kind: "shared_branch", MemberID: m.ID, Detail: "branch is also retained by stack " + other.ID})
+						}
+					}
+				}
+			}
+			if m.RepositoryID != "" && m.RepositoryID != string(repo.ID) {
+				blockers = append(blockers, stackedchanges.Blocker{Kind: "other_repository_owned", MemberID: m.ID, Detail: "member belongs to an independently governed repository"})
+			}
+			if m.BranchAccess == "revoked" {
+				blockers = append(blockers, stackedchanges.Blocker{Kind: "revoked_access", MemberID: m.ID, Detail: "declared branch access was revoked before publication"})
+			}
+			owners := m.BranchOwnerIDs
+			if len(owners) == 0 {
+				owners = m.Authors
+			}
+			if !stackContains(owners, actor.UserID) {
+				blockers = append(blockers, stackedchanges.Blocker{Kind: "other_contributor_owned", MemberID: m.ID, Detail: "caller does not own this branch"})
+			}
+		}
+		for _, b := range blockers {
+			if b.Kind == "unrelated_history" {
+				blockers = append(blockers, stackedchanges.Blocker{Kind: "rewrite_conflict", MemberID: b.MemberID, Detail: "proposed commit does not apply on its new declared base"})
+			}
+		}
+		for i := range members {
+			members[i].Blockers = append(members[i].Blockers, memberBlockers(blockers, members[i].ID)...)
+			members[i].Reviewable = len(members[i].Blockers) == 0
+		}
+		x, e := s.PreviewRevision(string(repo.ID), current.ID, actor.UserID, in.Reason, in.ExpectedRevision, candidate, members, dedupeBlockers(blockers))
+		if stackError(w, e) {
+			return
+		}
+		writeJSON(w, 201, projectStackPermissions(x, actor))
+	})
+	mux.HandleFunc("POST "+base+"/{stack}/revisions/{revision}/apply", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		number, e := strconv.Atoi(r.PathValue("revision"))
+		if e != nil || number < 1 {
+			writeJSON(w, 400, map[string]string{"error": "invalid_revision"})
+			return
+		}
+		x, revision, e := s.RevisionForApply(string(repo.ID), r.PathValue("stack"), number)
+		if stackError(w, e) {
+			return
+		}
+		for _, m := range revision.Members {
+			owners := m.BranchOwnerIDs
+			if len(owners) == 0 {
+				owners = m.Authors
+			}
+			if !stackContains(owners, actor.UserID) {
+				writeJSON(w, 403, map[string]string{"error": "branch_owner_required"})
+				return
+			}
+		}
+		opened, e := repos.Open(repo.ID)
+		if e == nil {
+			e = atomicStackBranches(opened, revision)
+		}
+		x, e = s.FinishApply(string(repo.ID), x.ID, number, actor.UserID, e)
+		if stackError(w, e) {
+			return
+		}
+		status := 200
+		for _, applied := range x.Revisions {
+			if applied.Number == number && applied.Status == "failed" {
+				status = 409
+			}
+		}
+		writeJSON(w, status, projectStackPermissions(x, actor))
+	})
+}
+
+func stackContains(xs []string, v string) bool {
+	for _, x := range xs {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+func atomicStackBranches(repo *storage.Repository, revision stackedchanges.Revision) error {
+	if len(revision.Blockers) > 0 {
+		return stackedchanges.ErrInvalid
+	}
+	var b bytes.Buffer
+	b.WriteString("start\n")
+	zero := "0000000000000000000000000000000000000000"
+	for _, u := range revision.BranchUpdates {
+		old := u.ExpectedRevision
+		if old == "" {
+			old = zero
+		}
+		b.WriteString("update refs/heads/" + strings.TrimPrefix(u.Branch, "refs/heads/") + " " + u.PublishedRevision + " " + old + "\n")
+	}
+	b.WriteString("prepare\ncommit\n")
+	cmd := exec.Command("git", "--git-dir="+repo.GitDir(), "update-ref", "--stdin")
+	cmd.Stdin = &b
+	if output, e := cmd.CombinedOutput(); e != nil {
+		return errors.New(strings.TrimSpace(string(output)))
+	}
+	return nil
 }
 
 func projectStackPermissions(x stackedchanges.Stack, actor auth.Grant) stackedchanges.Stack {
@@ -126,7 +265,16 @@ func projectStackPermissions(x stackedchanges.Stack, actor auth.Grant) stackedch
 		}
 	}
 	for i := range x.Members {
-		x.Members[i].EffectivePermissions = stackedchanges.Permission{Read: true, Publish: canPublish, UpdateBranch: false, Reason: "effective caller access; branch updates require separate Git authority"}
+		owners := x.Members[i].BranchOwnerIDs
+		if len(owners) == 0 {
+			owners = x.Members[i].Authors
+		}
+		canUpdate := canPublish && stackContains(owners, actor.UserID)
+		reason := "branch is owned by another contributor or repository"
+		if canUpdate {
+			reason = "caller may request an optimistic atomic update of this owned branch"
+		}
+		x.Members[i].EffectivePermissions = stackedchanges.Permission{Read: true, Publish: canPublish, UpdateBranch: canUpdate, Reason: reason}
 	}
 	return x
 }
@@ -146,7 +294,7 @@ func stackError(w http.ResponseWriter, e error) bool {
 	return true
 }
 
-func analyzeChangeStack(repo *storage.Repository, in stackedchanges.Input, canWrite bool) ([]stackedchanges.Member, []stackedchanges.Blocker) {
+func analyzeChangeStack(repo *storage.Repository, in stackedchanges.Input, canWrite, rewritePreview bool) ([]stackedchanges.Member, []stackedchanges.Blocker) {
 	all := []stackedchanges.Blocker{}
 	ids := map[string]stackedchanges.MemberInput{}
 	for _, m := range in.Members {
@@ -206,7 +354,7 @@ func analyzeChangeStack(repo *storage.Repository, in stackedchanges.Input, canWr
 		if m.BranchState == "existing" {
 			if ref, e := repo.ReadReference(storage.ReferenceName("refs/heads/" + strings.TrimPrefix(m.Branch, "refs/heads/"))); e != nil {
 				x.Blockers = append(x.Blockers, stackedchanges.Blocker{Kind: "inaccessible_branch", MemberID: m.ID, Detail: "existing branch is missing or inaccessible"})
-			} else if string(ref.ObjectID) != m.Revision {
+			} else if string(ref.ObjectID) != m.Revision && !rewritePreview {
 				x.Blockers = append(x.Blockers, stackedchanges.Blocker{Kind: "branch_moved", MemberID: m.ID, Detail: "branch does not point to the declared exact revision"})
 			}
 		}
