@@ -47,3 +47,53 @@ func TestCampaignRejectsCyclesAndImplicitUnknowns(t *testing.T) {
 		t.Fatalf("cycle accepted: %v", e)
 	}
 }
+
+func assessment(revision string, proof bool) AssessmentInput {
+	kinds := []string{"history", "symbols", "dependencies", "interfaces", "schemas", "prior_fixes", "release_commitments"}
+	comparisons := make([]Comparison, 0, len(kinds))
+	for _, kind := range kinds {
+		comparisons = append(comparisons, Comparison{Kind: kind, SourceSummary: "source evidence", TargetSummary: "target evidence", Conclusion: "matched", BehavioralProof: proof && kind == "prior_fixes", Citations: []Citation{{Kind: kind, Reference: "evidence:" + kind, Revision: revision}}})
+	}
+	return AssessmentInput{TargetRevision: revision, SourceRevision: "abc", Classification: "already_satisfied", Rationale: "A prior target fix satisfies the source behavior.", Comparisons: comparisons, AssumptionsStillHold: true}
+}
+
+func TestAssessmentsAreEvidenceBoundAndStaleOnlyTheirTarget(t *testing.T) {
+	s, _ := New(t.TempDir())
+	now := time.Now().UTC()
+	targets := []Target{{ID: "a", RepositoryID: "r", ReleaseLine: "v1", OwnerIDs: []string{"owner"}, Deadline: now, Disposition: "pending", Authority: Authority{OwnerIDs: []string{"owner"}, Access: "read", Basis: "membership", ObservedAt: now}}, {ID: "b", RepositoryID: "r", ReleaseLine: "v2", OwnerIDs: []string{"other"}, Deadline: now, Disposition: "pending", Authority: Authority{Access: "read", Basis: "membership", ObservedAt: now}}}
+	c, err := s.Create("r", "author", Input{Title: "x", Intent: "x", AcceptanceCriteria: []string{"x"}, Source: Source{Kind: "policy_change", RepositoryID: "r", ResourceID: "p", Revision: "abc", CommitIDs: []string{"abc"}}, Targets: targets, CompletionPolicy: CompletionPolicy{Mode: "all_supported"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	weak := assessment("one", false)
+	if _, err = s.Assess("r", c.ID, "a", "analyst", weak); err != ErrInvalid {
+		t.Fatalf("similarity became equivalence: %v", err)
+	}
+	c, err = s.Assess("r", c.ID, "a", "analyst", assessment("one", true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := c.Assessments[0].ID
+	c, err = s.Assess("r", c.ID, "b", "analyst", assessment("b-one", true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err = s.Assess("r", c.ID, "a", "analyst", assessment("two", true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Assessments[0].Stale || c.Assessments[1].Stale || c.Assessments[2].Stale {
+		t.Fatalf("incorrect selective staleness: %#v", c.Assessments)
+	}
+	c, err = s.AddFinding("r", c.ID, "a", first, "reader", FindingInput{ActorKind: "read_only_agent", Summary: "Release promise may differ", Uncertainty: "Runtime unavailable", Citations: []Citation{{Kind: "release_commitments", Reference: "release:v1", Revision: "one"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Acknowledge("r", c.ID, "a", first, "reader", "acknowledged", "looks right"); err != ErrForbidden {
+		t.Fatalf("non-owner acknowledgement: %v", err)
+	}
+	c, err = s.Acknowledge("r", c.ID, "a", first, "owner", "changes_requested", "Recheck the supported schema.")
+	if err != nil || len(c.Assessments[0].Acknowledgements) != 1 || len(c.Assessments[0].Findings) != 1 {
+		t.Fatalf("collaboration lost: %#v %v", c, err)
+	}
+}

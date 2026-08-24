@@ -61,6 +61,54 @@ func registerPropagationCampaignsHTTP(mux *http.ServeMux, store *propagationcamp
 		}
 		writeJSON(w, 200, x)
 	})
+	mux.HandleFunc("POST "+base+"/{campaign}/targets/{target}/assessments", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in propagationcampaigns.AssessmentInput
+		if !readJSON(w, r, &in, 512<<10) {
+			return
+		}
+		x, err := store.Assess(string(repo.ID), r.PathValue("campaign"), r.PathValue("target"), actor.UserID, in)
+		if propagationCampaignError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
+	mux.HandleFunc("POST "+base+"/{campaign}/targets/{target}/assessments/{assessment}/findings", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in propagationcampaigns.FindingInput
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		x, err := store.AddFinding(string(repo.ID), r.PathValue("campaign"), r.PathValue("target"), r.PathValue("assessment"), actor.UserID, in)
+		if propagationCampaignError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
+	mux.HandleFunc("POST "+base+"/{campaign}/targets/{target}/assessments/{assessment}/acknowledgements", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Decision  string `json:"decision"`
+			Rationale string `json:"rationale"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		x, err := store.Acknowledge(string(repo.ID), r.PathValue("campaign"), r.PathValue("target"), r.PathValue("assessment"), actor.UserID, in.Decision, in.Rationale)
+		if propagationCampaignError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
 }
 
 func propagationCampaignError(w http.ResponseWriter, err error) bool {
@@ -72,6 +120,8 @@ func propagationCampaignError(w http.ResponseWriter, err error) bool {
 		writeJSON(w, 404, map[string]string{"error": "propagation_campaign_not_found"})
 	case errors.Is(err, propagationcampaigns.ErrInvalid):
 		writeJSON(w, 422, map[string]string{"error": "invalid_propagation_campaign"})
+	case errors.Is(err, propagationcampaigns.ErrForbidden):
+		writeJSON(w, 403, map[string]string{"error": "target_owner_required"})
 	default:
 		writeJSON(w, 500, map[string]string{"error": "internal_error"})
 	}

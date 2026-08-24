@@ -5803,3 +5803,23 @@ repair. A changed assumption opens a private connected repair, and only a new
 model, reviewed scenario version, exact passing attempt, and sanitized staged
 signal establish restored protection; no old security result is silently
 promoted to the new revision.
+
+## Propagation applicability assessments
+
+Each permitted target under
+`/repositories/{repository}/propagation-campaigns/{campaign}/targets/{target}`
+can receive append-only assessments before implementation begins. An assessment
+freezes the exact source and target revisions and requires cited comparisons of
+history, symbols, dependencies, interfaces, schemas, prior fixes, and release
+commitments. Its result is one of directly applicable, already satisfied,
+adaptation required, conflicting, or not applicable; already-satisfied claims
+must identify behavioral proof because shared symbols or similar patches do not
+establish equivalent behavior.
+
+Repository readers and credential-bound read-only agents can append cited
+findings, risks, and uncertainty. Named target owners can separately
+acknowledge the analysis or request changes. Recording a comparison against a
+new target revision makes only earlier assessments for that target stale, while
+preserving their findings and owner decisions and leaving other campaign targets
+current. These records remain analysis and grant no target Git, review, merge,
+release, deployment, credential, environment, or operational authority.

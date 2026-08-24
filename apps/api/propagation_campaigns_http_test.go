@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -38,6 +39,20 @@ func TestPropagationCampaignPublicBoundary(t *testing.T) {
 		t.Fatalf("explicit target lost: %#v", campaign)
 	}
 	workflowJSON(t, server.URL, http.MethodGet, base+"/"+campaign.ID, token, "", 200, &campaign)
+	comparisons := make([]propagationcampaigns.Comparison, 0, 7)
+	for _, kind := range []string{"history", "symbols", "dependencies", "interfaces", "schemas", "prior_fixes", "release_commitments"} {
+		comparisons = append(comparisons, propagationcampaigns.Comparison{Kind: kind, SourceSummary: "source", TargetSummary: "target", Conclusion: "different", Citations: []propagationcampaigns.Citation{{Kind: kind, Reference: "evidence:" + kind, Revision: "target-1"}}})
+	}
+	assessmentBody, _ := json.Marshal(propagationcampaigns.AssessmentInput{TargetRevision: "target-1", SourceRevision: string(commit), Classification: "adaptation_required", Rationale: "The stable line has a different parser interface.", Comparisons: comparisons, Risks: []string{"release compatibility"}, Uncertainty: "Runtime behavior remains to be tested."})
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+campaign.ID+"/targets/stable/assessments", token, string(assessmentBody), 201, &campaign)
+	assessmentID := campaign.Assessments[0].ID
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+campaign.ID+"/targets/stable/assessments/"+assessmentID+"/findings", token, `{"actor_kind":"read_only_agent","summary":"The release promise excludes the old schema.","uncertainty":"Peer package is unavailable.","citations":[{"kind":"release_commitments","reference":"release:v2","revision":"target-1"}]}`, 201, &campaign)
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+campaign.ID+"/targets/stable/assessments/"+assessmentID+"/acknowledgements", token, `{"decision":"acknowledged","rationale":"reviewed"}`, 403, nil)
+	ownerToken := issueAccess(t, credentials, "owner", auth.API, auth.RepositoryRead)
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+campaign.ID+"/targets/stable/assessments/"+assessmentID+"/acknowledgements", ownerToken, `{"decision":"changes_requested","rationale":"Cite the supported schema guarantee."}`, 201, &campaign)
+	if len(campaign.Assessments[0].Findings) != 1 || len(campaign.Assessments[0].Acknowledgements) != 1 {
+		t.Fatalf("assessment collaboration lost: %#v", campaign.Assessments[0])
+	}
 	bad := fmt.Sprintf(`{"title":"bad","intent":"bad","acceptance_criteria":["x"],"source":{"kind":"policy_change","repository_id":%q,"resource_id":"p","revision":"missing","commit_ids":["missing"]},"targets":[]}`, repository.ID)
 	workflowJSON(t, server.URL, http.MethodPost, base, token, bad, 422, nil)
 }

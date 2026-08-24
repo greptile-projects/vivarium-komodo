@@ -16,6 +16,7 @@ import (
 
 var ErrNotFound = errors.New("propagation campaign not found")
 var ErrInvalid = errors.New("invalid propagation campaign")
+var ErrForbidden = errors.New("propagation campaign action forbidden")
 
 type Source struct {
 	Kind               string   `json:"kind"`
@@ -69,13 +70,125 @@ type Blocker struct {
 	Kind     string `json:"kind"`
 	Detail   string `json:"detail"`
 }
+
+type Citation struct {
+	Kind      string `json:"kind"`
+	Reference string `json:"reference"`
+	Revision  string `json:"revision"`
+	Path      string `json:"path,omitempty"`
+	Symbol    string `json:"symbol,omitempty"`
+}
+
+type Comparison struct {
+	Kind            string     `json:"kind"`
+	SourceSummary   string     `json:"source_summary"`
+	TargetSummary   string     `json:"target_summary"`
+	Conclusion      string     `json:"conclusion"`
+	BehavioralProof bool       `json:"behavioral_proof"`
+	Citations       []Citation `json:"citations"`
+}
+
+type AssessmentInput struct {
+	TargetRevision       string       `json:"target_revision"`
+	SourceRevision       string       `json:"source_revision"`
+	Classification       string       `json:"classification"`
+	Rationale            string       `json:"rationale"`
+	Comparisons          []Comparison `json:"comparisons"`
+	Risks                []string     `json:"risks,omitempty"`
+	Uncertainty          string       `json:"uncertainty,omitempty"`
+	AssumptionsStillHold bool         `json:"assumptions_still_hold"`
+}
+
+type FindingInput struct {
+	ActorKind   string     `json:"actor_kind"`
+	Summary     string     `json:"summary"`
+	Risk        string     `json:"risk,omitempty"`
+	Uncertainty string     `json:"uncertainty,omitempty"`
+	Citations   []Citation `json:"citations"`
+}
+
+type Finding struct {
+	ID      string `json:"id"`
+	ActorID string `json:"actor_id"`
+	FindingInput
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Acknowledgement struct {
+	ID        string    `json:"id"`
+	OwnerID   string    `json:"owner_id"`
+	Decision  string    `json:"decision"`
+	Rationale string    `json:"rationale"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Assessment struct {
+	ID       string `json:"id"`
+	TargetID string `json:"target_id"`
+	AuthorID string `json:"author_id"`
+	AssessmentInput
+	Findings         []Finding         `json:"findings"`
+	Acknowledgements []Acknowledgement `json:"acknowledgements"`
+	CreatedAt        time.Time         `json:"created_at"`
+	Stale            bool              `json:"stale"`
+}
 type Campaign struct {
 	ID           string `json:"id"`
 	RepositoryID string `json:"repository_id"`
 	CreatorID    string `json:"creator_id"`
 	Input
-	Blockers  []Blocker `json:"blockers"`
-	CreatedAt time.Time `json:"created_at"`
+	Blockers    []Blocker    `json:"blockers"`
+	Assessments []Assessment `json:"assessments,omitempty"`
+	CreatedAt   time.Time    `json:"created_at"`
+}
+
+var comparisonKinds = map[string]bool{"history": true, "symbols": true, "dependencies": true, "interfaces": true, "schemas": true, "prior_fixes": true, "release_commitments": true}
+
+func validCitations(v []Citation) bool {
+	if len(v) == 0 || len(v) > 100 {
+		return false
+	}
+	for _, c := range v {
+		if !comparisonKinds[c.Kind] && c.Kind != "test" && c.Kind != "change" || strings.TrimSpace(c.Reference) == "" || strings.TrimSpace(c.Revision) == "" {
+			return false
+		}
+	}
+	return true
+}
+func validAssessment(in AssessmentInput, source string) bool {
+	classes := map[string]bool{"directly_applicable": true, "already_satisfied": true, "adaptation_required": true, "conflicting": true, "not_applicable": true}
+	if in.TargetRevision == "" || in.SourceRevision != source || !classes[in.Classification] || strings.TrimSpace(in.Rationale) == "" || len(in.Comparisons) != len(comparisonKinds) || !textList(in.Risks, false) {
+		return false
+	}
+	seen, proof := map[string]bool{}, false
+	for _, c := range in.Comparisons {
+		if !comparisonKinds[c.Kind] || seen[c.Kind] || strings.TrimSpace(c.SourceSummary) == "" || strings.TrimSpace(c.TargetSummary) == "" || !map[string]bool{"matched": true, "different": true, "absent": true, "unknown": true}[c.Conclusion] || !validCitations(c.Citations) {
+			return false
+		}
+		seen[c.Kind] = true
+		proof = proof || c.BehavioralProof
+	}
+	// Similar code/history is evidence, never proof of equivalent behavior.
+	return in.Classification != "already_satisfied" || proof
+}
+func target(c Campaign, targetID string) (Target, bool) {
+	for _, t := range c.Targets {
+		if t.ID == targetID {
+			return t, true
+		}
+	}
+	return Target{}, false
+}
+func currentAssessments(v []Assessment) []Assessment {
+	latest := map[string]int{}
+	for i := range v {
+		latest[v[i].TargetID] = i
+	}
+	out := append([]Assessment(nil), v...)
+	for i := range out {
+		out[i].Stale = latest[out[i].TargetID] != i
+	}
+	return out
 }
 
 type Store struct {
@@ -209,8 +322,86 @@ func (s *Store) Get(repo, campaign string) (Campaign, error) {
 	}
 	if e == nil {
 		e = json.Unmarshal(b, &x)
+		x.Assessments = currentAssessments(x.Assessments)
 	}
 	return x, e
+}
+
+func (s *Store) save(x Campaign) error {
+	x.Assessments = currentAssessments(x.Assessments)
+	b, err := json.MarshalIndent(x, "", "  ")
+	if err == nil {
+		err = os.WriteFile(s.path(x.RepositoryID, x.ID), b, 0640)
+	}
+	return err
+}
+
+func (s *Store) Assess(repo, campaign, targetID, actor string, in AssessmentInput) (Campaign, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, err := s.Get(repo, campaign)
+	if err != nil {
+		return x, err
+	}
+	t, ok := target(x, targetID)
+	if !ok || t.Authority.Access == "inaccessible" || !validAssessment(in, x.Source.Revision) {
+		return Campaign{}, ErrInvalid
+	}
+	x.Assessments = append(x.Assessments, Assessment{ID: id(), TargetID: targetID, AuthorID: actor, AssessmentInput: in, Findings: []Finding{}, Acknowledgements: []Acknowledgement{}, CreatedAt: s.now().UTC()})
+	x.Assessments = currentAssessments(x.Assessments)
+	err = s.save(x)
+	return x, err
+}
+
+func (s *Store) AddFinding(repo, campaign, targetID, assessmentID, actor string, in FindingInput) (Campaign, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, err := s.Get(repo, campaign)
+	if err != nil {
+		return x, err
+	}
+	if !map[string]bool{"human": true, "read_only_agent": true}[in.ActorKind] || strings.TrimSpace(in.Summary) == "" || !validCitations(in.Citations) {
+		return Campaign{}, ErrInvalid
+	}
+	for i := range x.Assessments {
+		if x.Assessments[i].ID == assessmentID && x.Assessments[i].TargetID == targetID {
+			x.Assessments[i].Findings = append(x.Assessments[i].Findings, Finding{ID: id(), ActorID: actor, FindingInput: in, CreatedAt: s.now().UTC()})
+			err = s.save(x)
+			return x, err
+		}
+	}
+	return Campaign{}, ErrNotFound
+}
+
+func (s *Store) Acknowledge(repo, campaign, targetID, assessmentID, actor, decision, rationale string) (Campaign, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, err := s.Get(repo, campaign)
+	if err != nil {
+		return x, err
+	}
+	t, ok := target(x, targetID)
+	if !ok {
+		return Campaign{}, ErrNotFound
+	}
+	owner := false
+	for _, v := range append(append([]string{}, t.OwnerIDs...), t.Authority.OwnerIDs...) {
+		owner = owner || v == actor
+	}
+	if !owner {
+		return Campaign{}, ErrForbidden
+	}
+	if !map[string]bool{"acknowledged": true, "changes_requested": true}[decision] || strings.TrimSpace(rationale) == "" {
+		return Campaign{}, ErrInvalid
+	}
+	for i := range x.Assessments {
+		if x.Assessments[i].ID == assessmentID && x.Assessments[i].TargetID == targetID {
+			x.Assessments[i].Acknowledgements = append(x.Assessments[i].Acknowledgements, Acknowledgement{ID: id(), OwnerID: actor, Decision: decision, Rationale: strings.TrimSpace(rationale), CreatedAt: s.now().UTC()})
+			err = s.save(x)
+			return x, err
+		}
+	}
+	return Campaign{}, ErrNotFound
 }
 func (s *Store) List(repo string) ([]Campaign, error) {
 	entries, e := os.ReadDir(filepath.Join(s.root, repo))
