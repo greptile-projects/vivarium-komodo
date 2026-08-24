@@ -30,9 +30,19 @@ type Permission struct {
 }
 type Scope struct {
 	CommitCount  int      `json:"commit_count"`
+	CommitIDs    []string `json:"commit_ids"`
 	ChangedPaths []string `json:"changed_paths"`
+	Changes      []Change `json:"changes"`
 	FromRevision string   `json:"from_revision"`
 	ToRevision   string   `json:"to_revision"`
+}
+type Change struct {
+	Path      string `json:"path"`
+	Status    string `json:"status"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Binary    bool   `json:"binary"`
+	Patch     string `json:"patch,omitempty"`
 }
 type MemberInput struct {
 	ID                 string   `json:"id"`
@@ -59,16 +69,37 @@ type Publication struct {
 	PublishedAt time.Time `json:"published_at"`
 	ReviewState string    `json:"review_state"`
 }
+
+// Evidence binds an existing collaboration artifact to the layer it actually
+// evaluated. Reference is an opaque ID; this resource never grants authority
+// over the referenced discussion, decision, check, preview, or agent record.
+type Evidence struct {
+	ID                   string            `json:"id"`
+	Kind                 string            `json:"kind"`
+	Reference            string            `json:"reference"`
+	Scope                string            `json:"scope"`
+	MemberID             string            `json:"member_id"`
+	Revision             string            `json:"revision"`
+	UpstreamRevisions    map[string]string `json:"upstream_revisions"`
+	ActorID              string            `json:"actor_id"`
+	CreatedAt            time.Time         `json:"created_at"`
+	State                string            `json:"state"`
+	StaleIfMembersChange []string          `json:"stale_if_members_change"`
+}
 type Member struct {
 	MemberInput
-	Position             int           `json:"position"`
-	BaseRevision         string        `json:"base_revision"`
-	IndividualScope      Scope         `json:"individual_scope"`
-	CumulativeScope      Scope         `json:"cumulative_scope"`
-	EffectivePermissions Permission    `json:"effective_permissions"`
-	Blockers             []Blocker     `json:"blockers"`
-	Publications         []Publication `json:"publications"`
-	Reviewable           bool          `json:"reviewable"`
+	Position                 int               `json:"position"`
+	BaseRevision             string            `json:"base_revision"`
+	IndividualScope          Scope             `json:"individual_scope"`
+	CumulativeScope          Scope             `json:"cumulative_scope"`
+	EffectivePermissions     Permission        `json:"effective_permissions"`
+	Blockers                 []Blocker         `json:"blockers"`
+	Publications             []Publication     `json:"publications"`
+	Evidence                 []Evidence        `json:"evidence"`
+	UpstreamRevisions        map[string]string `json:"upstream_revisions"`
+	ReviewState              string            `json:"review_state"`
+	DownstreamEvidenceAtRisk []string          `json:"downstream_evidence_at_risk"`
+	Reviewable               bool              `json:"reviewable"`
 }
 type Stack struct {
 	ID           string `json:"id"`
@@ -187,4 +218,136 @@ func (s *Store) Publish(repo, stack, member, revision, actor string) (Stack, err
 		return x, s.save(x)
 	}
 	return Stack{}, ErrNotFound
+}
+
+func (s *Store) BindEvidence(repo, stack, member, revision, actor, kind, reference, scope string) (Stack, error) {
+	allowed := map[string]bool{"discussion": true, "review_decision": true, "owner_acknowledgement": true, "check": true, "preview": true, "agent_finding": true}
+	if !allowed[kind] || strings.TrimSpace(reference) == "" || (scope != "layer" && scope != "cumulative") {
+		return Stack{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.Get(repo, stack)
+	if e != nil {
+		return Stack{}, e
+	}
+	for i := range x.Members {
+		m := &x.Members[i]
+		if m.ID != member {
+			continue
+		}
+		if revision != m.Revision {
+			return Stack{}, ErrInvalid
+		}
+		upstream := upstreamFor(x, m.ID)
+		staleIf := []string{m.ID}
+		for id := range upstream {
+			staleIf = append(staleIf, id)
+		}
+		sort.Strings(staleIf)
+		state := "current"
+		for id := range upstream {
+			if !published(x, id) {
+				state = "provisional"
+			}
+		}
+		m.Evidence = append(m.Evidence, Evidence{ID: id(), Kind: kind, Reference: reference, Scope: scope, MemberID: m.ID, Revision: revision, UpstreamRevisions: upstream, ActorID: actor, CreatedAt: time.Now().UTC(), State: state, StaleIfMembersChange: staleIf})
+		return x, s.save(x)
+	}
+	return Stack{}, ErrNotFound
+}
+
+func upstreamFor(x Stack, member string) map[string]string {
+	out := map[string]string{}
+	by := map[string]Member{}
+	for _, m := range x.Members {
+		by[m.ID] = m
+	}
+	at := by[member].ParentID
+	for at != "" {
+		m, ok := by[at]
+		if !ok {
+			break
+		}
+		out[m.ID] = m.Revision
+		at = m.ParentID
+	}
+	return out
+}
+func published(x Stack, member string) bool {
+	for _, m := range x.Members {
+		if m.ID == member {
+			return len(m.Publications) > 0
+		}
+	}
+	return false
+}
+
+// Project derives review sequencing and invalidation impact from immutable
+// bindings each time the stack is read.
+func Project(x Stack) Stack {
+	for i := range x.Members {
+		m := &x.Members[i]
+		m.UpstreamRevisions = upstreamFor(x, m.ID)
+		m.ReviewState = "reviewable_now"
+		if len(m.Blockers) > 0 || len(m.Publications) == 0 {
+			m.ReviewState = "not_published"
+		} else {
+			for id := range m.UpstreamRevisions {
+				if !published(x, id) {
+					m.ReviewState = "provisional"
+				}
+			}
+		}
+		for j := range m.Evidence {
+			m.Evidence[j].State = "current"
+			for id, revision := range m.Evidence[j].UpstreamRevisions {
+				found := false
+				for _, u := range x.Members {
+					if u.ID == id && u.Revision == revision && published(x, id) {
+						found = true
+					}
+				}
+				if !found {
+					m.Evidence[j].State = "provisional"
+				}
+			}
+		}
+		m.DownstreamEvidenceAtRisk = []string{}
+	}
+	for _, m := range x.Members {
+		for _, e := range m.Evidence {
+			for _, changed := range e.StaleIfMembersChange {
+				for i := range x.Members {
+					if x.Members[i].ID == changed {
+						x.Members[i].DownstreamEvidenceAtRisk = append(x.Members[i].DownstreamEvidenceAtRisk, e.ID)
+					}
+				}
+			}
+		}
+	}
+	for i := range x.Members {
+		sort.Strings(x.Members[i].DownstreamEvidenceAtRisk)
+	}
+	return x
+}
+
+func (s *Store) FindByPull(repo, pull string) (Stack, Member, error) {
+	xs, e := s.List(repo)
+	if e != nil {
+		return Stack{}, Member{}, e
+	}
+	for _, x := range xs {
+		for _, m := range x.Members {
+			if m.PullRequestID == pull {
+				x = Project(x)
+				for _, p := range x.Members {
+					if p.ID == m.ID {
+						return x, p, nil
+					}
+				}
+			}
+		}
+	}
+	return Stack{}, Member{}, ErrNotFound
 }

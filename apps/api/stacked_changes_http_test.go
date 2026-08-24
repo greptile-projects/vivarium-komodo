@@ -45,6 +45,19 @@ func TestChangeStackPublicBoundary(t *testing.T) {
 	if len(stack.Members[0].Publications) != 1 || stack.Members[0].Publications[0].Revision != string(one) {
 		t.Fatalf("exact publication lost: %#v", stack)
 	}
+	workflowJSON(t, server.URL, http.MethodPost, root+"/"+stack.ID+"/members/docs/publications", token, fmt.Sprintf(`{"revision":%q}`, two), 201, &stack)
+	workflowJSON(t, server.URL, http.MethodPost, root+"/"+stack.ID+"/members/docs/evidence", token, fmt.Sprintf(`{"revision":%q,"kind":"review_decision","reference":"review:7","scope":"layer"}`, two), 201, &stack)
+	if len(stack.Members[1].Evidence) != 1 || stack.Members[1].Evidence[0].UpstreamRevisions["api"] != string(one) || stack.Members[1].Evidence[0].State != "current" || len(stack.Members[0].DownstreamEvidenceAtRisk) != 1 || len(stack.Members[1].IndividualScope.Changes) == 0 || len(stack.Members[1].CumulativeScope.CommitIDs) != 2 {
+		t.Fatalf("layer review context lost: %#v", stack)
+	}
+	var context struct {
+		Member    stackedchanges.Member `json:"member"`
+		Authority []string              `json:"authority_granted"`
+	}
+	workflowJSON(t, server.URL, http.MethodGet, "/repositories/"+string(repository.ID)+"/pull-requests/pull:1/stack-context", token, "", 200, &context)
+	if context.Member.ID != "api" || context.Member.ReviewState != "reviewable_now" || len(context.Authority) != 0 {
+		t.Fatalf("pull stack projection lost: %#v", context)
+	}
 	workflowJSON(t, server.URL, http.MethodPost, root+"/"+stack.ID+"/members/docs/publications", token, fmt.Sprintf(`{"revision":%q}`, one), 422, nil)
 	bad := in
 	bad.Title = "Visible blockers"
