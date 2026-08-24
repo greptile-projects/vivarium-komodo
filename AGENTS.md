@@ -2198,6 +2198,15 @@ whenever dependencies change or the web job fails before it starts.
   append cited findings, risks, and uncertainty, while only named target owners
   acknowledge or request changes. A later assessment stales prior assessments
   for that target only and preserves every other target's current analysis.
+  A current applicable assessment may become an ordered target-local
+  contribution plan with human or agent ownership, scoped task, session,
+  workspace, fork, pull-request, or federated-pull references, source authors,
+  relevant commits, constraints, acceptance criteria, and citation-only context.
+  Direct plans retain proven authorship unchanged; adapted plans must state
+  every deviation. Inaccessible or unknown targets cannot receive plans, and an
+  independently owned target's pull request must cite an ordinary fork or
+  federated contribution path. Plans grant no task, session, workspace, fork,
+  repository, Git, review, merge, release, or operational authority.
   Prospective impact assessments live beneath `$IMPACT_ASSESSMENT_ROOT`
   (default `apps/api/data/impact-assessments`) and begin from selected code,
   symbols, an exact current investigation conclusion, or a proposed diff. Keep

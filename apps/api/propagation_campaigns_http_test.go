@@ -53,6 +53,12 @@ func TestPropagationCampaignPublicBoundary(t *testing.T) {
 	if len(campaign.Assessments[0].Findings) != 1 || len(campaign.Assessments[0].Acknowledgements) != 1 {
 		t.Fatalf("assessment collaboration lost: %#v", campaign.Assessments[0])
 	}
+	contribution := propagationcampaigns.ContributionInput{AssessmentID: assessmentID, Mode: "adapted", Rationale: "Use the stable parser boundary.", SourceAuthorIDs: []string{"repair-author"}, RelevantCommitIDs: []string{string(commit)}, Constraints: []string{"stable schema remains unchanged"}, AcceptanceCriteria: []string{"legacy input works"}, Deviations: []string{"replace the current-line hook with the stable adapter"}, ContextReferences: []string{"assessment:" + assessmentID}, Tasks: []propagationcampaigns.ContributionTask{{ID: "repair", Title: "Adapt the repair", OwnerKind: "agent", OwnerID: "stable-agent", Scope: []string{"parser and tests"}, AcceptanceCriteria: []string{"legacy input works"}, TaskID: "task:stable", SessionID: "session:stable", WorkspaceID: "workspace:stable"}, {ID: "review", Title: "Review stable behavior", OwnerKind: "human", OwnerID: "owner", DependsOn: []string{"repair"}, Scope: []string{"review only"}, AcceptanceCriteria: []string{"intent retained"}, PullRequestID: "pull:stable"}}}
+	contributionBody, _ := json.Marshal(contribution)
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+campaign.ID+"/targets/stable/contributions", token, string(contributionBody), 201, &campaign)
+	if len(campaign.Contributions) != 1 || campaign.Contributions[0].SourceIntent != campaign.Intent || len(campaign.Contributions[0].AuthorityGranted) != 0 {
+		t.Fatalf("contribution provenance or authority boundary lost: %#v", campaign.Contributions)
+	}
 	bad := fmt.Sprintf(`{"title":"bad","intent":"bad","acceptance_criteria":["x"],"source":{"kind":"policy_change","repository_id":%q,"resource_id":"p","revision":"missing","commit_ids":["missing"]},"targets":[]}`, repository.ID)
 	workflowJSON(t, server.URL, http.MethodPost, base, token, bad, 422, nil)
 }

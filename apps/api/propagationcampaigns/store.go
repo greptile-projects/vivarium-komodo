@@ -132,14 +132,105 @@ type Assessment struct {
 	CreatedAt        time.Time         `json:"created_at"`
 	Stale            bool              `json:"stale"`
 }
+
+// Contribution turns one current applicability decision into locally owned,
+// ordinary collaboration resources. Resource references are provenance, not
+// authority: their native APIs remain responsible for access and publication.
+type ContributionInput struct {
+	AssessmentID       string             `json:"assessment_id"`
+	Mode               string             `json:"mode"`
+	Rationale          string             `json:"rationale"`
+	SourceAuthorIDs    []string           `json:"source_author_ids"`
+	RelevantCommitIDs  []string           `json:"relevant_commit_ids"`
+	Constraints        []string           `json:"constraints"`
+	AcceptanceCriteria []string           `json:"acceptance_criteria"`
+	Deviations         []string           `json:"deviations,omitempty"`
+	ContextReferences  []string           `json:"context_references,omitempty"`
+	Tasks              []ContributionTask `json:"tasks"`
+}
+
+type ContributionTask struct {
+	ID                 string   `json:"id"`
+	Title              string   `json:"title"`
+	OwnerKind          string   `json:"owner_kind"`
+	OwnerID            string   `json:"owner_id"`
+	DependsOn          []string `json:"depends_on,omitempty"`
+	Scope              []string `json:"scope"`
+	AcceptanceCriteria []string `json:"acceptance_criteria"`
+	TaskID             string   `json:"task_id,omitempty"`
+	SessionID          string   `json:"session_id,omitempty"`
+	WorkspaceID        string   `json:"workspace_id,omitempty"`
+	ForkRepositoryID   string   `json:"fork_repository_id,omitempty"`
+	PullRequestID      string   `json:"pull_request_id,omitempty"`
+	FederatedPullRef   string   `json:"federated_pull_reference,omitempty"`
+}
+
+type Contribution struct {
+	ID        string `json:"id"`
+	TargetID  string `json:"target_id"`
+	CreatorID string `json:"creator_id"`
+	ContributionInput
+	SourceIntent        string    `json:"source_intent"`
+	SourceResourceID    string    `json:"source_resource_id"`
+	SourceRevision      string    `json:"source_revision"`
+	AssessmentRationale string    `json:"assessment_rationale"`
+	CreatedAt           time.Time `json:"created_at"`
+	AuthorityGranted    []string  `json:"authority_granted"`
+}
 type Campaign struct {
 	ID           string `json:"id"`
 	RepositoryID string `json:"repository_id"`
 	CreatorID    string `json:"creator_id"`
 	Input
-	Blockers    []Blocker    `json:"blockers"`
-	Assessments []Assessment `json:"assessments,omitempty"`
-	CreatedAt   time.Time    `json:"created_at"`
+	Blockers      []Blocker      `json:"blockers"`
+	Assessments   []Assessment   `json:"assessments,omitempty"`
+	Contributions []Contribution `json:"contributions,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
+}
+
+func validContribution(in ContributionInput, c Campaign, t Target, a Assessment) bool {
+	if in.AssessmentID == "" || !map[string]bool{"direct": true, "adapted": true}[in.Mode] || strings.TrimSpace(in.Rationale) == "" || !textList(in.SourceAuthorIDs, true) || !textList(in.RelevantCommitIDs, true) || !textList(in.Constraints, true) || !textList(in.AcceptanceCriteria, true) || !textList(in.ContextReferences, false) || len(in.Tasks) == 0 || len(in.Tasks) > 100 {
+		return false
+	}
+	if a.Stale || a.TargetID != t.ID || a.SourceRevision != c.Source.Revision || (t.Revision != "" && a.TargetRevision != t.Revision) || !map[string]bool{"directly_applicable": true, "adaptation_required": true, "conflicting": true}[a.Classification] {
+		return false
+	}
+	if (in.Mode == "direct") != (a.Classification == "directly_applicable") || in.Mode == "adapted" && !textList(in.Deviations, true) || in.Mode == "direct" && len(in.Deviations) != 0 {
+		return false
+	}
+	commits := map[string]bool{}
+	for _, x := range c.Source.CommitIDs {
+		commits[x] = true
+	}
+	for _, x := range in.RelevantCommitIDs {
+		if !commits[x] {
+			return false
+		}
+	}
+	seen := map[string]bool{}
+	for _, x := range in.Tasks {
+		if x.ID == "" || seen[x.ID] || strings.TrimSpace(x.Title) == "" || !map[string]bool{"human": true, "agent": true}[x.OwnerKind] || x.OwnerID == "" || !textList(x.Scope, true) || !textList(x.AcceptanceCriteria, true) {
+			return false
+		}
+		seen[x.ID] = true
+		// Independently owned targets must publish through an ordinary fork or
+		// federation reference; a campaign-local PR identifier is insufficient.
+		if x.PullRequestID != "" && t.RepositoryID != c.RepositoryID && x.ForkRepositoryID == "" && x.FederatedPullRef == "" {
+			return false
+		}
+	}
+	for _, x := range in.Tasks {
+		for _, d := range x.DependsOn {
+			if !seen[d] || d == x.ID {
+				return false
+			}
+		}
+	}
+	plain := make([]Target, 0, len(in.Tasks))
+	for _, x := range in.Tasks {
+		plain = append(plain, Target{ID: x.ID, DependsOn: x.DependsOn})
+	}
+	return !cyclic(plain)
 }
 
 var comparisonKinds = map[string]bool{"history": true, "symbols": true, "dependencies": true, "interfaces": true, "schemas": true, "prior_fixes": true, "release_commitments": true}
@@ -402,6 +493,39 @@ func (s *Store) Acknowledge(repo, campaign, targetID, assessmentID, actor, decis
 		}
 	}
 	return Campaign{}, ErrNotFound
+}
+
+func (s *Store) CreateContribution(repo, campaign, targetID, actor string, in ContributionInput) (Campaign, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, err := s.Get(repo, campaign)
+	if err != nil {
+		return x, err
+	}
+	t, ok := target(x, targetID)
+	if !ok {
+		return Campaign{}, ErrNotFound
+	}
+	if t.Disposition != "pending" || t.Authority.Access == "inaccessible" || t.Authority.Access == "unknown" {
+		return Campaign{}, ErrForbidden
+	}
+	var assessment Assessment
+	found := false
+	for _, a := range x.Assessments {
+		if a.ID == in.AssessmentID && a.TargetID == targetID {
+			assessment, found = a, true
+			break
+		}
+	}
+	if !found {
+		return Campaign{}, ErrNotFound
+	}
+	if !validContribution(in, x, t, assessment) {
+		return Campaign{}, ErrInvalid
+	}
+	x.Contributions = append(x.Contributions, Contribution{ID: id(), TargetID: targetID, CreatorID: actor, ContributionInput: in, SourceIntent: x.Intent, SourceResourceID: x.Source.ResourceID, SourceRevision: x.Source.Revision, AssessmentRationale: assessment.Rationale, CreatedAt: s.now().UTC(), AuthorityGranted: []string{}})
+	err = s.save(x)
+	return x, err
 }
 func (s *Store) List(repo string) ([]Campaign, error) {
 	entries, e := os.ReadDir(filepath.Join(s.root, repo))

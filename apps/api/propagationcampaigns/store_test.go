@@ -97,3 +97,51 @@ func TestAssessmentsAreEvidenceBoundAndStaleOnlyTheirTarget(t *testing.T) {
 		t.Fatalf("collaboration lost: %#v %v", c, err)
 	}
 }
+
+func TestContributionPreservesIntentAuthorshipAdaptationAndBoundaries(t *testing.T) {
+	s, _ := New(t.TempDir())
+	now := time.Now().UTC()
+	targets := []Target{
+		{ID: "local", RepositoryID: "origin", ReleaseLine: "stable", Revision: "stable-1", OwnerIDs: []string{"maintainer"}, Deadline: now.Add(time.Hour), Disposition: "pending", Authority: Authority{Access: "write", Basis: "collaborator", ObservedAt: now}},
+		{ID: "peer", RepositoryReference: "https://peer.example/lib", ReleaseLine: "legacy", Revision: "peer-1", Deadline: now.Add(time.Hour), Disposition: "pending", Authority: Authority{Access: "contribute", Basis: "ordinary federation", ObservedAt: now}},
+	}
+	c, err := s.Create("origin", "campaign-owner", Input{Title: "propagate", Intent: "accept legacy headers without weakening strict parsing", AcceptanceCriteria: []string{"legacy headers pass", "strict inputs stay strict"}, Source: Source{Kind: "regression_correction", RepositoryID: "origin", ResourceID: "correction-1", Revision: "source-1", CommitIDs: []string{"source-1", "test-1"}}, Targets: targets, CompletionPolicy: CompletionPolicy{Mode: "all_supported"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := assessment("stable-1", true)
+	a.SourceRevision = "source-1"
+	a.Classification = "adaptation_required"
+	c, err = s.Assess("origin", c.ID, "local", "analyst", a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := ContributionInput{AssessmentID: c.Assessments[0].ID, Mode: "adapted", Rationale: "Use the stable parser adapter.", SourceAuthorIDs: []string{"original-author"}, RelevantCommitIDs: []string{"source-1", "test-1"}, Constraints: []string{"no schema change"}, AcceptanceCriteria: []string{"legacy headers pass", "strict inputs stay strict"}, Deviations: []string{"replace the new parser hook with the stable adapter"}, ContextReferences: []string{"assessment:" + c.Assessments[0].ID, "embargo:digest-only"}, Tasks: []ContributionTask{
+		{ID: "implement", Title: "Adapt parser repair", OwnerKind: "agent", OwnerID: "repair-agent", Scope: []string{"parser", "tests"}, AcceptanceCriteria: []string{"both parser behaviors pass"}, TaskID: "task:1", SessionID: "session:1", WorkspaceID: "workspace:1"},
+		{ID: "review", Title: "Review stable behavior", OwnerKind: "human", OwnerID: "maintainer", DependsOn: []string{"implement"}, Scope: []string{"review only"}, AcceptanceCriteria: []string{"intent is preserved"}, PullRequestID: "pull:1"},
+	}}
+	c, err = s.CreateContribution("origin", c.ID, "local", "campaign-owner", in)
+	if err != nil || len(c.Contributions) != 1 {
+		t.Fatalf("contribution: %#v %v", c, err)
+	}
+	got := c.Contributions[0]
+	if got.SourceIntent != c.Intent || got.SourceAuthorIDs[0] != "original-author" || len(got.Deviations) != 1 || len(got.AuthorityGranted) != 0 || got.Tasks[1].DependsOn[0] != "implement" {
+		t.Fatalf("lost contribution provenance: %#v", got)
+	}
+
+	peer := assessment("peer-1", true)
+	peer.SourceRevision = "source-1"
+	peer.Classification = "directly_applicable"
+	c, err = s.Assess("origin", c.ID, "peer", "analyst", peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	direct := ContributionInput{AssessmentID: c.Assessments[1].ID, Mode: "direct", Rationale: "Apply the proven change unchanged.", SourceAuthorIDs: []string{"original-author"}, RelevantCommitIDs: []string{"source-1"}, Constraints: []string{"peer review required"}, AcceptanceCriteria: []string{"legacy headers pass"}, Tasks: []ContributionTask{{ID: "send", Title: "Send upstream", OwnerKind: "human", OwnerID: "contributor", Scope: []string{"contribution"}, AcceptanceCriteria: []string{"peer can review"}, PullRequestID: "pull:peer"}}}
+	if _, err = s.CreateContribution("origin", c.ID, "peer", "campaign-owner", direct); err != ErrInvalid {
+		t.Fatalf("implicit peer write accepted: %v", err)
+	}
+	direct.Tasks[0].ForkRepositoryID = "fork:peer"
+	if _, err = s.CreateContribution("origin", c.ID, "peer", "campaign-owner", direct); err != nil {
+		t.Fatalf("ordinary fork rejected: %v", err)
+	}
+}
