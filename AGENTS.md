@@ -3631,3 +3631,14 @@ source retirement; late writes, residual use, unmigrated work, failed stages,
 or stale prerequisites pause or block cleanup. Cutover coordination grants no
 repository, Git, owner, policy, credential, merge, release, deployment,
 environment, or operational authority.
+
+`repository_restructuring_workflow_test.go` is the black-box boundary for the
+complete monorepo-component-extraction-to-continuing-collaboration loop. It
+connects stock Git history, candidate and build evidence, a divided open pull
+request, independently owned human and agent consumers, package, documentation,
+workflow, release, and federated entry points, staged cutover, an ordinary
+change on the new topology, and evidence-gated compatibility retirement. The
+retained trail includes corrected path collision and signature evidence,
+unmappable review, unavailable federation, failed package release, permission
+mismatch with rollback, and a concurrent push without transferring any source,
+destination, consumer, package, federation, or operational authority.
