@@ -172,6 +172,23 @@ func registerPropagationCampaignsHTTP(mux *http.ServeMux, store *propagationcamp
 		}
 		writeJSON(w, http.StatusCreated, x)
 	})
+	mux.HandleFunc("POST "+base+"/{campaign}/targets/{target}/delivery-events", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in propagationcampaigns.DeliveryEventInput
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		// The named target owner records a receipt from the ordinary policy
+		// surface. This endpoint does not dispatch or impersonate that action.
+		x, err := store.RecordDelivery(string(repo.ID), r.PathValue("campaign"), r.PathValue("target"), actor.UserID, in)
+		if propagationCampaignError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, x)
+	})
 }
 
 func propagationCampaignError(w http.ResponseWriter, err error) bool {

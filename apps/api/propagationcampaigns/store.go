@@ -260,6 +260,49 @@ type EquivalenceAttempt struct {
 	Passing        bool            `json:"passing"`
 	Blockers       []Blocker       `json:"blockers,omitempty"`
 }
+
+// DeliveryEvent observes work performed through the target's ordinary policy
+// surfaces. It is evidence about authority exercised elsewhere, never a
+// campaign command to review, merge, release, or deploy.
+type DeliveryEventInput struct {
+	Kind              string    `json:"kind"`
+	Status            string    `json:"status"`
+	ResourceReference string    `json:"resource_reference"`
+	Revision          string    `json:"revision"`
+	Summary           string    `json:"summary"`
+	SupportedUsers    int64     `json:"supported_users,omitempty"`
+	ReachedUsers      int64     `json:"reached_users,omitempty"`
+	ExposureUnit      string    `json:"exposure_unit,omitempty"`
+	Outcome           string    `json:"outcome,omitempty"`
+	ExceptionReason   string    `json:"exception_reason,omitempty"`
+	ExceptionExpires  time.Time `json:"exception_expires_at,omitempty"`
+	ConsumerReference string    `json:"consumer_reference,omitempty"`
+}
+type DeliveryEvent struct {
+	ID       string `json:"id"`
+	TargetID string `json:"target_id"`
+	OwnerID  string `json:"owner_id"`
+	DeliveryEventInput
+	CreatedAt time.Time `json:"created_at"`
+}
+type TargetCoverage struct {
+	TargetID        string    `json:"target_id"`
+	State           string    `json:"state"`
+	Paused          bool      `json:"paused"`
+	SupportedUsers  int64     `json:"supported_users"`
+	ReachedUsers    int64     `json:"reached_users"`
+	ExposureUnit    string    `json:"exposure_unit,omitempty"`
+	ObservedOutcome string    `json:"observed_outcome,omitempty"`
+	NextActions     []string  `json:"next_actions"`
+	Blockers        []Blocker `json:"blockers"`
+}
+type Coverage struct {
+	Complete       bool             `json:"complete"`
+	SupportedUsers int64            `json:"supported_users"`
+	ReachedUsers   int64            `json:"reached_users"`
+	Targets        []TargetCoverage `json:"targets"`
+	Blockers       []Blocker        `json:"blockers"`
+}
 type Campaign struct {
 	ID           string `json:"id"`
 	RepositoryID string `json:"repository_id"`
@@ -270,6 +313,8 @@ type Campaign struct {
 	Contributions             []Contribution             `json:"contributions,omitempty"`
 	EquivalenceSpecifications []EquivalenceSpecification `json:"equivalence_specifications,omitempty"`
 	EquivalenceAttempts       []EquivalenceAttempt       `json:"equivalence_attempts,omitempty"`
+	DeliveryEvents            []DeliveryEvent            `json:"delivery_events,omitempty"`
+	Coverage                  Coverage                   `json:"coverage"`
 	CreatedAt                 time.Time                  `json:"created_at"`
 }
 
@@ -482,6 +527,103 @@ func blockers(in Input) []Blocker {
 	}
 	return out
 }
+
+var deliveryOrder = []string{"review", "queue", "merge", "release", "deploy", "outcome"}
+
+func ownerOf(t Target, actor string) bool {
+	for _, v := range append(append([]string{}, t.OwnerIDs...), t.Authority.OwnerIDs...) {
+		if v == actor {
+			return true
+		}
+	}
+	return false
+}
+
+func acceptedProof(x Campaign, targetID string) bool {
+	for _, a := range x.EquivalenceAttempts {
+		if a.TargetID != targetID || a.Stale || !a.Passing {
+			continue
+		}
+		for _, d := range a.OwnerDecisions {
+			if d.Decision == "accepted" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func deliveryCoverage(x Campaign) Coverage {
+	c := Coverage{Targets: []TargetCoverage{}, Blockers: append([]Blocker{}, blockers(x.Input)...)}
+	required := map[string]bool{}
+	if x.CompletionPolicy.Mode == "required_targets" {
+		for _, id := range x.CompletionPolicy.RequiredTargetIDs {
+			required[id] = true
+		}
+	}
+	for _, t := range x.Targets {
+		v := TargetCoverage{TargetID: t.ID, State: "awaiting_equivalence", NextActions: []string{"accept current equivalence evidence"}, Blockers: []Blocker{}}
+		latest := map[string]DeliveryEvent{}
+		for _, e := range x.DeliveryEvents {
+			if e.TargetID == t.ID {
+				latest[e.Kind] = e
+			}
+		}
+		if acceptedProof(x, t.ID) {
+			v.State, v.NextActions = "verified", []string{"record target-owner review"}
+		}
+		for _, kind := range deliveryOrder {
+			e, ok := latest[kind]
+			if !ok {
+				break
+			}
+			if e.SupportedUsers > 0 {
+				v.SupportedUsers, v.ReachedUsers, v.ExposureUnit = e.SupportedUsers, e.ReachedUsers, e.ExposureUnit
+			}
+			if e.Status == "failed" || e.Status == "rejected" {
+				v.State, v.Paused, v.NextActions = kind+"_"+e.Status, true, []string{"target owner decides retry, exception, or supersession"}
+				v.Blockers = append(v.Blockers, Blocker{t.ID, kind + "_" + e.Status, e.Summary})
+				break
+			}
+			if e.Status == "succeeded" {
+				v.State = map[string]string{"review": "reviewed", "queue": "queued", "merge": "merged", "release": "released", "deploy": "deployed", "outcome": "observed"}[kind]
+				if kind == "outcome" {
+					v.ObservedOutcome = e.Outcome
+				}
+				v.NextActions = []string{"record " + nextDelivery(kind)}
+			}
+		}
+		if e, ok := latest["exception"]; ok && e.ExceptionExpires.After(time.Now().UTC()) {
+			v.State, v.Paused, v.NextActions = "excepted", false, []string{"resolve bounded exception before " + e.ExceptionExpires.Format(time.RFC3339)}
+		}
+		if e, ok := latest["superseded"]; ok {
+			v.State, v.Paused, v.NextActions = "superseded", false, []string{"assess the replacement target: " + e.ConsumerReference}
+		}
+		if e, ok := latest["consumer_discovered"]; ok {
+			b := Blocker{t.ID, "new_consumer", e.ConsumerReference + ": " + e.Summary}
+			v.Blockers = append(v.Blockers, b)
+			v.NextActions = []string{"add and assess the newly discovered consumer"}
+		}
+		c.SupportedUsers += v.SupportedUsers
+		c.ReachedUsers += v.ReachedUsers
+		c.Blockers = append(c.Blockers, v.Blockers...)
+		if (x.CompletionPolicy.Mode != "required_targets" || required[t.ID]) && v.State != "observed" && v.State != "superseded" && v.State != "excepted" && !(t.Disposition == "already_equivalent" && x.CompletionPolicy.AllowEquivalent) {
+			c.Blockers = append(c.Blockers, Blocker{t.ID, "incomplete_delivery", v.State})
+		}
+		c.Targets = append(c.Targets, v)
+	}
+	c.Complete = len(c.Blockers) == 0
+	return c
+}
+
+func nextDelivery(kind string) string {
+	for i, v := range deliveryOrder {
+		if v == kind && i+1 < len(deliveryOrder) {
+			return deliveryOrder[i+1]
+		}
+	}
+	return "continued outcome monitoring"
+}
 func (s *Store) path(repo, campaign string) string {
 	return filepath.Join(s.root, repo, campaign+".json")
 }
@@ -512,6 +654,7 @@ func (s *Store) Get(repo, campaign string) (Campaign, error) {
 		e = json.Unmarshal(b, &x)
 		x.Assessments = currentAssessments(x.Assessments)
 		x.EquivalenceAttempts = currentAttempts(x.EquivalenceAttempts)
+		x.Coverage = deliveryCoverage(x)
 	}
 	return x, e
 }
@@ -519,6 +662,7 @@ func (s *Store) Get(repo, campaign string) (Campaign, error) {
 func (s *Store) save(x Campaign) error {
 	x.Assessments = currentAssessments(x.Assessments)
 	x.EquivalenceAttempts = currentAttempts(x.EquivalenceAttempts)
+	x.Coverage = deliveryCoverage(x)
 	b, err := json.MarshalIndent(x, "", "  ")
 	if err == nil {
 		err = os.WriteFile(s.path(x.RepositoryID, x.ID), b, 0640)
@@ -790,6 +934,67 @@ func (s *Store) CreateContribution(repo, campaign, targetID, actor string, in Co
 		return Campaign{}, ErrInvalid
 	}
 	x.Contributions = append(x.Contributions, Contribution{ID: id(), TargetID: targetID, CreatorID: actor, ContributionInput: in, SourceIntent: x.Intent, SourceResourceID: x.Source.ResourceID, SourceRevision: x.Source.Revision, AssessmentRationale: assessment.Rationale, CreatedAt: s.now().UTC(), AuthorityGranted: []string{}})
+	err = s.save(x)
+	return x, err
+}
+
+func (s *Store) RecordDelivery(repo, campaign, targetID, actor string, in DeliveryEventInput) (Campaign, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, err := s.Get(repo, campaign)
+	if err != nil {
+		return x, err
+	}
+	t, ok := target(x, targetID)
+	if !ok {
+		return Campaign{}, ErrNotFound
+	}
+	if !ownerOf(t, actor) {
+		return Campaign{}, ErrForbidden
+	}
+	kinds := map[string]bool{"review": true, "queue": true, "merge": true, "release": true, "deploy": true, "outcome": true, "exception": true, "superseded": true, "consumer_discovered": true}
+	statuses := map[string]bool{"succeeded": true, "failed": true, "rejected": true}
+	if !kinds[in.Kind] || strings.TrimSpace(in.ResourceReference) == "" || strings.TrimSpace(in.Revision) == "" || strings.TrimSpace(in.Summary) == "" {
+		return Campaign{}, ErrInvalid
+	}
+	if in.Kind == "exception" {
+		if in.Status != "succeeded" || strings.TrimSpace(in.ExceptionReason) == "" || in.ExceptionExpires.Before(s.now()) || in.ExceptionExpires.After(s.now().Add(30*24*time.Hour)) {
+			return Campaign{}, ErrInvalid
+		}
+	} else if in.Kind == "superseded" || in.Kind == "consumer_discovered" {
+		if in.Status != "succeeded" || strings.TrimSpace(in.ConsumerReference) == "" {
+			return Campaign{}, ErrInvalid
+		}
+	} else if !statuses[in.Status] {
+		return Campaign{}, ErrInvalid
+	}
+	if in.ReachedUsers < 0 || in.SupportedUsers < 0 || in.ReachedUsers > in.SupportedUsers || (in.SupportedUsers > 0 && in.ExposureUnit == "") || (in.Kind == "outcome" && strings.TrimSpace(in.Outcome) == "") {
+		return Campaign{}, ErrInvalid
+	}
+	if in.Kind != "exception" && in.Kind != "superseded" && in.Kind != "consumer_discovered" {
+		if !acceptedProof(x, targetID) {
+			return Campaign{}, ErrInvalid
+		}
+		idx := 0
+		for i, k := range deliveryOrder {
+			if k == in.Kind {
+				idx = i
+			}
+		}
+		if idx > 0 {
+			found := false
+			for _, e := range x.DeliveryEvents {
+				if e.TargetID == targetID && e.Kind == deliveryOrder[idx-1] && e.Status == "succeeded" {
+					found = true
+				}
+			}
+			if !found {
+				return Campaign{}, ErrInvalid
+			}
+		}
+	}
+	x.DeliveryEvents = append(x.DeliveryEvents, DeliveryEvent{ID: id(), TargetID: targetID, OwnerID: actor, DeliveryEventInput: in, CreatedAt: s.now().UTC()})
+	x.Coverage = deliveryCoverage(x)
 	err = s.save(x)
 	return x, err
 }

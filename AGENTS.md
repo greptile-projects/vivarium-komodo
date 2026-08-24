@@ -2219,6 +2219,14 @@ whenever dependencies change or the web job fails before it starts.
   Named target owners accept, reject, or request changes without granting test,
   runner, repository, Git, review, merge, release, deployment, environment, or
   operational authority. The resulting matrix remains in `view=propagation`.
+  Verified targets accept append-only owner-attributed delivery receipts for
+  ordinary review, queue, merge, release, deployment, and observed-outcome
+  resources. The campaign derives per-target paused state, supported-user
+  exposure, blockers, and next actions without dispatching those operations.
+  Failed or rejected receipts pause only their target; bounded 30-day owner
+  exceptions, superseded targets, and newly discovered consumers remain visible
+  coverage gaps. Completion is derived from required target outcomes and cannot
+  be declared while a required delivery or discovered consumer is unresolved.
   Prospective impact assessments live beneath `$IMPACT_ASSESSMENT_ROOT`
   (default `apps/api/data/impact-assessments`) and begin from selected code,
   symbols, an exact current investigation conclusion, or a proposed diff. Keep

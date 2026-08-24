@@ -5824,6 +5824,26 @@ preserving their findings and owner decisions and leaving other campaign targets
 current. These records remain analysis and grant no target Git, review, merge,
 release, deployment, credential, environment, or operational authority.
 
+## Propagation delivery coverage
+
+After a current equivalence attempt passes and its named target owner accepts
+it, that owner can append receipts at `POST
+.../targets/{target}/delivery-events`. Review, queue, merge, release, deploy,
+and observed-outcome receipts cite the exact native resource and revision; they
+observe work authorized through existing target policies and never dispatch it.
+Failed or rejected stages pause only that target, while a later attributable
+retry retains the failed receipt.
+
+Campaign reads derive target state, blockers, next actions, supported and
+reached user counts, exposure units, and observed outcomes. Owner-created
+exceptions expire within 30 days. Superseded targets retain their replacement,
+and runtime-discovered consumers remain blockers until added and assessed.
+Completion is derived for the campaign's required targets, so partial adoption,
+rejection, an expired exception, or a newly discovered consumer cannot be
+hidden behind a coordinator-controlled complete flag. The `view=propagation`
+workspace presents this coverage without granting review, queue, merge,
+release, deployment, environment, telemetry, or operational authority.
+
 ## Propagation contributions
 
 `POST /repositories/{repository}/propagation-campaigns/{campaign}/targets/{target}/contributions`
