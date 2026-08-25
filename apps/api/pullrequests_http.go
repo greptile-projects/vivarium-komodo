@@ -34,6 +34,9 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/previews"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/privacyverification"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/provenanceassessments"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/provenancegraphs"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/provenancepolicies"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securitydelivery"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -68,6 +71,11 @@ type checkRunStarter interface {
 type readinessCheckStore interface {
 	List(string, string) ([]checkruns.Run, error)
 }
+type provenanceAssessmentSources struct {
+	assessments *provenanceassessments.Store
+	policies    *provenancepolicies.Store
+	graphs      *provenancegraphs.Store
+}
 type integrationQueueStore interface {
 	Enqueue(string, string, string, string, string, string, string, string, []string) (integrationqueue.Entry, error)
 	List(string, string) ([]integrationqueue.Entry, error)
@@ -91,6 +99,7 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	var localizationEvidence *localizationverification.Store
 	var designGovernance *designgovernance.Store
 	var interfaceEvidence *interfacechecks.Store
+	var provenanceSources *provenanceAssessmentSources
 	for _, extra := range extras {
 		switch value := extra.(type) {
 		case activityStore:
@@ -121,6 +130,8 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 			designGovernance = value
 		case *interfacechecks.Store:
 			interfaceEvidence = value
+		case provenanceAssessmentSources:
+			provenanceSources = &value
 		}
 	}
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests", createPullRequest(store, proposalStore, repositories, credentials, activity, checks))
@@ -135,7 +146,7 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/reviews/me", putPullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("DELETE /repositories/{repository}/pull-requests/{pull_request}/reviews/me", deletePullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
-	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults, previewAcceptance, performance, accessibilityPolicy, accessibilityEvidence, privacyVerification, localizationDelivery, localizationEvidence, designGovernance, interfaceEvidence))
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults, previewAcceptance, performance, accessibilityPolicy, accessibilityEvidence, privacyVerification, localizationDelivery, localizationEvidence, designGovernance, interfaceEvidence, provenanceSources))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/conflicts", getPullRequestConflicts(store, repositories, credentials, checkResults))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequestWithFederation(store, proposalStore, repositories, credentials, activity, checkResults, previewAcceptance, federationStore, performance, accessibilityPolicy, accessibilityEvidence, privacyVerification, localizationDelivery, localizationEvidence, designGovernance, interfaceEvidence))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/queue", enqueuePullRequest(store, repositories, credentials, activity, checkResults, checks, queue))
@@ -626,6 +637,7 @@ type readinessResponse struct {
 	Localization  *localizationdelivery.Assessment       `json:"localization,omitempty"`
 	Design        *designgovernance.Assessment           `json:"design,omitempty"`
 	Security      *securitydelivery.Assessment           `json:"security,omitempty"`
+	Provenance    *provenanceassessments.View            `json:"provenance,omitempty"`
 	Blockers      []readinessBlocker                     `json:"blockers"`
 }
 
@@ -653,6 +665,7 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 	var designGovernance *designgovernance.Store
 	var interfaceEvidence *interfacechecks.Store
 	var securityDelivery *securityDeliverySources
+	var provenanceSources *provenanceAssessmentSources
 	for _, x := range extras {
 		if v, ok := x.(*previews.Store); ok {
 			acceptance = v
@@ -683,6 +696,9 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 		}
 		if v, ok := x.(securityDeliverySources); ok {
 			securityDelivery = &v
+		}
+		if v, ok := x.(*provenanceAssessmentSources); ok {
+			provenanceSources = v
 		}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -769,6 +785,27 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 		for _, requirement := range response.Checks.Requirements {
 			if requirement.Status != "succeeded" {
 				addBlocker("required_check_"+requirement.Status, "Required check ‘"+requirement.Name+"’ is "+requirement.Status+" for revision "+item.SourceCommitID+".")
+			}
+		}
+		if provenanceSources != nil {
+			items, e := provenanceSources.assessments.List(string(repository.ID))
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			for _, candidate := range items {
+				if candidate.CandidateKind != "pull_request" || candidate.CandidateID != item.ID || candidate.Revision != item.SourceCommitID {
+					continue
+				}
+				view := provenanceassessments.Derive(candidate, currentProvenanceKeys(candidate, provenanceSources.policies, provenanceSources.graphs), time.Now().UTC())
+				response.Provenance = &view
+				if !view.Ready {
+					addBlocker("provenance_"+view.Status, "Current provenance evidence is "+view.Status+" for revision "+item.SourceCommitID+".")
+				}
+				break
+			}
+			if response.Provenance == nil {
+				addBlocker("provenance_assessment_required", "A current provenance assessment is required for revision "+item.SourceCommitID+".")
 			}
 		}
 		if acceptance != nil {

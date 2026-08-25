@@ -6229,3 +6229,27 @@ the broader audience. The repository Governance view presents the graph beside
 its acceptance policy. Graph creation and inspection grant no source,
 dependency, build, artifact, repository, review, merge, release, distribution,
 credential, or operational authority.
+
+### Candidate provenance and license assessments
+
+`/repositories/{repository}/provenance-assessments` compares an exact pull
+request, stack, package, or release-candidate revision and its exact provenance
+graph against one current repository policy version and named distribution
+targets. The retained comparison identifies unattributed or unpermitted
+origins, incompatible licenses, generated-output concerns, required
+attribution and notices, source-offer obligations, contributor attestations,
+and distribution-owner acknowledgements before acceptance makes the material
+permanent history.
+
+Repository readers, including explicitly identified read-only agents, append
+challenges and cited origin evidence without changing a match. Repository
+owners append optimistic, finding-specific acknowledgement, resolution, or
+bounded exceptions. Every decision freezes the candidate, graph declaration,
+policy, dependency, and tool input keys that justified it; a later policy or
+other relevant input revision makes only assessments bound to that input
+stale, retaining the old evidence and decision. Exact current pull assessments
+appear in ordinary pull readiness, and exact version/revision release-candidate
+assessments gate release creation. Assessment and collaboration grant no Git,
+policy, exception, review, merge, release, distribution, credential, or
+operational authority. Durable records default beneath
+`$PROVENANCE_ASSESSMENT_ROOT` (`apps/api/data/provenance-assessments`).

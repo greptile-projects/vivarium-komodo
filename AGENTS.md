@@ -32,6 +32,21 @@ appear with policy in `view=governance`. Analysis grants no repository, source,
 dependency, agent, build, artifact, distribution, review, merge, release, or
 operational authority.
 
+Candidate provenance assessments live beneath `$PROVENANCE_ASSESSMENT_ROOT`
+(default `apps/api/data/provenance-assessments`). Repository writers bind an
+exact pull request, stack, package, or release candidate revision to one exact
+provenance graph, current repository policy version, dependency and tool input
+keys, and named distribution targets. Comparisons retain unattributed or
+unpermitted origins, incompatible licenses, generated-output uncertainty,
+attribution, notice and source-offer duties, contributor attestations, and
+owner acknowledgements as individual findings. Repository readers and
+read-only agents may append cited challenges or origin evidence; owners record
+revision-bound acknowledgement, resolution, or expiring exceptions. Changed
+candidate, policy, dependency, tool, or graph inputs stale only decisions bound
+to them, and current required assessments participate in pull-request and
+release readiness. These records grant no source, Git, policy, exception,
+review, merge, release, distribution, credential, or operational authority.
+
 Repository-reviewed collaboration workflow definitions live beneath
 `$WORKFLOW_DEFINITION_ROOT` (default `apps/api/data/workflow-definitions`).
 Repository writers publish immutable versions with exact source revision and
