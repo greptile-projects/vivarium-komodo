@@ -3171,6 +3171,22 @@ The API is nested at `/repositories/{repository}/learning-pathways/{pathway}/ass
 and the repository surface remains `view=learning`. Assessment records grant no
 repository, Git, agent, contribution, review, merge, or operational authority.
 
+Consent-bounded pathway outcome records live beneath `$LEARNING_OUTCOME_ROOT`
+(default `apps/api/data/learning-outcomes`). Repository collaborators append
+aggregate module completion, recurring-question, setup-failure, assessment-gap,
+mentor-load, contribution, reviewer-correction, and retention observations with
+an explicit audience, granted consent, count, exact pathway/project revision,
+and evidence references. Human maintainers and scoped agents may connect only
+cited observations to supported or uncertain findings, then propose reviewed
+documentation, exercise, workspace, pathway, code, or policy improvements
+through an ordinary pull request or proposal. Material requirement changes name
+affected learner completion records and require an append-only revalidation on
+the new pathway version; prior versions, achievements, findings, rejected work,
+and evidence remain intact. The nested API is
+`/repositories/{repository}/learning-pathways/{pathway}/outcomes`, and
+`view=learning` reports the consent-safe trail. These records grant no learner
+surveillance, repository, Git, agent, review, merge, or operational authority.
+
 Current supported learning can enter ordinary contribution without becoming an
 access grant. `GET /repositories/{repository}/learning-pathways/{pathway}/contribution-matches`
 returns ready opportunities at the exact revision of a learner's supported
