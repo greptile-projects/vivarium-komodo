@@ -33,7 +33,7 @@ func TestLearnerPracticesExactProjectRevisionWithoutSharedAuthority(t *testing.T
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	registerLearningExercisesHTTP(mux, attempts, pathways, repos, credentials)
+	registerLearningExercisesHTTP(mux, attempts, pathways, repos, credentials, nil)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	learner := issueAccess(t, credentials, "learner", auth.API, auth.RepositoryRead)
@@ -69,6 +69,44 @@ func TestLearnerPracticesExactProjectRevisionWithoutSharedAuthority(t *testing.T
 	if a.Status != "completed" || !a.Reproducible || a.HintsUsed != 1 || a.Cost != 1.25 || len(a.Events) != 7 || a.Published {
 		t.Fatalf("incomplete evidence %#v", a)
 	}
+	help := func(token, body string, want int) learningexercises.Attempt {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, base+"/"+a.ID+"/help", bytes.NewBufferString(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		response, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		var got learningexercises.Attempt
+		_ = json.NewDecoder(response.Body).Decode(&got)
+		if response.StatusCode != want {
+			t.Fatalf("help status=%d want=%d body=%s", response.StatusCode, want, body)
+		}
+		return got
+	}
+	owner := issueAccess(t, credentials, "owner", auth.API, auth.RepositoryRead)
+	a = help(learner, `{"kind":"question","recipient_kind":"mentor","recipient_id":"owner","body":"Why does this boundary reject the request?","shared_event_numbers":[2,4],"workspace_access":"join","learner_authorized":true}`, 201)
+	if len(a.HelpTimeline) != 1 || len(a.HelpTimeline[0].SharedEvents) != 2 || len(a.HelpTimeline[0].SharedEvents) == len(a.Events) {
+		t.Fatalf("unbounded shared state %#v", a.HelpTimeline)
+	}
+	citation := fmt.Sprintf(`{"kind":"symbol","label":"Parser","path":"practice.go","revision":%q}`, commit)
+	a = help(owner, `{"kind":"guidance","guidance_kind":"hint","body":"Compare the parser error path with the rejected input.","citations":[`+citation+`]}`, 201)
+	a = help(owner, `{"kind":"join","workspace_access":"join"}`, 201)
+	if len(a.HelpTimeline) != 3 || a.HelpTimeline[1].AuthorID != "owner" || a.HelpTimeline[1].GuidanceKind != "hint" || !a.HelpTimeline[2].LearnerAuthorized {
+		t.Fatalf("missing accountable help %#v", a.HelpTimeline)
+	}
+	req, _ := http.NewRequest(http.MethodGet, base+"/"+a.ID, nil)
+	req.Header.Set("Authorization", "Bearer "+owner)
+	mentorView, _ := http.DefaultClient.Do(req)
+	var projected learningexercises.Attempt
+	_ = json.NewDecoder(mentorView.Body).Decode(&projected)
+	mentorView.Body.Close()
+	if mentorView.StatusCode != 200 || len(projected.Events) != 0 || len(projected.Grounding) != 0 || len(projected.HelpTimeline[0].SharedEvents) != 2 {
+		t.Fatalf("unsafe mentor projection status=%d %#v", mentorView.StatusCode, projected)
+	}
+	help(owner, `{"kind":"guidance","guidance_kind":"hint","body":"Authorization: Bearer leaked","citations":[`+citation+`]}`, 422)
 	res, _ = request("POST", base+"/"+a.ID+"/events", `{"kind":"output","summary":"Authorization: Bearer leaked"}`)
 	if res.StatusCode != 409 {
 		t.Fatalf("terminal attempt should reject changes: %d", res.StatusCode)

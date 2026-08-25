@@ -72,6 +72,19 @@ type Pathway = {
   current_version: number;
   versions: Version[];
 };
+type Attempt = {
+  id: string;
+  pathway_id: string;
+  help_timeline: Array<{
+    number: number;
+    kind: string;
+    author_id: string;
+    guidance_kind?: string;
+    body?: string;
+    recipient_id?: string;
+  }>;
+  agent_states: Record<string, string>;
+};
 const lines = (v: FormDataEntryValue | null) =>
   String(v ?? "")
     .split("\n")
@@ -96,7 +109,7 @@ export function LearningPathways({
   const [items, setItems] = useState<Pathway[]>([]),
     [editing, setEditing] = useState(false),
     [error, setError] = useState(""),
-    [launched, setLaunched] = useState("");
+    [launched, setLaunched] = useState<Attempt | null>(null);
   useEffect(() => {
     let active = true;
     json<{ items: Pathway[] }>(`/repositories/${repository}/learning-pathways`)
@@ -199,7 +212,7 @@ export function LearningPathways({
   }
   async function launch(pathway: Pathway, module: Module, index: number) {
     try {
-      const a = await json<{ id: string }>(
+      const a = await json<Attempt>(
         `/repositories/${repository}/learning-pathways/${pathway.id}/attempts`,
         {
           method: "POST",
@@ -211,10 +224,61 @@ export function LearningPathways({
           }),
         },
       );
-      setLaunched(a.id);
+      setLaunched(a);
       setError("");
     } catch (x) {
       setError(x instanceof Error ? x.message : "Could not launch exercise");
+    }
+  }
+  async function askForHelp(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!launched) return;
+    const f = new FormData(e.currentTarget),
+      kind = String(f.get("recipient_kind"));
+    try {
+      const a = await json<Attempt>(
+        `/repositories/${repository}/learning-pathways/${String(f.get("pathway"))}/attempts/${launched.id}/help`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kind: "question",
+            recipient_kind: kind,
+            recipient_id: f.get("recipient_id"),
+            agent_approval_id:
+              kind === "agent" ? f.get("approval_id") : undefined,
+            body: f.get("question"),
+            shared_event_numbers: lines(f.get("events")).map(Number),
+            workspace_access: f.get("workspace_access"),
+            learner_authorized: f.get("learner_authorized") === "on",
+          }),
+        },
+      );
+      setLaunched(a);
+      setError("");
+    } catch (x) {
+      setError(x instanceof Error ? x.message : "Could not request help");
+    }
+  }
+  async function controlAgent(
+    agent: string,
+    kind: "pause_agent" | "revoke_agent",
+  ) {
+    if (!launched) return;
+    try {
+      setLaunched(
+        await json<Attempt>(
+          `/repositories/${repository}/learning-pathways/${launched.pathway_id}/attempts/${launched.id}/help`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ kind, recipient_id: agent }),
+          },
+        ),
+      );
+      setError("");
+    } catch (x) {
+      setError(x instanceof Error ? x.message : "Could not control agent");
     }
   }
   if (editing)
@@ -329,38 +393,47 @@ export function LearningPathways({
             Exercise instructions
             <textarea name="exercise_instructions" required />
           </label>
-        <label>
-          Exercise acceptance criteria
-          <textarea name="exercise_acceptance" required />
-        </label>
-        <label>
-          Practice kinds
-          <textarea name="exercise_kinds" placeholder={"exploration\ndebugging\ntests"} />
-        </label>
-        <label>
-          Exact tool name
-          <input name="tool_name" required placeholder="go" />
-        </label>
-        <label>
-          Exact tool version
-          <input name="tool_version" required placeholder="1.25.0" />
-        </label>
-        <label>
-          Synthetic dataset name
-          <input name="data_name" required />
-        </label>
-        <label>
-          Dataset digest
-          <input name="data_digest" required placeholder="sha256:…" />
-        </label>
-        <label>
-          Setup commands
-          <textarea name="setup_commands" />
-        </label>
-        <label>
-          Maximum practice cost
-          <input name="maximum_cost" type="number" min="0" step="0.01" defaultValue="10" />
-        </label>
+          <label>
+            Exercise acceptance criteria
+            <textarea name="exercise_acceptance" required />
+          </label>
+          <label>
+            Practice kinds
+            <textarea
+              name="exercise_kinds"
+              placeholder={"exploration\ndebugging\ntests"}
+            />
+          </label>
+          <label>
+            Exact tool name
+            <input name="tool_name" required placeholder="go" />
+          </label>
+          <label>
+            Exact tool version
+            <input name="tool_version" required placeholder="1.25.0" />
+          </label>
+          <label>
+            Synthetic dataset name
+            <input name="data_name" required />
+          </label>
+          <label>
+            Dataset digest
+            <input name="data_digest" required placeholder="sha256:…" />
+          </label>
+          <label>
+            Setup commands
+            <textarea name="setup_commands" />
+          </label>
+          <label>
+            Maximum practice cost
+            <input
+              name="maximum_cost"
+              type="number"
+              min="0"
+              step="0.01"
+              defaultValue="10"
+            />
+          </label>
           <label>
             Exact resource type
             <select name="resource_kind">
@@ -418,10 +491,86 @@ export function LearningPathways({
       </div>
       {error && <p className="form-error">{error}</p>}
       {launched && (
-        <p>
-          <Badge>Practice ready</Badge> Detached attempt {launched} is
-          networkless, unpublished, and isolated from authoritative branches.
-        </p>
+        <section className="card">
+          <p>
+            <Badge>Practice ready</Badge> Detached attempt {launched.id} is
+            networkless, unpublished, and isolated from authoritative branches.
+          </p>
+          <h3>Permission-aware help timeline</h3>
+          {launched.help_timeline?.map((x) => (
+            <p key={x.number}>
+              <Badge>{x.guidance_kind || x.kind}</Badge> {x.author_id}:{" "}
+              {x.body || `${x.kind} ${x.recipient_id || ""}`}
+            </p>
+          ))}
+          {Object.entries(launched.agent_states || {}).map(([agent, state]) => (
+            <p key={agent}>
+              <Badge>{state}</Badge> {agent}{" "}
+              {state === "active" && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => controlAgent(agent, "pause_agent")}
+                  >
+                    Pause
+                  </Button>{" "}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => controlAgent(agent, "revoke_agent")}
+                  >
+                    Revoke
+                  </Button>
+                </>
+              )}
+            </p>
+          ))}
+          <form className="form-stack" onSubmit={askForHelp}>
+            <input type="hidden" name="pathway" value={launched.pathway_id} />
+            <label>
+              Ask a revision-grounded question
+              <textarea name="question" required />
+            </label>
+            <label>
+              Helper type
+              <select name="recipient_kind">
+                <option value="mentor">Designated mentor</option>
+                <option value="agent">Approved agent</option>
+              </select>
+            </label>
+            <label>
+              Mentor ID or active agent identity
+              <input name="recipient_id" required />
+            </label>
+            <label>
+              Agent approval ID
+              <input name="approval_id" />
+            </label>
+            <label>
+              Share selected exercise event numbers only
+              <input
+                name="events"
+                placeholder="1&#10;3"
+              />
+            </label>
+            <label>
+              Workspace access
+              <select name="workspace_access">
+                <option value="">Timeline only</option>
+                <option value="observe">May observe</option>
+                <option value="join">May join</option>
+              </select>
+            </label>
+            <label>
+              <input type="checkbox" name="learner_authorized" /> Allow a
+              bounded demonstration (mentors only)
+            </label>
+            <Button type="submit" size="sm">
+              Request accountable guidance
+            </Button>
+          </form>
+        </section>
       )}
       {items.length === 0 ? (
         <EmptyState

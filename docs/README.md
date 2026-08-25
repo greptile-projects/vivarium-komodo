@@ -1758,6 +1758,22 @@ private to their learner and grant no Git, publication, contribution, review,
 merge, credential, data, or operational authority. Durable state defaults below
 `$LEARNING_EXERCISE_ROOT` at `apps/api/data/learning-exercises`.
 
+Learners request accountable help through `POST .../attempts/{attempt}/help`.
+A question names a designated pathway mentor or the exact identity and approval
+ID of a currently active repository-onboarded agent, shares only selected event
+numbers, and records whether a mentor may observe or join the bounded workspace
+or provide a demonstration. The resulting append-only timeline distinguishes
+questions, explanations, hints, demonstrations, direct actions, workspace
+presence, and learner agent controls while retaining authorship.
+
+Guidance must cite an accessible project resource frozen into that module at the
+attempt revision. Consent is taken from the earlier learner-authored request,
+not a helper assertion. Learners may guide, pause, or revoke agents; paused and
+revoked agents cannot add guidance, agents never receive direct-action authority,
+and solution keys, hidden assessments, credential-shaped text, or uncited and
+inaccessible project context are rejected. The Learning web surface exposes the
+same request and timeline without widening attempt visibility.
+
 ## Contributor pathways
 
 ### Ready contribution opportunities

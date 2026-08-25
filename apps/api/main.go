@@ -1242,7 +1242,7 @@ func main() {
 	registerSupportQuestionsHTTP(mux, supportQuestionStore, repositoryCatalog, credentials, supportSources{releases: releaseStore, packages: packageStore, docs: documentationStore, issues: issueStore, proposals: proposalStore, docsTasks: documentationStore}, supportVerificationRunner)
 	registerContributorPathwaysHTTP(mux, contributorPathwayStore, repositoryCatalog, credentials, releaseStore, issueStore, proposalStore)
 	registerLearningPathwaysHTTP(mux, learningPathwayStore, repositoryCatalog, credentials, learningPathwaySources{decisions: decisionStore, issues: issueStore, apis: apiContractStore, packages: packageStore, contributors: contributorPathwayStore})
-	registerLearningExercisesHTTP(mux, learningExerciseStore, learningPathwayStore, repositoryCatalog, credentials)
+	registerLearningExercisesHTTP(mux, learningExerciseStore, learningPathwayStore, repositoryCatalog, credentials, agentEvaluationStore)
 	registerDocumentationHTTP(mux, documentationStore, repositoryCatalog, credentials, releaseStore, workspaceStore, workspaceRunner, pullRequestStore)
 	registerContributionOpportunitiesHTTP(mux, contributionOpportunityStore, repositoryCatalog, credentials, issueStore, proposalStore, organizationStore, contributorPathwayStore, workspaceStore, workspaceRunner, pullRequestStore, checkRunner, releaseStore)
 	registerIssueRepairsHTTP(mux, issueStore, proposalStore, pullRequestStore, repositoryCatalog, credentials, issueReproductionRunner, checkRunStore)
