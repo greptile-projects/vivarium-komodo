@@ -3127,6 +3127,19 @@ environments without rewriting history. The public API is
 is `view=learning`. Publishing or reading a curriculum grants no repository,
 Git, workspace, agent, assessment, contribution, review, or merge authority.
 
+Pathway module practice attempts live beneath `$LEARNING_EXERCISE_ROOT` (default
+`apps/api/data/learning-exercises`). An authenticated repository reader launches
+one against an immutable pathway version, module, exercise, and exact supported
+Git revision. The detached, unpublished workspace freezes declared tool
+versions, synthetic or explicitly permitted dataset digests, setup commands,
+instructions, acceptance criteria, command and cost ceilings, disabled network,
+and explicit denial of credentials, production data, and authoritative branches.
+Append-only learner events retain setup, sanitized commands and outputs,
+content-addressed checkpoints, hints, acceptance checks, recovery, cost, and
+completion. Reproducibility requires retained setup, command, checkpoint, and
+check evidence; credential-shaped content is rejected. Attempts grant no Git,
+branch, credential, data, publication, contribution, review, or merge authority.
+
 Pull-request privacy impact assessments live beneath
 `$PRIVACY_ASSESSMENT_ROOT` (default `apps/api/data/privacy-assessments`). Each
 assessment binds exact candidate and target commits, cited flow maps,
