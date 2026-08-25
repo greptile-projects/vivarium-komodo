@@ -40,27 +40,66 @@ type Event struct {
 	Cost       float64   `json:"cost,omitempty"`
 	RecordedAt time.Time `json:"recorded_at"`
 }
+type Citation struct {
+	Kind       string `json:"kind"`
+	Label      string `json:"label"`
+	Path       string `json:"path,omitempty"`
+	ResourceID string `json:"resource_id,omitempty"`
+	Revision   string `json:"revision"`
+}
+type HelpEntry struct {
+	Number             int        `json:"number"`
+	Kind               string     `json:"kind"`
+	AuthorID           string     `json:"author_id"`
+	AuthorKind         string     `json:"author_kind"`
+	RecipientID        string     `json:"recipient_id,omitempty"`
+	GuidanceKind       string     `json:"guidance_kind,omitempty"`
+	Body               string     `json:"body,omitempty"`
+	SharedEventNumbers []int      `json:"shared_event_numbers,omitempty"`
+	SharedEvents       []Event    `json:"shared_events,omitempty"`
+	Citations          []Citation `json:"citations,omitempty"`
+	AgentApprovalID    string     `json:"agent_approval_id,omitempty"`
+	WorkspaceAccess    string     `json:"workspace_access,omitempty"`
+	LearnerAuthorized  bool       `json:"learner_authorized"`
+	RecordedAt         time.Time  `json:"recorded_at"`
+}
 type Attempt struct {
-	ID                    string                    `json:"id"`
-	RepositoryID          string                    `json:"repository_id"`
-	PathwayID             string                    `json:"pathway_id"`
-	PathwayVersion        int64                     `json:"pathway_version"`
-	ModuleID              string                    `json:"module_id"`
-	ExerciseIndex         int                       `json:"exercise_index"`
-	LearnerID             string                    `json:"learner_id"`
-	Revision              string                    `json:"revision"`
-	Detached              bool                      `json:"detached"`
-	Published             bool                      `json:"published"`
-	Status                string                    `json:"status"`
-	Exercise              learningpathways.Exercise `json:"exercise"`
-	Bounds                Bounds                    `json:"bounds"`
-	Events                []Event                   `json:"events"`
-	HintsUsed             int                       `json:"hints_used"`
-	Cost                  float64                   `json:"cost"`
-	Reproducible          bool                      `json:"reproducible"`
-	ReproducibilityDetail string                    `json:"reproducibility_detail"`
-	CreatedAt             time.Time                 `json:"created_at"`
-	UpdatedAt             time.Time                 `json:"updated_at"`
+	ID                    string                      `json:"id"`
+	RepositoryID          string                      `json:"repository_id"`
+	PathwayID             string                      `json:"pathway_id"`
+	PathwayVersion        int64                       `json:"pathway_version"`
+	ModuleID              string                      `json:"module_id"`
+	ExerciseIndex         int                         `json:"exercise_index"`
+	LearnerID             string                      `json:"learner_id"`
+	Revision              string                      `json:"revision"`
+	Detached              bool                        `json:"detached"`
+	Published             bool                        `json:"published"`
+	Status                string                      `json:"status"`
+	Exercise              learningpathways.Exercise   `json:"exercise"`
+	Grounding             []learningpathways.Resource `json:"grounding"`
+	Bounds                Bounds                      `json:"bounds"`
+	Events                []Event                     `json:"events"`
+	HelpTimeline          []HelpEntry                 `json:"help_timeline"`
+	HelpParticipants      map[string]string           `json:"help_participants"`
+	AgentStates           map[string]string           `json:"agent_states"`
+	HintsUsed             int                         `json:"hints_used"`
+	Cost                  float64                     `json:"cost"`
+	Reproducible          bool                        `json:"reproducible"`
+	ReproducibilityDetail string                      `json:"reproducibility_detail"`
+	CreatedAt             time.Time                   `json:"created_at"`
+	UpdatedAt             time.Time                   `json:"updated_at"`
+}
+type HelpInput struct {
+	Kind               string     `json:"kind"`
+	RecipientKind      string     `json:"recipient_kind"`
+	RecipientID        string     `json:"recipient_id"`
+	AgentApprovalID    string     `json:"agent_approval_id"`
+	GuidanceKind       string     `json:"guidance_kind"`
+	Body               string     `json:"body"`
+	SharedEventNumbers []int      `json:"shared_event_numbers"`
+	Citations          []Citation `json:"citations"`
+	WorkspaceAccess    string     `json:"workspace_access"`
+	LearnerAuthorized  bool       `json:"learner_authorized"`
 }
 type EventInput struct {
 	Kind    string  `json:"kind"`
@@ -87,7 +126,7 @@ func New(root string) (*Store, error) {
 	return &Store{root: a, now: time.Now}, e
 }
 func id() string { b := make([]byte, 12); _, _ = rand.Read(b); return hex.EncodeToString(b) }
-func (s *Store) Create(repo, pathway string, version int64, module string, index int, learner, revision string, exercise learningpathways.Exercise) (Attempt, error) {
+func (s *Store) Create(repo, pathway string, version int64, module string, index int, learner, revision string, exercise learningpathways.Exercise, grounding []learningpathways.Resource) (Attempt, error) {
 	if repo == "" || pathway == "" || version < 1 || module == "" || index < 0 || learner == "" || revision == "" {
 		return Attempt{}, ErrInvalid
 	}
@@ -98,13 +137,158 @@ func (s *Store) Create(repo, pathway string, version int64, module string, index
 		max = 10
 	}
 	n := s.now().UTC()
-	a := Attempt{ID: id(), RepositoryID: repo, PathwayID: pathway, PathwayVersion: version, ModuleID: module, ExerciseIndex: index, LearnerID: learner, Revision: revision, Detached: true, Published: false, Status: "active", Exercise: exercise, Bounds: Bounds{Network: "disabled", Credentials: false, ProductionData: false, AuthoritativeBranches: false, MaximumCommands: 100, MaximumCost: max}, Events: []Event{}, CreatedAt: n, UpdatedAt: n}
+	a := Attempt{ID: id(), RepositoryID: repo, PathwayID: pathway, PathwayVersion: version, ModuleID: module, ExerciseIndex: index, LearnerID: learner, Revision: revision, Detached: true, Published: false, Status: "active", Exercise: exercise, Grounding: grounding, Bounds: Bounds{Network: "disabled", Credentials: false, ProductionData: false, AuthoritativeBranches: false, MaximumCommands: 100, MaximumCost: max}, Events: []Event{}, HelpTimeline: []HelpEntry{}, HelpParticipants: map[string]string{}, AgentStates: map[string]string{}, CreatedAt: n, UpdatedAt: n}
+	return a, s.write(a)
+}
+
+func (s *Store) Help(repo, pathway, attempt, actor string, mentors map[string]bool, in HelpInput) (Attempt, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, e := s.read(repo, pathway, attempt)
+	if e != nil {
+		return a, e
+	}
+	if !safe(in.Body) || actor == "" {
+		return a, ErrInvalid
+	}
+	if a.HelpParticipants == nil {
+		a.HelpParticipants = map[string]string{}
+	}
+	if a.AgentStates == nil {
+		a.AgentStates = map[string]string{}
+	}
+	n := s.now().UTC()
+	entry := HelpEntry{Number: len(a.HelpTimeline) + 1, Kind: in.Kind, AuthorID: actor, RecipientID: strings.TrimSpace(in.RecipientID), GuidanceKind: in.GuidanceKind, Body: strings.TrimSpace(in.Body), SharedEventNumbers: in.SharedEventNumbers, Citations: in.Citations, AgentApprovalID: strings.TrimSpace(in.AgentApprovalID), WorkspaceAccess: in.WorkspaceAccess, LearnerAuthorized: in.LearnerAuthorized, RecordedAt: n}
+	learner := actor == a.LearnerID
+	switch in.Kind {
+	case "question":
+		if !learner || entry.Body == "" || (in.RecipientKind != "mentor" && in.RecipientKind != "agent") || entry.RecipientID == "" {
+			return a, ErrForbidden
+		}
+		if in.RecipientKind == "mentor" {
+			if !mentors[entry.RecipientID] {
+				return a, ErrForbidden
+			}
+			entry.AuthorKind = "learner"
+			a.HelpParticipants[entry.RecipientID] = "mentor"
+		} else {
+			if entry.AgentApprovalID == "" {
+				return a, ErrInvalid
+			}
+			entry.AuthorKind = "learner"
+			a.HelpParticipants[entry.RecipientID] = "agent"
+			a.AgentStates[entry.RecipientID] = "active"
+		}
+		seen := map[int]bool{}
+		for _, number := range in.SharedEventNumbers {
+			if number < 1 || number > len(a.Events) || seen[number] {
+				return a, ErrInvalid
+			}
+			seen[number] = true
+			entry.SharedEvents = append(entry.SharedEvents, a.Events[number-1])
+		}
+	case "guidance":
+		role, ok := a.HelpParticipants[actor]
+		if !ok {
+			return a, ErrForbidden
+		}
+		entry.AuthorKind = role
+		if role == "agent" && a.AgentStates[actor] != "active" {
+			return a, ErrForbidden
+		}
+		allowed := map[string]bool{"explanation": true, "hint": true, "demonstration": true, "direct_action": true}
+		if !allowed[in.GuidanceKind] || entry.Body == "" || len(in.Citations) == 0 {
+			return a, ErrInvalid
+		}
+		granted := false
+		for _, prior := range a.HelpTimeline {
+			if prior.Kind == "question" && prior.RecipientID == actor && prior.LearnerAuthorized {
+				granted = true
+			}
+		}
+		if role == "agent" && (in.GuidanceKind == "direct_action" || protectedLearningMaterial.MatchString(entry.Body)) {
+			return a, ErrForbidden
+		}
+		if (in.GuidanceKind == "demonstration" || in.GuidanceKind == "direct_action") && !granted {
+			return a, ErrForbidden
+		}
+		entry.LearnerAuthorized = granted
+		for _, c := range in.Citations {
+			matched := false
+			for _, g := range a.Grounding {
+				if c.Kind == g.Kind && c.Label == g.Label && c.Revision == a.Revision && c.Revision == g.Revision && c.Path == g.Path && c.ResourceID == g.ResourceID && g.Status != "inaccessible" {
+					matched = true
+				}
+			}
+			if !matched {
+				return a, ErrInvalid
+			}
+		}
+	case "observe", "join":
+		if !mentors[actor] || a.HelpParticipants[actor] != "mentor" {
+			return a, ErrForbidden
+		}
+		entry.AuthorKind = "mentor"
+		expected := "observe"
+		if in.Kind == "join" {
+			expected = "join"
+		}
+		granted := false
+		for _, prior := range a.HelpTimeline {
+			if prior.Kind == "question" && prior.RecipientID == actor && prior.WorkspaceAccess == expected {
+				granted = true
+			}
+		}
+		if in.WorkspaceAccess != expected || !granted {
+			return a, ErrForbidden
+		}
+		entry.LearnerAuthorized = true
+	case "guide_agent", "pause_agent", "revoke_agent":
+		if !learner || entry.RecipientID == "" || a.HelpParticipants[entry.RecipientID] != "agent" {
+			return a, ErrForbidden
+		}
+		entry.AuthorKind = "learner"
+		if in.Kind == "guide_agent" {
+			if entry.Body == "" || a.AgentStates[entry.RecipientID] != "active" {
+				return a, ErrInvalid
+			}
+		} else if in.Kind == "pause_agent" {
+			a.AgentStates[entry.RecipientID] = "paused"
+		} else {
+			a.AgentStates[entry.RecipientID] = "revoked"
+		}
+	default:
+		return a, ErrInvalid
+	}
+	a.HelpTimeline = append(a.HelpTimeline, entry)
+	a.UpdatedAt = n
 	return a, s.write(a)
 }
 func (s *Store) Get(repo, pathway, id string) (Attempt, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.read(repo, pathway, id)
+}
+func (s *Store) View(repo, pathway, attempt, actor string) (Attempt, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, e := s.read(repo, pathway, attempt)
+	if e != nil {
+		return a, e
+	}
+	if actor == a.LearnerID {
+		return a, nil
+	}
+	if _, ok := a.HelpParticipants[actor]; !ok {
+		return Attempt{}, ErrNotFound
+	}
+	// Helpers see only the learner-selected event snapshots already copied into
+	// the timeline, never the remaining workspace, exercise answer surface, or
+	// uncited module context.
+	a.Events = nil
+	a.Grounding = nil
+	a.Exercise = learningpathways.Exercise{Title: a.Exercise.Title, Kinds: a.Exercise.Kinds}
+	return a, nil
 }
 func (s *Store) List(repo, pathway, learner string) ([]Attempt, error) {
 	s.mu.Lock()
@@ -134,6 +318,7 @@ func (s *Store) List(repo, pathway, learner string) ([]Attempt, error) {
 }
 
 var secret = regexp.MustCompile(`(?i)(authorization:\s*bearer|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(api[_-]?key|password|secret|token)\s*[=:]\s*\S+)`)
+var protectedLearningMaterial = regexp.MustCompile(`(?i)\b(answer[ -]?key|hidden assessment|hidden test|full solution|model answer)\b`)
 
 func safe(v string) bool { return len(v) <= 16000 && !secret.MatchString(v) }
 func (s *Store) Append(repo, pathway, id, learner string, in EventInput) (Attempt, error) {

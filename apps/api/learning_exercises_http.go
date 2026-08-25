@@ -4,18 +4,24 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/greptile-projects/vivarium-komodo/apps/api/agentevaluations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/learningexercises"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/learningpathways"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
 
-func registerLearningExercisesHTTP(mux *http.ServeMux, attempts *learningexercises.Store, pathways *learningpathways.Store, repos contributorPathwayRepositories, credentials authStore) {
+type learningAgentApprovals interface {
+	GetOnboarding(string, string, string) (agentevaluations.Onboarding, error)
+}
+
+func registerLearningExercisesHTTP(mux *http.ServeMux, attempts *learningexercises.Store, pathways *learningpathways.Store, repos contributorPathwayRepositories, credentials authStore, agents learningAgentApprovals) {
 	base := "/repositories/{repository}/learning-pathways/{pathway}/attempts"
 	mux.HandleFunc("POST "+base, launchLearningExercise(attempts, pathways, repos, credentials))
 	mux.HandleFunc("GET "+base, listLearningExercises(attempts, repos, credentials))
 	mux.HandleFunc("GET "+base+"/{attempt}", getLearningExercise(attempts, repos, credentials))
 	mux.HandleFunc("POST "+base+"/{attempt}/events", appendLearningExerciseEvent(attempts, repos, credentials))
+	mux.HandleFunc("POST "+base+"/{attempt}/help", appendLearningHelp(attempts, pathways, repos, credentials, agents))
 }
 
 func launchLearningExercise(attempts *learningexercises.Store, pathways *learningpathways.Store, repos contributorPathwayRepositories, credentials authStore) http.HandlerFunc {
@@ -84,11 +90,84 @@ func launchLearningExercise(attempts *learningexercises.Store, pathways *learnin
 			writeJSON(w, 422, map[string]string{"error": "unavailable_exercise_revision"})
 			return
 		}
-		a, e := attempts.Create(string(repo.ID), p.ID, version.Number, module.ID, in.ExerciseIndex, actor.UserID, revision, module.Exercises[in.ExerciseIndex])
+		a, e := attempts.Create(string(repo.ID), p.ID, version.Number, module.ID, in.ExerciseIndex, actor.UserID, revision, module.Exercises[in.ExerciseIndex], module.Resources)
 		if learningExerciseError(w, e) {
 			return
 		}
 		writeJSON(w, http.StatusCreated, a)
+	}
+}
+func appendLearningHelp(s *learningexercises.Store, pathways *learningpathways.Store, repos contributorPathwayRepositories, credentials authStore, agents learningAgentApprovals) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, true)
+		if !ok {
+			return
+		}
+		var in learningexercises.HelpInput
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		if in.Kind == "question" && in.RecipientKind == "agent" {
+			if agents == nil {
+				writeJSON(w, 422, map[string]string{"error": "invalid_agent_approval"})
+				return
+			}
+			approval, err := agents.GetOnboarding("repository", string(repo.ID), in.AgentApprovalID)
+			if err != nil || approval.State != "active" || approval.Identity != in.RecipientID {
+				writeJSON(w, 422, map[string]string{"error": "invalid_agent_approval"})
+				return
+			}
+		}
+		if in.Kind == "guidance" {
+			attempt, _ := s.Get(string(repo.ID), r.PathValue("pathway"), r.PathValue("attempt"))
+			if attempt.HelpParticipants[actor.UserID] == "agent" {
+				if agents == nil {
+					writeJSON(w, 403, map[string]string{"error": "learning_agent_revoked"})
+					return
+				}
+				approvalID := ""
+				for _, entry := range attempt.HelpTimeline {
+					if entry.Kind == "question" && entry.RecipientID == actor.UserID {
+						approvalID = entry.AgentApprovalID
+					}
+				}
+				approval, err := agents.GetOnboarding("repository", string(repo.ID), approvalID)
+				if err != nil || approval.State != "active" || approval.Identity != actor.UserID {
+					writeJSON(w, 403, map[string]string{"error": "learning_agent_revoked"})
+					return
+				}
+			}
+			opened, err := repos.Open(repo.ID)
+			for _, citation := range in.Citations {
+				if err != nil || citation.Path == "" || !repositoryPathExists(opened, citation.Revision, citation.Path) {
+					writeJSON(w, 422, map[string]string{"error": "inaccessible_learning_evidence"})
+					return
+				}
+			}
+		}
+		p, e := pathways.Get(string(repo.ID), r.PathValue("pathway"))
+		if e != nil {
+			learningExerciseError(w, e)
+			return
+		}
+		attempt, e := s.Get(string(repo.ID), p.ID, r.PathValue("attempt"))
+		if e != nil {
+			learningExerciseError(w, e)
+			return
+		}
+		mentors := map[string]bool{}
+		for _, v := range p.Versions {
+			if v.Number == attempt.PathwayVersion {
+				for _, m := range v.MentorIDs {
+					mentors[m] = true
+				}
+			}
+		}
+		a, e := s.Help(string(repo.ID), p.ID, r.PathValue("attempt"), actor.UserID, mentors, in)
+		if learningExerciseError(w, e) {
+			return
+		}
+		writeJSON(w, 201, a)
 	}
 }
 func listLearningExercises(s *learningexercises.Store, repos contributorPathwayRepositories, credentials authStore) http.HandlerFunc {
@@ -110,10 +189,7 @@ func getLearningExercise(s *learningexercises.Store, repos contributorPathwayRep
 		if !ok {
 			return
 		}
-		a, e := s.Get(string(repo.ID), r.PathValue("pathway"), r.PathValue("attempt"))
-		if e == nil && a.LearnerID != actor.UserID {
-			e = learningexercises.ErrNotFound
-		}
+		a, e := s.View(string(repo.ID), r.PathValue("pathway"), r.PathValue("attempt"), actor.UserID)
 		if learningExerciseError(w, e) {
 			return
 		}

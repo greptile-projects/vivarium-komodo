@@ -3140,6 +3140,19 @@ completion. Reproducibility requires retained setup, command, checkpoint, and
 check evidence; credential-shaped content is rejected. Attempts grant no Git,
 branch, credential, data, publication, contribution, review, or merge authority.
 
+Each attempt also owns a permission-aware help timeline at `/{attempt}/help`.
+The learner selects exact exercise event numbers to disclose and may invite only
+a mentor named by the frozen pathway or an agent whose repository onboarding is
+currently active and identity-matched. Explanation, hint, demonstration, and
+direct action remain distinct; every guidance entry retains its author and exact
+module-resource citations. Demonstration and mentor workspace observation or
+joining require control recorded in the learner's request. Learners can guide,
+pause, or irrevocably revoke an invited agent; agents cannot take direct action
+or emit solution, hidden-assessment, secret, or inaccessible-context material.
+The timeline exposes no unselected exercise state and grants no workspace,
+assessment, repository, agent, credential, branch, contribution, or review
+authority.
+
 Pull-request privacy impact assessments live beneath
 `$PRIVACY_ASSESSMENT_ROOT` (default `apps/api/data/privacy-assessments`). Each
 assessment binds exact candidate and target commits, cited flow maps,
