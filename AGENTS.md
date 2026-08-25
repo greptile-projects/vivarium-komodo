@@ -1,5 +1,20 @@
 # AGENTS.md
 
+Revision-exact demand and capacity models live beneath `$CAPACITY_MODEL_ROOT`
+(default `apps/api/data/capacity-models`). Repository readers, including read-only
+agents, publish immutable forecasts bound to one capacity-objective version, exact
+release, forecast window, and sanitized revisioned evidence windows across usage,
+performance, reliability, deployment, infrastructure, dependencies, experiments,
+and roadmaps. Models retain accountable assumptions, workload segments, explained
+saturation points, uncertainty, provenance, alternative demand scenarios, and cost
+curves. Reads redact inaccessible evidence bodies and derive instrumentation changes,
+anomalous observations, missing citations, and appended forecast disagreements as
+explicit gaps. A later model may supersede an earlier ID without rewriting it; human
+or read-only-agent challenges are optimistic and append-only. The public API is
+`/repositories/{repository}/capacity-models`, and the repository Capacity &
+performance surface exposes the same reasoning. Models grant no spending, provider,
+repository, release, deployment, environment, credential, or operational authority.
+
 Versioned capacity objectives live beneath `$CAPACITY_OBJECTIVE_ROOT` (default
 `apps/api/data/capacity-objectives`). Repository writers define immutable optimistic
 contracts for services, APIs, jobs, workspaces, package delivery, or user journeys,

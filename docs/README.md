@@ -1,5 +1,25 @@
 # Docs
 
+## Inspectable demand and capacity models
+
+`/repositories/{repository}/capacity-models` turns a capacity objective and production
+history into a reviewable prediction rather than an opaque spreadsheet. Each immutable
+model freezes the objective version, exact release revision, forecast window, modeling
+method, and sanitized evidence with exact observation windows and source revisions.
+Permitted evidence covers usage, performance, reliability, deployments, infrastructure,
+dependencies, experiments, and roadmaps. Repository readers and read-only agents can
+assemble models without gaining repository-write or operational authority.
+
+The record exposes accountable assumptions, workload segments, explained resource or
+dependency saturation points, uncertainty, provenance, and alternative demand scenarios
+with cost curves. Inaccessible evidence retains only an opaque gap; anomalous events,
+instrumentation-version changes, missing citations, and appended forecast challenges
+stay visible. A replacement model names the model it supersedes, preserving every prior
+prediction and disagreement. The Capacity & performance view presents the same chain of
+reasoning. Durable state defaults beneath `$CAPACITY_MODEL_ROOT`; models and challenges
+grant no spending, provider, repository, release, deployment, environment, credential,
+or operational authority.
+
 ## Shared capacity objectives
 
 `/repositories/{repository}/capacity-objectives` gives repository collaborators an
