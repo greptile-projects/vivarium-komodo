@@ -3792,3 +3792,14 @@ ordered history. The retained run includes revoked agent access, stale review,
 a reordered member, an atomically contained concurrent push, a failed middle
 check, partial integration, target movement, suffix-only rebuild, and recovery
 without granting branch, review, agent, check, merge, or repository authority.
+
+`software_provenance_workflow_test.go` is the black-box boundary for the
+complete contribution-to-verifiable-distribution loop. It connects stock Git
+human and agent authorship, local and federated provenance, generated code,
+transitive and private packages, governed findings and replacement work,
+current release gates, an Ed25519 provenance bundle, the public package
+registry, and a standard npm consumer. The retained trail includes a corrected
+false match, disputed authorship, a rejected exception, generator drift,
+restricted dependency projection, revoked upstream attestation, and a
+post-release origin discovery without rewriting the signed release claim or
+granting repository, evidence, package, release, or distribution authority.
