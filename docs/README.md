@@ -1740,6 +1740,24 @@ visible rather than being presented as a complete curriculum. The repository
 `$LEARNING_PATHWAY_ROOT` (default `apps/api/data/learning-pathways`) and grant no
 Git, workspace, agent, assessment, contribution, review, or merge authority.
 
+Authenticated readers launch a module exercise with `POST
+/repositories/{repository}/learning-pathways/{pathway}/attempts`, selecting its
+immutable pathway version, module ID, and exercise index. The practice record
+freezes one exact supported Git revision with declared tool versions, synthetic
+or explicitly permitted dataset digests, setup commands, instructions,
+acceptance criteria, and cost ceiling. It is detached, networkless,
+credential-free, production-data-free, unpublished, and cannot address
+authoritative branches.
+
+Learners append sanitized `setup`, `command`, `output`, `hint`, `checkpoint`,
+`check`, `recovery`, and `complete` events at `/{attempt}/events`. Commands and
+cost are bounded, checkpoints and checks require content digests, and
+credential-shaped text is rejected. Completion is reproducible only when setup,
+a command, a checkpoint, and an acceptance check are retained. Attempts remain
+private to their learner and grant no Git, publication, contribution, review,
+merge, credential, data, or operational authority. Durable state defaults below
+`$LEARNING_EXERCISE_ROOT` at `apps/api/data/learning-exercises`.
+
 ## Contributor pathways
 
 ### Ready contribution opportunities

@@ -32,8 +32,24 @@ type Resource struct {
 
 type Exercise struct {
 	Title              string   `json:"title"`
+	Kinds              []string `json:"kinds"`
 	Instructions       string   `json:"instructions"`
 	AcceptanceCriteria []string `json:"acceptance_criteria"`
+	Tools              []Tool   `json:"tools"`
+	Data               []Data   `json:"data"`
+	SetupCommands      []string `json:"setup_commands"`
+	MaximumCost        float64  `json:"maximum_cost"`
+}
+
+type Tool struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+type Data struct {
+	Name   string `json:"name"`
+	Kind   string `json:"kind"`
+	Digest string `json:"digest"`
 }
 
 type Module struct {
@@ -155,8 +171,18 @@ func valid(in VersionInput) bool {
 		}
 		ids[m.ID] = true
 		for _, e := range m.Exercises {
-			if e.Title == "" || e.Instructions == "" || !clean(e.AcceptanceCriteria, true) {
+			if e.Title == "" || e.Instructions == "" || !clean(e.AcceptanceCriteria, true) || !clean(e.Kinds, false) || !clean(e.SetupCommands, false) || e.MaximumCost < 0 || e.MaximumCost > 10000 || len(e.Tools) > 30 || len(e.Data) > 30 {
 				return false
+			}
+			for _, tool := range e.Tools {
+				if strings.TrimSpace(tool.Name) == "" || strings.TrimSpace(tool.Version) == "" {
+					return false
+				}
+			}
+			for _, data := range e.Data {
+				if strings.TrimSpace(data.Name) == "" || (data.Kind != "synthetic" && data.Kind != "permitted") || strings.TrimSpace(data.Digest) == "" {
+					return false
+				}
 			}
 		}
 		for _, r := range m.Resources {
