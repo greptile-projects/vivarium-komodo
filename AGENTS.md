@@ -1,5 +1,22 @@
 # AGENTS.md
 
+Versioned provenance and licensing policies live beneath
+`$PROVENANCE_POLICY_ROOT` (default `apps/api/data/provenance-policies`).
+Repository and organization owners publish immutable, optimistically
+concurrency-checked rules for source, generated code, assets, models, datasets,
+packages, and build inputs. Rules retain permitted origins, licenses and uses,
+required attribution and contributor attestations, review owners, distribution
+contexts, expiring exceptions, and links to contributor pathways, agent
+contracts, packages, releases, and private or federated contribution boundaries.
+Reads derive unknown licenses, conflicting distribution terms, missing owners,
+and expired or soon-expiring exceptions with attribution. The public APIs are
+`/repositories/{repository}/provenance-policies` and
+`/organizations/{organization}/provenance-policies`; repository policy appears
+in `view=governance`, and organization policy appears on `/organizations`.
+Policies grant no repository, organization, contribution, agent, package,
+release, federation, credential, review, merge, distribution, or operational
+authority.
+
 Repository-reviewed collaboration workflow definitions live beneath
 `$WORKFLOW_DEFINITION_ROOT` (default `apps/api/data/workflow-definitions`).
 Repository writers publish immutable versions with exact source revision and
