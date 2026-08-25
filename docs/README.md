@@ -6166,3 +6166,20 @@ the failed publication and recovery detail remain retained;
 `POST .../landings/{landing}/rebuild` supersedes only unmerged candidates and
 assembles a new suffix generation against the exact live target. Neither the
 landing plan nor its evidence adds merge, approval, check, or branch authority.
+
+### Complete stacked-change workflow
+
+`stacked_change_workflow_test.go` proves the public large-change-to-integrated-
+stack boundary used by `view=stacks`. A developer and approved agent divide a
+feature across stock Git branches, inspect focused and cumulative diffs, retain
+exact reviews and agent workspace actions, revise an early layer, reorder the
+stack, and resolve the resulting semantic conflict before publishing one
+optimistic restack.
+
+The same run demonstrates correction rather than hidden choreography: revoked
+agent access blocks a preview; a concurrent push rejects the entire ref
+transaction; old review evidence is invalidated; a failed middle check pauses
+only the suffix; and a target advance after partial integration supersedes old
+candidates and rebuilds only unmerged work. Passing per-member and cumulative
+evidence then produces retained final history without manufacturing Git,
+review, agent, check, merge, credential, or operational authority.

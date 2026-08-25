@@ -3708,3 +3708,12 @@ retain superseded candidates and evidence while creating a new generation from
 the current target, and already merged members remain durable. Landing records
 coordinate native branch authority but grant no Git, review, check, approval,
 merge, repository, credential, deployment, or operational authority.
+
+`stacked_change_workflow_test.go` is the black-box boundary for the complete
+large-change-to-integrated-stack loop. It connects stock Git branches and a
+semantic conflict resolution to focused and cumulative review, developer and
+approved-agent work, revision propagation, exact candidate evidence, and final
+ordered history. The retained run includes revoked agent access, stale review,
+a reordered member, an atomically contained concurrent push, a failed middle
+check, partial integration, target movement, suffix-only rebuild, and recovery
+without granting branch, review, agent, check, merge, or repository authority.
