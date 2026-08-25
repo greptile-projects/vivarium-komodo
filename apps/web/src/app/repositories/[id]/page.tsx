@@ -74,6 +74,7 @@ import { WorkflowComponents } from "@/components/workflow-components";
 import { AgentScenarios } from "@/components/agent-scenarios";
 import { AgentCandidateEvaluations } from "@/components/agent-candidate-evaluations";
 import { PrivacyAssessments } from "@/components/privacy-assessments";
+import { ReviewPlans } from "@/components/review-plans";
 import {
   Book,
   Branch,
@@ -9629,7 +9630,9 @@ function PullRequestDetail({
   onSection: (section: string) => void;
 }) {
   const active =
-    section === "commits"
+    section === "review-plan"
+      ? "review-plan"
+    : section === "commits"
       ? "commits"
       : section === "files"
         ? "files"
@@ -9862,6 +9865,7 @@ function PullRequestDetail({
         />
       )}
       <nav className="pull-sections" aria-label="Pull request">
+        <button className={active === "review-plan" ? "active" : ""} onClick={() => onSection("review-plan")}>Review plan</button>
         <button className={active === "conflicts" ? "active" : ""} onClick={() => onSection("conflicts")}>
           Conflicts <span>{conflicts?.conflicts.length ?? 0}</span>
         </button>
@@ -9938,6 +9942,8 @@ function PullRequestDetail({
           comments={comments}
           onSection={onSection}
         />
+      ) : active === "review-plan" ? (
+        <ReviewPlans repository={repository} pull={item.id} actor={actor} paths={files.map(file=>file.path)} />
       ) : active === "conflicts" && conflicts ? (
         <ConflictEvidence repository={repository} pull={item} actor={actor} analysis={conflicts} />
       ) : active === "commits" ? (

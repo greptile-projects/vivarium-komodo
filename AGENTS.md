@@ -1,5 +1,17 @@
 # AGENTS.md
 
+Revision-exact pull-request review plans live beneath `$REVIEW_PLAN_ROOT`
+(default `apps/api/data/review-plans`). A pull author or repository owner publishes
+immutable optimistic versions whose exact source and target revisions and changed
+paths are derived from the pull request and repository objects. Plans retain intent,
+risk, policies, affected commitments and context, review areas, expertise, owners,
+acceptance questions, evidence, dependencies, and completion rules. Reads preserve
+unplanned or overlapping scope, paths outside the change, missing ownership,
+inaccessible context, and source or target drift as attributable blockers. The
+public resource is `/repositories/{repository}/pull-requests/{pull_request}/review-plans`
+and the pull-request web surface has a Review plan section. Plans grant no repository,
+review, approval, merge, policy, secret, or operational authority.
+
 Versioned provenance and licensing policies live beneath
 `$PROVENANCE_POLICY_ROOT` (default `apps/api/data/provenance-policies`).
 Repository and organization owners publish immutable, optimistically
