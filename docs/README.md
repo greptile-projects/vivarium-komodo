@@ -33,6 +33,28 @@ deadline, and escalation. Durable state defaults beneath `$REVIEW_ROUTING_ROOT`;
 suggestion, invitation, or acceptance grants no repository, merge, secret, policy,
 governance, or operational authority.
 
+### Parallel review through shared evidence
+
+Once routed participants accept their assignments, the sibling `/review-work`
+resource opens one optimistic, revision-exact workspace. The server derives a
+scoped queue from planned files and diffs, acceptance requirements, required
+checks and previews, symbols, accessible context, and prior decisions. Reviewers
+publish item-level progress and coverage instead of privately repeating work;
+blocked dependencies, overlap, residual uncertainty, and contradictory findings
+stay visible to every repository reader.
+
+Only the accepted participant may write for an assignment. Findings require a
+public or repository-visible citation bound to the candidate revision (or an exact
+prior decision), and private, inaccessible, and embargoed evidence is rejected.
+Discussion supports questions, answers, and attributable challenges. A handoff
+names the receiving accepted assignment, exact queue and finding IDs, reason, and
+remaining uncertainty, and is incomplete until that participant accepts it.
+Approved-agent findings are always labeled proposals and cannot satisfy a required
+human review role. The pull Review plan section presents this shared queue and
+reasoning. Durable state defaults beneath `$REVIEW_WORK_ROOT`; investigation and
+handoff grant no approval, repository, merge, secret, policy, or operational
+authority.
+
 ## Reusable workflow components
 
 Repositories publish attested workflow components at
