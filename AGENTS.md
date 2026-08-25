@@ -24,6 +24,20 @@ The public resource is the review plan's sibling `/review-routing` tree and appe
 in the pull Review plan section. Routing grants no repository, merge, secret,
 policy, governance, or operational authority.
 
+Parallel review work lives beneath `$REVIEW_WORK_ROOT` (default
+`apps/api/data/review-work`) and is bound to one current review-plan version,
+pull revision, and accepted routing assignment. Its shared queue covers exact
+files, diffs, symbols, requirements, checks, previews, accessible context, and
+prior decisions; reviewers publish optimistic progress, coverage, cited findings,
+uncertainty, discussion, input requests, challenges, and accepted handoffs.
+Overlapping coverage, blocked dependencies, and conflicting conclusions remain
+visible. Citations must be public or repository-visible and revision-bound, so
+private, inaccessible, and embargoed material is rejected rather than propagated.
+Approved agents may publish only proposed findings and never satisfy a required
+human role. The public sibling resource is `/review-work` and appears in the pull
+Review plan section. Work records grant no repository, approval, merge, secret,
+policy, governance, or operational authority.
+
 Versioned provenance and licensing policies live beneath
 `$PROVENANCE_POLICY_ROOT` (default `apps/api/data/provenance-policies`).
 Repository and organization owners publish immutable, optimistically
