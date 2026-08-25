@@ -1,5 +1,19 @@
 # AGENTS.md
 
+Versioned capacity objectives live beneath `$CAPACITY_OBJECTIVE_ROOT` (default
+`apps/api/data/capacity-objectives`). Repository writers define immutable optimistic
+contracts for services, APIs, jobs, workspaces, package delivery, or user journeys,
+including forecast windows and evidence, traffic shapes, seasonality, service levels,
+bottleneck thresholds, dependency limits, regions, owners, budget, lead time, signals,
+attributable expiring assumptions, and success and rollback criteria. Links connect
+product roadmaps, experiments, performance goals, service objectives, infrastructure,
+releases, and funding. Reads derive unsupported forecasts, missing required signals,
+conflicting commitments, and expired or soon-expiring assumptions as explicit gaps.
+The public API is `/repositories/{repository}/capacity-objectives`, and the repository
+Capacity & performance surface shows the same history. Objectives grant no spending,
+provider, repository, release, deployment, environment, credential, or operational
+authority.
+
 Revision-exact pull-request review plans live beneath `$REVIEW_PLAN_ROOT`
 (default `apps/api/data/review-plans`). A pull author or repository owner publishes
 immutable optimistic versions whose exact source and target revisions and changed

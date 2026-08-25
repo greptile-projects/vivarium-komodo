@@ -21,6 +21,7 @@ import { DocumentationCollections } from "@/components/documentation-collections
 import { Extensions } from "@/components/extensions";
 import { GovernanceCharter } from "@/components/governance-charter";
 import { PerformanceGoals } from "@/components/performance-goals";
+import { CapacityObjectives } from "@/components/capacity-objectives";
 import { AccessibilityCommitments } from "@/components/accessibility-commitments";
 import { AccessibilityBarriers } from "@/components/accessibility-barriers";
 import { AccessibilityAssessments } from "@/components/accessibility-assessments";
@@ -1802,7 +1803,7 @@ export default function RepositoryPage({
           onClick={() => navigate({ view: "performance", path: "" })}
         >
           <Clock size={15} />
-          Performance
+          Capacity & performance
         </button>
         <button
           className={view === "accessibility" ? "active" : ""}
@@ -2008,7 +2009,7 @@ export default function RepositoryPage({
       ) : view === "teams" ? (
         <DeliveryTeams repository={repository.id} actor={actor} selected={query.team} />
       ) : view === "performance" ? (
-        <PerformanceGoals repository={repository.id} actor={actor} />
+        <><CapacityObjectives repository={repository.id} actor={actor} /><PerformanceGoals repository={repository.id} actor={actor} /></>
       ) : view === "accessibility" ? (
         <><AccessibilityAssessments repository={repository.id} actor={actor} /><AccessibilityCommitments repository={repository.id} actor={actor} /><AccessibilityBarriers repository={repository.id} actor={actor} /></>
       ) : view === "privacy" ? (
