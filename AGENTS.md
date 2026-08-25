@@ -3113,6 +3113,20 @@ assessment governs pull-request merge and exact-candidate release readiness
 without granting data, preview, repository, merge, release, or operational
 authority.
 
+Project learning pathways live beneath `$LEARNING_PATHWAY_ROOT` (default
+`apps/api/data/learning-pathways`). Repository writers publish immutable,
+optimistically concurrency-checked role- or outcome-based versions with
+prerequisites, objectives, supported revisions, ordered modules, practical
+exercises, expected effort, mentors, learner environments, accessibility and
+localization needs, and required completion evidence. Module resources bind
+exact repository revisions to documentation, symbols, decisions, issues, API
+contracts, packages, and contributor guidance. Reads derive stale or
+inaccessible material, departed mentors, missing ownership, and unsupported
+environments without rewriting history. The public API is
+`/repositories/{repository}/learning-pathways`, and the repository web surface
+is `view=learning`. Publishing or reading a curriculum grants no repository,
+Git, workspace, agent, assessment, contribution, review, or merge authority.
+
 Pull-request privacy impact assessments live beneath
 `$PRIVACY_ASSESSMENT_ROOT` (default `apps/api/data/privacy-assessments`). Each
 assessment binds exact candidate and target commits, cited flow maps,
