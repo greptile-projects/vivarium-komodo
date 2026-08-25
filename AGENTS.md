@@ -3171,6 +3171,19 @@ The API is nested at `/repositories/{repository}/learning-pathways/{pathway}/ass
 and the repository surface remains `view=learning`. Assessment records grant no
 repository, Git, agent, contribution, review, merge, or operational authority.
 
+Current supported learning can enter ordinary contribution without becoming an
+access grant. `GET /repositories/{repository}/learning-pathways/{pathway}/contribution-matches`
+returns ready opportunities at the exact revision of a learner's supported
+assessment completion. After the learner claims one normally, its start request
+may select that assessment attempt and learner-owned completed, reproducible
+exercise attempts. The private fork workspace retains their pathway, module,
+revision, authorship, and declared-assistance context; publication copies the
+same review-safe references into the pull request alongside mentor and agent
+support and acceptance evidence. Claims, forks, checks, review, integration,
+readiness outcomes, and any later responsibility grant keep their native owner
+and permission checks. Learning completion grants no repository, fork, Git,
+agent, secret, review, merge, governance, or operational authority.
+
 Pull-request privacy impact assessments live beneath
 `$PRIVACY_ASSESSMENT_ROOT` (default `apps/api/data/privacy-assessments`). Each
 assessment binds exact candidate and target commits, cited flow maps,

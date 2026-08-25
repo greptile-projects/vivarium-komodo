@@ -1796,6 +1796,27 @@ State defaults beneath `$LEARNING_ASSESSMENT_ROOT` at
 `apps/api/data/learning-assessments` and grants no Git, contribution, review,
 merge, agent, or operational authority.
 
+Learners inspect governed next work at `GET
+/repositories/{repository}/learning-pathways/{pathway}/contribution-matches`.
+Only ready opportunities whose exact revision has a current supported
+assessment completion are returned, together with the completion reference and
+an explicit reminder that an ordinary claim and permission policy still apply.
+When starting a claimed opportunity, the learner may provide `learning` with a
+pathway, assessment and attempt plus selected exercise attempt IDs. Every
+exercise must belong to that learner, be completed and reproducible, and match
+the pathway version and opportunity revision. The fork workspace preloads these
+review-safe references, module IDs, learner authorship, and declared assistance
+without copying protected assessment material or private exercise state.
+
+Checkpoint publication carries the frozen learning context into the pull
+request's `contribution_context` beside opportunity acceptance evidence and
+attributable mentor and agent support. It then uses the existing checks,
+discussion, review, queue, and merge rules. Maintainer-recorded contribution
+outcomes may recognize `ready`, `ready_with_support`, or `needs_guidance`; any
+repository responsibility remains a separate owner-approved access grant.
+Neither matching nor completion grants fork, upstream, Git, agent, secret,
+review, merge, governance, or operational authority.
+
 ## Contributor pathways
 
 ### Ready contribution opportunities

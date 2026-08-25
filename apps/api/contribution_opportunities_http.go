@@ -9,6 +9,9 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/contributionopportunities"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/issues"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/learningassessments"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/learningexercises"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/learningpathways"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/organizations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
@@ -36,6 +39,9 @@ func registerContributionOpportunitiesHTTP(mux *http.ServeMux, store *contributi
 	var pulls pullRequestStore
 	var checks checkRunStarter
 	var releaseStore opportunityReleaseStore
+	var learningPathwayStore *learningpathways.Store
+	var learningExerciseStore *learningexercises.Store
+	var learningAssessmentStore *learningassessments.Store
 	for _, extra := range extras {
 		switch value := extra.(type) {
 		case pullRequestStore:
@@ -44,6 +50,12 @@ func registerContributionOpportunitiesHTTP(mux *http.ServeMux, store *contributi
 			checks = value
 		case opportunityReleaseStore:
 			releaseStore = value
+		case *learningpathways.Store:
+			learningPathwayStore = value
+		case *learningexercises.Store:
+			learningExerciseStore = value
+		case *learningassessments.Store:
+			learningAssessmentStore = value
 		}
 	}
 	access := func(w http.ResponseWriter, r *http.Request, write bool) (string, bool) {
@@ -125,6 +137,47 @@ func registerContributionOpportunitiesHTTP(mux *http.ServeMux, store *contributi
 		}
 		writeJSON(w, 200, map[string]any{"items": m, "explanation": "Scores combine interest, skill, risk, readiness, and requested assistance. Missing skills remain visible rather than silently excluding work.", "grants_write_access": false})
 	})
+	mux.HandleFunc("GET /repositories/{repository}/learning-pathways/{pathway}/contribution-matches", func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := access(w, r, false)
+		if !ok {
+			return
+		}
+		if learningPathwayStore == nil || learningAssessmentStore == nil {
+			writeJSON(w, 422, map[string]string{"error": "learning_evidence_unavailable"})
+			return
+		}
+		pathway, err := learningPathwayStore.Get(r.PathValue("repository"), r.PathValue("pathway"))
+		if err != nil {
+			writeJSON(w, 404, map[string]string{"error": "learning_pathway_not_found"})
+			return
+		}
+		assessments, err := learningAssessmentStore.List(r.PathValue("repository"), pathway.ID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		completed := []map[string]any{}
+		completedRevisions := map[string]bool{}
+		for _, assessment := range assessments {
+			for _, attempt := range assessment.Attempts {
+				if attempt.LearnerID == actor && attempt.CompletionSupported && attempt.PathwayVersion == pathway.CurrentVersion {
+					completedRevisions[attempt.Revision] = true
+					completed = append(completed, map[string]any{"assessment_id": assessment.ID, "attempt_id": attempt.ID, "revision": attempt.Revision, "pathway_version": attempt.PathwayVersion})
+				}
+			}
+		}
+		data, err := store.List(r.PathValue("repository"))
+		if opportunityError(w, err) {
+			return
+		}
+		matches := []map[string]any{}
+		for _, opportunity := range data.Opportunities {
+			if opportunity.Ready && completedRevisions[opportunity.Revision] {
+				matches = append(matches, map[string]any{"opportunity": opportunity, "reason": "current demonstrated learning matches the opportunity revision", "requires_claim": true})
+			}
+		}
+		writeJSON(w, 200, map[string]any{"items": matches, "completion_evidence": completed, "grants_write_access": false, "ordinary_claim_and_permission_policy_required": true})
+	})
 	mux.HandleFunc("POST /repositories/{repository}/contribution-opportunities/{opportunity}/claims", func(w http.ResponseWriter, r *http.Request) {
 		actor, ok := access(w, r, true)
 		if !ok {
@@ -162,6 +215,12 @@ func registerContributionOpportunitiesHTTP(mux *http.ServeMux, store *contributi
 		var in struct {
 			Name                     string `json:"name"`
 			ResponseExpectationHours int    `json:"response_expectation_hours"`
+			Learning                 *struct {
+				PathwayID           string   `json:"pathway_id"`
+				AssessmentID        string   `json:"assessment_id"`
+				AssessmentAttemptID string   `json:"assessment_attempt_id"`
+				ExerciseAttemptIDs  []string `json:"exercise_attempt_ids"`
+			} `json:"learning,omitempty"`
 		}
 		if !readJSON(w, r, &in, 8<<10) {
 			return
@@ -187,6 +246,43 @@ func registerContributionOpportunitiesHTTP(mux *http.ServeMux, store *contributi
 		if !claimed || !o.Ready {
 			writeJSON(w, 409, map[string]string{"error": "active_claim_required"})
 			return
+		}
+		var learning *workspaces.LearningEvidence
+		if in.Learning != nil {
+			if learningPathwayStore == nil || learningExerciseStore == nil || learningAssessmentStore == nil {
+				writeJSON(w, 422, map[string]string{"error": "learning_evidence_unavailable"})
+				return
+			}
+			pathway, e := learningPathwayStore.Get(string(upstream.ID), in.Learning.PathwayID)
+			assessment, ae := learningAssessmentStore.Get(string(upstream.ID), in.Learning.PathwayID, in.Learning.AssessmentID)
+			var completed *learningassessments.Attempt
+			if ae == nil {
+				for i := range assessment.Attempts {
+					candidate := &assessment.Attempts[i]
+					if candidate.ID == in.Learning.AssessmentAttemptID && candidate.LearnerID == actor.UserID && candidate.CompletionSupported {
+						completed = candidate
+					}
+				}
+			}
+			if e != nil || ae != nil || completed == nil || pathway.CurrentVersion != completed.PathwayVersion || completed.Revision != o.Revision {
+				writeJSON(w, 422, map[string]string{"error": "current_completed_learning_required"})
+				return
+			}
+			modules, attempts := []string{}, []string{}
+			for _, id := range in.Learning.ExerciseAttemptIDs {
+				exercise, ee := learningExerciseStore.Get(string(upstream.ID), in.Learning.PathwayID, id)
+				if ee != nil || exercise.LearnerID != actor.UserID || exercise.PathwayVersion != completed.PathwayVersion || exercise.Revision != o.Revision || exercise.Status != "completed" || !exercise.Reproducible {
+					writeJSON(w, 422, map[string]string{"error": "completed_reproducible_exercise_required"})
+					return
+				}
+				attempts = append(attempts, id)
+				modules = append(modules, exercise.ModuleID)
+			}
+			if len(attempts) == 0 {
+				writeJSON(w, 422, map[string]string{"error": "learning_exercise_required"})
+				return
+			}
+			learning = &workspaces.LearningEvidence{PathwayID: in.Learning.PathwayID, PathwayVersion: completed.PathwayVersion, AssessmentID: in.Learning.AssessmentID, AssessmentAttemptID: completed.ID, ExerciseAttemptIDs: attempts, ModuleIDs: modules, Revision: completed.Revision, LearnerID: actor.UserID, Assistance: completed.Assistance}
 		}
 		opened, err := repos.Open(upstream.ID)
 		if err != nil {
@@ -217,7 +313,7 @@ func registerContributionOpportunitiesHTTP(mux *http.ServeMux, store *contributi
 			writeJSON(w, 422, map[string]any{"error": "non_reproducible_workspace_definition", "fork": repositoryResponse(fork)})
 			return
 		}
-		context := workspaces.SourceContext{Type: "contribution_opportunity", ID: o.ID, UpstreamRepositoryID: string(upstream.ID), AcceptanceCriteria: o.AcceptanceCriteria, SampleData: o.SampleData, Evidence: []string{o.Source.Kind + ":" + o.Source.ResourceID}}
+		context := workspaces.SourceContext{Type: "contribution_opportunity", ID: o.ID, UpstreamRepositoryID: string(upstream.ID), AcceptanceCriteria: o.AcceptanceCriteria, SampleData: o.SampleData, Evidence: []string{o.Source.Kind + ":" + o.Source.ResourceID}, Learning: learning}
 		if pathway, e := pathways.Get(string(upstream.ID)); e == nil && len(pathway.Versions) > 0 {
 			v := pathway.Versions[len(pathway.Versions)-1]
 			context.GuidanceVersion = v.Number
@@ -407,6 +503,10 @@ func registerContributionOpportunitiesHTTP(mux *http.ServeMux, store *contributi
 			dependencies = checkpoint.Reproducibility.Dependencies
 		}
 		context := &pullrequests.ContributionContext{OpportunityID: o.ID, PathwayVersion: pathwayVersion, PathwayAcknowledged: true, SetupCommands: commands, SetupDependencies: dependencies, MentorGuidance: mentorGuidance, AgentAssistance: agentAssistance, AcceptanceCriteria: acceptedCriteria, ContributorIDs: contributors}
+		if workspace.Context.Learning != nil {
+			l := workspace.Context.Learning
+			context.Learning = &pullrequests.LearningContext{PathwayID: l.PathwayID, PathwayVersion: l.PathwayVersion, Revision: l.Revision, AssessmentID: l.AssessmentID, AssessmentAttemptID: l.AssessmentAttemptID, ExerciseAttemptIDs: l.ExerciseAttemptIDs, ModuleIDs: l.ModuleIDs, LearnerID: l.LearnerID, Assistance: l.Assistance}
+		}
 		body := "Guided contribution for opportunity `" + o.ID + "`.\n\n" + in.Message + "\n\nAcceptance criteria and onboarding support are retained in the structured contribution context."
 		created, e := pulls.Create(pullrequests.CreateParams{RepositoryID: string(upstream.ID), SourceRepositoryID: string(fork.ID), AuthorID: actor.UserID, Title: in.Title, Body: body, SourceBranch: strings.TrimSpace(in.Branch), TargetBranch: targetName, SourceCommitID: string(commit), TargetCommitID: string(target.ObjectID), WorkspaceID: workspace.ID, CheckpointID: in.CheckpointID, ContributorIDs: contributors, ContributionContext: context})
 		if e != nil {
