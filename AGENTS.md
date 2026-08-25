@@ -3695,3 +3695,16 @@ form an append-only stack timeline; reads mark entries when an upstream
 assumption changes. Repository, participant-only, and embargoed audiences
 preserve ordinary disclosure, while cross-repository members and branch updates
 continue to require their native owner and repository permissions.
+
+Ready change-stack prefixes may be assembled into immutable landing candidates
+against the exact live target. Each candidate freezes its base, source, tree,
+resulting revision, generation, and member position; required checks,
+reproductions, contracts, previews, policy decisions, and approvals record the
+exact three revisions they cover. Maintainers may publish the first current
+passing member in order or, where declared policy permits, compare-and-swap the
+whole passing stack atomically. Target movement, conflicts, failed evidence,
+withdrawn approval, or a changed stack pauses only the unsafe suffix. Rebuilds
+retain superseded candidates and evidence while creating a new generation from
+the current target, and already merged members remain durable. Landing records
+coordinate native branch authority but grant no Git, review, check, approval,
+merge, repository, credential, deployment, or operational authority.

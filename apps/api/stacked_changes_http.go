@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/stackedchanges"
@@ -291,6 +294,191 @@ func registerStackedChangesHTTP(mux *http.ServeMux, s *stackedchanges.Store, rep
 		}
 		writeJSON(w, status, projectStackPermissions(x, actor))
 	})
+	mux.HandleFunc("POST "+base+"/{stack}/landings", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedStackRevision  int      `json:"expected_stack_revision"`
+			ExpectedTargetRevision string   `json:"expected_target_revision"`
+			Mode                   string   `json:"mode"`
+			AtomicPermitted        bool     `json:"atomic_permitted"`
+			RequiredEvidence       []string `json:"required_evidence"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		x, e := s.Get(string(repo.ID), r.PathValue("stack"))
+		if stackError(w, e) {
+			return
+		}
+		opened, e := repos.Open(repo.ID)
+		if e != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		liveTarget, e := opened.ReadReference(storage.ReferenceName("refs/heads/" + strings.TrimPrefix(x.TargetBranch, "refs/heads/")))
+		if in.ExpectedStackRevision != x.CurrentRevision || e != nil || in.ExpectedTargetRevision != string(liveTarget.ObjectID) {
+			writeJSON(w, 409, map[string]string{"error": "stale_stack_or_target"})
+			return
+		}
+		if len(in.RequiredEvidence) == 0 {
+			in.RequiredEvidence = []string{"required_check", "reproduction", "contract", "preview", "policy", "approval"}
+		}
+		candidates := assembleLandingCandidates(r.Context(), opened, x, in.ExpectedTargetRevision, in.RequiredEvidence, 1, 0)
+		x, e = s.CreateLanding(string(repo.ID), x.ID, actor.UserID, in.Mode, in.AtomicPermitted, in.RequiredEvidence, in.ExpectedTargetRevision, candidates)
+		if stackError(w, e) {
+			return
+		}
+		writeJSON(w, 201, projectStackPermissions(x, actor))
+	})
+	mux.HandleFunc("POST "+base+"/{stack}/landings/{landing}/candidates/{candidate}/evidence", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			Kind      string `json:"kind"`
+			Reference string `json:"reference"`
+			Status    string `json:"status"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		x, e := s.AddLandingEvidence(string(repo.ID), r.PathValue("stack"), r.PathValue("landing"), r.PathValue("candidate"), actor.UserID, in.Kind, in.Reference, in.Status)
+		if stackError(w, e) {
+			return
+		}
+		writeJSON(w, 201, projectStackPermissions(x, actor))
+	})
+	mux.HandleFunc("POST "+base+"/{stack}/landings/{landing}/merge", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			MemberID string `json:"member_id"`
+			Atomic   bool   `json:"atomic"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		x, l, c, e := s.LandingForMerge(string(repo.ID), r.PathValue("stack"), r.PathValue("landing"), in.MemberID, in.Atomic)
+		if stackError(w, e) {
+			return
+		}
+		opened, e := repos.Open(repo.ID)
+		if e == nil {
+			expected := c.BaseRevision
+			if in.Atomic {
+				expected = l.CurrentTargetRevision
+			}
+			e = opened.CompareAndSwapReference(storage.ReferenceName("refs/heads/"+strings.TrimPrefix(l.TargetBranch, "refs/heads/")), storage.ObjectID(expected), storage.ObjectID(c.CandidateRevision))
+		}
+		mergeErr := e
+		x, e = s.FinishLandingMerge(string(repo.ID), x.ID, l.ID, c.MemberID, actor.UserID, in.Atomic, mergeErr)
+		if stackError(w, e) {
+			return
+		}
+		status := 200
+		if mergeErr != nil {
+			status = 409
+		}
+		writeJSON(w, status, projectStackPermissions(x, actor))
+	})
+	mux.HandleFunc("POST "+base+"/{stack}/landings/{landing}/rebuild", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedTargetRevision string `json:"expected_target_revision"`
+		}
+		if !readJSON(w, r, &in, 64<<10) {
+			return
+		}
+		x, e := s.Get(string(repo.ID), r.PathValue("stack"))
+		if stackError(w, e) {
+			return
+		}
+		opened, e := repos.Open(repo.ID)
+		if e != nil {
+			writeJSON(w, 500, map[string]string{"error": "internal_error"})
+			return
+		}
+		ref, e := opened.ReadReference(storage.ReferenceName("refs/heads/" + strings.TrimPrefix(x.TargetBranch, "refs/heads/")))
+		if e != nil || string(ref.ObjectID) != in.ExpectedTargetRevision {
+			writeJSON(w, 409, map[string]string{"error": "target_moved"})
+			return
+		}
+		var landing stackedchanges.Landing
+		found := false
+		for _, l := range x.Landings {
+			if l.ID == r.PathValue("landing") {
+				landing = l
+				found = true
+			}
+		}
+		if !found {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		start := len(landing.MergedMembers)
+		generation := 1
+		for _, c := range landing.Candidates {
+			if c.Generation >= generation {
+				generation = c.Generation + 1
+			}
+		}
+		candidates := assembleLandingCandidates(r.Context(), opened, x, in.ExpectedTargetRevision, landing.Candidates[0].RequiredEvidence, generation, start)
+		x, e = s.RebuildLanding(string(repo.ID), x.ID, landing.ID, actor.UserID, in.ExpectedTargetRevision, candidates)
+		if stackError(w, e) {
+			return
+		}
+		writeJSON(w, 201, projectStackPermissions(x, actor))
+	})
+}
+
+func assembleLandingCandidates(ctx context.Context, repo *storage.Repository, stack stackedchanges.Stack, target string, required []string, generation, start int) []stackedchanges.LandingCandidate {
+	now := time.Now().UTC()
+	base := storage.ObjectID(target)
+	out := []stackedchanges.LandingCandidate{}
+	for i := start; i < len(stack.Members); i++ {
+		m := stack.Members[i]
+		c := stackedchanges.LandingCandidate{ID: fmt.Sprintf("g%d-%s", generation, m.ID), Generation: generation, Position: i + 1, MemberID: m.ID, BaseRevision: string(base), SourceRevision: m.Revision, Status: "verifying", RequiredEvidence: append([]string{}, required...), Evidence: []stackedchanges.LandingEvidence{}, Blockers: []stackedchanges.Blocker{}, CreatedAt: now}
+		source := storage.ObjectID(m.Revision)
+		if ancestor(repo, base, source) {
+			commit, e := repo.ReadCommit(source)
+			if e == nil {
+				c.CandidateRevision, c.CandidateTree, base = m.Revision, string(commit.Tree), source
+			} else {
+				c.Blockers = append(c.Blockers, stackedchanges.Blocker{Kind: "missing_source", MemberID: m.ID, Detail: "source revision is unavailable"})
+			}
+		} else if conflicts, e := mergeHasConflicts(ctx, repo, base, source); e != nil || conflicts {
+			c.Blockers = append(c.Blockers, stackedchanges.Blocker{Kind: "merge_conflict", MemberID: m.ID, Detail: "change cannot be applied to the current ready prefix"})
+		} else if tree, e := materializeMergeTree(ctx, repo, base, source); e != nil {
+			c.Blockers = append(c.Blockers, stackedchanges.Blocker{Kind: "candidate_failed", MemberID: m.ID, Detail: "candidate tree could not be assembled"})
+		} else {
+			stamp := fmt.Sprintf("%d +0000", now.Unix())
+			body := fmt.Sprintf("tree %s\nparent %s\nparent %s\nauthor %s <%s@users.local> %s\ncommitter stack-landing <stack-landing@users.local> %s\n\nStack landing candidate for %s\n", tree, base, source, stack.CreatedBy, stack.CreatedBy, stamp, stamp, m.ID)
+			candidate, writeErr := repo.WriteObject(storage.CommitObject, []byte(body))
+			if writeErr != nil {
+				c.Blockers = append(c.Blockers, stackedchanges.Blocker{Kind: "candidate_failed", MemberID: m.ID, Detail: "candidate commit could not be retained"})
+			} else {
+				c.CandidateRevision, c.CandidateTree, base = string(candidate), string(tree), candidate
+			}
+		}
+		out = append(out, c)
+		if len(c.Blockers) > 0 {
+			for j := i + 1; j < len(stack.Members); j++ {
+				n := stack.Members[j]
+				out = append(out, stackedchanges.LandingCandidate{ID: fmt.Sprintf("g%d-%s", generation, n.ID), Generation: generation, Position: j + 1, MemberID: n.ID, BaseRevision: string(base), SourceRevision: n.Revision, Status: "paused_suffix", RequiredEvidence: append([]string{}, required...), Evidence: []stackedchanges.LandingEvidence{}, Blockers: []stackedchanges.Blocker{{Kind: "unsafe_prefix", MemberID: n.ID, Detail: "an earlier member must recover first"}}, CreatedAt: now})
+			}
+			break
+		}
+	}
+	return out
 }
 
 func stackContains(xs []string, v string) bool {
