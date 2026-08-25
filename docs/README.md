@@ -1721,6 +1721,25 @@ unresolved blocking findings or an unsatisfied applicable scenario add the
 `preview_acceptance_required` blocker and prevent merge alongside reviews and
 required checks.
 
+## Project learning pathways
+
+Authorized repository collaborators maintain project-native curricula at
+`/repositories/{repository}/learning-pathways/{pathway}/versions`. Each
+optimistically concurrency-checked immutable version defines a role or outcome,
+prerequisites, objectives, supported Git revisions, ordered modules, exercises,
+mentors, expected effort, accessibility and localization needs, supported or
+unsupported learner environments, and completion evidence. Module references
+connect learning directly to exact documentation, symbols, decisions, issues,
+API contracts, packages, and contributor guidance.
+
+List and detail reads resolve those references against current repository state
+and retain `stale` or `inaccessible` materials as attributed findings. Departed
+mentors, absent ownership, and explicitly unsupported environments remain
+visible rather than being presented as a complete curriculum. The repository
+`view=learning` surface supports publication and inspection. Records live below
+`$LEARNING_PATHWAY_ROOT` (default `apps/api/data/learning-pathways`) and grant no
+Git, workspace, agent, assessment, contribution, review, or merge authority.
+
 ## Contributor pathways
 
 ### Ready contribution opportunities

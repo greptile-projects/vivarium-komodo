@@ -15,6 +15,7 @@ import { TechnicalDecisions } from "@/components/technical-decisions";
 import { DeliveryTeams } from "@/components/delivery-teams";
 import { Issues } from "@/components/issues";
 import { ContributorPathway } from "@/components/contributor-pathway";
+import { LearningPathways } from "@/components/learning-pathways";
 import { ContributionOpportunities } from "@/components/contribution-opportunities";
 import { DocumentationCollections } from "@/components/documentation-collections";
 import { Extensions } from "@/components/extensions";
@@ -1377,6 +1378,8 @@ export default function RepositoryPage({
                               ? "design"
                             : query.view === "contribute"
                               ? "contribute"
+                            : query.view === "learning"
+                              ? "learning"
                               : query.view === "documentation"
                                 ? "documentation"
                               : query.view === "governance"
@@ -1461,6 +1464,7 @@ export default function RepositoryPage({
         view === "design" ||
         view === "issues" ||
         view === "documentation" ||
+        view === "learning" ||
         view === "people" ||
         repo.empty ||
         !selected
@@ -1765,6 +1769,13 @@ export default function RepositoryPage({
           Contribute
         </button>
         <button
+          className={view === "learning" ? "active" : ""}
+          onClick={() => navigate({ view: "learning", ref, path: "" })}
+        >
+          <Book size={15} />
+          Learn
+        </button>
+        <button
           className={view === "issues" ? "active" : ""}
           onClick={() => navigate({ view: "issues", path: "" })}
         >
@@ -1982,6 +1993,8 @@ export default function RepositoryPage({
         <DocumentationCollections repository={repository.id} actor={actor} owner={repository.owner_id} revision={ref} />
       ) : view === "contribute" ? (
         <><ContributorPathway repository={repository.id} actor={actor} owner={repository.owner_id} revision={ref} /><ContributionOpportunities repository={repository.id} actor={actor} owner={repository.owner_id} /></>
+      ) : view === "learning" ? (
+        <LearningPathways repository={repository.id} actor={actor} revision={ref} />
       ) : view === "proposals" ? (
         <ProposalWorkspace
           repository={repository}
