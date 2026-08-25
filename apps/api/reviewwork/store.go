@@ -60,7 +60,57 @@ type Finding struct {
 	Citations    []Citation `json:"citations"`
 	Uncertainty  []string   `json:"uncertainty"`
 	Status       string     `json:"status"`
+	Revision     string     `json:"revision"`
 	CreatedAt    time.Time  `json:"created_at"`
+}
+type Decision struct {
+	ID                 string     `json:"id"`
+	FindingID          string     `json:"finding_id"`
+	ActorID            string     `json:"actor_id"`
+	Classification     string     `json:"classification"`
+	Rationale          string     `json:"rationale"`
+	Dissent            string     `json:"dissent,omitempty"`
+	RelatedFindingID   string     `json:"related_finding_id,omitempty"`
+	OwnerDecision      bool       `json:"owner_decision"`
+	ExceptionScope     []string   `json:"exception_scope,omitempty"`
+	ExceptionExpiresAt *time.Time `json:"exception_expires_at,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+}
+type WorkLink struct {
+	ID        string    `json:"id"`
+	FindingID string    `json:"finding_id"`
+	ActorID   string    `json:"actor_id"`
+	Kind      string    `json:"kind"`
+	Reference string    `json:"reference"`
+	Revision  string    `json:"revision"`
+	Purpose   string    `json:"purpose"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type Verification struct {
+	ID           string     `json:"id"`
+	FindingID    string     `json:"finding_id"`
+	ActorID      string     `json:"actor_id"`
+	Kind         string     `json:"kind"`
+	Reference    string     `json:"reference"`
+	BaseRevision string     `json:"base_revision"`
+	Revision     string     `json:"revision"`
+	Outcome      string     `json:"outcome"`
+	Summary      string     `json:"summary"`
+	Citations    []Citation `json:"citations"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+type FindingApplicability struct {
+	FindingID string `json:"finding_id"`
+	State     string `json:"state"`
+	Reason    string `json:"reason"`
+}
+type RevisionTransition struct {
+	FromRevision string                 `json:"from_revision"`
+	ToRevision   string                 `json:"to_revision"`
+	PlanVersion  int64                  `json:"plan_version"`
+	ActorID      string                 `json:"actor_id"`
+	Findings     []FindingApplicability `json:"findings"`
+	CreatedAt    time.Time              `json:"created_at"`
 }
 type Message struct {
 	ID         string     `json:"id"`
@@ -87,20 +137,24 @@ type Handoff struct {
 	AcceptedAt          *time.Time `json:"accepted_at,omitempty"`
 }
 type Workspace struct {
-	RepositoryID    string              `json:"repository_id"`
-	PullRequestID   string              `json:"pull_request_id"`
-	PlanVersion     int64               `json:"plan_version"`
-	Revision        string              `json:"revision"`
-	Version         int64               `json:"version"`
-	Queue           []QueueItem         `json:"queue"`
-	Progress        []Progress          `json:"progress"`
-	Findings        []Finding           `json:"findings"`
-	Discussion      []Message           `json:"discussion"`
-	Handoffs        []Handoff           `json:"handoffs"`
-	Coverage        map[string][]string `json:"coverage"`
-	Conflicts       []string            `json:"conflicts"`
-	Blockers        []string            `json:"blockers"`
-	AuthorityNotice string              `json:"authority_notice"`
+	RepositoryID    string               `json:"repository_id"`
+	PullRequestID   string               `json:"pull_request_id"`
+	PlanVersion     int64                `json:"plan_version"`
+	Revision        string               `json:"revision"`
+	Version         int64                `json:"version"`
+	Queue           []QueueItem          `json:"queue"`
+	Progress        []Progress           `json:"progress"`
+	Findings        []Finding            `json:"findings"`
+	Decisions       []Decision           `json:"decisions"`
+	WorkLinks       []WorkLink           `json:"work_links"`
+	Verifications   []Verification       `json:"verifications"`
+	Transitions     []RevisionTransition `json:"revision_transitions"`
+	Discussion      []Message            `json:"discussion"`
+	Handoffs        []Handoff            `json:"handoffs"`
+	Coverage        map[string][]string  `json:"coverage"`
+	Conflicts       []string             `json:"conflicts"`
+	Blockers        []string             `json:"blockers"`
+	AuthorityNotice string               `json:"authority_notice"`
 }
 type Store struct {
 	root string
@@ -129,6 +183,11 @@ func (s *Store) read(repo, pull string) (Workspace, error) {
 		e = json.Unmarshal(b, &x)
 	}
 	return x, e
+}
+func (s *Store) Get(repo, pull string) (Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.read(repo, pull)
 }
 func (s *Store) write(x Workspace) error {
 	b, _ := json.MarshalIndent(x, "", "  ")
@@ -260,9 +319,103 @@ func (s *Store) AddFinding(repo, pull, actor string, r reviewrouting.Routing, as
 		if a.Kind == "agent" {
 			status = "proposed_by_agent"
 		}
-		x.Findings = append(x.Findings, Finding{ID: fmt.Sprintf("finding-%d", now.UnixNano()), AreaID: a.AreaID, AssignmentID: a.ID, ActorID: actor, ActorKind: a.Kind, Summary: summary, Severity: severity, Conclusion: conclusion, Citations: citations, Uncertainty: clean(uncertainty), Status: status, CreatedAt: now})
+		x.Findings = append(x.Findings, Finding{ID: fmt.Sprintf("finding-%d", now.UnixNano()), AreaID: a.AreaID, AssignmentID: a.ID, ActorID: actor, ActorKind: a.Kind, Summary: summary, Severity: severity, Conclusion: conclusion, Citations: citations, Uncertainty: clean(uncertainty), Status: status, Revision: x.Revision, CreatedAt: now})
 		return nil
 	})
+}
+func findingByID(x *Workspace, id string) *Finding {
+	for i := range x.Findings {
+		if x.Findings[i].ID == id {
+			return &x.Findings[i]
+		}
+	}
+	return nil
+}
+func (s *Store) Decide(repo, pull, actor, findingID, classification, rationale, dissent, related string, owner bool, scope []string, expires *time.Time, expected int64) (Workspace, error) {
+	allowed := map[string]bool{"accepted": true, "challenged": true, "superseded": true, "deferred": true, "duplicate": true, "accepted_risk": true, "exception": true}
+	if actor == "" || rationale == "" || !allowed[classification] || (map[string]bool{"accepted_risk": true, "exception": true}[classification] && !owner) || classification == "exception" && (expires == nil || !expires.After(s.now()) || len(clean(scope)) == 0) {
+		return Workspace{}, ErrInvalid
+	}
+	return s.mutate(repo, pull, expected, func(x *Workspace) error {
+		f := findingByID(x, findingID)
+		if f == nil {
+			return ErrInvalid
+		}
+		if (classification == "duplicate" || classification == "superseded") && (related == "" || findingByID(x, related) == nil || related == findingID) {
+			return ErrInvalid
+		}
+		now := s.now().UTC()
+		f.Status = classification
+		x.Decisions = append(x.Decisions, Decision{ID: fmt.Sprintf("decision-%d", now.UnixNano()), FindingID: findingID, ActorID: actor, Classification: classification, Rationale: rationale, Dissent: dissent, RelatedFindingID: related, OwnerDecision: owner, ExceptionScope: clean(scope), ExceptionExpiresAt: expires, CreatedAt: now})
+		return nil
+	})
+}
+func (s *Store) LinkWork(repo, pull, actor, findingID, kind, reference, revision, purpose string, expected int64) (Workspace, error) {
+	if !map[string]bool{"commit": true, "task": true, "change_session": true, "workspace": true, "follow_up": true}[kind] || actor == "" || reference == "" || revision == "" || purpose == "" {
+		return Workspace{}, ErrInvalid
+	}
+	return s.mutate(repo, pull, expected, func(x *Workspace) error {
+		f := findingByID(x, findingID)
+		if f == nil || f.Status != "accepted" {
+			return ErrInvalid
+		}
+		now := s.now().UTC()
+		x.WorkLinks = append(x.WorkLinks, WorkLink{fmt.Sprintf("work-%d", now.UnixNano()), findingID, actor, kind, reference, revision, purpose, now})
+		return nil
+	})
+}
+func (s *Store) Verify(repo, pull, actor, findingID, kind, reference, baseRevision, revision, outcome, summary string, citations []Citation, expected int64) (Workspace, error) {
+	if !map[string]bool{"check": true, "reproduction": true}[kind] || !map[string]bool{"passed": true, "failed": true, "blocked": true}[outcome] || actor == "" || reference == "" || baseRevision == "" || revision == "" || summary == "" || len(citations) == 0 {
+		return Workspace{}, ErrInvalid
+	}
+	return s.mutate(repo, pull, expected, func(x *Workspace) error {
+		if findingByID(x, findingID) == nil || revision != x.Revision {
+			return ErrInvalid
+		}
+		for _, c := range citations {
+			if !validCitation(c, x.Revision) {
+				return ErrInvalid
+			}
+		}
+		now := s.now().UTC()
+		x.Verifications = append(x.Verifications, Verification{fmt.Sprintf("verification-%d", now.UnixNano()), findingID, actor, kind, reference, baseRevision, revision, outcome, summary, citations, now})
+		return nil
+	})
+}
+func (s *Store) Transition(repo, pull, actor string, plan reviewplans.Version, findings []FindingApplicability, expected int64) (Workspace, error) {
+	if actor == "" || plan.Revision == "" {
+		return Workspace{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, pull)
+	if e != nil {
+		return x, e
+	}
+	if x.Version != expected {
+		return x, ErrConflict
+	}
+	if x.Revision == plan.Revision || plan.Number <= x.PlanVersion {
+		return x, ErrInvalid
+	}
+	seen := map[string]bool{}
+	for i := range findings {
+		a := &findings[i]
+		if seen[a.FindingID] || !map[string]bool{"addressed": true, "applicable": true, "stale": true}[a.State] || a.Reason == "" || findingByID(&x, a.FindingID) == nil {
+			return x, ErrInvalid
+		}
+		seen[a.FindingID] = true
+	}
+	if len(seen) != len(x.Findings) {
+		return x, ErrInvalid
+	}
+	now := s.now().UTC()
+	x.Transitions = append(x.Transitions, RevisionTransition{x.Revision, plan.Revision, plan.Number, actor, findings, now})
+	x.Revision = plan.Revision
+	x.PlanVersion = plan.Number
+	x.Version++
+	derive(&x, reviewrouting.Routing{})
+	return x, s.write(x)
 }
 func (s *Store) AddMessage(repo, pull, actor, area, kind, body string, r reviewrouting.Routing, assignmentID string, findings []string, citations []Citation, expected int64) (Workspace, error) {
 	a, ok := assignment(r, assignmentID, actor)
