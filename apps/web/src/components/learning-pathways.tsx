@@ -85,6 +85,34 @@ type Attempt = {
   }>;
   agent_states: Record<string, string>;
 };
+type AssessmentAttempt = {
+  id: string;
+  number: number;
+  learner_id: string;
+  status: string;
+  completion_supported: boolean;
+  blockers: string[];
+  evidence: Array<{ number: number; kind: string; summary: string; reference: string; check_status?: string; flaky?: boolean }>;
+  judgments: Array<{ reviewer_id: string; outcome: string; feedback: string; uncertainty?: string; rubric: Array<{ criterion_id: string; decision: string; rationale: string }> }>;
+  accommodation: { request: string; status: string; rationale?: string };
+  appeals: Array<{ id: string; reason: string; status: string; decision?: string; rationale?: string; decided_by?: string }>;
+};
+type Assessment = {
+  id: string;
+  pathway_id: string;
+  definition: {
+    title: string;
+    summary: string;
+    pathway_version: number;
+    revision: string;
+    criteria: Array<{ id: string; title: string; description: string; required: boolean }>;
+    protected_cases: Array<{ id: string; title: string; digest: string }>;
+    checks: Array<{ name: string; required: boolean }>;
+    maximum_attempts: number;
+  };
+  protected_case_metadata: Array<{ id: string; title: string; digest: string }>;
+  attempts: AssessmentAttempt[];
+};
 const lines = (v: FormDataEntryValue | null) =>
   String(v ?? "")
     .split("\n")
@@ -109,12 +137,15 @@ export function LearningPathways({
   const [items, setItems] = useState<Pathway[]>([]),
     [editing, setEditing] = useState(false),
     [error, setError] = useState(""),
-    [launched, setLaunched] = useState<Attempt | null>(null);
+    [launched, setLaunched] = useState<Attempt | null>(null),
+    [assessments, setAssessments] = useState<Assessment[]>([]);
   useEffect(() => {
     let active = true;
     json<{ items: Pathway[] }>(`/repositories/${repository}/learning-pathways`)
-      .then((v) => {
+      .then(async (v) => {
         if (active) setItems(v.items);
+        const found = await Promise.all(v.items.map((p) => json<{ items: Assessment[] }>(`/repositories/${repository}/learning-pathways/${p.id}/assessments`).then((x) => x.items)));
+        if (active) setAssessments(found.flat());
       })
       .catch((e) => {
         if (active)
@@ -280,6 +311,17 @@ export function LearningPathways({
     } catch (x) {
       setError(x instanceof Error ? x.message : "Could not control agent");
     }
+  }
+  async function publishAssessment(e: FormEvent<HTMLFormElement>, pathway: Pathway) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget), criterion = String(f.get("criterion_id"));
+    try {
+      const value = await json<Assessment>(`/repositories/${repository}/learning-pathways/${pathway.id}/assessments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: f.get("id"), title: f.get("title"), summary: f.get("summary"), pathway_version: pathway.current_version, revision, criteria: [{ id: criterion, title: f.get("criterion_title"), description: f.get("criterion_description"), required: true, human_judgment_required: true }], protected_cases: [{ id: "protected-case", title: f.get("case_title"), digest: f.get("case_digest"), material: f.get("case_material") }], checks: [{ name: f.get("check"), required: true }], owner_ids: [actor], reviewer_ids: lines(f.get("reviewers")), maximum_attempts: Number(f.get("retries")) + 1, appeal_owner_ids: lines(f.get("appeal_owners")) }) });
+      setAssessments((old) => [...old, value]); setError("");
+    } catch (x) { setError(x instanceof Error ? x.message : "Could not publish assessment"); }
+  }
+  async function startAssessment(pathway: Pathway, assessment: Assessment) {
+    try { const value = await json<Assessment>(`/repositories/${repository}/learning-pathways/${pathway.id}/assessments/${assessment.id}/attempts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision, workspace_digest: `workspace:${revision}`, reproduction_commands: ["Run the declared repository checks"], assistance: [], accommodation_request: "" }) }); setAssessments((old) => old.map((x) => x.id === value.id && x.pathway_id === value.pathway_id ? value : x)); setError(""); } catch (x) { setError(x instanceof Error ? x.message : "Could not start assessment"); }
   }
   if (editing)
     return (
@@ -652,6 +694,29 @@ export function LearningPathways({
                   <li key={x}>{x}</li>
                 ))}
               </ul>
+              <h4>Practical assessments</h4>
+              {assessments.filter((a) => a.pathway_id === p.id).map((a) => <section className="card" key={a.id}>
+                <p><Badge>{a.attempts.some((x) => x.completion_supported) ? "demonstrated" : "evidence required"}</Badge> exact pathway v{a.definition.pathway_version} · <code>{a.definition.revision.slice(0, 12)}</code></p>
+                <h5>{a.definition.title}</h5><p>{a.definition.summary}</p>
+                <h6>Public rubric</h6><ul>{a.definition.criteria.map((c) => <li key={c.id}><strong>{c.title}</strong> — {c.description}</li>)}</ul>
+                <p><strong>Repository checks:</strong> {a.definition.checks.map((x) => x.name).join(", ")} · <strong>Attempts:</strong> {a.definition.maximum_attempts}</p>
+                <p><strong>Protected evaluation:</strong> {a.protected_case_metadata.map((x) => `${x.title} (${x.digest})`).join(", ")}. Private cases and answers are never displayed.</p>
+                {actor && <Button variant="secondary" onClick={() => startAssessment(p, a)}>Start reproducible attempt</Button>}
+                {a.attempts.map((x) => <div key={x.id}><p><Badge>{x.status}</Badge> Attempt {x.number} by {x.learner_id}</p>
+                  {x.blockers.map((b) => <p className="form-error" key={b}>{b.replaceAll("_", " ")}</p>)}
+                  <p><strong>Accommodation:</strong> {x.accommodation.status}{x.accommodation.request && ` — ${x.accommodation.request}`}{x.accommodation.rationale && ` (${x.accommodation.rationale})`}</p>
+                  <ul>{x.evidence.map((ev) => <li key={ev.number}><Badge>{ev.kind}</Badge> {ev.summary} · <code>{ev.reference}</code>{ev.flaky && " · flaky"}</li>)}</ul>
+                  {x.judgments.map((j, i) => <div key={i}><p><strong>Human review by {j.reviewer_id}:</strong> {j.outcome} — {j.feedback}{j.uncertainty && ` · uncertainty: ${j.uncertainty}`}</p><ul>{j.rubric.map((r) => <li key={r.criterion_id}><Badge>{r.decision}</Badge> {r.criterion_id}: {r.rationale}</li>)}</ul></div>)}
+                  {x.appeals.map((ap) => <p key={ap.id}><strong>Appeal:</strong> {ap.reason} · {ap.status}{ap.decision && ` → ${ap.decision} by ${ap.decided_by}: ${ap.rationale}`}</p>)}
+                </div>)}
+              </section>)}
+              {actor && <details><summary>Define an exact-revision practical assessment</summary><form className="form-stack" onSubmit={(e) => publishAssessment(e, p)}>
+                <label>Assessment ID<input name="id" required /></label><label>Title<input name="title" required /></label><label>Purpose<textarea name="summary" required /></label>
+                <label>Rubric criterion ID<input name="criterion_id" required /></label><label>Criterion title<input name="criterion_title" required /></label><label>Public criterion<textarea name="criterion_description" required /></label>
+                <label>Protected case title<input name="case_title" required /></label><label>Protected case digest<input name="case_digest" required /></label><label>Private case material<textarea name="case_material" required /></label>
+                <label>Required repository check<input name="check" required /></label><label>Accountable reviewer IDs<textarea name="reviewers" required /></label><label>Independent appeal owner IDs<textarea name="appeal_owners" required /></label><label>Permitted retries<input name="retries" type="number" min="0" max="19" defaultValue="1" /></label>
+                <Button type="submit">Publish assessment</Button>
+              </form></details>}
               <p>
                 <strong>Accessibility:</strong>{" "}
                 {v.accessibility_needs.join(", ") || "No needs recorded"}

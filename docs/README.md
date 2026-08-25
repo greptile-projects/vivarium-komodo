@@ -1774,6 +1774,28 @@ and solution keys, hidden assessments, credential-shaped text, or uncited and
 inaccessible project context are rejected. The Learning web surface exposes the
 same request and timeline without widening attempt visibility.
 
+Repository writers publish immutable practical assessments at `.../learning-pathways/{pathway}/assessments`
+only for the exact current pathway version and default-branch revision. Public
+criteria explain the capability being judged; protected cases expose only a
+title and content digest. Definitions also name required repository checks,
+human reviewers, appeal owners, and the attempt ceiling. Learners start a
+revision-exact reproducible attempt, declare assistance and accommodation needs,
+and append content-addressed checkpoints, explanations, authorship evidence,
+artifacts, and repository-check results.
+
+Named reviewers connect every rubric decision to exact evidence and retain
+feedback, uncertainty, copied-solution findings, and agent overreach. The server
+derives completion only when every criterion passes, required checks are stable,
+human judgment is conclusive, and the pathway and project revision remain
+current. Failed or flaky checks, changed criteria, stale code, copying, and
+hidden agent execution remain explicit blockers. Owners decide accommodations;
+learners can appeal with cited evidence to separately named owners, who may
+uphold, deny, or request reassessment without erasing the original decision.
+The `view=learning` surface displays this trail without private answer material.
+State defaults beneath `$LEARNING_ASSESSMENT_ROOT` at
+`apps/api/data/learning-assessments` and grants no Git, contribution, review,
+merge, agent, or operational authority.
+
 ## Contributor pathways
 
 ### Ready contribution opportunities
