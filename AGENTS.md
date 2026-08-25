@@ -38,6 +38,15 @@ human role. The public sibling resource is `/review-work` and appears in the pul
 Review plan section. Work records grant no repository, approval, merge, secret,
 policy, governance, or operational authority.
 
+Review-work findings retain append-only classifications, rationale, dissent,
+owner-only accepted-risk and bounded-exception decisions, duplicate or superseding
+relationships, and exact commit, task, change-session, workspace, or follow-up
+links. Repository checks and targeted reproductions record revision-bound outcomes
+and accessible citations. An explicit transition between immutable review-plan
+versions accounts for every prior finding as addressed, still applicable, or stale
+without rewriting its original evidence or discussion; ordinary repository and
+agent permissions remain authoritative.
+
 Versioned provenance and licensing policies live beneath
 `$PROVENANCE_POLICY_ROOT` (default `apps/api/data/provenance-policies`).
 Repository and organization owners publish immutable, optimistically

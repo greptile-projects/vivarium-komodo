@@ -76,3 +76,41 @@ func TestWorkspaceRejectsRevisionDrift(t *testing.T) {
 		t.Fatalf("drift accepted: %v", e)
 	}
 }
+
+func TestFindingDecisionWorkVerificationAndRevisionTransition(t *testing.T) {
+	s, _ := New(t.TempDir())
+	now := time.Date(2026, 8, 25, 21, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	p := reviewplans.Version{Number: 1, Revision: "base", Input: reviewplans.Input{Areas: []reviewplans.Area{{ID: "code", Paths: []string{"a.go"}}}}}
+	r := reviewrouting.Routing{PlanVersion: 1, Revision: "base", Assignments: []reviewrouting.Assignment{{ID: "review", AreaID: "code", ParticipantID: "reviewer", Kind: "human", State: "accepted", PlanVersion: 1, Revision: "base"}}}
+	x, _ := s.Open("repo", "pull", p, r)
+	c := Citation{Kind: "diff", Reference: "a.go#L1", Revision: "base", Summary: "unsafe default", Accessible: true, Audience: "repository"}
+	x, _ = s.AddFinding("repo", "pull", "reviewer", r, "review", "unsafe default", "high", "concern", []Citation{c}, nil, x.Version)
+	finding := x.Findings[0].ID
+	x, err := s.Decide("repo", "pull", "owner", finding, "accepted", "repair this candidate", "reviewer still requests a regression", "", true, nil, nil, x.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err = s.LinkWork("repo", "pull", "contributor", finding, "commit", "commit:repair", "repair", "replace the unsafe default", x.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p = reviewplans.Version{Number: 2, Revision: "repair"}
+	x, err = s.Transition("repo", "pull", "contributor", p, []FindingApplicability{{FindingID: finding, State: "addressed", Reason: "commit:repair changes the cited path"}}, x.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof := Citation{Kind: "check", Reference: "check:safe-default", Revision: "repair", Summary: "targeted regression passed", Accessible: true, Audience: "repository"}
+	x, err = s.Verify("repo", "pull", "reviewer", finding, "reproduction", "scenario:safe-default", "base", "repair", "passed", "fails on base and is contained on repair", []Citation{proof}, x.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if x.Transitions[0].Findings[0].State != "addressed" || x.Verifications[0].Outcome != "passed" || x.Decisions[0].Dissent == "" || x.WorkLinks[0].Kind != "commit" {
+		t.Fatalf("resolution trail incomplete: %#v", x)
+	}
+
+	expires := now.Add(time.Hour)
+	if _, err = s.Decide("repo", "pull", "contributor", finding, "exception", "temporarily retain behavior", "", "", false, []string{"linux"}, &expires, x.Version); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("non-owner exception accepted: %v", err)
+	}
+}

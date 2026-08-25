@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/reviewplans"
@@ -55,11 +56,14 @@ func registerReviewWorkHTTP(mux *http.ServeMux, work *reviewwork.Store, plans *r
 		return v, rt, actor, true
 	}
 	mux.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
-		v, rt, _, ok := open(w, r)
+		v, rt, _, ok := context(w, r, false)
 		if !ok {
 			return
 		}
 		x, e := work.Open(r.PathValue("repository"), r.PathValue("pull_request"), v, rt)
+		if errors.Is(e, reviewwork.ErrConflict) {
+			x, e = work.Get(r.PathValue("repository"), r.PathValue("pull_request"))
+		}
 		if e != nil {
 			writeJSON(w, 500, map[string]string{"error": "internal_error"})
 			return
@@ -103,6 +107,84 @@ func registerReviewWorkHTTP(mux *http.ServeMux, work *reviewwork.Store, plans *r
 			return
 		}
 		x, e := work.AddFinding(r.PathValue("repository"), r.PathValue("pull_request"), actor, rt, in.AssignmentID, in.Summary, in.Severity, in.Conclusion, in.Citations, in.Uncertainty, in.ExpectedVersion)
+		writeReviewWork(w, x, e)
+	})
+	mux.HandleFunc("POST "+base+"/findings/{finding}/decisions", func(w http.ResponseWriter, r *http.Request) {
+		_, _, actor, ok := open(w, r)
+		if !ok {
+			return
+		}
+		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion    int64      `json:"expected_version"`
+			Classification     string     `json:"classification"`
+			Rationale          string     `json:"rationale"`
+			Dissent            string     `json:"dissent"`
+			RelatedFindingID   string     `json:"related_finding_id"`
+			ExceptionScope     []string   `json:"exception_scope"`
+			ExceptionExpiresAt *time.Time `json:"exception_expires_at"`
+		}
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		x, e := work.Decide(r.PathValue("repository"), r.PathValue("pull_request"), actor, r.PathValue("finding"), in.Classification, in.Rationale, in.Dissent, in.RelatedFindingID, repo.OwnerID == actor, in.ExceptionScope, in.ExceptionExpiresAt, in.ExpectedVersion)
+		writeReviewWork(w, x, e)
+	})
+	mux.HandleFunc("POST "+base+"/findings/{finding}/work-links", func(w http.ResponseWriter, r *http.Request) {
+		_, _, actor, ok := open(w, r)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64  `json:"expected_version"`
+			Kind            string `json:"kind"`
+			Reference       string `json:"reference"`
+			Revision        string `json:"revision"`
+			Purpose         string `json:"purpose"`
+		}
+		if !readJSON(w, r, &in, 128<<10) {
+			return
+		}
+		x, e := work.LinkWork(r.PathValue("repository"), r.PathValue("pull_request"), actor, r.PathValue("finding"), in.Kind, in.Reference, in.Revision, in.Purpose, in.ExpectedVersion)
+		writeReviewWork(w, x, e)
+	})
+	mux.HandleFunc("POST "+base+"/findings/{finding}/verifications", func(w http.ResponseWriter, r *http.Request) {
+		_, _, actor, ok := open(w, r)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64                 `json:"expected_version"`
+			Kind            string                `json:"kind"`
+			Reference       string                `json:"reference"`
+			BaseRevision    string                `json:"base_revision"`
+			Revision        string                `json:"revision"`
+			Outcome         string                `json:"outcome"`
+			Summary         string                `json:"summary"`
+			Citations       []reviewwork.Citation `json:"citations"`
+		}
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		x, e := work.Verify(r.PathValue("repository"), r.PathValue("pull_request"), actor, r.PathValue("finding"), in.Kind, in.Reference, in.BaseRevision, in.Revision, in.Outcome, in.Summary, in.Citations, in.ExpectedVersion)
+		writeReviewWork(w, x, e)
+	})
+	mux.HandleFunc("POST "+base+"/revision-transitions", func(w http.ResponseWriter, r *http.Request) {
+		plan, _, actor, ok := context(w, r, true)
+		if !ok {
+			return
+		}
+		var in struct {
+			ExpectedVersion int64                             `json:"expected_version"`
+			Findings        []reviewwork.FindingApplicability `json:"findings"`
+		}
+		if !readJSON(w, r, &in, 256<<10) {
+			return
+		}
+		x, e := work.Transition(r.PathValue("repository"), r.PathValue("pull_request"), actor, plan, in.Findings, in.ExpectedVersion)
 		writeReviewWork(w, x, e)
 	})
 	mux.HandleFunc("POST "+base+"/messages", func(w http.ResponseWriter, r *http.Request) {
