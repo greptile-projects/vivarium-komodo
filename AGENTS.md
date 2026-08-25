@@ -3153,6 +3153,24 @@ The timeline exposes no unselected exercise state and grants no workspace,
 assessment, repository, agent, credential, branch, contribution, or review
 authority.
 
+Practical learning assessments live beneath `$LEARNING_ASSESSMENT_ROOT`
+(default `apps/api/data/learning-assessments`). A repository writer publishes
+one immutable definition for the exact current pathway version and default-
+branch revision, including a public rubric, content-digested protected cases,
+required repository checks, accountable reviewers, retry limits,
+accommodations, and independent appeal owners. Learner attempts freeze a
+reproducible workspace digest, commands, declared assistance, revision, and
+append-only evidence. Named reviewers record evidence-linked criterion
+decisions, feedback, uncertainty, and copied-solution or agent-overreach
+findings. Completion is derived only from a current revision and pathway,
+stable passing checks, conclusive human judgment, and every passing criterion;
+criteria drift, stale code, flaky or failed checks, copying, and agent overreach
+remain blockers. Read projections disclose protected-case titles and digests,
+never private material, and scope attempts to learners and accountable owners.
+The API is nested at `/repositories/{repository}/learning-pathways/{pathway}/assessments`
+and the repository surface remains `view=learning`. Assessment records grant no
+repository, Git, agent, contribution, review, merge, or operational authority.
+
 Pull-request privacy impact assessments live beneath
 `$PRIVACY_ASSESSMENT_ROOT` (default `apps/api/data/privacy-assessments`). Each
 assessment binds exact candidate and target commits, cited flow maps,

@@ -61,6 +61,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/interfacechecks"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/investigations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/issues"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/learningassessments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/learningexercises"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/learningpathways"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/localeplans"
@@ -1078,6 +1079,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	learningAssessmentRoot := os.Getenv("LEARNING_ASSESSMENT_ROOT")
+	if learningAssessmentRoot == "" {
+		learningAssessmentRoot = "data/learning-assessments"
+	}
+	learningAssessmentStore, err := learningassessments.New(learningAssessmentRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
 	documentationRoot := os.Getenv("DOCUMENTATION_ROOT")
 	if documentationRoot == "" {
 		documentationRoot = "data/documentation"
@@ -1243,6 +1252,7 @@ func main() {
 	registerContributorPathwaysHTTP(mux, contributorPathwayStore, repositoryCatalog, credentials, releaseStore, issueStore, proposalStore)
 	registerLearningPathwaysHTTP(mux, learningPathwayStore, repositoryCatalog, credentials, learningPathwaySources{decisions: decisionStore, issues: issueStore, apis: apiContractStore, packages: packageStore, contributors: contributorPathwayStore})
 	registerLearningExercisesHTTP(mux, learningExerciseStore, learningPathwayStore, repositoryCatalog, credentials, agentEvaluationStore)
+	registerLearningAssessmentsHTTP(mux, learningAssessmentStore, learningPathwayStore, repositoryCatalog, credentials)
 	registerDocumentationHTTP(mux, documentationStore, repositoryCatalog, credentials, releaseStore, workspaceStore, workspaceRunner, pullRequestStore)
 	registerContributionOpportunitiesHTTP(mux, contributionOpportunityStore, repositoryCatalog, credentials, issueStore, proposalStore, organizationStore, contributorPathwayStore, workspaceStore, workspaceRunner, pullRequestStore, checkRunner, releaseStore)
 	registerIssueRepairsHTTP(mux, issueStore, proposalStore, pullRequestStore, repositoryCatalog, credentials, issueReproductionRunner, checkRunStore)
