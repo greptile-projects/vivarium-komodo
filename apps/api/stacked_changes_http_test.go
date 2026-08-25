@@ -108,6 +108,32 @@ func TestChangeStackPublicBoundary(t *testing.T) {
 	if failed.Status != "failed" || failed.Blockers[len(failed.Blockers)-1].Kind != "concurrent_push_or_failed_rewrite" || docsRef.ObjectID != newTwo || stack.CurrentRevision != 2 {
 		t.Fatalf("concurrent push was not atomically contained: %#v docs=%s", failed, docsRef.ObjectID)
 	}
+	landingBody := fmt.Sprintf(`{"expected_stack_revision":2,"expected_target_revision":%q,"mode":"ordered","atomic_permitted":true,"required_evidence":["required_check","reproduction","contract","preview","policy","approval"]}`, base)
+	workflowJSON(t, server.URL, http.MethodPost, root+"/"+stack.ID+"/landings", token, landingBody, 201, &stack)
+	landing := stack.Landings[0]
+	if len(landing.Candidates) != 2 || landing.Candidates[0].BaseRevision != string(base) || landing.Candidates[1].BaseRevision != string(newOne) || landing.Status != "paused" {
+		t.Fatalf("ready-prefix candidates lost: %#v", landing)
+	}
+	for _, candidate := range landing.Candidates {
+		for _, kind := range candidate.RequiredEvidence {
+			status := "passed"
+			if candidate.MemberID == "docs" && kind == "approval" {
+				status = "failed"
+			}
+			workflowJSON(t, server.URL, http.MethodPost, fmt.Sprintf("%s/%s/landings/%s/candidates/%s/evidence", root, stack.ID, landing.ID, candidate.ID), token, fmt.Sprintf(`{"kind":%q,"reference":%q,"status":%q}`, kind, kind+":"+candidate.MemberID, status), 201, &stack)
+		}
+	}
+	workflowJSON(t, server.URL, http.MethodPost, fmt.Sprintf("%s/%s/landings/%s/merge", root, stack.ID, landing.ID), token, `{"member_id":"api","atomic":false}`, 200, &stack)
+	landing = stack.Landings[0]
+	if len(landing.MergedMembers) != 1 || landing.PausedFromMember != "docs" || landing.Candidates[1].Status != "verifying" {
+		t.Fatalf("failed member did not preserve merged prefix: %#v", landing)
+	}
+	workflowJSON(t, server.URL, http.MethodPost, fmt.Sprintf("%s/%s/landings/%s/candidates/%s/evidence", root, stack.ID, landing.ID, landing.Candidates[1].ID), token, `{"kind":"approval","reference":"approval:restored","status":"passed"}`, 201, &stack)
+	workflowJSON(t, server.URL, http.MethodPost, fmt.Sprintf("%s/%s/landings/%s/merge", root, stack.ID, landing.ID), token, `{"member_id":"docs","atomic":false}`, 200, &stack)
+	mainRef, _ := opened.ReadReference("refs/heads/main")
+	if stack.Landings[0].Status != "merged" || mainRef.ObjectID != newTwo || len(stack.Landings[0].Candidates[1].Evidence) != 7 {
+		t.Fatalf("ordered landing did not retain exact evidence and history: %#v main=%s", stack.Landings[0], mainRef.ObjectID)
+	}
 	workflowJSON(t, server.URL, http.MethodPost, root+"/"+stack.ID+"/members/docs/publications", token, fmt.Sprintf(`{"revision":%q}`, one), 422, nil)
 	bad := in
 	bad.Title = "Visible blockers"

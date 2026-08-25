@@ -178,6 +178,57 @@ type Revision struct {
 	AppliedBy           string          `json:"applied_by,omitempty"`
 	AppliedAt           *time.Time      `json:"applied_at,omitempty"`
 }
+type LandingEvidence struct {
+	ID                string    `json:"id"`
+	Kind              string    `json:"kind"`
+	Reference         string    `json:"reference"`
+	Status            string    `json:"status"`
+	CandidateRevision string    `json:"candidate_revision"`
+	BaseRevision      string    `json:"base_revision"`
+	SourceRevision    string    `json:"source_revision"`
+	ActorID           string    `json:"actor_id"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+type LandingCandidate struct {
+	ID                string            `json:"id"`
+	Generation        int               `json:"generation"`
+	Position          int               `json:"position"`
+	MemberID          string            `json:"member_id"`
+	BaseRevision      string            `json:"base_revision"`
+	SourceRevision    string            `json:"source_revision"`
+	CandidateRevision string            `json:"candidate_revision"`
+	CandidateTree     string            `json:"candidate_tree"`
+	Status            string            `json:"status"`
+	RequiredEvidence  []string          `json:"required_evidence"`
+	Evidence          []LandingEvidence `json:"evidence"`
+	Blockers          []Blocker         `json:"blockers"`
+	CreatedAt         time.Time         `json:"created_at"`
+}
+type LandingEvent struct {
+	ID        string    `json:"id"`
+	Action    string    `json:"action"`
+	MemberID  string    `json:"member_id,omitempty"`
+	ActorID   string    `json:"actor_id"`
+	Detail    string    `json:"detail,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type Landing struct {
+	ID                     string             `json:"id"`
+	StackRevision          int                `json:"stack_revision"`
+	TargetBranch           string             `json:"target_branch"`
+	OriginalTargetRevision string             `json:"original_target_revision"`
+	CurrentTargetRevision  string             `json:"current_target_revision"`
+	Mode                   string             `json:"mode"`
+	AtomicPermitted        bool               `json:"atomic_permitted"`
+	Status                 string             `json:"status"`
+	MergedMembers          []string           `json:"merged_members"`
+	PausedFromMember       string             `json:"paused_from_member,omitempty"`
+	Candidates             []LandingCandidate `json:"candidates"`
+	Events                 []LandingEvent     `json:"events"`
+	CreatedBy              string             `json:"created_by"`
+	CreatedAt              time.Time          `json:"created_at"`
+	AuthorityGranted       []string           `json:"authority_granted"`
+}
 type Stack struct {
 	ID           string `json:"id"`
 	RepositoryID string `json:"repository_id"`
@@ -191,6 +242,7 @@ type Stack struct {
 	CurrentRevision  int             `json:"current_revision"`
 	Revisions        []Revision      `json:"revisions"`
 	Timeline         []TimelineEvent `json:"timeline"`
+	Landings         []Landing       `json:"landings"`
 }
 
 type Store struct {
@@ -230,7 +282,7 @@ func (s *Store) Create(repo, actor string, in Input, members []Member, blockers 
 		return Stack{}, err
 	}
 	now := time.Now().UTC()
-	x := Stack{ID: id(), RepositoryID: repo, Input: in, Members: members, Blockers: blockers, CreatedBy: actor, CreatedAt: now, AuthorityGranted: []string{}, CurrentRevision: 1, Revisions: []Revision{}, Timeline: []TimelineEvent{}}
+	x := Stack{ID: id(), RepositoryID: repo, Input: in, Members: members, Blockers: blockers, CreatedBy: actor, CreatedAt: now, AuthorityGranted: []string{}, CurrentRevision: 1, Revisions: []Revision{}, Timeline: []TimelineEvent{}, Landings: []Landing{}}
 	x.Status = "reviewable"
 	if len(blockers) > 0 {
 		x.Status = "blocked"
@@ -532,6 +584,226 @@ func (s *Store) FinishApply(repo, stack string, number int, actor string, applyE
 			x.Members[i].Publications = []Publication{}
 		}
 		x.Input.Members = memberInputs(x.Members)
+		return x, s.save(x)
+	}
+	return Stack{}, ErrNotFound
+}
+
+func landingReady(c LandingCandidate) bool {
+	if len(c.Blockers) > 0 {
+		return false
+	}
+	for _, required := range c.RequiredEvidence {
+		passed := false
+		for _, e := range c.Evidence {
+			if e.Kind == required && e.Status == "passed" && e.CandidateRevision == c.CandidateRevision && e.BaseRevision == c.BaseRevision && e.SourceRevision == c.SourceRevision {
+				passed = true
+			}
+		}
+		if !passed {
+			return false
+		}
+	}
+	return true
+}
+
+func projectLanding(l *Landing) {
+	unsafe, active := false, 0
+	for i := range l.Candidates {
+		c := &l.Candidates[i]
+		if c.Status == "superseded" {
+			continue
+		}
+		active++
+		if contains(l.MergedMembers, c.MemberID) {
+			c.Status = "merged"
+			continue
+		}
+		if unsafe {
+			c.Status = "paused_suffix"
+			continue
+		}
+		if landingReady(*c) {
+			c.Status = "ready"
+		} else {
+			c.Status = "verifying"
+		}
+		if len(c.Blockers) > 0 || c.Status != "ready" {
+			unsafe = true
+			l.PausedFromMember = c.MemberID
+		}
+	}
+	if len(l.MergedMembers) == active {
+		l.Status, l.PausedFromMember = "merged", ""
+		return
+	}
+	if unsafe {
+		l.Status = "paused"
+	} else {
+		l.Status, l.PausedFromMember = "ready", ""
+	}
+}
+
+func (s *Store) CreateLanding(repo, stack, actor, mode string, atomic bool, required []string, target string, candidates []LandingCandidate) (Stack, error) {
+	if (mode != "ordered" && mode != "atomic") || (mode == "atomic" && !atomic) || len(candidates) == 0 {
+		return Stack{}, ErrInvalid
+	}
+	allowed := map[string]bool{"required_check": true, "reproduction": true, "contract": true, "preview": true, "policy": true, "approval": true}
+	for _, kind := range required {
+		if !allowed[kind] {
+			return Stack{}, ErrInvalid
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.Get(repo, stack)
+	if e != nil {
+		return Stack{}, e
+	}
+	if x.CurrentRevision < 1 || strings.TrimSpace(target) == "" {
+		return Stack{}, ErrInvalid
+	}
+	now := time.Now().UTC()
+	l := Landing{ID: id(), StackRevision: x.CurrentRevision, TargetBranch: x.TargetBranch, OriginalTargetRevision: target, CurrentTargetRevision: target, Mode: mode, AtomicPermitted: atomic, Status: "verifying", MergedMembers: []string{}, Candidates: candidates, Events: []LandingEvent{{ID: id(), Action: "assembled", ActorID: actor, Detail: "immutable ready-prefix candidates assembled", CreatedAt: now}}, CreatedBy: actor, CreatedAt: now, AuthorityGranted: []string{}}
+	projectLanding(&l)
+	x.Landings = append(x.Landings, l)
+	return x, s.save(x)
+}
+
+func (s *Store) AddLandingEvidence(repo, stack, landing, candidate, actor, kind, reference, status string) (Stack, error) {
+	if strings.TrimSpace(reference) == "" || (status != "passed" && status != "failed" && status != "canceled") {
+		return Stack{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.Get(repo, stack)
+	if e != nil {
+		return Stack{}, e
+	}
+	for i := range x.Landings {
+		l := &x.Landings[i]
+		if l.ID != landing {
+			continue
+		}
+		for j := range l.Candidates {
+			c := &l.Candidates[j]
+			if c.ID != candidate {
+				continue
+			}
+			allowed := false
+			for _, k := range c.RequiredEvidence {
+				if k == kind {
+					allowed = true
+				}
+			}
+			if !allowed {
+				return Stack{}, ErrInvalid
+			}
+			c.Evidence = append(c.Evidence, LandingEvidence{ID: id(), Kind: kind, Reference: reference, Status: status, CandidateRevision: c.CandidateRevision, BaseRevision: c.BaseRevision, SourceRevision: c.SourceRevision, ActorID: actor, CreatedAt: time.Now().UTC()})
+			projectLanding(l)
+			return x, s.save(x)
+		}
+		return Stack{}, ErrNotFound
+	}
+	return Stack{}, ErrNotFound
+}
+
+func (s *Store) LandingForMerge(repo, stack, landing, member string, atomic bool) (Stack, Landing, LandingCandidate, error) {
+	x, e := s.Get(repo, stack)
+	if e != nil {
+		return Stack{}, Landing{}, LandingCandidate{}, e
+	}
+	for _, l := range x.Landings {
+		if l.ID != landing {
+			continue
+		}
+		projectLanding(&l)
+		if l.StackRevision != x.CurrentRevision {
+			return Stack{}, Landing{}, LandingCandidate{}, ErrInvalid
+		}
+		if atomic {
+			if l.Mode != "atomic" || !l.AtomicPermitted || l.Status != "ready" {
+				return Stack{}, Landing{}, LandingCandidate{}, ErrInvalid
+			}
+			for i := len(l.Candidates) - 1; i >= 0; i-- {
+				if l.Candidates[i].Status != "superseded" {
+					return x, l, l.Candidates[i], nil
+				}
+			}
+		}
+		for _, c := range l.Candidates {
+			if c.Status == "superseded" || contains(l.MergedMembers, c.MemberID) {
+				continue
+			}
+			if c.MemberID != member || c.Status != "ready" {
+				return Stack{}, Landing{}, LandingCandidate{}, ErrInvalid
+			}
+			return x, l, c, nil
+		}
+		return Stack{}, Landing{}, LandingCandidate{}, ErrInvalid
+	}
+	return Stack{}, Landing{}, LandingCandidate{}, ErrNotFound
+}
+
+func (s *Store) FinishLandingMerge(repo, stack, landing, member, actor string, atomic bool, mergeErr error) (Stack, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.Get(repo, stack)
+	if e != nil {
+		return Stack{}, e
+	}
+	for i := range x.Landings {
+		l := &x.Landings[i]
+		if l.ID != landing {
+			continue
+		}
+		if mergeErr != nil {
+			l.Status = "paused"
+			l.PausedFromMember = member
+			l.Events = append(l.Events, LandingEvent{ID: id(), Action: "target_moved", MemberID: member, ActorID: actor, Detail: mergeErr.Error(), CreatedAt: time.Now().UTC()})
+			return x, s.save(x)
+		}
+		if atomic {
+			l.MergedMembers = []string{}
+			for _, c := range l.Candidates {
+				if c.Status != "superseded" && !contains(l.MergedMembers, c.MemberID) {
+					l.MergedMembers = append(l.MergedMembers, c.MemberID)
+				}
+			}
+		} else {
+			l.MergedMembers = append(l.MergedMembers, member)
+		}
+		l.Events = append(l.Events, LandingEvent{ID: id(), Action: map[bool]string{true: "atomic_merged", false: "member_merged"}[atomic], MemberID: member, ActorID: actor, CreatedAt: time.Now().UTC()})
+		projectLanding(l)
+		return x, s.save(x)
+	}
+	return Stack{}, ErrNotFound
+}
+
+func (s *Store) RebuildLanding(repo, stack, landing, actor, target string, candidates []LandingCandidate) (Stack, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.Get(repo, stack)
+	if e != nil {
+		return Stack{}, e
+	}
+	for i := range x.Landings {
+		l := &x.Landings[i]
+		if l.ID != landing {
+			continue
+		}
+		if len(candidates) == 0 {
+			return Stack{}, ErrInvalid
+		}
+		for j := range l.Candidates {
+			if !contains(l.MergedMembers, l.Candidates[j].MemberID) {
+				l.Candidates[j].Status = "superseded"
+			}
+		}
+		l.CurrentTargetRevision = target
+		l.Candidates = append(l.Candidates, candidates...)
+		l.Events = append(l.Events, LandingEvent{ID: id(), Action: "rebuilt", ActorID: actor, Detail: "affected suffix rebuilt against " + target, CreatedAt: time.Now().UTC()})
+		projectLanding(l)
 		return x, s.save(x)
 	}
 	return Stack{}, ErrNotFound

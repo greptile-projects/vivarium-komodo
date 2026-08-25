@@ -6148,3 +6148,21 @@ publication state from the new tips, and preserves every prior preview,
 attribution, and evidence record in revision lineage. These actions coordinate
 existing Git authority and do not manufacture force-push, review, check, merge,
 repository, credential, or external-repository authority.
+
+`POST .../landings` freezes every ready prefix as a candidate against the
+declared current target and stack version. Each member candidate exposes its
+base, source, resulting commit and tree, generation, blockers, and required
+`required_check`, `reproduction`, `contract`, `preview`, `policy`, and
+`approval` evidence. Evidence appended beneath
+`.../landings/{landing}/candidates/{candidate}/evidence` repeats the exact base,
+source, and candidate revisions it covers, so an old success cannot satisfy a
+rebuilt prefix.
+
+Maintainers use `POST .../landings/{landing}/merge` to compare-and-swap the next
+passing member in order, or the final candidate when the landing declares both
+atomic mode and policy permission. A failed member or withdrawn approval leaves
+the accepted prefix intact and marks only its suffix unsafe. If the target moves,
+the failed publication and recovery detail remain retained;
+`POST .../landings/{landing}/rebuild` supersedes only unmerged candidates and
+assembles a new suffix generation against the exact live target. Neither the
+landing plan nor its evidence adds merge, approval, check, or branch authority.
