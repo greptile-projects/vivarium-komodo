@@ -332,6 +332,9 @@ func compareProvenance(g provenancegraphs.Graph, p provenancepolicies.Version, t
 		if kind == "tool" {
 			kind = "build_input"
 		}
+		if kind == "dependency" {
+			kind = "package"
+		}
 		if node.Transformation == "generated" {
 			kind = "generated_code"
 		}
