@@ -101,6 +101,7 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	var designGovernance *designgovernance.Store
 	var interfaceEvidence *interfacechecks.Store
 	var provenanceSources *provenanceAssessmentSources
+	var completionSources *reviewCompletionSources
 	for _, extra := range extras {
 		switch value := extra.(type) {
 		case activityStore:
@@ -133,6 +134,8 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 			interfaceEvidence = value
 		case provenanceAssessmentSources:
 			provenanceSources = &value
+		case reviewCompletionSources:
+			completionSources = &value
 		}
 	}
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests", createPullRequest(store, proposalStore, repositories, credentials, activity, checks))
@@ -147,7 +150,7 @@ func registerPullRequestsHTTP(mux *http.ServeMux, store pullRequestStore, propos
 	mux.HandleFunc("PUT /repositories/{repository}/pull-requests/{pull_request}/reviews/me", putPullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("DELETE /repositories/{repository}/pull-requests/{pull_request}/reviews/me", deletePullRequestReview(store, repositories, credentials, activity))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/reviews", listPullRequestReviews(store, repositories, credentials))
-	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults, previewAcceptance, performance, accessibilityPolicy, accessibilityEvidence, privacyVerification, localizationDelivery, localizationEvidence, designGovernance, interfaceEvidence, provenanceSources))
+	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/readiness", getPullRequestReadiness(store, repositories, credentials, checkResults, previewAcceptance, performance, accessibilityPolicy, accessibilityEvidence, privacyVerification, localizationDelivery, localizationEvidence, designGovernance, interfaceEvidence, provenanceSources, completionSources))
 	mux.HandleFunc("GET /repositories/{repository}/pull-requests/{pull_request}/conflicts", getPullRequestConflicts(store, repositories, credentials, checkResults))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/merge", mergePullRequestWithFederation(store, proposalStore, repositories, credentials, activity, checkResults, previewAcceptance, federationStore, performance, accessibilityPolicy, accessibilityEvidence, privacyVerification, localizationDelivery, localizationEvidence, designGovernance, interfaceEvidence))
 	mux.HandleFunc("POST /repositories/{repository}/pull-requests/{pull_request}/queue", enqueuePullRequest(store, repositories, credentials, activity, checkResults, checks, queue))
@@ -705,6 +708,9 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 		}
 		if v, ok := x.(reviewCompletionSources); ok {
 			completionSources = &v
+		}
+		if v, ok := x.(*reviewCompletionSources); ok {
+			completionSources = v
 		}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
