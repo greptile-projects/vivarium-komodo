@@ -47,6 +47,19 @@ versions accounts for every prior finding as addressed, still applicable, or sta
 without rewriting its original evidence or discussion; ordinary repository and
 agent permissions remain authoritative.
 
+Current review completion lives beneath `$REVIEW_COMPLETION_ROOT` (default
+`apps/api/data/review-completion`) and derives a matrix from the exact current
+review plan, routing, and shared work. Repository owners select which planned
+areas block readiness; each area reports accepted human assignments, inspected
+queue evidence, findings and decisions, required acknowledgements, unresolved
+gaps, and acknowledgements made stale by changed source, target, risk, ownership,
+dependencies, scope, or completion rules. Owner emergency overrides name only
+affected areas, expire within seven days, retain attribution and rationale, and
+require a follow-up work reference. The sibling `/review-completion` resource and
+pull readiness response expose the matrix in the Review plan section. Completion
+and overrides grant no review, approval, merge, policy, repository, or operational
+authority.
+
 Versioned provenance and licensing policies live beneath
 `$PROVENANCE_POLICY_ROOT` (default `apps/api/data/provenance-policies`).
 Repository and organization owners publish immutable, optimistically

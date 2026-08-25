@@ -55,6 +55,25 @@ reasoning. Durable state defaults beneath `$REVIEW_WORK_ROOT`; investigation and
 handoff grant no approval, repository, merge, secret, policy, or operational
 authority.
 
+### Current review completion
+
+The sibling `/review-completion` resource turns the plan, routing, and shared work
+into an area-by-area matrix for the current source and target revisions. Repository
+owners select the planned areas that block merge readiness. Each row exposes its
+owners and accepted assignments, inspected queue evidence, findings and decisions,
+required human acknowledgements, unresolved gaps, and prior acknowledgements that
+no longer match the area's inputs.
+
+An acknowledgement binds a human's accepted assignment to a digest of the source,
+target, declared risk, area ownership, dependencies, paths, and completion rules.
+A change therefore invalidates only rows whose inputs changed; the original
+acknowledgement remains visible as stale evidence. An owner may record a narrowly
+scoped emergency override for named areas only, expiring within seven days and
+linked to follow-up work. Pull readiness includes the matrix and blocks when a
+selected area is incomplete. Durable records default beneath
+`$REVIEW_COMPLETION_ROOT`; acknowledgements and overrides do not grant review,
+approval, merge, policy, repository, or operational authority.
+
 ## Reusable workflow components
 
 Repositories publish attested workflow components at
