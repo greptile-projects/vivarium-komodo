@@ -3200,6 +3200,14 @@ readiness outcomes, and any later responsibility grant keep their native owner
 and permission checks. Learning completion grants no repository, fork, Git,
 agent, secret, review, merge, governance, or operational authority.
 
+`developer_learning_workflow_test.go` is the black-box boundary for the complete
+project-native learning-to-trusted-contributor loop. It crosses public learning,
+assessment, matching, repository, pull-request, review, check, merge, and outcome
+APIs plus stock Git, retaining missing prerequisites, broken setup, inaccessible
+material, misleading help, protected-case secrecy, failed assessment, stale
+modules, departed mentors, abandoned work, recovery, learner authorship, and the
+reviewed pathway improvement that serves the next learner.
+
 Pull-request privacy impact assessments live beneath
 `$PRIVACY_ASSESSMENT_ROOT` (default `apps/api/data/privacy-assessments`). Each
 assessment binds exact candidate and target commits, cited flow maps,
