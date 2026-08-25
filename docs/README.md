@@ -1,5 +1,23 @@
 # Docs
 
+## Shared capacity objectives
+
+`/repositories/{repository}/capacity-objectives` gives repository collaborators an
+immutable, optimistic contract for the demand a service, API, job, workspace, package
+delivery flow, or user journey must serve. Each version retains forecast segments,
+windows, confidence and evidence; traffic shapes and seasonality; service levels;
+bottleneck and dependency limits; regions, owners, budget and lead time; required
+signals; attributable expiring assumptions; and measurable success and rollback
+criteria. Typed links connect the contract to product roadmaps, experiments,
+performance goals, service objectives, infrastructure, releases, and funding.
+
+Reads derive unsupported forecasts, missing required signal sources, contradictory
+commitment ranges, and expired or soon-expiring assumptions without hiding who owns
+the gap. The repository Capacity & performance view exposes current gaps and complete
+version history. Durable state defaults beneath `$CAPACITY_OBJECTIVE_ROOT`; defining
+or observing an objective grants no spending, provider, repository, release,
+deployment, environment, credential, or operational authority.
+
 ## Pull-request review plans
 
 `/repositories/{repository}/pull-requests/{pull_request}/review-plans` lets the
