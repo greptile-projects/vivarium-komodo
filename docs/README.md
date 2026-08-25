@@ -1817,6 +1817,20 @@ repository responsibility remains a separate owner-approved access grant.
 Neither matching nor completion grants fork, upstream, Git, agent, secret,
 review, merge, governance, or operational authority.
 
+Pathway maintainers inspect the continuous-learning trail at
+`.../learning-pathways/{pathway}/outcomes`. Observations cover module completion,
+recurring questions, setup failures, assessment gaps, mentor load, contribution
+outcomes, reviewer corrections, and retention only when consent is granted;
+each record carries an audience, aggregate count, exact pathway/project version,
+and bounded evidence references. Supported findings can drive documentation,
+exercise, workspace, pathway, code, or policy improvements, but every change
+must identify an ordinary proposal or pull revision and its review status.
+Material requirement changes preserve earlier completion records while marking
+affected learners for explicit append-only revalidation against the new version.
+State defaults beneath `$LEARNING_OUTCOME_ROOT` at
+`apps/api/data/learning-outcomes`; outcome records grant no repository, learner,
+agent, review, merge, or operational authority.
+
 ## Contributor pathways
 
 ### Ready contribution opportunities

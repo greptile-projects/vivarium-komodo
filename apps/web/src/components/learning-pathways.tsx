@@ -72,6 +72,13 @@ type Pathway = {
   current_version: number;
   versions: Version[];
 };
+type Outcomes = {
+  pathway_id: string;
+  observations: Array<{ id: string; kind: string; count: number; summary: string; audience: string }>;
+  findings: Array<{ id: string; kind: string; summary: string; confidence: string }>;
+  improvements: Array<{ id: string; kind: string; summary: string; review_status: string; material: boolean; affected_learners?: Array<{ status: string }> }>;
+  revalidations: Array<{ id: string; improvement_id: string }>;
+};
 type Attempt = {
   id: string;
   pathway_id: string;
@@ -138,7 +145,8 @@ export function LearningPathways({
     [editing, setEditing] = useState(false),
     [error, setError] = useState(""),
     [launched, setLaunched] = useState<Attempt | null>(null),
-    [assessments, setAssessments] = useState<Assessment[]>([]);
+    [assessments, setAssessments] = useState<Assessment[]>([]),
+    [outcomes, setOutcomes] = useState<Record<string, Outcomes>>({});
   useEffect(() => {
     let active = true;
     json<{ items: Pathway[] }>(`/repositories/${repository}/learning-pathways`)
@@ -146,6 +154,8 @@ export function LearningPathways({
         if (active) setItems(v.items);
         const found = await Promise.all(v.items.map((p) => json<{ items: Assessment[] }>(`/repositories/${repository}/learning-pathways/${p.id}/assessments`).then((x) => x.items)));
         if (active) setAssessments(found.flat());
+        const learned = await Promise.all(v.items.map((p) => json<Outcomes>(`/repositories/${repository}/learning-pathways/${p.id}/outcomes`)));
+        if (active) setOutcomes(Object.fromEntries(learned.map((x) => [x.pathway_id, x])));
       })
       .catch((e) => {
         if (active)
@@ -643,6 +653,15 @@ export function LearningPathways({
                 </p>
               ))}
               <h4>Ordered modules</h4>
+              {outcomes[p.id] && (outcomes[p.id].observations.length > 0 || outcomes[p.id].findings.length > 0) && (
+                <section>
+                  <h4>Community learning outcomes</h4>
+                  <p>Only consented, audience-bounded evidence is retained. Earlier achievements stay archived; material changes require explicit revalidation.</p>
+                  {outcomes[p.id].observations.map((x) => <p key={x.id}><Badge>{x.kind.replaceAll("_", " ")}</Badge> {x.summary} · {x.count} outcomes · {x.audience}</p>)}
+                  {outcomes[p.id].findings.map((x) => <p key={x.id}><Badge>{x.confidence}</Badge> {x.summary}</p>)}
+                  {outcomes[p.id].improvements.map((x) => <p key={x.id}><Badge>{x.review_status}</Badge> {x.kind}: {x.summary}{x.material ? ` · ${x.affected_learners?.length ?? 0} completion records need revalidation` : " · prior completion remains current"}</p>)}
+                </section>
+              )}
               {v.modules.map((m, i) => (
                 <section key={m.id}>
                   <h5>
