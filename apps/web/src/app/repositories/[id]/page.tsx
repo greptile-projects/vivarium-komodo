@@ -40,6 +40,7 @@ import { AssurancePrograms } from "@/components/assurance-programs";
 import { IndependentAssessments } from "@/components/independent-assessments";
 import { AssuranceDelivery } from "@/components/assurance-delivery";
 import { SecurityExpectations } from "@/components/security-expectations";
+import { ProvenancePolicies } from "@/components/provenance-policies";
 import { ThreatModels } from "@/components/threat-models";
 import { SecurityScenarios } from "@/components/security-scenarios";
 import { HistoryRemediations } from "@/components/history-remediations";
@@ -1958,7 +1959,7 @@ export default function RepositoryPage({
       ) : view === "quality" ? (
         <><QualityGates repository={repository.id} actor={actor} /><QualityPlans repository={repository.id} actor={actor} /><TestScenarios repository={repository.id} actor={actor} /><ExploratorySessions repository={repository.id} actor={actor} /></>
       ) : view === "governance" ? (
-        <GovernanceCharter scope="repositories" id={repository.id} canManage={actor===repository.owner_id} />
+        <><GovernanceCharter scope="repositories" id={repository.id} canManage={actor===repository.owner_id} /><ProvenancePolicies scope="repositories" id={repository.id} canManage={actor===repository.owner_id} /></>
       ) : view === "extensions" ? (
         <Extensions repository={repository.id} />
       ) : view === "issues" ? (

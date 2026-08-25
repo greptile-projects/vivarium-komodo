@@ -6183,3 +6183,25 @@ only the suffix; and a target advance after partial integration supersedes old
 candidates and rebuilds only unmerged work. Passing per-member and cumulative
 evidence then produces retained final history without manufacturing Git,
 review, agent, check, merge, credential, or operational authority.
+
+### Provenance and licensing policy
+
+Repository and organization collaborators can inspect immutable provenance
+policy through `GET /repositories/{repository}/provenance-policies` and
+`GET /organizations/{organization}/provenance-policies`. Owners publish the
+first version with `POST` and revisions at `POST .../{policy}/versions` with an
+`expected_version`. Each version covers the seven accepted material classes
+(`source`, `generated_code`, `asset`, `model`, `dataset`, `package`, and
+`build_input`) and records permitted origins, licenses and uses, attribution,
+contributor attestations, review owners, distribution audiences, notice rules,
+and bounded exceptions. Links retain the governing contributor pathway, exact
+agent contract, package, release, and private or federated contribution
+boundary without granting access to those resources.
+
+Reads derive `unknown_license`, `conflicting_terms`, `missing_owner`,
+`expiring_exception`, and `expired_exception` blockers from the current version
+while retaining the author and complete earlier versions. Repository owners use
+the provenance section in `view=governance`; organization owners use the same
+surface on `/organizations`. A policy states what may be accepted and
+distributed but creates no contribution, Git, review, merge, package, release,
+federation, credential, distribution, or operational authority.
