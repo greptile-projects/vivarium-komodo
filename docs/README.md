@@ -1,5 +1,20 @@
 # Docs
 
+## Pull-request review plans
+
+`/repositories/{repository}/pull-requests/{pull_request}/review-plans` lets the
+pull author or repository owner publish an immutable review analysis before
+approvals accumulate. Source and target revisions and changed paths come from the
+pull request and Git objects; clients declare intent, risk, applicable policies,
+affected commitments and context, and dependency-ordered review areas with owners,
+expertise, acceptance questions, required evidence, and completion rules.
+
+Reads compare the latest plan with the current pull revision. Inaccessible context,
+missing owners, overlapping or uncovered code, out-of-change paths, and revision
+drift remain attributable blockers. The pull-request Review plan section exposes
+the same history and does not confer review, merge, repository, or operational
+authority. Durable records default beneath `$REVIEW_PLAN_ROOT`.
+
 ## Reusable workflow components
 
 Repositories publish attested workflow components at
