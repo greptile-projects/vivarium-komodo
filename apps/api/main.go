@@ -111,6 +111,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/reliabilitypolicies"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositoryrestructuring"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/reviewcompletion"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/reviewplans"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/reviewrouting"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/reviewwork"
@@ -263,6 +264,14 @@ func main() {
 		reviewWorkRoot = "data/review-work"
 	}
 	reviewWorkStore, err := reviewwork.New(reviewWorkRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	reviewCompletionRoot := os.Getenv("REVIEW_COMPLETION_ROOT")
+	if reviewCompletionRoot == "" {
+		reviewCompletionRoot = "data/review-completion"
+	}
+	reviewCompletionStore, err := reviewcompletion.New(reviewCompletionRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1294,10 +1303,12 @@ func main() {
 	registerContributionOpportunitiesHTTP(mux, contributionOpportunityStore, repositoryCatalog, credentials, issueStore, proposalStore, organizationStore, contributorPathwayStore, workspaceStore, workspaceRunner, pullRequestStore, checkRunner, releaseStore, learningPathwayStore, learningExerciseStore, learningAssessmentStore)
 	registerIssueRepairsHTTP(mux, issueStore, proposalStore, pullRequestStore, repositoryCatalog, credentials, issueReproductionRunner, checkRunStore)
 	registerProposalTaskSessionsHTTP(mux, proposalStore, changeSessionStore, repositoryCatalog, credentials, activityStore, pullRequestStore, checkRunner)
-	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore, previewStore, federationStore, performanceGoalStore, accessibilityPolicyStore, accessibilityAssessmentStore, privacyVerificationStore, localizationDeliveryStore, localizationVerificationStore, designGovernanceStore, interfaceCheckStore, securityDeliverySources{securityDeliveryStore, threatModelStore, securityScenarioStore}, provenanceAssessmentSources{provenanceAssessmentStore, provenancePolicyStore, provenanceGraphStore})
+	completionSources := reviewCompletionSources{reviewCompletionStore, reviewPlanStore, reviewRoutingStore, reviewWorkStore}
+	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore, previewStore, federationStore, performanceGoalStore, accessibilityPolicyStore, accessibilityAssessmentStore, privacyVerificationStore, localizationDeliveryStore, localizationVerificationStore, designGovernanceStore, interfaceCheckStore, securityDeliverySources{securityDeliveryStore, threatModelStore, securityScenarioStore}, provenanceAssessmentSources{provenanceAssessmentStore, provenancePolicyStore, provenanceGraphStore}, completionSources)
 	registerReviewPlansHTTP(mux, reviewPlanStore, pullRequestStore, repositoryCatalog, credentials)
 	registerReviewRoutingHTTP(mux, reviewRoutingStore, reviewPlanStore, pullRequestStore, repositoryCatalog, credentials)
 	registerReviewWorkHTTP(mux, reviewWorkStore, reviewPlanStore, reviewRoutingStore, pullRequestStore, repositoryCatalog, credentials)
+	registerReviewCompletionHTTP(mux, completionSources, pullRequestStore, repositoryCatalog, credentials)
 	registerPreviewsHTTP(mux, previewStore, previewRunner, pullRequestStore, repositoryCatalog, credentials, previewSources{issues: issueStore, decisions: decisionStore, proposals: proposalStore}, previewRepairStores{plans: proposalStore, sessions: changeSessionStore, workspaces: workspaceStore, workspaceRunner: workspaceRunner})
 	registerReleasesHTTP(mux, releaseStore, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials, securityDeliverySources{securityDeliveryStore, threatModelStore, securityScenarioStore}, provenanceAssessmentSources{provenanceAssessmentStore, provenancePolicyStore, provenanceGraphStore})
 	registerPackagesHTTP(mux, packageStore, releaseStore, checkRunStore, repositoryCatalog, credentials)

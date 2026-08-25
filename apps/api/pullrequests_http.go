@@ -38,6 +38,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/provenancegraphs"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/provenancepolicies"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/reviewcompletion"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securitydelivery"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 )
@@ -623,22 +624,23 @@ type readinessBlocker struct {
 }
 
 type readinessResponse struct {
-	Ready         bool                                   `json:"ready"`
-	CanMerge      bool                                   `json:"can_merge"`
-	HasConflicts  *bool                                  `json:"has_conflicts"`
-	SourceBranch  readinessBranch                        `json:"source_branch"`
-	TargetBranch  readinessBranch                        `json:"target_branch"`
-	Reviews       readinessReviews                       `json:"reviews"`
-	Checks        readinessChecks                        `json:"checks"`
-	Acceptance    *previews.AcceptanceAssessment         `json:"preview_acceptance,omitempty"`
-	Performance   []performancegoals.DeliveryRequirement `json:"performance_requirements"`
-	Accessibility *accessibilitypolicies.Assessment      `json:"accessibility,omitempty"`
-	Privacy       *privacyverification.Assessment        `json:"privacy,omitempty"`
-	Localization  *localizationdelivery.Assessment       `json:"localization,omitempty"`
-	Design        *designgovernance.Assessment           `json:"design,omitempty"`
-	Security      *securitydelivery.Assessment           `json:"security,omitempty"`
-	Provenance    *provenanceassessments.View            `json:"provenance,omitempty"`
-	Blockers      []readinessBlocker                     `json:"blockers"`
+	Ready            bool                                   `json:"ready"`
+	CanMerge         bool                                   `json:"can_merge"`
+	HasConflicts     *bool                                  `json:"has_conflicts"`
+	SourceBranch     readinessBranch                        `json:"source_branch"`
+	TargetBranch     readinessBranch                        `json:"target_branch"`
+	Reviews          readinessReviews                       `json:"reviews"`
+	Checks           readinessChecks                        `json:"checks"`
+	Acceptance       *previews.AcceptanceAssessment         `json:"preview_acceptance,omitempty"`
+	Performance      []performancegoals.DeliveryRequirement `json:"performance_requirements"`
+	Accessibility    *accessibilitypolicies.Assessment      `json:"accessibility,omitempty"`
+	Privacy          *privacyverification.Assessment        `json:"privacy,omitempty"`
+	Localization     *localizationdelivery.Assessment       `json:"localization,omitempty"`
+	Design           *designgovernance.Assessment           `json:"design,omitempty"`
+	Security         *securitydelivery.Assessment           `json:"security,omitempty"`
+	Provenance       *provenanceassessments.View            `json:"provenance,omitempty"`
+	ReviewCompletion *reviewcompletion.View                 `json:"review_completion,omitempty"`
+	Blockers         []readinessBlocker                     `json:"blockers"`
 }
 
 type readinessCheck struct {
@@ -666,6 +668,7 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 	var interfaceEvidence *interfacechecks.Store
 	var securityDelivery *securityDeliverySources
 	var provenanceSources *provenanceAssessmentSources
+	var completionSources *reviewCompletionSources
 	for _, x := range extras {
 		if v, ok := x.(*previews.Store); ok {
 			acceptance = v
@@ -699,6 +702,9 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 		}
 		if v, ok := x.(*provenanceAssessmentSources); ok {
 			provenanceSources = v
+		}
+		if v, ok := x.(reviewCompletionSources); ok {
+			completionSources = &v
 		}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -770,6 +776,15 @@ func getPullRequestReadiness(store pullRequestStore, repositories pullRequestRep
 		}
 		if response.Reviews.CurrentChangeRequests > 0 {
 			addBlocker("changes_requested", "A current review requests changes.")
+		}
+		if completionSources != nil {
+			view, e := currentReviewCompletion(*completionSources, string(repository.ID), item.ID, item.SourceCommitID, item.TargetCommitID)
+			if e == nil {
+				response.ReviewCompletion = &view
+				if !view.Ready {
+					addBlocker("review_coverage_incomplete", "Required review areas do not have complete current evidence and acknowledgement.")
+				}
+			}
 		}
 		runs := []checkruns.Run{}
 		if checkStore != nil {
