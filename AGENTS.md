@@ -60,6 +60,15 @@ pull readiness response expose the matrix in the Review plan section. Completion
 and overrides grant no review, approval, merge, policy, repository, or operational
 authority.
 
+`review_orchestration_workflow_test.go` is the black-box boundary for the complete
+cross-cutting pull-request review loop. It composes stock Git, public review plan,
+routing, work, and completion APIs, ordinary revision-bound review and checks, the
+integration queue, and merge while retaining overload, recusal, inaccessible
+evidence, disagreement, handoff, revocation, staleness, changed risk, failed repair,
+and recovery. Review completion is passed through pull-request route registration
+so the exact current matrix participates in readiness without replacing native
+review, check, queue, or merge authority.
+
 Versioned provenance and licensing policies live beneath
 `$PROVENANCE_POLICY_ROOT` (default `apps/api/data/provenance-policies`).
 Repository and organization owners publish immutable, optimistically

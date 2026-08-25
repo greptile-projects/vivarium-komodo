@@ -74,6 +74,15 @@ selected area is incomplete. Durable records default beneath
 `$REVIEW_COMPLETION_ROOT`; acknowledgements and overrides do not grant review,
 approval, merge, policy, repository, or operational authority.
 
+`review_orchestration_workflow_test.go` is the black-box boundary for the
+complete cross-cutting-change-to-merged-candidate loop. It uses stock Git and
+public HTTP to coordinate code, security, accessibility, consumer, and
+read-only-agent review, then carries the exact repaired revision through current
+review completion, repository checks, the integration queue, and merge. The
+retained history covers overload, recusal, inaccessible evidence, agent-human
+disagreement, an unavailable-owner handoff, revoked agent scope, stale ordinary
+and area approvals, changed risk, and failed-then-passing repair verification.
+
 ## Reusable workflow components
 
 Repositories publish attested workflow components at
