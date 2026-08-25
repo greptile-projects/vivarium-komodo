@@ -6205,3 +6205,27 @@ the provenance section in `view=governance`; organization owners use the same
 surface on `/organizations`. A policy states what may be accepted and
 distributed but creates no contribution, Git, review, merge, package, release,
 federation, credential, distribution, or operational authority.
+
+### Revision-exact software provenance graphs
+
+Repository writers create an immutable analysis with `POST
+/repositories/{repository}/provenance-graphs`, naming an exact visible commit
+and a declaration path (normally `.komodo/provenance.json`). The declaration's
+typed nodes describe files, fragments, commits, contributors, agents, tools,
+assets, dependencies, build steps, artifacts, upstream projects, licenses, and
+attestations. Each node carries an audience, confidence, transformation,
+applicable obligations, claims, and exact citations; edges state how one
+material produced or informed another. File citations must name the SHA-256 of
+the blob at that path in the analyzed Git snapshot, so commit authorship or a
+detached scanner label cannot substitute for evidence.
+
+`GET /repositories/{repository}/provenance-graphs` rechecks whether the frozen
+revision remains visible and reports `missing_origin`, `stale_citation`,
+`contradictory_claim`, `broken_lineage`, and `rewritten_history` gaps without
+rewriting the original analysis. Public repository reads retain public nodes
+but turn repository-only and restricted origins into opaque inaccessible nodes;
+their labels, claims, citations, licenses, and obligations are not copied to
+the broader audience. The repository Governance view presents the graph beside
+its acceptance policy. Graph creation and inspection grant no source,
+dependency, build, artifact, repository, review, merge, release, distribution,
+credential, or operational authority.

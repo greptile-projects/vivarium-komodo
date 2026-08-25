@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-25T02:23:41Z: Added immutable revision-exact software provenance graphs from repository declarations, with Git blob citations, typed lineage, confidence, transformations, obligations, explicit origin/contradiction/staleness/history gaps, and audience-safe opaque projection. Durable state lives beneath `$PROVENANCE_GRAPH_ROOT`; the repository Governance surface assembles and inspects graphs beside provenance policy.
+
 2026-08-23T17:24:44Z: Proved the complete independently reviewed conflict-to-queued-merge workflow through public HTTP and stock Git, retaining textual and semantic intent, stale and repeated queue failures, bounded/revoked agent work, rejected and failed candidates, both-owner verification, two-parent publication, and final history. Verification now accepts derived acceptance/conflict criteria and lets later current proof correct a failed attempt without deleting it.
 
 2026-08-23T16:38:12Z: Added accepted reconciliation checkpoint publication to the original permitted pull-request branch or a connected resolution pull request, retaining two-input Git and review provenance while revalidating live inputs, policy, dependencies, and owner decisions. Integration queues now recheck current exact-revision approval before atomic merge and preserve blocked conflict/rebuild history.
