@@ -11,6 +11,7 @@ import (
 
 	"github.com/greptile-projects/vivarium-komodo/apps/api/auth"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/provenanceassessments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/releases"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
@@ -42,8 +43,18 @@ type releaseStore interface {
 	List(string) ([]releases.Release, error)
 }
 
-func registerReleasesHTTP(mux *http.ServeMux, store releaseStore, builds releaseBuildStore, controller releaseBuildController, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, security ...securityDeliverySources) {
-	mux.HandleFunc("POST /repositories/{repository}/releases", createRelease(store, controller, pulls, repositories, credentials, security...))
+func registerReleasesHTTP(mux *http.ServeMux, store releaseStore, builds releaseBuildStore, controller releaseBuildController, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, extras ...any) {
+	var security *securityDeliverySources
+	var provenance *provenanceAssessmentSources
+	for _, extra := range extras {
+		if value, ok := extra.(securityDeliverySources); ok {
+			security = &value
+		}
+		if value, ok := extra.(provenanceAssessmentSources); ok {
+			provenance = &value
+		}
+	}
+	mux.HandleFunc("POST /repositories/{repository}/releases", createRelease(store, controller, pulls, repositories, credentials, security, provenance))
 	mux.HandleFunc("GET /repositories/{repository}/releases", listReleases(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/releases/{release}", getRelease(store, repositories, credentials))
 	mux.HandleFunc("GET /repositories/{repository}/releases/{release}/attestation", getReleaseAttestation(store, builds, repositories, credentials))
@@ -91,7 +102,7 @@ func getRelease(store releaseStore, repositories pullRequestRepositoryStore, cre
 	}
 }
 
-func createRelease(store releaseStore, controller releaseBuildController, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, security ...securityDeliverySources) http.HandlerFunc {
+func createRelease(store releaseStore, controller releaseBuildController, pulls pullRequestStore, repositories pullRequestRepositoryStore, credentials authStore, security *securityDeliverySources, provenance *provenanceAssessmentSources) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		repository, actor, ok := proposalRepositoryAccess(w, r, repositories, credentials, auth.RepositoryWrite, true)
 		if !ok {
@@ -132,14 +143,34 @@ func createRelease(store releaseStore, controller releaseBuildController, pulls 
 			writeJSON(w, 422, map[string]string{"error": "invalid_release_manifest"})
 			return
 		}
-		if len(security) > 0 {
-			a, e := security[0].assess(string(repository.ID), repository.OrganizationID, "release", input.CommitID, input.CommitID, "main", input.Components, input.Assets, input.RiskClasses)
+		if security != nil {
+			a, e := security.assess(string(repository.ID), repository.OrganizationID, "release", input.CommitID, input.CommitID, "main", input.Components, input.Assets, input.RiskClasses)
 			if e != nil {
 				writeJSON(w, 500, map[string]string{"error": "internal_error"})
 				return
 			}
 			if !a.Ready {
 				writeJSON(w, http.StatusConflict, map[string]any{"error": "security_requirements_unsatisfied", "security": a})
+				return
+			}
+		}
+		if provenance != nil {
+			items, e := provenance.assessments.List(string(repository.ID))
+			if e != nil {
+				writeJSON(w, 500, map[string]string{"error": "internal_error"})
+				return
+			}
+			var current *provenanceassessments.View
+			for _, candidate := range items {
+				if candidate.CandidateKind != "release_candidate" || candidate.CandidateID != input.Version || candidate.Revision != input.CommitID {
+					continue
+				}
+				view := provenanceassessments.Derive(candidate, currentProvenanceKeys(candidate, provenance.policies, provenance.graphs), time.Now().UTC())
+				current = &view
+				break
+			}
+			if current == nil || !current.Ready {
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "provenance_requirements_unsatisfied", "provenance": current})
 				return
 			}
 		}

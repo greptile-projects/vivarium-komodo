@@ -86,6 +86,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/propagationcampaigns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/protectionplans"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/provenanceassessments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/provenancegraphs"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/provenancepolicies"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
@@ -262,6 +263,14 @@ func main() {
 		provenanceGraphRoot = "data/provenance-graphs"
 	}
 	provenanceGraphStore, err := provenancegraphs.New(provenanceGraphRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	provenanceAssessmentRoot := os.Getenv("PROVENANCE_ASSESSMENT_ROOT")
+	if provenanceAssessmentRoot == "" {
+		provenanceAssessmentRoot = "data/provenance-assessments"
+	}
+	provenanceAssessmentStore, err := provenanceassessments.New(provenanceAssessmentRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1144,6 +1153,7 @@ func main() {
 	registerSecurityExpectationsHTTP(mux, securityExpectationStore, repositoryCatalog, credentials)
 	registerProvenancePoliciesHTTP(mux, provenancePolicyStore, repositoryCatalog, organizationStore, credentials)
 	registerProvenanceGraphsHTTP(mux, provenanceGraphStore, repositoryCatalog, credentials)
+	registerProvenanceAssessmentsHTTP(mux, provenanceAssessmentStore, provenanceGraphStore, provenancePolicyStore, pullRequestStore, repositoryCatalog, credentials)
 	registerHistoryRemediationsHTTP(mux, historyRemediationStore, repositoryCatalog, credentials)
 	registerThreatModelsHTTP(mux, threatModelStore, repositoryCatalog, credentials, threatModelSources{pulls: pullRequestStore, plans: proposalStore, scenarios: securityScenarioStore})
 	registerSecurityScenariosHTTP(mux, securityScenarioStore, threatModelStore, repositoryCatalog, credentials, pullRequestStore, previewStore)
@@ -1207,9 +1217,9 @@ func main() {
 	registerContributionOpportunitiesHTTP(mux, contributionOpportunityStore, repositoryCatalog, credentials, issueStore, proposalStore, organizationStore, contributorPathwayStore, workspaceStore, workspaceRunner, pullRequestStore, checkRunner, releaseStore)
 	registerIssueRepairsHTTP(mux, issueStore, proposalStore, pullRequestStore, repositoryCatalog, credentials, issueReproductionRunner, checkRunStore)
 	registerProposalTaskSessionsHTTP(mux, proposalStore, changeSessionStore, repositoryCatalog, credentials, activityStore, pullRequestStore, checkRunner)
-	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore, previewStore, federationStore, performanceGoalStore, accessibilityPolicyStore, accessibilityAssessmentStore, privacyVerificationStore, localizationDeliveryStore, localizationVerificationStore, designGovernanceStore, interfaceCheckStore, securityDeliverySources{securityDeliveryStore, threatModelStore, securityScenarioStore})
+	registerPullRequestsHTTP(mux, pullRequestStore, proposalStore, repositoryCatalog, credentials, activityStore, checkRunner, checkRunStore, integrationQueueStore, previewStore, federationStore, performanceGoalStore, accessibilityPolicyStore, accessibilityAssessmentStore, privacyVerificationStore, localizationDeliveryStore, localizationVerificationStore, designGovernanceStore, interfaceCheckStore, securityDeliverySources{securityDeliveryStore, threatModelStore, securityScenarioStore}, provenanceAssessmentSources{provenanceAssessmentStore, provenancePolicyStore, provenanceGraphStore})
 	registerPreviewsHTTP(mux, previewStore, previewRunner, pullRequestStore, repositoryCatalog, credentials, previewSources{issues: issueStore, decisions: decisionStore, proposals: proposalStore}, previewRepairStores{plans: proposalStore, sessions: changeSessionStore, workspaces: workspaceStore, workspaceRunner: workspaceRunner})
-	registerReleasesHTTP(mux, releaseStore, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials, securityDeliverySources{securityDeliveryStore, threatModelStore, securityScenarioStore})
+	registerReleasesHTTP(mux, releaseStore, checkRunStore, checkRunner, pullRequestStore, repositoryCatalog, credentials, securityDeliverySources{securityDeliveryStore, threatModelStore, securityScenarioStore}, provenanceAssessmentSources{provenanceAssessmentStore, provenancePolicyStore, provenanceGraphStore})
 	registerPackagesHTTP(mux, packageStore, releaseStore, checkRunStore, repositoryCatalog, credentials)
 	registerPackageRecoveryHTTP(mux, packageStore, dependencyInventoryStore, proposalStore, repositoryCatalog, credentials, activityStore)
 	registerDependencyInventoryHTTP(mux, dependencyInventoryStore, packageStore, releaseStore, checkRunStore, deploymentStore, repositoryCatalog, credentials)
