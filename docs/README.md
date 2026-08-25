@@ -6253,3 +6253,23 @@ assessments gate release creation. Assessment and collaboration grant no Git,
 policy, exception, review, merge, release, distribution, credential, or
 operational authority. Durable records default beneath
 `$PROVENANCE_ASSESSMENT_ROOT` (`apps/api/data/provenance-assessments`).
+
+### Connected provenance repair work
+
+An authorized repository owner converts an assessment finding through `POST
+/repositories/{repository}/provenance-assessments/{assessment}/findings/{finding}/repairs`.
+The repair freezes the affected candidate revision and policy version, carries
+the material's obligations and owner-authored acceptance criteria, permits only
+cited evidence already attached to that finding, assigns a human or agent, and
+links the ordinary task, branch, fork, session, or workspace where work occurs.
+Supported strategies are replacement, reimplementation, removal, obtaining
+permission, and isolation; the original finding and authorship remain intact.
+
+Clean-room reimplementation names a distinct evidence reviewer and cannot pass
+restricted evidence to its implementer. Contributors append attributable
+progress under `/repairs/{repair}/progress`. Delivery under
+`/repairs/{repair}/delivery` must name an ordinary pull request at its exact
+source revision, check-run IDs, and explicitly preserve authorship; ordinary
+repository access, review, merge, provenance readiness, and release checks
+remain authoritative. The repair record grants no code, evidence, agent,
+credential, disclosure, review, merge, distribution, or release access.

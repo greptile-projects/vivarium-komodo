@@ -47,6 +47,19 @@ to them, and current required assessments participate in pull-request and
 release readiness. These records grant no source, Git, policy, exception,
 review, merge, release, distribution, credential, or operational authority.
 
+Current provenance findings extend into owner-created repairs beneath the
+assessment's `/findings/{finding}/repairs` resource. Each repair freezes the
+affected revision, policy version, applicable obligations, acceptance criteria,
+permitted finding evidence, human or agent owner, and links to ordinary tasks,
+branches, forks, sessions, or workspaces. Replacement, reimplementation,
+removal, permission, and isolation strategies remain attributable; clean-room
+reimplementation excludes restricted evidence and separates the implementer
+from named evidence reviewers. Progress and revision-exact pull/check delivery
+remain on the original finding and require an explicit assertion that
+authorship was preserved. Repairs grant no source, Git, evidence, agent,
+credential, review, merge, disclosure, distribution, release, or operational
+authority.
+
 Repository-reviewed collaboration workflow definitions live beneath
 `$WORKFLOW_DEFINITION_ROOT` (default `apps/api/data/workflow-definitions`).
 Repository writers publish immutable versions with exact source revision and

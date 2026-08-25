@@ -57,6 +57,127 @@ func registerProvenanceAssessmentsHTTP(mux *http.ServeMux, s *provenanceassessme
 	}
 	mutate("annotations", false)
 	mutate("decisions", true)
+	mux.HandleFunc("POST "+base+"/{assessment}/findings/{finding}/repairs", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		if actor.UserID != repo.OwnerID {
+			writeJSON(w, 403, map[string]string{"error": "provenance_owner_required"})
+			return
+		}
+		v, e := s.Get(r.PathValue("assessment"))
+		if e != nil || v.RepositoryID != string(repo.ID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var in provenanceassessments.Repair
+		var body struct {
+			ExpectedRevision int64                        `json:"expected_revision"`
+			Repair           provenanceassessments.Repair `json:"repair"`
+		}
+		if !readJSON(w, r, &body, 256<<10) {
+			return
+		}
+		in = body.Repair
+		in.FindingID = r.PathValue("finding")
+		in.Obligations = repairObligations(v, in.FindingID, graphs)
+		updated, made, e := s.CreateRepair(v.ID, actor.UserID, body.ExpectedRevision, in)
+		if provenanceRepairError(w, e) {
+			return
+		}
+		writeJSON(w, 201, map[string]any{"assessment": provenanceassessments.Derive(updated, currentProvenanceKeys(updated, policies, graphs), time.Now().UTC()), "repair": made, "authority_notice": "The finding and repair grant no code, evidence, agent, review, merge, disclosure, distribution, or release authority."})
+	})
+	mux.HandleFunc("POST "+base+"/{assessment}/repairs/{repair}/progress", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		v, e := s.Get(r.PathValue("assessment"))
+		if e != nil || v.RepositoryID != string(repo.ID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var body struct {
+			ExpectedRevision int64  `json:"expected_revision"`
+			Status           string `json:"status"`
+			Summary          string `json:"summary"`
+		}
+		if !readJSON(w, r, &body, 128<<10) {
+			return
+		}
+		v, e = s.ProgressRepair(v.ID, r.PathValue("repair"), actor.UserID, body.Status, body.Summary, body.ExpectedRevision)
+		if provenanceRepairError(w, e) {
+			return
+		}
+		view := provenanceassessments.Derive(v, currentProvenanceKeys(v, policies, graphs), time.Now().UTC())
+		writeJSON(w, 201, provenanceassessments.Project(view, actor.UserID == repo.OwnerID))
+	})
+	mux.HandleFunc("POST "+base+"/{assessment}/repairs/{repair}/delivery", func(w http.ResponseWriter, r *http.Request) {
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		v, e := s.Get(r.PathValue("assessment"))
+		if e != nil || v.RepositoryID != string(repo.ID) {
+			writeJSON(w, 404, map[string]string{"error": "not_found"})
+			return
+		}
+		var body struct {
+			ExpectedRevision int64                                `json:"expected_revision"`
+			Delivery         provenanceassessments.RepairDelivery `json:"delivery"`
+		}
+		if !readJSON(w, r, &body, 256<<10) {
+			return
+		}
+		pull, e := pulls.Get(string(repo.ID), body.Delivery.PullRequestID)
+		if e != nil || pull.SourceCommitID != body.Delivery.Revision {
+			writeJSON(w, 422, map[string]string{"error": "revision_exact_pull_request_required"})
+			return
+		}
+		v, e = s.DeliverRepair(v.ID, r.PathValue("repair"), actor.UserID, body.ExpectedRevision, body.Delivery)
+		if provenanceRepairError(w, e) {
+			return
+		}
+		view := provenanceassessments.Derive(v, currentProvenanceKeys(v, policies, graphs), time.Now().UTC())
+		writeJSON(w, 201, provenanceassessments.Project(view, actor.UserID == repo.OwnerID))
+	})
+}
+
+func repairObligations(v provenanceassessments.Assessment, finding string, graphs *provenancegraphs.Store) []string {
+	subject := ""
+	for _, f := range v.Findings {
+		if f.ID == finding {
+			subject = f.Subject
+		}
+	}
+	items, _ := graphs.List(v.RepositoryID)
+	out := []string{}
+	for _, g := range items {
+		if g.ID == v.GraphID {
+			for _, n := range g.Nodes {
+				if n.ID == subject {
+					out = append(out, n.Obligations...)
+				}
+			}
+			break
+		}
+	}
+	return out
+}
+func provenanceRepairError(w http.ResponseWriter, err error) bool {
+	if err == nil {
+		return false
+	}
+	status, code := 422, "invalid_provenance_repair"
+	if errors.Is(err, provenanceassessments.ErrNotFound) {
+		status, code = 404, "provenance_repair_not_found"
+	}
+	if errors.Is(err, provenanceassessments.ErrConflict) {
+		status, code = 409, "provenance_repair_conflict"
+	}
+	writeJSON(w, status, map[string]string{"error": code})
+	return true
 }
 
 func createProvenanceAssessment(s *provenanceassessments.Store, graphs *provenancegraphs.Store, policies *provenancepolicies.Store, pulls pullRequestStore, repos pullRequestRepositoryStore, credentials authStore) http.HandlerFunc {
@@ -287,7 +408,7 @@ func containsFold(xs []string, x string) bool {
 }
 func listProvenanceAssessments(s *provenanceassessments.Store, p *provenancepolicies.Store, g *provenancegraphs.Store, repos pullRequestRepositoryStore, c authStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		repo, _, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryRead, false)
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryRead, false)
 		if !ok {
 			return
 		}
@@ -298,14 +419,15 @@ func listProvenanceAssessments(s *provenanceassessments.Store, p *provenancepoli
 		}
 		out := []provenanceassessments.View{}
 		for _, v := range xs {
-			out = append(out, provenanceassessments.Derive(v, currentProvenanceKeys(v, p, g), time.Now().UTC()))
+			view := provenanceassessments.Derive(v, currentProvenanceKeys(v, p, g), time.Now().UTC())
+			out = append(out, provenanceassessments.Project(view, actor.UserID == repo.OwnerID))
 		}
 		writeJSON(w, 200, map[string]any{"items": out, "total_count": len(out)})
 	}
 }
 func getProvenanceAssessment(s *provenanceassessments.Store, p *provenancepolicies.Store, g *provenancegraphs.Store, repos pullRequestRepositoryStore, c authStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		repo, _, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryRead, false)
+		repo, actor, ok := proposalRepositoryAccess(w, r, repos, c, auth.RepositoryRead, false)
 		if !ok {
 			return
 		}
@@ -314,7 +436,8 @@ func getProvenanceAssessment(s *provenanceassessments.Store, p *provenancepolici
 			writeJSON(w, 404, map[string]string{"error": "not_found"})
 			return
 		}
-		writeJSON(w, 200, provenanceassessments.Derive(v, currentProvenanceKeys(v, p, g), time.Now().UTC()))
+		view := provenanceassessments.Derive(v, currentProvenanceKeys(v, p, g), time.Now().UTC())
+		writeJSON(w, 200, provenanceassessments.Project(view, actor.UserID == repo.OwnerID))
 	}
 }
 func writeProvenanceMutation(w http.ResponseWriter, e error, v provenanceassessments.Assessment, p *provenancepolicies.Store, g *provenancegraphs.Store) {

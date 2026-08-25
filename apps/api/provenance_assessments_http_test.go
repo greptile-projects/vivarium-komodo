@@ -65,6 +65,18 @@ func TestProvenanceAssessmentFindingsCollaborationAndSelectiveStaleness(t *testi
 	if len(made.Annotations) != 1 || made.Annotations[0].ActorKind != "agent" {
 		t.Fatalf("cited agent evidence was not retained: %#v", made)
 	}
+	repairBody, _ := json.Marshal(map[string]any{"expected_revision": made.RevisionNumber, "repair": map[string]any{"strategy": "replace", "owner_kind": "human", "owner_id": "reader", "acceptance_criteria": []string{"Apache-2.0 replacement passes provenance and ordinary checks"}, "permitted_evidence_ids": []string{made.Annotations[0].ID}, "links": []map[string]any{{"kind": "branch", "resource_id": "repair/copied-origin"}}}})
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+made.ID+"/findings/"+made.Findings[0].ID+"/repairs", reader, string(repairBody), http.StatusUnauthorized, nil)
+	var repairResult struct {
+		Assessment      provenanceassessments.View   `json:"assessment"`
+		Repair          provenanceassessments.Repair `json:"repair"`
+		AuthorityNotice string                       `json:"authority_notice"`
+	}
+	workflowJSON(t, server.URL, http.MethodPost, base+"/"+made.ID+"/findings/"+made.Findings[0].ID+"/repairs", owner, string(repairBody), http.StatusCreated, &repairResult)
+	made = repairResult.Assessment
+	if repairResult.Repair.AffectedRevision != string(commit) || repairResult.Repair.PolicyVersion != 1 || len(repairResult.Repair.Obligations) != 1 || repairResult.AuthorityNotice == "" {
+		t.Fatalf("repair was not preloaded with governed context: %#v", repairResult)
+	}
 
 	policyInput.ChangeReason = "new license review"
 	policy, _ = policies.Revise("repository", string(repo.ID), policy.ID, "owner", 1, policyInput)

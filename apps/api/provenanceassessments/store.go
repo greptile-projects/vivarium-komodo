@@ -42,7 +42,49 @@ type Annotation struct {
 	License   string    `json:"license,omitempty"`
 	ActorID   string    `json:"actor_id"`
 	ActorKind string    `json:"actor_kind"`
+	Audience  string    `json:"audience"`
 	CreatedAt time.Time `json:"created_at"`
+}
+type WorkLink struct {
+	Kind       string `json:"kind"`
+	ResourceID string `json:"resource_id"`
+	Revision   string `json:"revision,omitempty"`
+}
+type RepairProgress struct {
+	Status    string    `json:"status"`
+	Summary   string    `json:"summary"`
+	ActorID   string    `json:"actor_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type RepairDelivery struct {
+	Revision            string     `json:"revision"`
+	PullRequestID       string     `json:"pull_request_id"`
+	CheckRunIDs         []string   `json:"check_run_ids"`
+	Links               []WorkLink `json:"links"`
+	AuthorshipPreserved bool       `json:"authorship_preserved"`
+	Summary             string     `json:"summary"`
+	ActorID             string     `json:"actor_id"`
+	CreatedAt           time.Time  `json:"created_at"`
+}
+type Repair struct {
+	ID                   string           `json:"id"`
+	FindingID            string           `json:"finding_id"`
+	Strategy             string           `json:"strategy"`
+	AffectedRevision     string           `json:"affected_revision"`
+	PolicyID             string           `json:"policy_id"`
+	PolicyVersion        int64            `json:"policy_version"`
+	Obligations          []string         `json:"obligations"`
+	AcceptanceCriteria   []string         `json:"acceptance_criteria"`
+	PermittedEvidenceIDs []string         `json:"permitted_evidence_ids"`
+	OwnerKind            string           `json:"owner_kind"`
+	OwnerID              string           `json:"owner_id"`
+	CleanRoom            bool             `json:"clean_room"`
+	EvidenceReviewerIDs  []string         `json:"evidence_reviewer_ids,omitempty"`
+	Links                []WorkLink       `json:"links"`
+	Progress             []RepairProgress `json:"progress"`
+	Delivery             *RepairDelivery  `json:"delivery,omitempty"`
+	CreatedByID          string           `json:"created_by_id"`
+	CreatedAt            time.Time        `json:"created_at"`
 }
 type Decision struct {
 	ID        string     `json:"id"`
@@ -68,6 +110,7 @@ type Assessment struct {
 	Findings            []Finding    `json:"findings"`
 	Annotations         []Annotation `json:"annotations"`
 	Decisions           []Decision   `json:"decisions"`
+	Repairs             []Repair     `json:"repairs"`
 	RevisionNumber      int64        `json:"revision_number"`
 	CreatedByID         string       `json:"created_by_id"`
 	CreatedAt           time.Time    `json:"created_at"`
@@ -79,6 +122,20 @@ type View struct {
 	StaleInputKeys []InputKey `json:"stale_input_keys"`
 	Blockers       []Finding  `json:"blockers"`
 }
+
+func Project(v View, restricted bool) View {
+	if restricted {
+		return v
+	}
+	v.Annotations = append([]Annotation{}, v.Annotations...)
+	for i := range v.Annotations {
+		if v.Annotations[i].Audience == "restricted" {
+			v.Annotations[i].Body, v.Annotations[i].Citation, v.Annotations[i].Origin, v.Annotations[i].License = "", "", "", ""
+		}
+	}
+	return v
+}
+
 type Store struct {
 	root string
 	mu   sync.Mutex
@@ -133,6 +190,7 @@ func (s *Store) Create(v Assessment) (Assessment, error) {
 	v.CreatedAt = s.now().UTC()
 	v.Annotations = []Annotation{}
 	v.Decisions = []Decision{}
+	v.Repairs = []Repair{}
 	return v, s.save(v)
 }
 func oneOf(x string, xs ...string) bool {
@@ -161,7 +219,10 @@ func (s *Store) mutate(id string, expected int64, fn func(*Assessment) error) (A
 }
 func (s *Store) Annotate(id, actor, actorKind string, expected int64, a Annotation) (Assessment, error) {
 	return s.mutate(id, expected, func(v *Assessment) error {
-		if actor == "" || !oneOf(actorKind, "human", "agent") || !oneOf(a.Kind, "challenge", "origin_evidence") || strings.TrimSpace(a.Body) == "" || strings.TrimSpace(a.Citation) == "" {
+		if a.Audience == "" {
+			a.Audience = "repository"
+		}
+		if actor == "" || !oneOf(actorKind, "human", "agent") || !oneOf(a.Audience, "repository", "restricted") || !oneOf(a.Kind, "challenge", "origin_evidence") || strings.TrimSpace(a.Body) == "" || strings.TrimSpace(a.Citation) == "" {
 			return ErrInvalid
 		}
 		if a.FindingID != "" && !hasFinding(v.Findings, a.FindingID) {
@@ -173,6 +234,84 @@ func (s *Store) Annotate(id, actor, actorKind string, expected int64, a Annotati
 		a.CreatedAt = s.now().UTC()
 		v.Annotations = append(v.Annotations, a)
 		return nil
+	})
+}
+func (s *Store) CreateRepair(id, actor string, expected int64, x Repair) (Assessment, Repair, error) {
+	var made Repair
+	v, err := s.mutate(id, expected, func(v *Assessment) error {
+		if actor == "" || !hasFinding(v.Findings, x.FindingID) || !oneOf(x.Strategy, "replace", "reimplement", "remove", "obtain_permission", "isolate") || !oneOf(x.OwnerKind, "human", "agent") || x.OwnerID == "" || len(x.AcceptanceCriteria) == 0 || !clean(x.AcceptanceCriteria) || !clean(x.PermittedEvidenceIDs) || len(x.Links) == 0 {
+			return ErrInvalid
+		}
+		for _, prior := range v.Repairs {
+			if prior.FindingID == x.FindingID && prior.Delivery == nil {
+				return ErrConflict
+			}
+		}
+		annotations := map[string]Annotation{}
+		for _, a := range v.Annotations {
+			if a.FindingID == x.FindingID {
+				annotations[a.ID] = a
+			}
+		}
+		for _, evidence := range x.PermittedEvidenceIDs {
+			a, ok := annotations[evidence]
+			if !ok || (x.CleanRoom && a.Audience == "restricted") {
+				return ErrInvalid
+			}
+		}
+		if x.CleanRoom {
+			if x.Strategy != "reimplement" || len(x.EvidenceReviewerIDs) == 0 || !clean(x.EvidenceReviewerIDs) {
+				return ErrInvalid
+			}
+			for _, reviewer := range x.EvidenceReviewerIDs {
+				if reviewer == x.OwnerID || reviewer == "" {
+					return ErrInvalid
+				}
+			}
+		}
+		for _, link := range x.Links {
+			if !oneOf(link.Kind, "branch", "fork", "session", "workspace", "task") || link.ResourceID == "" {
+				return ErrInvalid
+			}
+		}
+		x.ID, x.AffectedRevision, x.PolicyID, x.PolicyVersion = ident(), v.Revision, v.PolicyID, v.PolicyVersion
+		x.Progress, x.Delivery, x.CreatedByID, x.CreatedAt = []RepairProgress{}, nil, actor, s.now().UTC()
+		v.Repairs = append(v.Repairs, x)
+		made = x
+		return nil
+	})
+	return v, made, err
+}
+func (s *Store) ProgressRepair(id, repair, actor, status, summary string, expected int64) (Assessment, error) {
+	return s.mutate(id, expected, func(v *Assessment) error {
+		for i := range v.Repairs {
+			if v.Repairs[i].ID == repair {
+				if actor == "" || strings.TrimSpace(summary) == "" || !oneOf(status, "started", "blocked", "review", "completed") {
+					return ErrInvalid
+				}
+				v.Repairs[i].Progress = append(v.Repairs[i].Progress, RepairProgress{Status: status, Summary: summary, ActorID: actor, CreatedAt: s.now().UTC()})
+				return nil
+			}
+		}
+		return ErrNotFound
+	})
+}
+func (s *Store) DeliverRepair(id, repair, actor string, expected int64, d RepairDelivery) (Assessment, error) {
+	return s.mutate(id, expected, func(v *Assessment) error {
+		for i := range v.Repairs {
+			if v.Repairs[i].ID == repair {
+				if v.Repairs[i].Delivery != nil {
+					return ErrConflict
+				}
+				if actor == "" || d.Revision == "" || d.PullRequestID == "" || len(d.CheckRunIDs) == 0 || !clean(d.CheckRunIDs) || !d.AuthorshipPreserved || strings.TrimSpace(d.Summary) == "" {
+					return ErrInvalid
+				}
+				d.ActorID, d.CreatedAt = actor, s.now().UTC()
+				v.Repairs[i].Delivery = &d
+				return nil
+			}
+		}
+		return ErrNotFound
 	})
 }
 func (s *Store) Decide(id, actor string, expected int64, d Decision) (Assessment, error) {
