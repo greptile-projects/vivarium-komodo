@@ -60,6 +60,21 @@ authorship was preserved. Repairs grant no source, Git, evidence, agent,
 credential, review, merge, disclosure, distribution, release, or operational
 authority.
 
+Authorized release provenance bundles live beneath `$PROVENANCE_BUNDLE_ROOT`
+(default `apps/api/data/provenance-bundles`). A repository owner publishes one
+immutable public or repository-audience claim for an existing release, exact
+release revision, current provenance graph and release-candidate assessment,
+and exact build artifacts. The Ed25519-signed payload retains artifact digests,
+an SBOM with licenses, notices, source and build attestations, dependency
+lineage, declared omissions, and independent verification instructions. Public
+consumers can download, verify, and compare bundles without repository access,
+and public package provenance resolves only a bundle containing that package's
+exact artifact digest. Later license changes, revoked attestations, quarantined
+packages, provenance drift, or origin gaps append actionable trust notices and
+optional propagation-campaign links without changing the signed release claim.
+Publication and observation grant no repository, release, artifact, package,
+distribution, repair, campaign, credential, or operational authority.
+
 Repository-reviewed collaboration workflow definitions live beneath
 `$WORKFLOW_DEFINITION_ROOT` (default `apps/api/data/workflow-definitions`).
 Repository writers publish immutable versions with exact source revision and

@@ -42,6 +42,7 @@ import { AssuranceDelivery } from "@/components/assurance-delivery";
 import { SecurityExpectations } from "@/components/security-expectations";
 import { ProvenancePolicies } from "@/components/provenance-policies";
 import { ProvenanceGraphs } from "@/components/provenance-graphs";
+import { ProvenanceBundles } from "@/components/provenance-bundles";
 import { ThreatModels } from "@/components/threat-models";
 import { SecurityScenarios } from "@/components/security-scenarios";
 import { HistoryRemediations } from "@/components/history-remediations";
@@ -2034,12 +2035,12 @@ export default function RepositoryPage({
       ) : view === "relationships" ? (
         <RelationshipWorkspace repository={repository} actor={actor} />
       ) : view === "releases" ? (
-        <ReleaseWorkspace
+        <><ReleaseWorkspace
           repository={repository}
           branches={branches.items}
           actor={actor}
           selected={query.release}
-        />
+        /><ProvenanceBundles repository={repository.id} owner={actor===repository.owner_id}/></>
       ) : view === "incidents" ? (
         <IncidentWorkspace
           repository={repository}
