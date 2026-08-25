@@ -6273,3 +6273,34 @@ source revision, check-run IDs, and explicitly preserve authorship; ordinary
 repository access, review, merge, provenance readiness, and release checks
 remain authoritative. The repair record grants no code, evidence, agent,
 credential, disclosure, review, merge, distribution, or release access.
+
+### Signed release provenance bundles and SBOMs
+
+An authorized repository owner publishes a release claim at `POST
+/repositories/{repository}/releases/{release}/provenance-bundles`. Publication
+requires an exact graph and matching release-candidate assessment plus every
+named artifact's exact release build run, ID, size, media type, and SHA-256. The
+immutable Ed25519-signed payload includes those artifacts, source and build
+attestations, an SBOM with origins, versions, licenses, notices, dependency
+lineage, declared omissions and their impact, and verification instructions.
+Public and repository audiences are separate immutable claims.
+
+Consumers need no project access to `GET /provenance-bundles/{bundle}`, `POST
+/provenance-bundles/{bundle}/verify`, or `GET
+/provenance-bundles/{bundle}/compare/{other}` for public claims. Comparisons
+report added, removed, and changed components, both signature results, omissions,
+and current trust status. `GET /packages/{package}/provenance` exposes only
+public bundles that contain the public package's exact artifact ID and digest;
+repository release reads expose all audience-appropriate bundles in the web
+release workspace.
+
+Repository owners append `license_changed`, `attestation_revoked`,
+`package_quarantined`, `provenance_drift`, or `origin_gap` observations beneath
+the bundle. Each notice carries cited evidence, an actionable next step, and an
+optional propagation-campaign ID. The server deliberately excludes derived
+trust state and notices from the signed payload, so an incomplete claim can be
+corrected and propagated without rewriting what the original release asserted.
+Durable state and its persistent signing key default beneath
+`$PROVENANCE_BUNDLE_ROOT` (`apps/api/data/provenance-bundles`). These claims and
+notices grant no release, package, distribution, repair, campaign, credential,
+or operational authority.
