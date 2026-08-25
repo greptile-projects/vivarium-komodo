@@ -17,6 +17,21 @@ Policies grant no repository, organization, contribution, agent, package,
 release, federation, credential, review, merge, distribution, or operational
 authority.
 
+Revision-exact software provenance graphs live beneath
+`$PROVENANCE_GRAPH_ROOT` (default `apps/api/data/provenance-graphs`). Repository
+writers assemble an immutable graph from an exact visible commit and its
+`.komodo/provenance.json` declaration, linking cited files and fragments to
+commits, people, agents, tools, assets, dependencies, build inputs and outputs,
+upstream projects, licenses, obligations, transformations, and attestations.
+File citations bind path and SHA-256 to the exact Git blob; reads retain missing
+origins, broken lineage, contradictory claims, stale citations, and rewritten
+history as explicit gaps. Anonymous projections replace non-public nodes with
+opaque blockers rather than exposing labels, claims, citations, or obligations.
+The public API is `/repositories/{repository}/provenance-graphs`, and graphs
+appear with policy in `view=governance`. Analysis grants no repository, source,
+dependency, agent, build, artifact, distribution, review, merge, release, or
+operational authority.
+
 Repository-reviewed collaboration workflow definitions live beneath
 `$WORKFLOW_DEFINITION_ROOT` (default `apps/api/data/workflow-definitions`).
 Repository writers publish immutable versions with exact source revision and

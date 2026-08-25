@@ -86,6 +86,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/propagationcampaigns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/proposals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/protectionplans"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/provenancegraphs"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/provenancepolicies"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/pullrequests"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/qualitygates"
@@ -253,6 +254,14 @@ func main() {
 		dependencyInventoryRoot = "data/dependency-inventories"
 	}
 	dependencyInventoryStore, err := dependencyinventory.New(dependencyInventoryRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	provenanceGraphRoot := os.Getenv("PROVENANCE_GRAPH_ROOT")
+	if provenanceGraphRoot == "" {
+		provenanceGraphRoot = "data/provenance-graphs"
+	}
+	provenanceGraphStore, err := provenancegraphs.New(provenanceGraphRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1134,6 +1143,7 @@ func main() {
 	registerCapabilityRemovalsHTTP(mux, capabilityRemovalStore, repositoryCatalog, credentials)
 	registerSecurityExpectationsHTTP(mux, securityExpectationStore, repositoryCatalog, credentials)
 	registerProvenancePoliciesHTTP(mux, provenancePolicyStore, repositoryCatalog, organizationStore, credentials)
+	registerProvenanceGraphsHTTP(mux, provenanceGraphStore, repositoryCatalog, credentials)
 	registerHistoryRemediationsHTTP(mux, historyRemediationStore, repositoryCatalog, credentials)
 	registerThreatModelsHTTP(mux, threatModelStore, repositoryCatalog, credentials, threatModelSources{pulls: pullRequestStore, plans: proposalStore, scenarios: securityScenarioStore})
 	registerSecurityScenariosHTTP(mux, securityScenarioStore, threatModelStore, repositoryCatalog, credentials, pullRequestStore, previewStore)
