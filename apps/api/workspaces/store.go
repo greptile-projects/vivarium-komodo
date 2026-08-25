@@ -60,16 +60,31 @@ type NamedCommand struct {
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 type SourceContext struct {
-	Type                 string           `json:"type"`
-	ID                   string           `json:"id,omitempty"`
-	ParentID             string           `json:"parent_id,omitempty"`
-	UpstreamRepositoryID string           `json:"upstream_repository_id,omitempty"`
-	GuidanceVersion      int64            `json:"guidance_version,omitempty"`
-	Guidance             []string         `json:"guidance,omitempty"`
-	Evidence             []string         `json:"evidence,omitempty"`
-	AcceptanceCriteria   []string         `json:"acceptance_criteria,omitempty"`
-	SampleData           []string         `json:"sample_data,omitempty"`
-	Conflict             *ConflictContext `json:"conflict,omitempty"`
+	Type                 string            `json:"type"`
+	ID                   string            `json:"id,omitempty"`
+	ParentID             string            `json:"parent_id,omitempty"`
+	UpstreamRepositoryID string            `json:"upstream_repository_id,omitempty"`
+	GuidanceVersion      int64             `json:"guidance_version,omitempty"`
+	Guidance             []string          `json:"guidance,omitempty"`
+	Evidence             []string          `json:"evidence,omitempty"`
+	AcceptanceCriteria   []string          `json:"acceptance_criteria,omitempty"`
+	SampleData           []string          `json:"sample_data,omitempty"`
+	Learning             *LearningEvidence `json:"learning,omitempty"`
+	Conflict             *ConflictContext  `json:"conflict,omitempty"`
+}
+
+// LearningEvidence is learner-selected, review-safe context carried from
+// project practice into a fork. It describes evidence and never grants access.
+type LearningEvidence struct {
+	PathwayID           string   `json:"pathway_id"`
+	PathwayVersion      int64    `json:"pathway_version"`
+	AssessmentID        string   `json:"assessment_id"`
+	AssessmentAttemptID string   `json:"assessment_attempt_id"`
+	ExerciseAttemptIDs  []string `json:"exercise_attempt_ids"`
+	ModuleIDs           []string `json:"module_ids"`
+	Revision            string   `json:"revision"`
+	LearnerID           string   `json:"learner_id"`
+	Assistance          []string `json:"assistance,omitempty"`
 }
 
 // ConflictContext freezes the two histories and the audience-safe evidence used

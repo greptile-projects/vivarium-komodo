@@ -148,14 +148,14 @@ func TestMergedPullRequestSurvivesReopen(t *testing.T) {
 func TestGuidedContributionContextSurvivesReopen(t *testing.T) {
 	root := t.TempDir()
 	store, _ := New(root)
-	context := &ContributionContext{OpportunityID: "opportunity", PathwayVersion: 3, PathwayAcknowledged: true, SetupCommands: []string{"test"}, MentorGuidance: []string{"Keep the change bounded."}, AgentAssistance: []string{"Edited README.md."}, AcceptanceCriteria: []CriterionStatus{{Criterion: "Tests pass", Status: "satisfied", Evidence: "test command passed"}}, ContributorIDs: []string{"newcomer", "guide-agent"}}
+	context := &ContributionContext{OpportunityID: "opportunity", PathwayVersion: 3, PathwayAcknowledged: true, SetupCommands: []string{"test"}, MentorGuidance: []string{"Keep the change bounded."}, AgentAssistance: []string{"Edited README.md."}, AcceptanceCriteria: []CriterionStatus{{Criterion: "Tests pass", Status: "satisfied", Evidence: "test command passed"}}, ContributorIDs: []string{"newcomer", "guide-agent"}, Learning: &LearningContext{PathwayID: "backend", PathwayVersion: 2, Revision: "source", AssessmentID: "readiness", AssessmentAttemptID: "attempt-1", ExerciseAttemptIDs: []string{"exercise-1"}, ModuleIDs: []string{"debugging"}, LearnerID: "newcomer", Assistance: []string{"mentor hint"}}}
 	created, err := store.Create(CreateParams{RepositoryID: "upstream", SourceRepositoryID: "fork", AuthorID: "newcomer", Title: "Guided change", SourceBranch: "contribution", TargetBranch: "main", SourceCommitID: "source", TargetCommitID: "target", ContributionContext: context})
 	if err != nil {
 		t.Fatal(err)
 	}
 	reopened, _ := New(root)
 	got, err := reopened.Get("upstream", created.ID)
-	if err != nil || got.ContributionContext == nil || got.ContributionContext.OpportunityID != "opportunity" || len(got.ContributionContext.MentorGuidance) != 1 || got.ContributionContext.AcceptanceCriteria[0].Evidence != "test command passed" {
+	if err != nil || got.ContributionContext == nil || got.ContributionContext.OpportunityID != "opportunity" || len(got.ContributionContext.MentorGuidance) != 1 || got.ContributionContext.AcceptanceCriteria[0].Evidence != "test command passed" || got.ContributionContext.Learning == nil || got.ContributionContext.Learning.AssessmentAttemptID != "attempt-1" || got.ContributionContext.Learning.LearnerID != "newcomer" {
 		t.Fatalf("reopened contribution context = %#v, %v", got.ContributionContext, err)
 	}
 }

@@ -123,6 +123,21 @@ type ContributionContext struct {
 	AgentAssistance     []string          `json:"agent_assistance,omitempty"`
 	AcceptanceCriteria  []CriterionStatus `json:"acceptance_criteria"`
 	ContributorIDs      []string          `json:"contributor_ids"`
+	Learning            *LearningContext  `json:"learning,omitempty"`
+}
+
+// LearningContext preserves demonstrated readiness in review without turning
+// it into repository authority.
+type LearningContext struct {
+	PathwayID           string   `json:"pathway_id"`
+	PathwayVersion      int64    `json:"pathway_version"`
+	Revision            string   `json:"revision"`
+	AssessmentID        string   `json:"assessment_id"`
+	AssessmentAttemptID string   `json:"assessment_attempt_id"`
+	ExerciseAttemptIDs  []string `json:"exercise_attempt_ids"`
+	ModuleIDs           []string `json:"module_ids"`
+	LearnerID           string   `json:"learner_id"`
+	Assistance          []string `json:"assistance,omitempty"`
 }
 
 // DeliveryEvidence is the review-facing account supplied when governed work is
