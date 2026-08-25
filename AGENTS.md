@@ -12,6 +12,18 @@ public resource is `/repositories/{repository}/pull-requests/{pull_request}/revi
 and the pull-request web surface has a Review plan section. Plans grant no repository,
 review, approval, merge, policy, secret, or operational authority.
 
+Revision-bound review routing lives beneath `$REVIEW_ROUTING_ROOT` (default
+`apps/api/data/review-routing`). Repository owners evaluate human and approved-agent
+candidates per current review-plan area using permitted code-ownership, project
+knowledge, team-responsibility, expertise, availability, capacity, conflict, and
+capability evidence. Invitations freeze the exact plan version, pull revision,
+paths, questions, deadline, escalation, and reason. Participant acceptance creates
+only that bounded review assignment; decline, unavailability, overload, recusal,
+maintainer release, and revocation retain attribution and derive reassignment areas.
+The public resource is the review plan's sibling `/review-routing` tree and appears
+in the pull Review plan section. Routing grants no repository, merge, secret,
+policy, governance, or operational authority.
+
 Versioned provenance and licensing policies live beneath
 `$PROVENANCE_POLICY_ROOT` (default `apps/api/data/provenance-policies`).
 Repository and organization owners publish immutable, optimistically

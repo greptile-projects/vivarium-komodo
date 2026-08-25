@@ -15,6 +15,24 @@ drift remain attributable blockers. The pull-request Review plan section exposes
 the same history and does not confer review, merge, repository, or operational
 authority. Durable records default beneath `$REVIEW_PLAN_ROOT`.
 
+### Accountable reviewer routing
+
+The sibling `/review-routing` resource evaluates candidates separately for every
+current plan area. Suggestions explain permitted code ownership, demonstrated
+knowledge, responsible-team membership, and expertise matches while retaining
+unavailable, overloaded, conflicted, unapproved-agent, and inaccessible-evidence
+reasons as blockers. Repository owners invite only eligible suggestions and may
+set a deadline and escalation path or replace, release, and revoke an assignment.
+
+An invitation freezes the exact plan version, candidate revision, paths, acceptance
+questions, participant kind, and reason. Only its named participant can accept,
+decline, report unavailability or overload, or recuse; unsuccessful and revoked
+outcomes derive an actionable per-area reassignment list without deleting history.
+The pull Review plan section shows the qualification rationale, state, boundary,
+deadline, and escalation. Durable state defaults beneath `$REVIEW_ROUTING_ROOT`;
+suggestion, invitation, or acceptance grants no repository, merge, secret, policy,
+governance, or operational authority.
+
 ## Reusable workflow components
 
 Repositories publish attested workflow components at
