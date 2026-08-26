@@ -35,3 +35,65 @@ func TestLaunchDeduplicationAndBlocking(t *testing.T) {
 		t.Fatalf("blockers: %#v %v", blocked, e)
 	}
 }
+
+func TestLiveProcedureEnforcesControlDelegationAndReceipts(t *testing.T) {
+	s, _ := New(t.TempDir())
+	in := launch()
+	in.ActivePath = []ProcedureStep{
+		{ID: "inspect", Kind: "diagnostic", ExpectedEvidence: []string{"errors"}, RequiredAuthority: []string{"telemetry:read"}},
+		{ID: "rollback", Kind: "action", DependsOn: []string{"inspect"}, ExpectedEvidence: []string{"release"}, RequiredAuthority: []string{"deployment:rollback"}, RollbackCriteria: []string{"health worsens"}},
+		{ID: "notify", Kind: "action", DependsOn: []string{"rollback"}, Optional: true, PolicyPermitsSkip: true},
+	}
+	x, err := s.Create("repo", "commander", in)
+	if err != nil || x.State != "active" || x.PredictedNextAction == "" || len(x.Steps) != 3 {
+		t.Fatalf("live launch: %#v %v", x, err)
+	}
+	x, err = s.Control("repo", x.ID, "reviewer", ControlInput{ExpectedRevision: x.Revision, IdempotencyKey: "join-reviewer", Action: "join", ActorKind: "human"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Control("repo", x.ID, "agent-1", ControlInput{ExpectedRevision: x.Revision, IdempotencyKey: "agent-before-delegation", Action: "perform", StepID: "inspect", Evidence: []string{"metric:window"}, Health: "degraded"}); err != ErrForbidden {
+		t.Fatalf("undelegated agent=%v", err)
+	}
+	x, err = s.Control("repo", x.ID, "commander", ControlInput{ExpectedRevision: x.Revision, IdempotencyKey: "delegate-analysis", Action: "delegate", StepID: "inspect", TargetID: "agent-1", Mode: "analyze"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Control("repo", x.ID, "agent-1", ControlInput{ExpectedRevision: x.Revision, IdempotencyKey: "analysis-cannot-effect", Action: "perform", StepID: "inspect", Evidence: []string{"metric:window"}, Health: "degraded"}); err != ErrForbidden {
+		t.Fatalf("analysis delegation=%v", err)
+	}
+	x, err = s.Control("repo", x.ID, "commander", ControlInput{ExpectedRevision: x.Revision, IdempotencyKey: "delegate-execute", Action: "delegate", StepID: "inspect", TargetID: "agent-1", Mode: "execute"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err = s.Control("repo", x.ID, "reviewer", ControlInput{ExpectedRevision: x.Revision, IdempotencyKey: "approve-inspect", Action: "approve", StepID: "inspect", Body: "current evidence reviewed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err = s.Control("repo", x.ID, "agent-1", ControlInput{ExpectedRevision: x.Revision, IdempotencyKey: "perform-inspect", Action: "perform", StepID: "inspect", Evidence: []string{"metric:window"}, Health: "degraded", Cost: 1.25})
+	if err != nil || len(x.Credentials) != 1 || x.Credentials[0].SecretRetained || len(x.ActionReceipts) != 5 || x.Cost != 1.25 {
+		t.Fatalf("performed: %#v %v", x, err)
+	}
+	retry, err := s.Control("repo", x.ID, "agent-1", ControlInput{ExpectedRevision: 1, IdempotencyKey: "perform-inspect", Action: "perform", StepID: "inspect", Evidence: []string{"different"}, Health: "healthy"})
+	if err != nil || retry.Revision != x.Revision || len(retry.ActionReceipts) != len(x.ActionReceipts) {
+		t.Fatalf("retry repeated effect: %#v %v", retry, err)
+	}
+	if _, err = s.Control("repo", x.ID, "commander", ControlInput{ExpectedRevision: x.Revision - 1, IdempotencyKey: "stale", Action: "pause"}); err != ErrConflict {
+		t.Fatalf("stale=%v", err)
+	}
+	x, err = s.Control("repo", x.ID, "reviewer", ControlInput{ExpectedRevision: x.Revision, IdempotencyKey: "approve-rollback", Action: "approve", StepID: "rollback"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Control("repo", x.ID, "reviewer", ControlInput{ExpectedRevision: x.Revision, IdempotencyKey: "same-person-effect", Action: "perform", StepID: "rollback", Evidence: []string{"release:old"}, Health: "healthy"}); err != ErrForbidden {
+		t.Fatalf("separation=%v", err)
+	}
+	x, err = s.Control("repo", x.ID, "commander", ControlInput{ExpectedRevision: x.Revision, IdempotencyKey: "perform-rollback", Action: "perform", StepID: "rollback", Evidence: []string{"release:old"}, Health: "healthy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err = s.Control("repo", x.ID, "commander", ControlInput{ExpectedRevision: x.Revision, IdempotencyKey: "skip-notify", Action: "skip", StepID: "notify", Body: "policy allows omission"})
+	if err != nil || x.State != "completed" || x.PredictedNextAction == "" {
+		t.Fatalf("complete: %#v %v", x, err)
+	}
+}

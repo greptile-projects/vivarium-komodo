@@ -1,5 +1,27 @@
 # Docs
 
+## Collaborative live runbook execution
+
+Ready launches at `/repositories/{repository}/runbook-executions` now freeze the
+exact published step graph as their active path. The shared record projects the
+current controller and participants, per-step state and evidence, discussions,
+approvals, explicit analyze- or execute-only agent delegations, short-lived scoped
+credential references, health, cost, blockers, rollback posture, predicted next
+action, and immutable action receipts. The repository Response view exposes the
+same state and controls.
+
+Repository writers steer an execution through its `/controls` resource using both
+an expected revision and idempotency key. They may join, discuss, approve, perform,
+skip only runbook-optional steps whose policy permits skipping, pause, resume, hand
+off to a joined participant, abort, or explicitly delegate one step to an approved
+agent. Dependencies, separate approval and performance, agent mode, 15-minute
+credential bounds, stale revisions, and terminal state are enforced before an
+effect is recorded. A repeated idempotency key returns the original record even if
+the caller disconnected, while every accepted control adds an immutable receipt.
+Pause and abort revoke live credential references; no credential secret is stored.
+These collaboration controls coordinate existing repository and operational
+authority and never create it.
+
 ## Context-bound runbook launches
 
 `/repositories/{repository}/runbook-executions` recommends and launches an exact

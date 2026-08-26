@@ -46,6 +46,9 @@ func TestRunbookExecutionPublicLaunchContract(t *testing.T) {
 	if launched.State != "blocked" || launched.Origin.TimelineReference != "/alerts/a1#timeline" || len(launched.Blockers) != 1 {
 		t.Fatalf("launch context lost: %#v", launched)
 	}
+	if len(launched.ActivePath) != 1 || launched.ActivePath[0].ID != "inspect" || len(launched.Steps) != 1 || launched.ControllerID != "owner" || launched.PredictedNextAction == "" {
+		t.Fatalf("live procedure was not frozen: %#v", launched)
+	}
 	var retried runbookexecutions.Execution
 	workflowValue(t, server.URL, http.MethodPost, "/repositories/"+string(repo.ID)+"/runbook-executions", token, body, 422, &retried)
 	if retried.ID != launched.ID {
