@@ -83,17 +83,21 @@ type PolicyReference struct {
 	OwnerID     string `json:"owner_id"`
 }
 type Input struct {
-	Name             string            `json:"name"`
-	Purpose          string            `json:"purpose"`
-	Scope            Scope             `json:"scope"`
-	Preconditions    []Precondition    `json:"preconditions"`
-	Steps            []Step            `json:"steps"`
-	RollbackCriteria []string          `json:"rollback_criteria"`
-	OwnerIDs         []string          `json:"owner_ids"`
-	RequiredSkills   []string          `json:"required_skills"`
-	EscalationPaths  []Escalation      `json:"escalation_paths"`
-	PolicyReferences []PolicyReference `json:"policy_references"`
-	ChangeReason     string            `json:"change_reason"`
+	Name                  string            `json:"name"`
+	Purpose               string            `json:"purpose"`
+	Scope                 Scope             `json:"scope"`
+	Preconditions         []Precondition    `json:"preconditions"`
+	Steps                 []Step            `json:"steps"`
+	RollbackCriteria      []string          `json:"rollback_criteria"`
+	HealthCriteria        []string          `json:"health_criteria,omitempty"`
+	ContainmentCriteria   []string          `json:"containment_criteria,omitempty"`
+	RecoveryCriteria      []string          `json:"recovery_criteria,omitempty"`
+	CommunicationCriteria []string          `json:"communication_criteria,omitempty"`
+	OwnerIDs              []string          `json:"owner_ids"`
+	RequiredSkills        []string          `json:"required_skills"`
+	EscalationPaths       []Escalation      `json:"escalation_paths"`
+	PolicyReferences      []PolicyReference `json:"policy_references"`
+	ChangeReason          string            `json:"change_reason"`
 }
 type Version struct {
 	Number int64 `json:"number"`
@@ -164,7 +168,7 @@ func one(s string, xs ...string) bool {
 	return false
 }
 func valid(in Input) bool {
-	if !clean(in.Name) || !clean(in.Purpose) || !one(in.Scope.Kind, "service", "environment", "dependency", "signal") || !clean(in.Scope.ResourceID) || !clean(in.Scope.Revision) || !clean(in.Scope.OwnerID) || !list(in.OwnerIDs, true) || !list(in.RequiredSkills, true) || !list(in.RollbackCriteria, true) || !clean(in.ChangeReason) || len(in.Preconditions) == 0 || len(in.Steps) == 0 || len(in.EscalationPaths) == 0 {
+	if !clean(in.Name) || !clean(in.Purpose) || !one(in.Scope.Kind, "service", "environment", "dependency", "signal") || !clean(in.Scope.ResourceID) || !clean(in.Scope.Revision) || !clean(in.Scope.OwnerID) || !list(in.OwnerIDs, true) || !list(in.RequiredSkills, true) || !list(in.RollbackCriteria, true) || !list(in.HealthCriteria, false) || !list(in.ContainmentCriteria, false) || !list(in.RecoveryCriteria, false) || !list(in.CommunicationCriteria, false) || !clean(in.ChangeReason) || len(in.Preconditions) == 0 || len(in.Steps) == 0 || len(in.EscalationPaths) == 0 {
 		return false
 	}
 	pre := map[string]bool{}

@@ -11,6 +11,18 @@ separation of approval and performance, explicit agent scope, terminal and stale
 state, and 15-minute credential bounds precede immutable action receipts. Controls
 coordinate existing authority and grant none.
 
+Terminal runbook execution evaluations remain on that frozen launch and test each
+declared health, containment, recovery, communication, and rollback criterion against
+cited evidence. They retain outcome disposition, deviations, manual work, failed-step
+timing, access gaps, agent corrections, total cost, participant feedback, and supported
+fitness findings. Exact-version owners may link a supported finding to ordinary
+documentation, workflow, policy, infrastructure, or human- or agent-owned code work;
+record a reviewed later runbook revision; and attach only current passing rehearsal
+proof for that revision. Owner suspension after repeated failure or unsafe drift blocks
+new launches and recommendations for the affected revision and names an existing
+approved fallback. Historical executions and their procedure version are never
+rewritten, and evaluation or learning records grant no connected authority.
+
 Context-bound runbook launches live beneath `$RUNBOOK_EXECUTION_ROOT` (default
 `apps/api/data/runbook-executions`). Repository readers can request explained,
 non-automatic recommendations for an alert, incident, deployment, failed workflow,
