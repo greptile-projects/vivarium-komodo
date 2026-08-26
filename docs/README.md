@@ -1,5 +1,29 @@
 # Docs
 
+## Progressive production capacity delivery
+
+Each approved program exposes revision-exact delivery records at
+`/repositories/{repository}/capacity-plans/{plan}/deliveries`. A delivery freezes the
+plan, objective, and model revisions plus ordered protected environments, environment
+policy revisions, controllers, operators, explicitly delegated agents, capacity and
+load targets, headroom requirements, and cost bounds. Production observations append
+the exact deployed release, infrastructure, schema, and dependency-configuration
+revisions and bounded evidence window. Allocated and demonstrated usable capacity,
+actual and forecast load, headroom, scaling lag, regional balance, service levels,
+dependency health, correctness, reliability, quota, reservation utilization, and
+cost remain independently inspectable in Capacity & performance.
+
+The current state and predicted next action are derived rather than asserted. Demand
+shifts and unused reservations re-open the connected decision; quota denial,
+dependency failure, lag, insufficient usable capacity, and budget breach pause or
+throttle; correctness, reliability, or service-level regression rolls back. Unsafe
+evidence cannot be resumed away. Protected-environment operators can stage, pause,
+resume, throttle, roll back, or replan, while an agent can only append observations
+and execute stage, pause, or throttle when named for that exact phase. State defaults
+beneath `$CAPACITY_DELIVERY_ROOT`; delivery evidence and controls grant no spending,
+provider, quota, repository, agent, credential, release, environment, deployment, or
+operational authority.
+
 ## Accountable capacity delivery plans
 
 `/repositories/{repository}/capacity-plans` turns a rehearsal-supported scaling
