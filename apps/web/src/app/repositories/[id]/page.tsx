@@ -24,6 +24,7 @@ import { PerformanceGoals } from "@/components/performance-goals";
 import { CapacityObjectives } from "@/components/capacity-objectives";
 import { CapacityModels } from "@/components/capacity-models";
 import { CapacityRehearsals } from "@/components/capacity-rehearsals";
+import { CapacityPlans } from "@/components/capacity-plans";
 import { AccessibilityCommitments } from "@/components/accessibility-commitments";
 import { AccessibilityBarriers } from "@/components/accessibility-barriers";
 import { AccessibilityAssessments } from "@/components/accessibility-assessments";
@@ -2011,7 +2012,7 @@ export default function RepositoryPage({
       ) : view === "teams" ? (
         <DeliveryTeams repository={repository.id} actor={actor} selected={query.team} />
       ) : view === "performance" ? (
-        <><CapacityObjectives repository={repository.id} actor={actor} /><CapacityModels repository={repository.id} actor={actor} /><CapacityRehearsals repository={repository.id} /><PerformanceGoals repository={repository.id} actor={actor} /></>
+        <><CapacityObjectives repository={repository.id} actor={actor} /><CapacityModels repository={repository.id} actor={actor} /><CapacityRehearsals repository={repository.id} /><CapacityPlans repository={repository.id} /><PerformanceGoals repository={repository.id} actor={actor} /></>
       ) : view === "accessibility" ? (
         <><AccessibilityAssessments repository={repository.id} actor={actor} /><AccessibilityCommitments repository={repository.id} actor={actor} /><AccessibilityBarriers repository={repository.id} actor={actor} /></>
       ) : view === "privacy" ? (

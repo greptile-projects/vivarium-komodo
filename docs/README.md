@@ -1,5 +1,25 @@
 # Docs
 
+## Accountable capacity delivery plans
+
+`/repositories/{repository}/capacity-plans` turns a rehearsal-supported scaling
+candidate into one phased delivery program. The immutable selection pins the exact
+capacity objective, model, rehearsal, candidate, reservations, procurement or quota
+dependencies, ordered implementation phases, accountable owners, per-phase and
+program budgets, evidence-backed decision points, measurable gates, and an exit
+strategy. Append-only owner decisions and optimistic updates prevent silent rewrites.
+
+Each phase can connect exact human- or agent-owned tasks, sessions, workspaces, pull
+requests, infrastructure plans, schema changes, dependency negotiations,
+observability, operational documentation, releases, and environment changes. Those
+links retain their native review, check, approval, queue, release, and protected
+environment evidence rather than replacing it. Reads derive missing plan-owner
+approval, unresolved decisions, and separately unapproved reservations, procurement,
+quota, provider, or dependency work as explicit blockers. The Capacity & performance
+view exposes the same program. Durable state defaults beneath `$CAPACITY_PLAN_ROOT`;
+plan approval grants no spending, provider, quota, repository, secret, merge, release,
+deployment, environment, or operational authority.
+
 ## Bounded capacity rehearsals
 
 `/repositories/{repository}/capacity-rehearsals` turns a capacity objective into a
