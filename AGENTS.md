@@ -1,5 +1,20 @@
 # AGENTS.md
 
+Revision-exact capacity rehearsals live beneath `$CAPACITY_REHEARSAL_ROOT`
+(default `apps/api/data/capacity-rehearsals`). Repository readers freeze one capacity
+objective version, optional model revision, repository-defined scenario revision,
+isolated or policy-approved environment, coordinated-load key, explicit duration,
+concurrency, rate, and cost bounds, and exact release, infrastructure-plan, schema,
+and dependency-configuration candidates. Append-only human or agent attempts retain
+synthetic or privacy-preserving workload digests, repetitions, noise, throughput,
+latency, errors, saturation, recovery, correctness, resources, declared carbon, cost,
+sanitized logs, and artifacts. Reads derive missing proof and classify noisy, unsafe,
+incorrect, failed, incomparable, or untestable evidence rather than treating it as
+proof. The public API is `/repositories/{repository}/capacity-rehearsals`, and the
+repository Capacity & performance surface presents the same comparison. Rehearsals
+grant no spending, provider, repository, release, infrastructure, schema, dependency,
+environment, credential, deployment, or operational authority.
+
 Revision-exact demand and capacity models live beneath `$CAPACITY_MODEL_ROOT`
 (default `apps/api/data/capacity-models`). Repository readers, including read-only
 agents, publish immutable forecasts bound to one capacity-objective version, exact

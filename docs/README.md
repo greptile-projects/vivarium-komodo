@@ -1,5 +1,29 @@
 # Docs
 
+## Bounded capacity rehearsals
+
+`/repositories/{repository}/capacity-rehearsals` turns a capacity objective into a
+repository-defined, revision-exact comparison of scaling alternatives before any
+authoritative environment changes. A rehearsal freezes its objective and optional
+model revision, scenario definition path and revision, isolated or explicitly
+policy-approved environment, coordinated-load key, and duration, virtual-user,
+request-rate, and cost ceilings. Every vertical, horizontal, architectural, caching,
+queueing, or demand-shaping candidate pins exact release, infrastructure-plan, schema,
+and dependency-configuration revisions.
+
+Load, failure, or combined scenarios accept only synthetic or privacy-preserving
+workloads and declare demand, duration, and correctness criteria. Append-only human
+and agent attempts retain the workload digest, repetitions and noise, exact environment,
+sanitized logs and artifacts, plus throughput, latency distributions, errors,
+saturation, recovery, correctness, resources, optional declared carbon, and cost.
+The service derives whether an attempt is proof: drifted, over-limit, aborted,
+untestable, failed, noisy, or incorrect evidence remains visible but cannot close a
+candidate/scenario proof gap. The Capacity & performance view exposes the same
+comparison without confusing provisioned resources with demonstrated usable capacity.
+Durable state defaults beneath `$CAPACITY_REHEARSAL_ROOT`; rehearsal records grant no
+spending, provider, repository, release, infrastructure, schema, dependency,
+environment, credential, deployment, or operational authority.
+
 ## Inspectable demand and capacity models
 
 `/repositories/{repository}/capacity-models` turns a capacity objective and production
