@@ -1294,7 +1294,7 @@ func main() {
 	registerCapacityDeliveriesHTTP(mux, capacityDeliveryStore, capacityPlanStore, repositoryCatalog, credentials)
 	registerResponsePoliciesHTTP(mux, responsePolicyStore, repositoryCatalog, credentials)
 	registerResponseRotationsHTTP(mux, responseRotationStore, repositoryCatalog, credentials)
-	registerResponseAlertsHTTP(mux, responseAlertStore, responsePolicyStore, responseRotationStore, repositoryCatalog, credentials)
+	registerResponseAlertsHTTP(mux, responseAlertStore, responsePolicyStore, responseRotationStore, incidentStore, repositoryCatalog, credentials)
 	registerAccessibilityCommitmentsHTTP(mux, accessibilityCommitmentStore, repositoryCatalog, credentials)
 	registerDataCommitmentsHTTP(mux, dataCommitmentStore, repositoryCatalog, credentials)
 	registerLocalePlansHTTP(mux, localePlanStore, repositoryCatalog, credentials)

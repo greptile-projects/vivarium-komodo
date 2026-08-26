@@ -6645,3 +6645,21 @@ reported or accepted what and when. The Response view exposes the same schedule,
 context, gaps, acknowledgements, and pending recipient decisions. Rotation assignment
 grants no repository, team, secret, communication, incident, deployment, environment,
 security, privacy, continuity, governance, or operational authority.
+
+Signals enter the same surface at `/repositories/{repository}/response-alerts`. The
+policy-pinned assigned responder acknowledges one by opening its `/workspace` with
+revision-exact, audience-scoped references to permitted releases, deployments, code,
+infrastructure, dependencies, runbooks, and evidence. That durable room retains
+classification, additional correlation keys, invited owners, observations,
+reassignment, suppression, and escalation as optimistic attributed actions.
+
+Workspace diagnostics name a repository-approved command reference, require approval
+from someone other than the runner, and can cite only context explicitly marked
+permitted; retained output must already be sanitized. Responders may delegate a
+24-hour read-only investigation over a selected subset. Its credential can read only
+`/response-alert-investigations/context` and publish cited findings, questions, or
+uncertainty to `/records`; it has no deployment, environment, mitigation, secret, or
+repository mutation endpoint and its digest is never returned. A qualifying workspace
+can create and link an ordinary incident through `/workspace/incident`, preserving the
+alert record while mitigation continues through existing incident and deployment
+authority boundaries.

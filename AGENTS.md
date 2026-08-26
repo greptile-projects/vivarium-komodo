@@ -12,6 +12,16 @@ constitutes acknowledgement, and alerts grant no repository, secret, communicati
 incident, deployment, environment, security, privacy, continuity, governance, or
 operational authority. The public API is `/repositories/{repository}/response-alerts`.
 
+An alert's assigned responder acknowledges by opening its durable `/workspace`, which
+freezes permitted release, deployment, code, infrastructure, dependency, runbook, and
+evidence references beside the signal window. Optimistic workspace actions retain
+classification, added correlation keys, invitations, observations, reassignment,
+suppression, escalation, and audience. Diagnostics require a distinct approver and may
+use only permitted context. A delegated agent receives a 24-hour credential that reads
+only selected context and publishes cited findings, questions, or uncertainty; it has
+no mitigation or production control endpoint. Qualifying workspaces may create and
+link an ordinary incident while preserving the alert timeline and audience controls.
+
 Durable response duty rotations live beneath `$RESPONSE_ROTATION_ROOT` (default
 `apps/api/data/response-rotations`) and are pinned to an exact response-policy version.
 Teams publish timezone-aware participants, qualifications, availability, membership
