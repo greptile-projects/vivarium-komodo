@@ -6646,6 +6646,31 @@ context, gaps, acknowledgements, and pending recipient decisions. Rotation assig
 grants no repository, team, secret, communication, incident, deployment, environment,
 security, privacy, continuity, governance, or operational authority.
 
+### Complete on-call coordination workflow
+
+`on_call_coordination_workflow_test.go` proves the public released-service-signal-to-
+reviewed-learning boundary used by the Response view. A repository owner publishes
+service and dependency coverage, a primary acknowledges policy-pinned duty with a
+qualified backup, and one revision-exact reliability signal reaches that primary's
+actionable inbox after a retained delivery failure and retry. A duplicate is correlated
+without another page, while the deliberately late acknowledgement remains measurable.
+
+The durable workspace freezes release, deployment, dependency, and runbook context. A
+dependency owner independently approves and runs a bounded diagnostic, and a delegated
+agent can read only the selected context and publish a cited finding. The agent cannot
+use its credential to control the workspace or production. An ordinary authorized
+operator's separately approved rollback is retained as evidence rather than being
+performed by response coordination. The backup accepts the exact unchanged duty
+context before the active response is reassigned and resolved.
+
+The same run keeps unavailable and access-revoked future responders visible, classifies
+a noisy dependency alert and failed delivery as a false positive, promotes a severe
+recurrence to an ordinary connected incident, and records consented affected-user
+recovery. An unsafe agent budget outcome pauses only the affected routing scope. Owner
+review then connects agent-owned signal correction and human-owned runbook work without
+granting either owner repository, deployment, environment, communication, incident, or
+operational authority.
+
 Signals enter the same surface at `/repositories/{repository}/response-alerts`. The
 policy-pinned assigned responder acknowledges one by opening its `/workspace` with
 revision-exact, audience-scoped references to permitted releases, deployments, code,
