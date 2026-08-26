@@ -1,5 +1,19 @@
 # AGENTS.md
 
+Durable response duty rotations live beneath `$RESPONSE_ROTATION_ROOT` (default
+`apps/api/data/response-rotations`) and are pinned to an exact response-policy version.
+Teams publish timezone-aware participants, qualifications, availability, membership
+and access observations, handoff windows, layered backups, workload limits, absence
+rules, and context-revision-bound shifts. Reads project current and upcoming ownership
+and derive accountable escalation for overlaps, gaps, missed handoffs, unavailable or
+unqualified responders, workload exhaustion, membership change, and revoked access.
+Responders acknowledge inspected context; a swap, delegation, or owner override moves
+duty only after the exact recipient accepts the unchanged context revision and
+references. The public API is `/repositories/{repository}/response-rotations`, and the
+Response repository view exposes the same schedule and decisions. Rotations grant no
+repository, team, secret, communication, incident, deployment, environment, security,
+privacy, continuity, governance, or operational authority.
+
 Versioned response coverage policies live beneath `$RESPONSE_POLICY_ROOT` (default
 `apps/api/data/response-policies`). Repository writers map repository, service,
 environment, user-journey, and dependency signal classes and severities to accountable
