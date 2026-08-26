@@ -54,3 +54,38 @@ func TestSuppressionMaintenanceStalenessAndPolicyChangeAreAudited(t *testing.T) 
 		t.Fatalf("stale signal routed: %+v", c)
 	}
 }
+
+func TestAssignedResponderWorkspaceIsSteerableAndAgentIsReadOnly(t *testing.T) {
+	now := time.Now().UTC()
+	p := responsepolicies.Policy{ID: "p", CurrentVersion: 1, Versions: []responsepolicies.Version{{Number: 1, Input: responsepolicies.Input{Coverage: []responsepolicies.Coverage{{ID: "c", ResourceKind: "service", ResourceID: "api", SignalClass: "reliability", Severity: "critical", TeamID: "ops", Target: responsepolicies.Target{AcknowledgeMinutes: 5}}}}}}}
+	r := responserotations.Rotation{ID: "r", Revision: 2, Input: responserotations.Input{PolicyID: "p", PolicyVersion: 1, TeamID: "ops"}, CurrentShift: &responserotations.ShiftView{ResponderID: "alice"}}
+	s, _ := New(t.TempDir())
+	a, _ := s.Create("repo", "monitor", Input{Signal: Signal{SignalClass: "reliability", Severity: "critical", ResourceKind: "service", ResourceID: "api", Revision: "release-7", ObservedAt: now, CorrelationKey: "api:error", Summary: "errors", Evidence: []Evidence{{Kind: "deployment", Reference: "deploy-7", Revision: "event-9", Accessible: true}}}}, p, []responserotations.Rotation{r})
+	if _, err := s.OpenWorkspace("repo", a.ID, "mallory", WorkspaceInput{ExpectedRevision: a.Revision}); err != ErrInvalid {
+		t.Fatalf("unassigned responder opened workspace: %v", err)
+	}
+	a, err := s.OpenWorkspace("repo", a.ID, "alice", WorkspaceInput{ExpectedRevision: a.Revision, Context: []ContextReference{{Kind: "release", ResourceID: "release-7", Revision: "commit-7", Permitted: true, Audience: "participants"}, {Kind: "runbook", ResourceID: "rb-api", Revision: "v3", Permitted: true, Audience: "participants"}}})
+	if err != nil || a.Status != "acknowledged" || a.Workspace.AssignedResponderID != "alice" {
+		t.Fatalf("workspace not acknowledged: %+v %v", a, err)
+	}
+	a, _ = s.Act("repo", a.ID, "alice", WorkspaceActionInput{ExpectedRevision: a.Revision, Kind: "classify", Classification: "availability", Detail: "confirmed user-facing availability loss"})
+	a, _ = s.Act("repo", a.ID, "alice", WorkspaceActionInput{ExpectedRevision: a.Revision, Kind: "invite", AssigneeID: "owner", Detail: "invite service owner"})
+	a, err = s.RunDiagnostic("repo", a.ID, "owner", DiagnosticInput{ExpectedRevision: a.Revision, Name: "read replica lag", CommandReference: "rb-api#replica-lag", ContextReferences: []string{"rb-api"}, ApprovedByID: "alice", SanitizedOutput: "lag=42s"})
+	if err != nil || len(a.Workspace.Diagnostics) != 1 {
+		t.Fatalf("approved diagnostic missing: %+v %v", a, err)
+	}
+	started, token, err := s.StartAgent("repo", a.ID, "alice", AgentInput{ExpectedRevision: a.Revision, Agent: "triage-agent@v2", Mandate: "compare release and runbook", ContextReferences: []string{"release-7", "rb-api"}})
+	if err != nil || token == "" || started.Workspace.AgentInvestigations[0].CredentialDigest != "" {
+		t.Fatalf("bounded credential missing or leaked: %+v %v", started, err)
+	}
+	if _, _, err = s.AddAgentRecord(token, "finding", "release changed retry behavior", []string{"release-7"}); err != nil {
+		t.Fatalf("agent could not publish cited finding: %v", err)
+	}
+	if _, _, err = s.AddAgentRecord(token, "action", "restart production", []string{"release-7"}); err != ErrInvalid {
+		t.Fatalf("agent gained action authority: %v", err)
+	}
+	latest, _ := s.Get("repo", a.ID)
+	if latest.Workspace.Classification != "availability" || len(latest.Workspace.Participants) != 2 || len(latest.Workspace.AgentInvestigations[0].Records) != 1 {
+		t.Fatalf("collaboration was not retained: %+v", latest.Workspace)
+	}
+}

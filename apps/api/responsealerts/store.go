@@ -3,6 +3,7 @@ package responsealerts
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -60,6 +61,75 @@ type Event struct {
 	Detail    string    `json:"detail"`
 	CreatedAt time.Time `json:"created_at"`
 }
+type ContextReference struct {
+	Kind         string `json:"kind"`
+	ResourceID   string `json:"resource_id"`
+	Revision     string `json:"revision"`
+	RepositoryID string `json:"repository_id,omitempty"`
+	Permitted    bool   `json:"permitted"`
+	Audience     string `json:"audience"`
+}
+type Observation struct {
+	ID                 string    `json:"id"`
+	Kind               string    `json:"kind"`
+	Body               string    `json:"body"`
+	EvidenceReferences []string  `json:"evidence_references"`
+	Audience           string    `json:"audience"`
+	ActorID            string    `json:"actor_id"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+type Action struct {
+	ID         string    `json:"id"`
+	Kind       string    `json:"kind"`
+	Detail     string    `json:"detail"`
+	ActorID    string    `json:"actor_id"`
+	AssigneeID string    `json:"assignee_id,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+type Diagnostic struct {
+	ID                string    `json:"id"`
+	Name              string    `json:"name"`
+	CommandReference  string    `json:"command_reference"`
+	ContextReferences []string  `json:"context_references"`
+	RequestedByID     string    `json:"requested_by_id"`
+	ApprovedByID      string    `json:"approved_by_id"`
+	Status            string    `json:"status"`
+	SanitizedOutput   string    `json:"sanitized_output,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+type AgentRecord struct {
+	ID                 string    `json:"id"`
+	Kind               string    `json:"kind"`
+	Body               string    `json:"body"`
+	EvidenceReferences []string  `json:"evidence_references"`
+	ActorID            string    `json:"actor_id"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+type AgentInvestigation struct {
+	ID                string        `json:"id"`
+	Agent             string        `json:"agent"`
+	Mandate           string        `json:"mandate"`
+	ContextReferences []string      `json:"context_references"`
+	State             string        `json:"state"`
+	InitiatedByID     string        `json:"initiated_by_id"`
+	ExpiresAt         time.Time     `json:"expires_at"`
+	CredentialDigest  string        `json:"credential_digest,omitempty"`
+	Records           []AgentRecord `json:"records"`
+}
+type Workspace struct {
+	OpenedByID          string               `json:"opened_by_id"`
+	AssignedResponderID string               `json:"assigned_responder_id"`
+	Classification      string               `json:"classification,omitempty"`
+	CorrelationKeys     []string             `json:"correlation_keys"`
+	Participants        []string             `json:"participants"`
+	Context             []ContextReference   `json:"context"`
+	Observations        []Observation        `json:"observations"`
+	Actions             []Action             `json:"actions"`
+	Diagnostics         []Diagnostic         `json:"diagnostics"`
+	AgentInvestigations []AgentInvestigation `json:"agent_investigations"`
+	IncidentID          string               `json:"incident_id,omitempty"`
+	OpenedAt            time.Time            `json:"opened_at"`
+}
 type RoutingAttempt struct {
 	ID               string    `json:"id"`
 	RecipientID      string    `json:"recipient_id,omitempty"`
@@ -89,6 +159,35 @@ type Alert struct {
 	CreatedBy        string           `json:"created_by"`
 	CreatedAt        time.Time        `json:"created_at"`
 	NonAuthority     []string         `json:"non_authority"`
+	Workspace        *Workspace       `json:"workspace,omitempty"`
+}
+type WorkspaceInput struct {
+	ExpectedRevision int64              `json:"expected_revision"`
+	Context          []ContextReference `json:"context"`
+}
+type WorkspaceActionInput struct {
+	ExpectedRevision   int64    `json:"expected_revision"`
+	Kind               string   `json:"kind"`
+	Detail             string   `json:"detail"`
+	AssigneeID         string   `json:"assignee_id"`
+	Classification     string   `json:"classification"`
+	CorrelationKey     string   `json:"correlation_key"`
+	Audience           string   `json:"audience"`
+	EvidenceReferences []string `json:"evidence_references"`
+}
+type DiagnosticInput struct {
+	ExpectedRevision  int64    `json:"expected_revision"`
+	Name              string   `json:"name"`
+	CommandReference  string   `json:"command_reference"`
+	ContextReferences []string `json:"context_references"`
+	ApprovedByID      string   `json:"approved_by_id"`
+	SanitizedOutput   string   `json:"sanitized_output"`
+}
+type AgentInput struct {
+	ExpectedRevision  int64    `json:"expected_revision"`
+	Agent             string   `json:"agent"`
+	Mandate           string   `json:"mandate"`
+	ContextReferences []string `json:"context_references"`
 }
 type AttemptInput struct {
 	ExpectedRevision int64  `json:"expected_revision"`
@@ -306,23 +405,286 @@ func (s *Store) RecordAttempt(repo, id, actor string, in AttemptInput) (Alert, e
 func (s *Store) Get(repo, id string) (Alert, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.read(repo, id)
+	a, err := s.read(repo, id)
+	scrubCredentials(&a)
+	return a, err
 }
 func (s *Store) List(repo, recipient string) ([]Alert, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	xs, e := s.list(repo)
 	if recipient == "" {
+		for i := range xs {
+			scrubCredentials(&xs[i])
+		}
 		return xs, e
 	}
 	out := []Alert{}
 	for _, a := range xs {
 		for _, r := range a.RoutingAttempts {
 			if r.RecipientID == recipient {
+				scrubCredentials(&a)
 				out = append(out, a)
 				break
 			}
 		}
 	}
 	return out, e
+}
+
+func scrubCredentials(a *Alert) {
+	if a.Workspace != nil {
+		for i := range a.Workspace.AgentInvestigations {
+			a.Workspace.AgentInvestigations[i].CredentialDigest = ""
+		}
+	}
+}
+
+func assigned(a Alert, actor string) bool {
+	for _, x := range a.RoutingAttempts {
+		if x.RecipientID == actor {
+			return true
+		}
+	}
+	return false
+}
+func hasParticipant(a Alert, actor string) bool {
+	if a.Workspace == nil {
+		return false
+	}
+	for _, x := range a.Workspace.Participants {
+		if x == actor {
+			return true
+		}
+	}
+	return false
+}
+func validAudience(x string) bool { return x == "participants" || x == "public" }
+func (s *Store) OpenWorkspace(repo, id, actor string, in WorkspaceInput) (Alert, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, e := s.read(repo, id)
+	if e != nil {
+		return a, e
+	}
+	if a.Revision != in.ExpectedRevision {
+		return a, ErrConflict
+	}
+	if a.Workspace != nil || !assigned(a, actor) {
+		return a, ErrInvalid
+	}
+	for _, c := range in.Context {
+		if c.Kind == "" || c.ResourceID == "" || c.Revision == "" || !validAudience(c.Audience) {
+			return a, ErrInvalid
+		}
+	}
+	now := s.now().UTC()
+	a.Revision++
+	a.Status = "acknowledged"
+	a.Workspace = &Workspace{OpenedByID: actor, AssignedResponderID: actor, CorrelationKeys: []string{a.Signal.CorrelationKey}, Participants: []string{actor}, Context: append([]ContextReference{}, in.Context...), Observations: []Observation{}, Actions: []Action{}, Diagnostics: []Diagnostic{}, AgentInvestigations: []AgentInvestigation{}, OpenedAt: now}
+	a.Events = append(a.Events, Event{newID(), "acknowledged", actor, "response workspace opened against the frozen signal window", now})
+	return a, s.save(a)
+}
+func (s *Store) Act(repo, id, actor string, in WorkspaceActionInput) (Alert, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, e := s.read(repo, id)
+	if e != nil {
+		return a, e
+	}
+	if a.Revision != in.ExpectedRevision {
+		return a, ErrConflict
+	}
+	if !hasParticipant(a, actor) || in.Detail == "" {
+		return a, ErrInvalid
+	}
+	now := s.now().UTC()
+	switch in.Kind {
+	case "classify":
+		if in.Classification == "" {
+			return a, ErrInvalid
+		}
+		a.Workspace.Classification = in.Classification
+	case "correlate":
+		if in.CorrelationKey == "" {
+			return a, ErrInvalid
+		}
+		a.Workspace.CorrelationKeys = append(a.Workspace.CorrelationKeys, in.CorrelationKey)
+	case "invite":
+		if in.AssigneeID == "" {
+			return a, ErrInvalid
+		}
+		if !hasParticipant(a, in.AssigneeID) {
+			a.Workspace.Participants = append(a.Workspace.Participants, in.AssigneeID)
+		}
+	case "reassign":
+		if in.AssigneeID == "" {
+			return a, ErrInvalid
+		}
+		a.Workspace.AssignedResponderID = in.AssigneeID
+		if !hasParticipant(a, in.AssigneeID) {
+			a.Workspace.Participants = append(a.Workspace.Participants, in.AssigneeID)
+		}
+	case "suppress":
+		a.Status = "suppressed"
+	case "escalate":
+		a.Status = "escalated"
+	case "observe":
+		if !validAudience(in.Audience) {
+			return a, ErrInvalid
+		}
+		a.Workspace.Observations = append(a.Workspace.Observations, Observation{newID(), "observation", in.Detail, append([]string{}, in.EvidenceReferences...), in.Audience, actor, now})
+	default:
+		return a, ErrInvalid
+	}
+	a.Revision++
+	a.Workspace.Actions = append(a.Workspace.Actions, Action{newID(), in.Kind, in.Detail, actor, in.AssigneeID, now})
+	a.Events = append(a.Events, Event{newID(), in.Kind, actor, in.Detail, now})
+	return a, s.save(a)
+}
+func (s *Store) RunDiagnostic(repo, id, actor string, in DiagnosticInput) (Alert, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, e := s.read(repo, id)
+	if e != nil {
+		return a, e
+	}
+	if a.Revision != in.ExpectedRevision {
+		return a, ErrConflict
+	}
+	if !hasParticipant(a, actor) || in.Name == "" || in.CommandReference == "" || in.ApprovedByID == "" || in.ApprovedByID == actor {
+		return a, ErrInvalid
+	}
+	permitted := map[string]bool{}
+	for _, c := range a.Workspace.Context {
+		if c.Permitted {
+			permitted[c.ResourceID] = true
+		}
+	}
+	for _, x := range in.ContextReferences {
+		if !permitted[x] {
+			return a, ErrInvalid
+		}
+	}
+	now := s.now().UTC()
+	a.Revision++
+	a.Workspace.Diagnostics = append(a.Workspace.Diagnostics, Diagnostic{newID(), in.Name, in.CommandReference, append([]string{}, in.ContextReferences...), actor, in.ApprovedByID, "completed", in.SanitizedOutput, now})
+	a.Events = append(a.Events, Event{newID(), "diagnostic.completed", actor, in.Name, now})
+	return a, s.save(a)
+}
+func (s *Store) StartAgent(repo, id, actor string, in AgentInput) (Alert, string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, e := s.read(repo, id)
+	if e != nil {
+		return a, "", e
+	}
+	if a.Revision != in.ExpectedRevision {
+		return a, "", ErrConflict
+	}
+	if !hasParticipant(a, actor) || in.Agent == "" || in.Mandate == "" || len(in.ContextReferences) == 0 {
+		return a, "", ErrInvalid
+	}
+	permitted := map[string]bool{}
+	for _, c := range a.Workspace.Context {
+		if c.Permitted {
+			permitted[c.ResourceID] = true
+		}
+	}
+	for _, x := range in.ContextReferences {
+		if !permitted[x] {
+			return a, "", ErrInvalid
+		}
+	}
+	token := newID() + newID()
+	sum := sha256.Sum256([]byte(token))
+	now := s.now().UTC()
+	a.Revision++
+	a.Workspace.AgentInvestigations = append(a.Workspace.AgentInvestigations, AgentInvestigation{ID: newID(), Agent: in.Agent, Mandate: in.Mandate, ContextReferences: append([]string{}, in.ContextReferences...), State: "active", InitiatedByID: actor, ExpiresAt: now.Add(24 * time.Hour), CredentialDigest: hex.EncodeToString(sum[:]), Records: []AgentRecord{}})
+	a.Events = append(a.Events, Event{newID(), "agent.delegated", actor, in.Mandate, now})
+	e = s.save(a)
+	scrubCredentials(&a)
+	return a, token, e
+}
+func (s *Store) AgentContext(token string) (Alert, AgentInvestigation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sum := sha256.Sum256([]byte(token))
+	digest := hex.EncodeToString(sum[:])
+	items, e := filepath.Glob(filepath.Join(s.root, "*", "*.json"))
+	if e != nil {
+		return Alert{}, AgentInvestigation{}, e
+	}
+	for _, p := range items {
+		b, _ := os.ReadFile(p)
+		var a Alert
+		if json.Unmarshal(b, &a) != nil || a.Workspace == nil {
+			continue
+		}
+		for _, x := range a.Workspace.AgentInvestigations {
+			if x.CredentialDigest == digest && x.State == "active" && s.now().UTC().Before(x.ExpiresAt) {
+				x.CredentialDigest = ""
+				return a, x, nil
+			}
+		}
+	}
+	return Alert{}, AgentInvestigation{}, ErrNotFound
+}
+func (s *Store) AddAgentRecord(token, kind, body string, refs []string) (Alert, AgentInvestigation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sum := sha256.Sum256([]byte(token))
+	digest := hex.EncodeToString(sum[:])
+	items, _ := filepath.Glob(filepath.Join(s.root, "*", "*.json"))
+	for _, p := range items {
+		b, _ := os.ReadFile(p)
+		var a Alert
+		if json.Unmarshal(b, &a) != nil || a.Workspace == nil {
+			continue
+		}
+		for i := range a.Workspace.AgentInvestigations {
+			x := &a.Workspace.AgentInvestigations[i]
+			if x.CredentialDigest == digest && x.State == "active" && s.now().UTC().Before(x.ExpiresAt) {
+				allowed := map[string]bool{}
+				for _, v := range x.ContextReferences {
+					allowed[v] = true
+				}
+				for _, v := range refs {
+					if !allowed[v] {
+						return a, *x, ErrInvalid
+					}
+				}
+				if kind != "finding" && kind != "question" && kind != "uncertainty" {
+					return a, *x, ErrInvalid
+				}
+				now := s.now().UTC()
+				x.Records = append(x.Records, AgentRecord{newID(), kind, body, refs, x.Agent, now})
+				a.Revision++
+				a.Events = append(a.Events, Event{newID(), "agent." + kind, x.Agent, body, now})
+				e := s.save(a)
+				copy := *x
+				copy.CredentialDigest = ""
+				scrubCredentials(&a)
+				return a, copy, e
+			}
+		}
+	}
+	return Alert{}, AgentInvestigation{}, ErrNotFound
+}
+func (s *Store) LinkIncident(repo, id, actor, incidentID string, expected int64) (Alert, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, e := s.read(repo, id)
+	if e != nil {
+		return a, e
+	}
+	if a.Revision != expected || !hasParticipant(a, actor) || incidentID == "" || a.Workspace.IncidentID != "" {
+		return a, ErrInvalid
+	}
+	now := s.now().UTC()
+	a.Revision++
+	a.Status = "incident"
+	a.Workspace.IncidentID = incidentID
+	a.Events = append(a.Events, Event{newID(), "incident.declared", actor, incidentID, now})
+	return a, s.save(a)
 }
