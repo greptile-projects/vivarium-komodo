@@ -49,6 +49,14 @@ func registerRunbookExecutionsHTTP(mux *http.ServeMux, s *runbookexecutions.Stor
 		if in.RunbookVersion != book.CurrentVersion {
 			in.RehearsalReady = false
 		}
+		// The server, never the caller, freezes the executable path from the exact
+		// published version so later runbook edits cannot change a live procedure.
+		in.ActivePath = nil
+		version := book.Versions[in.RunbookVersion-1]
+		for _, step := range version.Steps {
+			humanDecision := step.Decision != nil && step.Decision.HumanRequired
+			in.ActivePath = append(in.ActivePath, runbookexecutions.ProcedureStep{ID: step.ID, Kind: step.Kind, Title: step.Title, DependsOn: append([]string{}, step.DependsOn...), ExpectedEvidence: append([]string{}, step.ExpectedEvidence...), RequiredAuthority: append([]string{}, step.RequiredAuthority...), OwnerIDs: append([]string{}, step.OwnerIDs...), RollbackCriteria: append([]string{}, step.RollbackCriteria...), HumanDecision: humanDecision, Optional: step.Optional, PolicyPermitsSkip: step.PolicyPermitsSkip})
+		}
 		in.RunbookFindings = nil
 		for _, finding := range book.Findings {
 			in.RunbookFindings = append(in.RunbookFindings, finding.Kind+": "+finding.Detail)
@@ -67,6 +75,20 @@ func registerRunbookExecutionsHTTP(mux *http.ServeMux, s *runbookexecutions.Stor
 				status = 422
 			}
 			writeJSON(w, status, x)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{execution}/controls", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in runbookexecutions.ControlInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.Control(string(repo.ID), r.PathValue("execution"), a.UserID, in)
+		if !runbookExecutionError(w, e) {
+			writeJSON(w, 200, x)
 		}
 	})
 	mux.HandleFunc("POST "+base+"/recommendations", func(w http.ResponseWriter, r *http.Request) {
@@ -152,6 +174,8 @@ func runbookExecutionError(w http.ResponseWriter, e error) bool {
 		writeJSON(w, 422, map[string]string{"error": "runbook_execution_blocked"})
 	case errors.Is(e, runbookexecutions.ErrConflict):
 		writeJSON(w, 409, map[string]string{"error": "duplicate_runbook_execution"})
+	case errors.Is(e, runbookexecutions.ErrForbidden):
+		writeJSON(w, 403, map[string]string{"error": "runbook_execution_action_forbidden"})
 	default:
 		writeJSON(w, 500, map[string]string{"error": "internal_error"})
 	}

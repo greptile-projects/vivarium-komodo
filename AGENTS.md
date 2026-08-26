@@ -1,5 +1,16 @@
 # AGENTS.md
 
+Live guided runbook collaboration extends each launch beneath
+`$RUNBOOK_EXECUTION_ROOT`. A ready launch freezes the exact published step path and
+derives controller, participants, step evidence, pending decisions, bounded
+credential references, health, cost, blockers, rollback posture, and predicted next
+action. Repository writers use optimistic, idempotent `/controls` to join, discuss,
+approve, perform, policy-permitted skip, pause, resume, hand off, abort, or delegate
+one step to an approved agent in analyze-only or execute mode. Dependencies,
+separation of approval and performance, explicit agent scope, terminal and stale
+state, and 15-minute credential bounds precede immutable action receipts. Controls
+coordinate existing authority and grant none.
+
 Context-bound runbook launches live beneath `$RUNBOOK_EXECUTION_ROOT` (default
 `apps/api/data/runbook-executions`). Repository readers can request explained,
 non-automatic recommendations for an alert, incident, deployment, failed workflow,

@@ -63,6 +63,8 @@ type Step struct {
 	RequiredSkills    []string    `json:"required_skills"`
 	DependsOn         []string    `json:"depends_on"`
 	RollbackCriteria  []string    `json:"rollback_criteria"`
+	Optional          bool        `json:"optional"`
+	PolicyPermitsSkip bool        `json:"policy_permits_skip"`
 }
 type Escalation struct {
 	Condition      string   `json:"condition"`
