@@ -30,6 +30,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/capabilityretirements"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/capacitymodels"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/capacityobjectives"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/capacityrehearsals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/changesessions"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/checkruns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/contributionopportunities"
@@ -545,6 +546,14 @@ func main() {
 		capacityModelRoot = "data/capacity-models"
 	}
 	capacityModelStore, err := capacitymodels.New(capacityModelRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	capacityRehearsalRoot := os.Getenv("CAPACITY_REHEARSAL_ROOT")
+	if capacityRehearsalRoot == "" {
+		capacityRehearsalRoot = "data/capacity-rehearsals"
+	}
+	capacityRehearsalStore, err := capacityrehearsals.New(capacityRehearsalRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1235,6 +1244,7 @@ func main() {
 	registerPerformanceGoalsHTTP(mux, performanceGoalStore, repositoryCatalog, releaseStore, credentials, pullRequestStore)
 	registerCapacityObjectivesHTTP(mux, capacityObjectiveStore, repositoryCatalog, credentials)
 	registerCapacityModelsHTTP(mux, capacityModelStore, repositoryCatalog, credentials)
+	registerCapacityRehearsalsHTTP(mux, capacityRehearsalStore, repositoryCatalog, credentials)
 	registerAccessibilityCommitmentsHTTP(mux, accessibilityCommitmentStore, repositoryCatalog, credentials)
 	registerDataCommitmentsHTTP(mux, dataCommitmentStore, repositoryCatalog, credentials)
 	registerLocalePlansHTTP(mux, localePlanStore, repositoryCatalog, credentials)
