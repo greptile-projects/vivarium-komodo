@@ -6616,3 +6616,14 @@ Durable state and its persistent signing key default beneath
 `$PROVENANCE_BUNDLE_ROOT` (`apps/api/data/provenance-bundles`). These claims and
 notices grant no release, package, distribution, repair, campaign, credential,
 or operational authority.
+# Response coverage
+
+Repository collaborators can publish immutable response-policy versions through
+`/repositories/{repository}/response-policies`. Each version declares covered project
+resources, signal class and severity mappings, accountable teams and skills, response
+targets, escalation and communications, incident criteria, authority boundaries, and
+revision-exact organization, ownership, access, privacy, security, and continuity rule
+references. Reads keep uncovered resources, ownership conflicts, unavailable skills,
+unachievable targets, inaccessible governing rules, and expiring exceptions visible.
+The same contract is shown in the repository Response view. A policy records who is
+expected to respond; it does not page anyone or grant operational authority.
