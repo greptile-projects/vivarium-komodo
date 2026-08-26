@@ -8,6 +8,8 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/runbooks"
 	"net/http"
 	"sort"
+	"strconv"
+	"strings"
 )
 
 func registerRunbookExecutionsHTTP(mux *http.ServeMux, s *runbookexecutions.Store, rb *runbooks.Store, rh *runbookrehearsals.Store, repos performanceRepositoryStore, credentials authStore) {
@@ -53,6 +55,14 @@ func registerRunbookExecutionsHTTP(mux *http.ServeMux, s *runbookexecutions.Stor
 		// published version so later runbook edits cannot change a live procedure.
 		in.ActivePath = nil
 		version := book.Versions[in.RunbookVersion-1]
+		in.RunbookUseState, in.ApprovedFallbackID, in.ApprovedFallbackVersion, _ = s.RunbookStatus(string(repo.ID), in.RunbookID, in.RunbookVersion)
+		in.OutcomeCriteria = nil
+		criteria := map[string][]string{"health": version.HealthCriteria, "containment": version.ContainmentCriteria, "recovery": version.RecoveryCriteria, "communication": version.CommunicationCriteria, "rollback": version.RollbackCriteria}
+		for _, kind := range []string{"health", "containment", "recovery", "communication", "rollback"} {
+			if len(criteria[kind]) > 0 {
+				in.OutcomeCriteria = append(in.OutcomeCriteria, runbookexecutions.OutcomeCriterion{Kind: kind, Description: strings.Join(criteria[kind], "; ")})
+			}
+		}
 		for _, step := range version.Steps {
 			humanDecision := step.Decision != nil && step.Decision.HumanRequired
 			in.ActivePath = append(in.ActivePath, runbookexecutions.ProcedureStep{ID: step.ID, Kind: step.Kind, Title: step.Title, DependsOn: append([]string{}, step.DependsOn...), ExpectedEvidence: append([]string{}, step.ExpectedEvidence...), RequiredAuthority: append([]string{}, step.RequiredAuthority...), OwnerIDs: append([]string{}, step.OwnerIDs...), RollbackCriteria: append([]string{}, step.RollbackCriteria...), HumanDecision: humanDecision, Optional: step.Optional, PolicyPermitsSkip: step.PolicyPermitsSkip})
@@ -91,6 +101,76 @@ func registerRunbookExecutionsHTTP(mux *http.ServeMux, s *runbookexecutions.Stor
 			writeJSON(w, 200, x)
 		}
 	})
+	mux.HandleFunc("POST "+base+"/{execution}/evaluation", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		var in runbookexecutions.EvaluationInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		x, e := s.Evaluate(string(repo.ID), r.PathValue("execution"), a.UserID, in)
+		if !runbookExecutionError(w, e) {
+			writeJSON(w, 200, x)
+		}
+	})
+	mux.HandleFunc("POST "+base+"/{execution}/learning", func(w http.ResponseWriter, r *http.Request) {
+		repo, a, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryWrite, true)
+		if !ok {
+			return
+		}
+		x, e := s.Get(string(repo.ID), r.PathValue("execution"))
+		if e != nil {
+			runbookExecutionError(w, e)
+			return
+		}
+		book, e := rb.Get(string(repo.ID), x.RunbookID)
+		if e != nil {
+			runbookExecutionError(w, runbookexecutions.ErrInvalid)
+			return
+		}
+		version := book.Versions[x.RunbookVersion-1]
+		owner := false
+		for _, id := range version.OwnerIDs {
+			if id == a.UserID {
+				owner = true
+			}
+		}
+		if !owner {
+			runbookExecutionError(w, runbookexecutions.ErrForbidden)
+			return
+		}
+		var in runbookexecutions.LearningInput
+		if !readJSON(w, r, &in, 1<<20) {
+			return
+		}
+		if in.Action == "record_revision" {
+			if in.ReviewedRunbookVersion != book.CurrentVersion || in.ReviewedRunbookVersion <= x.RunbookVersion {
+				runbookExecutionError(w, runbookexecutions.ErrInvalid)
+				return
+			}
+		}
+		if in.Action == "record_fresh_rehearsal" {
+			proof, err := rh.Get(string(repo.ID), in.FreshRehearsalID)
+			proof = runbookrehearsals.Resolve(proof)
+			if err != nil || proof.RunbookID != x.RunbookID || proof.RunbookVersion != x.ReviewedRunbookVersion || proof.Revision != in.FreshRehearsalRevision || !proof.Ready {
+				runbookExecutionError(w, runbookexecutions.ErrInvalid)
+				return
+			}
+		}
+		if in.Action == "suspend" {
+			fallback, err := rb.Get(string(repo.ID), in.FallbackRunbookID)
+			if err != nil || in.FallbackRunbookVersion != fallback.CurrentVersion || len(fallback.Findings) > 0 {
+				runbookExecutionError(w, runbookexecutions.ErrInvalid)
+				return
+			}
+		}
+		x, e = s.Learn(string(repo.ID), x.ID, a.UserID, in)
+		if !runbookExecutionError(w, e) {
+			writeJSON(w, 200, x)
+		}
+	})
 	mux.HandleFunc("POST "+base+"/recommendations", func(w http.ResponseWriter, r *http.Request) {
 		repo, _, ok := proposalRepositoryAccess(w, r, repos, credentials, auth.RepositoryRead, false)
 		if !ok {
@@ -114,6 +194,10 @@ func registerRunbookExecutionsHTTP(mux *http.ServeMux, s *runbookexecutions.Stor
 		for _, b := range books {
 			v := b.Versions[len(b.Versions)-1]
 			c := runbookexecutions.Candidate{RunbookID: b.ID, RunbookVersion: v.Number, Name: v.Name}
+			use, fallback, fallbackVersion, _ := s.RunbookStatus(string(repo.ID), b.ID, v.Number)
+			if use == "suspended" {
+				c.Blockers = append(c.Blockers, runbookexecutions.Blocker{Kind: "runbook_suspended", Subject: b.ID, Detail: "current use is suspended; approved fallback is " + fallback + " version " + strconv.FormatInt(fallbackVersion, 10), Choices: []string{"select approved fallback", "inspect corrected revision and fresh rehearsal"}})
+			}
 			if runbookExecutionContains(q.ResourceKinds, v.Scope.Kind) {
 				c.Score += 2
 				c.MatchExplanation = append(c.MatchExplanation, "scope kind matches affected context")

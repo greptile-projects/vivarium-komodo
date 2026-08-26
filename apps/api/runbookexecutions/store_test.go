@@ -97,3 +97,54 @@ func TestLiveProcedureEnforcesControlDelegationAndReceipts(t *testing.T) {
 		t.Fatalf("complete: %#v %v", x, err)
 	}
 }
+
+func TestTerminalEvaluationPreservesProcedureAndGovernsLearning(t *testing.T) {
+	s, _ := New(t.TempDir())
+	in := launch()
+	in.OutcomeCriteria = []OutcomeCriterion{{Kind: "health", Description: "error rate normal"}, {Kind: "containment", Description: "impact stopped"}, {Kind: "recovery", Description: "requests succeed"}, {Kind: "communication", Description: "audience updated"}, {Kind: "rollback", Description: "rollback not required"}}
+	in.ActivePath = []ProcedureStep{{ID: "recover", Kind: "action", ExpectedEvidence: []string{"metric"}}}
+	x, err := s.Create("repo", "owner", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err = s.Control("repo", x.ID, "owner", ControlInput{ExpectedRevision: x.Revision, IdempotencyKey: "recover", Action: "perform", StepID: "recover", Evidence: []string{"metric:recovered"}, Health: "healthy", Cost: 2.5})
+	if err != nil || x.State != "completed" {
+		t.Fatalf("completion: %#v %v", x, err)
+	}
+	criteria := []CriterionResult{{"health", "met", []string{"metric:healthy"}, ""}, {"containment", "met", []string{"metric:contained"}, ""}, {"recovery", "met", []string{"probe:ok"}, ""}, {"communication", "unmet", []string{"timeline:no-update"}, "audience update was manual"}, {"rollback", "met", []string{"decision:no-rollback"}, ""}}
+	x, err = s.Evaluate("repo", x.ID, "owner", EvaluationInput{ExpectedRevision: x.Revision, IdempotencyKey: "evaluate", Disposition: "completed", Criteria: criteria, Deviations: []string{"used an undocumented probe"}, ManualWork: []string{"notified support manually"}, AccessGaps: []string{"dashboard denied"}, AgentCorrections: []string{"operator rejected unsafe agent command"}, Feedback: []Feedback{{"owner", "add a communication step"}}})
+	if err != nil || x.Evaluation == nil || x.Evaluation.OutcomeProven || x.Evaluation.Cost != 2.5 || len(x.Evaluation.Findings) != 5 || x.RunbookVersion != 2 {
+		t.Fatalf("evaluation: %#v %v", x, err)
+	}
+	finding := x.Evaluation.Findings[0]
+	x, err = s.Learn("repo", x.ID, "owner", LearningInput{ExpectedRevision: x.Revision, IdempotencyKey: "improve", Action: "link_improvement", FindingID: finding.ID, ImprovementKind: "documentation", ImprovementReference: "pull:42@commit", ImprovementOwner: "writer"})
+	if err != nil || x.Evaluation.Findings[0].ImprovementRef == "" {
+		t.Fatalf("improvement: %#v %v", x, err)
+	}
+	x, err = s.Learn("repo", x.ID, "owner", LearningInput{ExpectedRevision: x.Revision, IdempotencyKey: "revision", Action: "record_revision", ReviewedRunbookVersion: 3})
+	if err != nil || x.ReviewedRunbookVersion != 3 || x.FreshRehearsalID != "" {
+		t.Fatalf("revision: %#v %v", x, err)
+	}
+	x, err = s.Learn("repo", x.ID, "owner", LearningInput{ExpectedRevision: x.Revision, IdempotencyKey: "rehearsal", Action: "record_fresh_rehearsal", FreshRehearsalID: "proof-3", FreshRehearsalRevision: 2})
+	if err != nil || x.FreshRehearsalID != "proof-3" {
+		t.Fatalf("rehearsal: %#v %v", x, err)
+	}
+	x, err = s.Learn("repo", x.ID, "owner", LearningInput{ExpectedRevision: x.Revision, IdempotencyKey: "suspend", Action: "suspend", Reason: "repeated communication failure", FallbackRunbookID: "fallback", FallbackRunbookVersion: 4})
+	if err != nil || x.UseState != "suspended" || x.FallbackRunbookID != "fallback" {
+		t.Fatalf("suspension: %#v %v", x, err)
+	}
+	state, fallback, version, err := s.RunbookStatus("repo", "rb-1", 2)
+	if err != nil || state != "suspended" || fallback != "fallback" || version != 4 {
+		t.Fatalf("status: %s %s %d %v", state, fallback, version, err)
+	}
+	next := launch()
+	next.IdempotencyKey = "next-alert"
+	next.Origin.ResourceID = "alert-2"
+	next.RunbookUseState = state
+	next.ApprovedFallbackID = fallback
+	next.ApprovedFallbackVersion = version
+	blocked, err := s.Create("repo", "owner", next)
+	if err != nil || blocked.State != "blocked" || blocked.Blockers[0].Kind != "runbook_suspended" {
+		t.Fatalf("suspended launch: %#v %v", blocked, err)
+	}
+}

@@ -53,21 +53,25 @@ type Access struct {
 	AuthorityReference string `json:"authority_reference,omitempty"`
 }
 type LaunchInput struct {
-	IdempotencyKey    string          `json:"idempotency_key"`
-	RunbookID         string          `json:"runbook_id"`
-	RunbookVersion    int64           `json:"runbook_version"`
-	Origin            Origin          `json:"origin"`
-	AffectedResources []string        `json:"affected_resources"`
-	SignalWindow      SignalWindow    `json:"signal_window"`
-	Context           []Context       `json:"context"`
-	Preconditions     []Check         `json:"preconditions"`
-	Access            []Access        `json:"access"`
-	MatchExplanation  []string        `json:"match_explanation"`
-	RehearsalID       string          `json:"rehearsal_id"`
-	RehearsalRevision int64           `json:"rehearsal_revision"`
-	RehearsalReady    bool            `json:"rehearsal_ready"`
-	RunbookFindings   []string        `json:"runbook_findings,omitempty"`
-	ActivePath        []ProcedureStep `json:"active_path"`
+	IdempotencyKey          string             `json:"idempotency_key"`
+	RunbookID               string             `json:"runbook_id"`
+	RunbookVersion          int64              `json:"runbook_version"`
+	Origin                  Origin             `json:"origin"`
+	AffectedResources       []string           `json:"affected_resources"`
+	SignalWindow            SignalWindow       `json:"signal_window"`
+	Context                 []Context          `json:"context"`
+	Preconditions           []Check            `json:"preconditions"`
+	Access                  []Access           `json:"access"`
+	MatchExplanation        []string           `json:"match_explanation"`
+	RehearsalID             string             `json:"rehearsal_id"`
+	RehearsalRevision       int64              `json:"rehearsal_revision"`
+	RehearsalReady          bool               `json:"rehearsal_ready"`
+	RunbookFindings         []string           `json:"runbook_findings,omitempty"`
+	ActivePath              []ProcedureStep    `json:"active_path"`
+	OutcomeCriteria         []OutcomeCriterion `json:"outcome_criteria"`
+	RunbookUseState         string             `json:"runbook_use_state,omitempty"`
+	ApprovedFallbackID      string             `json:"approved_fallback_id,omitempty"`
+	ApprovedFallbackVersion int64              `json:"approved_fallback_version,omitempty"`
 }
 type ProcedureStep struct {
 	ID                string   `json:"id"`
@@ -81,6 +85,10 @@ type ProcedureStep struct {
 	HumanDecision     bool     `json:"human_decision"`
 	Optional          bool     `json:"optional"`
 	PolicyPermitsSkip bool     `json:"policy_permits_skip"`
+}
+type OutcomeCriterion struct {
+	Kind        string `json:"kind"`
+	Description string `json:"description"`
 }
 type Participant struct {
 	ID       string    `json:"id"`
@@ -146,6 +154,78 @@ type ControlInput struct {
 	Cost                float64   `json:"cost,omitempty"`
 	CredentialExpiresAt time.Time `json:"credential_expires_at,omitempty"`
 }
+type CriterionResult struct {
+	Kind     string   `json:"kind"`
+	Status   string   `json:"status"`
+	Evidence []string `json:"evidence"`
+	Detail   string   `json:"detail,omitempty"`
+}
+type Feedback struct {
+	ParticipantID string `json:"participant_id"`
+	Body          string `json:"body"`
+}
+type EvaluationInput struct {
+	ExpectedRevision int64             `json:"expected_revision"`
+	IdempotencyKey   string            `json:"idempotency_key"`
+	Disposition      string            `json:"disposition"`
+	Criteria         []CriterionResult `json:"criteria"`
+	Deviations       []string          `json:"deviations"`
+	ManualWork       []string          `json:"manual_work"`
+	FailedSteps      []string          `json:"failed_steps"`
+	AccessGaps       []string          `json:"access_gaps"`
+	AgentCorrections []string          `json:"agent_corrections"`
+	Feedback         []Feedback        `json:"participant_feedback"`
+}
+type Finding struct {
+	ID               string   `json:"id"`
+	Kind             string   `json:"kind"`
+	Detail           string   `json:"detail"`
+	Evidence         []string `json:"evidence"`
+	Supported        bool     `json:"supported"`
+	ImprovementKind  string   `json:"improvement_kind,omitempty"`
+	ImprovementRef   string   `json:"improvement_reference,omitempty"`
+	ImprovementOwner string   `json:"improvement_owner,omitempty"`
+}
+type Evaluation struct {
+	ID                  string            `json:"id"`
+	IdempotencyKey      string            `json:"idempotency_key"`
+	Disposition         string            `json:"disposition"`
+	Criteria            []CriterionResult `json:"criteria"`
+	Deviations          []string          `json:"deviations"`
+	ManualWork          []string          `json:"manual_work"`
+	FailedSteps         []string          `json:"failed_steps"`
+	StepTiming          map[string]string `json:"step_timing"`
+	AccessGaps          []string          `json:"access_gaps"`
+	AgentCorrections    []string          `json:"agent_corrections"`
+	Cost                float64           `json:"cost"`
+	ParticipantFeedback []Feedback        `json:"participant_feedback"`
+	Findings            []Finding         `json:"findings"`
+	OutcomeProven       bool              `json:"outcome_proven"`
+	EvaluatedBy         string            `json:"evaluated_by"`
+	EvaluatedAt         time.Time         `json:"evaluated_at"`
+}
+type LearningInput struct {
+	ExpectedRevision       int64  `json:"expected_revision"`
+	IdempotencyKey         string `json:"idempotency_key"`
+	Action                 string `json:"action"`
+	FindingID              string `json:"finding_id,omitempty"`
+	ImprovementKind        string `json:"improvement_kind,omitempty"`
+	ImprovementReference   string `json:"improvement_reference,omitempty"`
+	ImprovementOwner       string `json:"improvement_owner,omitempty"`
+	ReviewedRunbookVersion int64  `json:"reviewed_runbook_version,omitempty"`
+	FreshRehearsalID       string `json:"fresh_rehearsal_id,omitempty"`
+	FreshRehearsalRevision int64  `json:"fresh_rehearsal_revision,omitempty"`
+	FallbackRunbookID      string `json:"fallback_runbook_id,omitempty"`
+	FallbackRunbookVersion int64  `json:"fallback_runbook_version,omitempty"`
+	Reason                 string `json:"reason,omitempty"`
+}
+type LearningReceipt struct {
+	ID             string    `json:"id"`
+	IdempotencyKey string    `json:"idempotency_key"`
+	Action         string    `json:"action"`
+	ActorID        string    `json:"actor_id"`
+	CreatedAt      time.Time `json:"created_at"`
+}
 type Blocker struct {
 	Kind    string   `json:"kind"`
 	Subject string   `json:"subject"`
@@ -157,21 +237,29 @@ type Execution struct {
 	RepositoryID string `json:"repository_id"`
 	Revision     int64  `json:"revision"`
 	LaunchInput
-	ControllerID        string             `json:"controller_id"`
-	CreatedAt           time.Time          `json:"created_at"`
-	State               string             `json:"state"`
-	Blockers            []Blocker          `json:"blockers"`
-	NonAuthority        []string           `json:"non_authority"`
-	Participants        []Participant      `json:"participants"`
-	Steps               []StepState        `json:"steps"`
-	Credentials         []ScopedCredential `json:"scoped_credentials"`
-	Events              []Event            `json:"events"`
-	ActionReceipts      []ActionReceipt    `json:"action_receipts"`
-	Health              string             `json:"health"`
-	Cost                float64            `json:"cost"`
-	RollbackState       string             `json:"rollback_state"`
-	PredictedNextAction string             `json:"predicted_next_action"`
-	UpdatedAt           time.Time          `json:"updated_at"`
+	ControllerID           string             `json:"controller_id"`
+	CreatedAt              time.Time          `json:"created_at"`
+	State                  string             `json:"state"`
+	Blockers               []Blocker          `json:"blockers"`
+	NonAuthority           []string           `json:"non_authority"`
+	Participants           []Participant      `json:"participants"`
+	Steps                  []StepState        `json:"steps"`
+	Credentials            []ScopedCredential `json:"scoped_credentials"`
+	Events                 []Event            `json:"events"`
+	ActionReceipts         []ActionReceipt    `json:"action_receipts"`
+	Health                 string             `json:"health"`
+	Cost                   float64            `json:"cost"`
+	RollbackState          string             `json:"rollback_state"`
+	PredictedNextAction    string             `json:"predicted_next_action"`
+	Evaluation             *Evaluation        `json:"evaluation,omitempty"`
+	LearningReceipts       []LearningReceipt  `json:"learning_receipts"`
+	ReviewedRunbookVersion int64              `json:"reviewed_runbook_version,omitempty"`
+	FreshRehearsalID       string             `json:"fresh_rehearsal_id,omitempty"`
+	FreshRehearsalRevision int64              `json:"fresh_rehearsal_revision,omitempty"`
+	UseState               string             `json:"use_state"`
+	FallbackRunbookID      string             `json:"fallback_runbook_id,omitempty"`
+	FallbackRunbookVersion int64              `json:"fallback_runbook_version,omitempty"`
+	UpdatedAt              time.Time          `json:"updated_at"`
 }
 type Candidate struct {
 	RunbookID        string    `json:"runbook_id"`
@@ -286,6 +374,9 @@ func blockers(in LaunchInput) []Blocker {
 	if !in.RehearsalReady {
 		out = append(out, Blocker{"stale_or_missing_rehearsal", in.RehearsalID, "selected revision lacks current rehearsal proof", []string{"select another eligible runbook", "rehearse this revision"}})
 	}
+	if in.RunbookUseState == "suspended" {
+		out = append(out, Blocker{"runbook_suspended", in.RunbookID, "current use is suspended after unsafe drift or repeated failure", []string{"use approved fallback " + in.ApprovedFallbackID, "review a corrected revision and fresh rehearsal"}})
+	}
 	for _, c := range in.Context {
 		if !c.Permitted {
 			out = append(out, Blocker{"evidence_not_permitted", c.ResourceID, "origin audience does not permit this evidence", nil})
@@ -334,11 +425,170 @@ func (s *Store) Create(repo, actor string, in LaunchInput) (Execution, error) {
 	for _, p := range in.ActivePath {
 		steps = append(steps, StepState{ID: p.ID, State: "pending", Health: "unknown", RollbackState: "not_required", Evidence: []string{}})
 	}
-	x := Execution{ID: uid(), RepositoryID: repo, Revision: 1, LaunchInput: in, ControllerID: actor, CreatedAt: now, State: state, Blockers: bs, NonAuthority: []string{"Runbook execution controls coordinate already-authorized work; they grant no repository, secret, workflow, agent, communication, incident, deployment, environment, credential, or operational authority."}, Participants: []Participant{{actor, "human", "controller", now}}, Steps: steps, Credentials: []ScopedCredential{}, Events: []Event{{1, "launched", actor, "", "exact procedure and context frozen", now}}, ActionReceipts: []ActionReceipt{}, Health: "unknown", RollbackState: "not_required", UpdatedAt: now}
+	useState := in.RunbookUseState
+	if useState == "" {
+		useState = "approved"
+	}
+	x := Execution{ID: uid(), RepositoryID: repo, Revision: 1, LaunchInput: in, ControllerID: actor, CreatedAt: now, State: state, Blockers: bs, NonAuthority: []string{"Runbook execution controls and learning records coordinate already-authorized work; they grant no repository, secret, workflow, agent, communication, incident, deployment, environment, credential, or operational authority."}, Participants: []Participant{{actor, "human", "controller", now}}, Steps: steps, Credentials: []ScopedCredential{}, Events: []Event{{1, "launched", actor, "", "exact procedure and context frozen", now}}, ActionReceipts: []ActionReceipt{}, LearningReceipts: []LearningReceipt{}, Health: "unknown", RollbackState: "not_required", UseState: useState, FallbackRunbookID: in.ApprovedFallbackID, FallbackRunbookVersion: in.ApprovedFallbackVersion, UpdatedAt: now}
 	if state == "ready" && len(steps) > 0 {
 		x.State = "active"
 	}
 	refresh(&x)
+	return x, s.write(x)
+}
+
+func (s *Store) Evaluate(repo, id, actor string, in EvaluationInput) (Execution, error) {
+	if actor == "" || in.IdempotencyKey == "" || !allowed(in.Disposition, "completed", "abandoned") || len(in.Criteria) == 0 {
+		return Execution{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, id)
+	if e != nil {
+		return x, e
+	}
+	if x.Evaluation != nil {
+		if x.Evaluation.IdempotencyKey == in.IdempotencyKey {
+			return x, nil
+		}
+		return x, ErrConflict
+	}
+	if (x.State == "completed" && in.Disposition != "completed") || (x.State == "aborted" && in.Disposition != "abandoned") {
+		return x, ErrInvalid
+	}
+	if x.Revision != in.ExpectedRevision || !terminal(x.State) {
+		return x, ErrBlocked
+	}
+	wanted := map[string]bool{}
+	for _, c := range x.OutcomeCriteria {
+		wanted[c.Kind] = true
+	}
+	seen, proven := map[string]bool{}, in.Disposition == "completed"
+	for _, c := range in.Criteria {
+		if !wanted[c.Kind] || seen[c.Kind] || !allowed(c.Status, "met", "unmet", "unknown") || len(c.Evidence) == 0 || !unique(c.Evidence) {
+			return x, ErrInvalid
+		}
+		seen[c.Kind] = true
+		if c.Status != "met" {
+			proven = false
+		}
+	}
+	if len(seen) != len(wanted) {
+		return x, ErrInvalid
+	}
+	timing := map[string]string{}
+	for _, st := range x.Steps {
+		var first, last time.Time
+		for _, ev := range x.Events {
+			if ev.StepID == st.ID {
+				if first.IsZero() {
+					first = ev.CreatedAt
+				}
+				last = ev.CreatedAt
+			}
+		}
+		if !first.IsZero() {
+			timing[st.ID] = last.Sub(first).String()
+		}
+	}
+	findings := []Finding{}
+	add := func(k, d string, evidence []string) {
+		if strings.TrimSpace(d) != "" {
+			findings = append(findings, Finding{ID: uid(), Kind: k, Detail: d, Evidence: append([]string{}, evidence...), Supported: len(evidence) > 0})
+		}
+	}
+	for _, c := range in.Criteria {
+		if c.Status != "met" {
+			add("criterion_"+c.Status, c.Kind+": "+c.Detail, c.Evidence)
+		}
+	}
+	for _, d := range in.Deviations {
+		add("deviation", d, []string{"execution:" + x.ID})
+	}
+	for _, d := range in.ManualWork {
+		add("manual_work", d, []string{"execution:" + x.ID})
+	}
+	for _, d := range in.AccessGaps {
+		add("access_gap", d, []string{"execution:" + x.ID})
+	}
+	for _, d := range in.AgentCorrections {
+		add("agent_correction", d, []string{"execution:" + x.ID})
+	}
+	for _, d := range in.FailedSteps {
+		add("failed_step", d, []string{"execution:" + x.ID + "#" + d})
+	}
+	now := s.now().UTC()
+	x.Evaluation = &Evaluation{ID: uid(), IdempotencyKey: in.IdempotencyKey, Disposition: in.Disposition, Criteria: in.Criteria, Deviations: in.Deviations, ManualWork: in.ManualWork, FailedSteps: in.FailedSteps, StepTiming: timing, AccessGaps: in.AccessGaps, AgentCorrections: in.AgentCorrections, Cost: x.Cost, ParticipantFeedback: in.Feedback, Findings: findings, OutcomeProven: proven, EvaluatedBy: actor, EvaluatedAt: now}
+	x.Revision++
+	x.UpdatedAt = now
+	x.Events = append(x.Events, Event{int64(len(x.Events) + 1), "outcome_evaluated", actor, "", in.Disposition, now})
+	x.PredictedNextAction = "review supported findings and keep the frozen procedure evidence"
+	return x, s.write(x)
+}
+
+func (s *Store) Learn(repo, id, actor string, in LearningInput) (Execution, error) {
+	if actor == "" || in.IdempotencyKey == "" {
+		return Execution{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	x, e := s.read(repo, id)
+	if e != nil {
+		return x, e
+	}
+	for _, r := range x.LearningReceipts {
+		if r.IdempotencyKey == in.IdempotencyKey {
+			return x, nil
+		}
+	}
+	if x.Revision != in.ExpectedRevision || x.Evaluation == nil {
+		return x, ErrConflict
+	}
+	now := s.now().UTC()
+	switch in.Action {
+	case "link_improvement":
+		if !allowed(in.ImprovementKind, "documentation", "workflow", "policy", "infrastructure", "code") || in.ImprovementReference == "" || in.ImprovementOwner == "" {
+			return x, ErrInvalid
+		}
+		found := false
+		for i := range x.Evaluation.Findings {
+			if x.Evaluation.Findings[i].ID == in.FindingID && x.Evaluation.Findings[i].Supported {
+				x.Evaluation.Findings[i].ImprovementKind = in.ImprovementKind
+				x.Evaluation.Findings[i].ImprovementRef = in.ImprovementReference
+				x.Evaluation.Findings[i].ImprovementOwner = in.ImprovementOwner
+				found = true
+			}
+		}
+		if !found {
+			return x, ErrBlocked
+		}
+	case "record_revision":
+		if in.ReviewedRunbookVersion <= x.RunbookVersion {
+			return x, ErrInvalid
+		}
+		x.ReviewedRunbookVersion = in.ReviewedRunbookVersion
+		x.FreshRehearsalID = ""
+		x.FreshRehearsalRevision = 0
+	case "record_fresh_rehearsal":
+		if x.ReviewedRunbookVersion == 0 || in.FreshRehearsalID == "" || in.FreshRehearsalRevision < 1 {
+			return x, ErrInvalid
+		}
+		x.FreshRehearsalID = in.FreshRehearsalID
+		x.FreshRehearsalRevision = in.FreshRehearsalRevision
+	case "suspend":
+		if in.Reason == "" || in.FallbackRunbookID == "" || in.FallbackRunbookVersion < 1 {
+			return x, ErrInvalid
+		}
+		x.UseState = "suspended"
+		x.FallbackRunbookID = in.FallbackRunbookID
+		x.FallbackRunbookVersion = in.FallbackRunbookVersion
+	default:
+		return x, ErrInvalid
+	}
+	x.Revision++
+	x.UpdatedAt = now
+	x.LearningReceipts = append(x.LearningReceipts, LearningReceipt{uid(), in.IdempotencyKey, in.Action, actor, now})
+	x.Events = append(x.Events, Event{int64(len(x.Events) + 1), "learning_" + in.Action, actor, "", in.Reason, now})
 	return x, s.write(x)
 }
 
@@ -578,4 +828,24 @@ func (s *Store) List(repo string) ([]Execution, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.list(repo)
+}
+
+func (s *Store) RunbookStatus(repo, runbook string, version int64) (string, string, int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	xs, e := s.list(repo)
+	if e != nil {
+		return "", "", 0, e
+	}
+	var latest *Execution
+	for i := range xs {
+		x := &xs[i]
+		if x.RunbookID == runbook && x.RunbookVersion == version && x.UseState == "suspended" && (latest == nil || x.UpdatedAt.After(latest.UpdatedAt)) {
+			latest = x
+		}
+	}
+	if latest != nil {
+		return "suspended", latest.FallbackRunbookID, latest.FallbackRunbookVersion, nil
+	}
+	return "approved", "", 0, nil
 }
