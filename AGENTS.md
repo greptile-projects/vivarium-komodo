@@ -15,6 +15,17 @@ remain attributable blocking or incomplete findings. The public API is
 repository, telemetry, collector, secret, deployment, environment, spending, or
 operational authority.
 
+Accepted current signal contracts create non-authoritative implementation plans and
+exact pull-request telemetry proof beneath `$SIGNAL_IMPLEMENTATION_ROOT` (default
+`apps/api/data/signal-implementations`). Plans retain permitted human- or agent-owned
+tasks, sessions, workspaces, and pull requests across application, library, and
+infrastructure repositories. `/pull-requests/{pull}/telemetry-checks` retains bounded
+synthetic journey/failure results for emission, schema, units, correlation, sampling,
+redaction, access boundaries, overhead, and failure behavior, with sanitized digest
+evidence, coverage, cost, authorship, contract differences, and ordinary policy checks.
+These records grant no repository, agent, telemetry, preview, review, merge, release,
+environment, secret, or operational authority.
+
 Revision-bound observability gaps live beneath `$OBSERVABILITY_GAP_ROOT` (default
 `apps/api/data/observability-gaps`). Repository writers open and optimistically revise
 a shared operational question from an exact service objective, incident, debugging
