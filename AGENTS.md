@@ -1,5 +1,15 @@
 # AGENTS.md
 
+`on_call_coordination_workflow_test.go` is the black-box boundary for the complete
+released-service-signal-to-reviewed-response-learning loop. It composes the public
+response policy, rotation, alert workspace, incident, and outcome APIs while retaining
+duplicate correlation, a false positive, missed acknowledgement, absent and revoked
+responders, failed delivery and retry, noisy dependency evidence, bounded agent access
+and budget containment, ordinary mitigation evidence, exact-context handoff, severe
+recurrence, consented user recovery, and reviewed signal and runbook work. Response
+records coordinate existing authority; they never manufacture paging, repository,
+agent, communication, incident, deployment, environment, or operational authority.
+
 Revision-bound response alerts live beneath `$RESPONSE_ALERT_ROOT` (default
 `apps/api/data/response-alerts`). Repository writers publish reliability, deployment,
 security, privacy, dependency, workflow, and user-impact signals with exact evidence,
