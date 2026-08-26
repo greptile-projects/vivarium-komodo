@@ -1,5 +1,14 @@
 # AGENTS.md
 
+`executable_runbook_workflow_test.go` is the black-box boundary for the complete
+reviewed-procedure-to-proven-recovery loop. It composes public runbook, rehearsal,
+and execution APIs while retaining failed preconditions, stale proof, duplicate
+alerts, denied approval, unsafe agent performance, interrupted mitigation, revoked
+credentials, exact-context shift handoff, failed rollback containment, unmet recovery,
+reviewed code and procedure improvements, and fresh revision-matched rehearsal proof.
+No runbook record replaces alert, repository, review, agent, deployment, environment,
+credential, or operational authority.
+
 Live guided runbook collaboration extends each launch beneath
 `$RUNBOOK_EXECUTION_ROOT`. A ready launch freezes the exact published step path and
 derives controller, participants, step evidence, pending decisions, bounded
