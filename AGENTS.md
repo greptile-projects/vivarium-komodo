@@ -22,6 +22,20 @@ only selected context and publishes cited findings, questions, or uncertainty; i
 no mitigation or production control endpoint. Qualifying workspaces may create and
 link an ordinary incident while preserving the alert timeline and audience controls.
 
+Consent- and audience-bound response outcomes live beneath `$RESPONSE_OUTCOME_ROOT`
+(default `apps/api/data/response-outcomes`). Repository writers freeze an exact alert,
+policy, rotation, timing, handoff, escalation, missed-target, deduplication, noise,
+interruption, responder-load, agent-cost, incident, and user-impact snapshot. User
+outcomes require explicit consent and owner-only records do not enter repository or
+public projections. Named owners append reviews, signal or routing corrections, and
+links to ordinary human- or agent-owned reliability, documentation, automation, or
+staffing work. Material authority corrections require a distinct owner's ordinary
+approval. Repeated paging or missed coverage, unavailable routing, and unsafe
+automation pause only the affected routing scope or activate its declared backup;
+they never broaden access. The public API is
+`/repositories/{repository}/response-outcomes`, and the Response view reports the
+same individual and aggregate evidence without rewriting source alerts or authority.
+
 Durable response duty rotations live beneath `$RESPONSE_ROTATION_ROOT` (default
 `apps/api/data/response-rotations`) and are pinned to an exact response-policy version.
 Teams publish timezone-aware participants, qualifications, availability, membership
