@@ -1,5 +1,20 @@
 # AGENTS.md
 
+Evidence-selected capacity delivery programs live beneath `$CAPACITY_PLAN_ROOT`
+(default `apps/api/data/capacity-plans`). Repository writers freeze one objective,
+model, rehearsal, and supported candidate into an immutable phased plan with
+reservations, procurement/quota/provider dependencies, implementation order, owners,
+budgets, decision points, gates, and exit strategy. Append-only owner approvals,
+decisions, and connected human- or agent-owned tasks, sessions, workspaces, pull
+requests, infrastructure plans, schema changes, dependency negotiations,
+observability, operational documentation, releases, and environment changes retain
+exact revisions and ordinary gate evidence. Reads keep unapproved reservations,
+external dependencies, plan owners, and decisions as explicit gaps. The public API
+is `/repositories/{repository}/capacity-plans`, and plans appear in Capacity &
+performance. Plan approval grants no spending, procurement, provider, quota,
+repository, secret, review, merge, release, environment, deployment, or operational
+authority.
+
 Revision-exact capacity rehearsals live beneath `$CAPACITY_REHEARSAL_ROOT`
 (default `apps/api/data/capacity-rehearsals`). Repository readers freeze one capacity
 objective version, optional model revision, repository-defined scenario revision,
