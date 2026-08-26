@@ -23,6 +23,7 @@ import { GovernanceCharter } from "@/components/governance-charter";
 import { PerformanceGoals } from "@/components/performance-goals";
 import { CapacityObjectives } from "@/components/capacity-objectives";
 import { ObservabilityGaps } from "@/components/observability-gaps";
+import { SignalRollouts } from "@/components/signal-rollouts";
 import { ResponsePolicies } from "@/components/response-policies";
 import { ResponseRotations } from "@/components/response-rotations";
 import { ResponseAlerts } from "@/components/response-alerts";
@@ -2040,7 +2041,7 @@ export default function RepositoryPage({
       ) : view === "locales" ? (
         <><LocalePlans repository={repository.id} actor={actor} /><TranslationWork repository={repository.id} /><LocalizationVerification repository={repository.id} /><LocalizationDelivery repository={repository.id} /></>
       ) : view === "reliability" ? (
-        <><ObservabilityGaps repository={repository.id} actor={actor} /><ServiceObjectives repository={repository.id} actor={actor} /></>
+        <><SignalRollouts repository={repository.id} /><ObservabilityGaps repository={repository.id} actor={actor} /><ServiceObjectives repository={repository.id} actor={actor} /></>
       ) : view === "continuity" ? (
         <RecoveryObjectives repository={repository.id} actor={actor} />
       ) : view === "agents" ? (

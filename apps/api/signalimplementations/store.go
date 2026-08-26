@@ -195,6 +195,13 @@ func (s *Store) ListRuns(repo, pull string) ([]Run, error) {
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
 	return out, nil
 }
+func (s *Store) GetRun(repo, pull, rid string) (Run, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var r Run
+	e := s.read(filepath.Join(repo, "pulls", pull, rid+".json"), &r)
+	return r, e
+}
 func contains(xs []string, v string) bool {
 	for _, x := range xs {
 		if x == v {
