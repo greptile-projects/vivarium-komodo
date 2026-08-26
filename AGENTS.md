@@ -1,5 +1,17 @@
 # AGENTS.md
 
+Revision-bound observability gaps live beneath `$OBSERVABILITY_GAP_ROOT` (default
+`apps/api/data/observability-gaps`). Repository writers open and optimistically revise
+a shared operational question from an exact service objective, incident, debugging
+workspace, runbook, support thread, deployment, or manual origin. The record retains
+the behavior, audience, blocked decision, affected services and journeys, timeliness,
+owners, success criteria, and metric, log, trace, profile, or event evidence bound to
+exact releases and environments. Reads derive attributable absent coverage, ambiguous
+semantics, inaccessible sources, unbound context, and stale instrumentation. The
+public API is `/repositories/{repository}/observability-gaps`, and gaps appear in the
+Reliability view. Gaps grant no repository, telemetry, secret, deployment,
+environment, incident, communication, or operational authority.
+
 `executable_runbook_workflow_test.go` is the black-box boundary for the complete
 reviewed-procedure-to-proven-recovery loop. It composes public runbook, rehearsal,
 and execution APIs while retaining failed preconditions, stale proof, duplicate

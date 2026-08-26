@@ -1,5 +1,22 @@
 # Docs
 
+## Collaborative observability gaps
+
+`/repositories/{repository}/observability-gaps` makes an unanswered operational
+question a revisioned collaboration record before anyone adds telemetry. Repository
+writers identify an exact service-objective, incident, debugging-workspace, runbook,
+support-thread, deployment, or manual origin; the behavior and audience; the decision
+being blocked; affected services and user journeys; required evidence timeliness;
+accountable owners; and measurable success criteria.
+
+Current metrics, logs, traces, profiles, and events retain their source owner and exact
+release and environment revisions. Reliability reads keep absent coverage, undefined
+semantics, inaccessible sources, missing context bindings, and expired freshness as
+attributable findings, while immutable versions preserve how the team's understanding
+changed. Durable state defaults beneath `$OBSERVABILITY_GAP_ROOT`; these records grant
+no telemetry, repository, secret, deployment, environment, incident, communication,
+or operational authority.
+
 ## Collaborative live runbook execution
 
 Ready launches at `/repositories/{repository}/runbook-executions` now freeze the
