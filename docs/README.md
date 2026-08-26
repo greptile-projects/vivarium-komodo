@@ -1,5 +1,18 @@
 # Docs
 
+## Capacity planning workflow
+
+The complete forecast-to-verified-capacity regression boundary is
+`capacity_planning_workflow_test.go`. It starts with an accepted roadmap-linked
+capacity objective, retains a dependency-owner challenge and superseding agent model,
+rejects a noisy rehearsal as proof, and selects a bounded alternative. It then keeps
+unavailable dependency ownership, provider quota, reservations, human- and
+agent-authored Git revisions, ordinary review evidence, and protected-environment
+authority separate from plan approval. Progressive observations contain denied quota,
+reliability and budget regression, and unused reservations before right-sized load,
+headroom, reliability, and cost evidence permits an explicit operator resume. Neither
+passing telemetry nor an agent can silently expand or reactivate production authority.
+
 ## Progressive production capacity delivery
 
 Each approved program exposes revision-exact delivery records at

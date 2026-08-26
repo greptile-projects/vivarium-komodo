@@ -1,5 +1,16 @@
 # AGENTS.md
 
+`capacity_planning_workflow_test.go` is the black-box boundary for the complete
+accepted-roadmap-outcome-to-verified-capacity loop. It composes stock Git with the
+public capacity objective, model, rehearsal, plan, and delivery APIs while retaining
+a corrected bad forecast, noisy non-proof, unavailable dependency owner, separately
+approved provider quota, stale plan input, ordinary human-agent application and
+infrastructure delivery evidence, protected rollout containment, agent budget and
+authority limits, scaling regression, unused reservation, and right-sized production
+recovery. A containment control remains effective until an authorized operator
+resumes from current passing evidence; no capacity record replaces native roadmap,
+Git, review, provider, spending, release, or environment authority.
+
 Revision-exact progressive capacity deliveries live beneath `$CAPACITY_DELIVERY_ROOT`
 (default `apps/api/data/capacity-deliveries`) and beneath each plan's `/deliveries`
 resource. Repository writers stage protected-environment phases pinned to the plan,
