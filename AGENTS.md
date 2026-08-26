@@ -1,5 +1,21 @@
 # AGENTS.md
 
+Revision-exact progressive capacity deliveries live beneath `$CAPACITY_DELIVERY_ROOT`
+(default `apps/api/data/capacity-deliveries`) and beneath each plan's `/deliveries`
+resource. Repository writers stage protected-environment phases pinned to the plan,
+objective, model, environment policy, controller, and explicit human operators and
+delegated agents. Append-only production observations retain exact release,
+infrastructure, schema, and dependency revisions, evidence windows, allocated and
+usable capacity, load, forecast, headroom, scaling lag, regional balance, service
+levels, dependency health, correctness, reliability, quota, reservation utilization,
+and cost. Reads deterministically contain demand shifts, quota denial, imbalance,
+lag, regressions, unused reservations, insufficient usable capacity, and budget
+breaches and name the connected decision revisit. Operators may stage, pause, resume,
+throttle, roll back, or replan; agents may only observe and perform explicitly
+delegated stage, pause, or throttle steps. Delivery records grant no spending,
+provider, quota, repository, agent, credential, release, environment, deployment, or
+operational authority.
+
 Evidence-selected capacity delivery programs live beneath `$CAPACITY_PLAN_ROOT`
 (default `apps/api/data/capacity-plans`). Repository writers freeze one objective,
 model, rehearsal, and supported candidate into an immutable phased plan with
