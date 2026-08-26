@@ -6706,3 +6706,20 @@ approves it. Repeated paging or missed targets, a coverage/unavailable-responder
 or unsafe automation creates an explicit affected-scope routing pause or declared
 backup activation. These controls do not edit the pinned policy or rotation and never
 expand permissions; native repository and operational authority remains decisive.
+## Collaborative operational runbooks
+
+`GET /repositories/{repository}/runbooks` lists the repository's immutable operational
+procedures, and repository writers create one with `POST` or publish a new optimistic
+version at `POST /repositories/{repository}/runbooks/{runbook}/versions`. Durable data
+lives beneath `$RUNBOOK_ROOT` (default `apps/api/data/runbooks`).
+
+A version binds its service, environment, dependency, or signal scope to an exact
+revision and explains the procedure's purpose, preconditions, diagnostic, action, and
+human-decision steps, evidence, ordering, whole-procedure and step rollback criteria,
+owners, skills, escalation, and governing policies. Command, workflow-component,
+documentation, and approved-agent references carry exact reviewed revisions and
+accessibility and secret-input declarations. Reads derive attributable missing-owner,
+unsafe-assumption, inaccessible-resource, unreviewed-reference, secret-bearing-input,
+and policy-conflict findings. The authority preview separately names what every step
+inspects or changes, required capabilities, and human judgment; its `granted` value is
+always false because a runbook coordinates existing authority rather than creating it.

@@ -1,5 +1,19 @@
 # AGENTS.md
 
+Immutable operational runbooks live beneath `$RUNBOOK_ROOT` (default
+`apps/api/data/runbooks`). Repository writers publish versioned procedures for an
+exact service, environment, dependency, or signal revision with purpose,
+preconditions, diagnostic, action, and human-decision steps, expected evidence,
+dependency order, rollback criteria, owners, skills, and escalation paths. Reviewed
+commands, workflow components, documentation, and approved agents are pinned as
+references; reads preview what each step inspects or changes and which resource
+authority and human judgment it requires. Missing step owners, unsafe assumptions,
+inaccessible or unreviewed references, secret-bearing input, and inaccessible or
+conflicting policy remain attributable findings. The public API is
+`/repositories/{repository}/runbooks`, and runbooks appear in the Response repository
+view. Runbooks and previews grant no repository, secret, workflow, agent,
+communication, incident, deployment, environment, or operational authority.
+
 `on_call_coordination_workflow_test.go` is the black-box boundary for the complete
 released-service-signal-to-reviewed-response-learning loop. It composes the public
 response policy, rotation, alert workspace, incident, and outcome APIs while retaining
