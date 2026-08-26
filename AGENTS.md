@@ -1,5 +1,16 @@
 # AGENTS.md
 
+Revision-bound runbook rehearsals live beneath `$RUNBOOK_REHEARSAL_ROOT` (default
+`apps/api/data/runbook-rehearsals`) and beneath each runbook's `/rehearsals` resource.
+Repository readers define bounded synthetic or permitted failure scenarios against an
+exact runbook version in an isolated or explicitly policy-approved environment.
+Human and agent attempts retain inputs, decisions, commands, outputs, timing,
+artifacts, cost, permissions, outcomes, and manual gaps. Destructive steps must be
+simulated or excluded. Append-only service, dependency, credential, policy, and
+runbook-step observations selectively stale affected proof. Rehearsals grant no
+repository, secret, workflow, agent, communication, incident, deployment,
+environment, credential, or operational authority.
+
 Immutable operational runbooks live beneath `$RUNBOOK_ROOT` (default
 `apps/api/data/runbooks`). Repository writers publish versioned procedures for an
 exact service, environment, dependency, or signal revision with purpose,
