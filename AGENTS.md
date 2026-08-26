@@ -1,5 +1,17 @@
 # AGENTS.md
 
+Revision-bound response alerts live beneath `$RESPONSE_ALERT_ROOT` (default
+`apps/api/data/response-alerts`). Repository writers publish reliability, deployment,
+security, privacy, dependency, workflow, and user-impact signals with exact evidence,
+affected resources and users, uncertainty, and correlation keys. Alerts freeze the
+active response-policy version, derive deadlines and current policy-pinned duty, and
+retain deduplication, suppression, maintenance, rate-limit, stale-signal, inaccessible-
+evidence, policy-change, and delivery attempts as auditable state. Repository reads and
+recipient-filtered reads power the Response view and actionable inbox. Delivery never
+constitutes acknowledgement, and alerts grant no repository, secret, communication,
+incident, deployment, environment, security, privacy, continuity, governance, or
+operational authority. The public API is `/repositories/{repository}/response-alerts`.
+
 Durable response duty rotations live beneath `$RESPONSE_ROTATION_ROOT` (default
 `apps/api/data/response-rotations`) and are pinned to an exact response-policy version.
 Teams publish timezone-aware participants, qualifications, availability, membership

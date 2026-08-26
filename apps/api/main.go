@@ -116,6 +116,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/reliabilitypolicies"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositories"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/repositoryrestructuring"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/responsealerts"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/responsepolicies"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/responserotations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/reviewcompletion"
@@ -590,6 +591,14 @@ func main() {
 		responseRotationRoot = "data/response-rotations"
 	}
 	responseRotationStore, err := responserotations.New(responseRotationRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	responseAlertRoot := os.Getenv("RESPONSE_ALERT_ROOT")
+	if responseAlertRoot == "" {
+		responseAlertRoot = "data/response-alerts"
+	}
+	responseAlertStore, err := responsealerts.New(responseAlertRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1285,6 +1294,7 @@ func main() {
 	registerCapacityDeliveriesHTTP(mux, capacityDeliveryStore, capacityPlanStore, repositoryCatalog, credentials)
 	registerResponsePoliciesHTTP(mux, responsePolicyStore, repositoryCatalog, credentials)
 	registerResponseRotationsHTTP(mux, responseRotationStore, repositoryCatalog, credentials)
+	registerResponseAlertsHTTP(mux, responseAlertStore, responsePolicyStore, responseRotationStore, repositoryCatalog, credentials)
 	registerAccessibilityCommitmentsHTTP(mux, accessibilityCommitmentStore, repositoryCatalog, credentials)
 	registerDataCommitmentsHTTP(mux, dataCommitmentStore, repositoryCatalog, credentials)
 	registerLocalePlansHTTP(mux, localePlanStore, repositoryCatalog, credentials)
