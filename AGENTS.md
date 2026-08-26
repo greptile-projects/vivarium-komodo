@@ -1,5 +1,20 @@
 # AGENTS.md
 
+Revision-bound signal contracts live beneath `$SIGNAL_CONTRACT_ROOT` (default
+`apps/api/data/signal-contracts`). Repository writers publish optimistic immutable
+definitions for metrics, logs, traces, profiles, and events with schemas, units,
+dimensions, sampling, aggregation, correlation, retention, volume, quality, owners,
+consumers, exact source symbols, service boundaries, collectors, and dependencies.
+Reads derive a quantified privacy, security, residency, performance, cardinality,
+storage, and cost preview plus alternative comparisons. Repository readers and
+read-only agents append assumption challenges with revisioned accessible evidence.
+Sensitive unclassified fields, unbounded dimensions, unsupported collectors, changed
+dependencies, inaccessible sources, and incomplete impact or quality declarations
+remain attributable blocking or incomplete findings. The public API is
+`/repositories/{repository}/signal-contracts`. Contracts and review records grant no
+repository, telemetry, collector, secret, deployment, environment, spending, or
+operational authority.
+
 Revision-bound observability gaps live beneath `$OBSERVABILITY_GAP_ROOT` (default
 `apps/api/data/observability-gaps`). Repository writers open and optimistically revise
 a shared operational question from an exact service objective, incident, debugging

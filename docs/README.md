@@ -6799,3 +6799,27 @@ unsafe-assumption, inaccessible-resource, unreviewed-reference, secret-bearing-i
 and policy-conflict findings. The authority preview separately names what every step
 inspects or changes, required capabilities, and human judgment; its `granted` value is
 always false because a runbook coordinates existing authority rather than creating it.
+## Reviewable signal contracts
+
+`/repositories/{repository}/signal-contracts` turns proposed metrics, logs, traces,
+profiles, and events into immutable optimistic contracts before instrumentation lands.
+Repository writers declare the name, purpose, schema and units, bounded dimensions,
+sampling and aggregation, correlation, retention, expected and peak volume, quality
+thresholds, owners and consumers, exact source symbols and service boundaries, and
+pinned collector and dependency revisions. Durable data lives beneath
+`$SIGNAL_CONTRACT_ROOT` (default `apps/api/data/signal-contracts`).
+
+Every read derives blocking and incomplete findings and returns a comparison of the
+proposal with its cited alternatives. The impact declaration makes privacy, security,
+residency, performance, cardinality, storage bytes, retention, and estimated cost
+reviewable together. Unclassified sensitive fields, unbounded dimensions, unsupported
+collectors, and changed dependencies block the proposal; inaccessible sources,
+sensitive dimensions, missing quality thresholds, and incomplete impact estimates
+remain visible as incomplete rather than silently becoming implementation choices.
+
+Repository readers, including approved read-only agents operating through existing
+credentials, can append a challenge at `/{contract}/challenges`. A challenge binds the
+exact contract version and assumption to one or more revisioned citations, retains
+whether it was agent-authored, and rejects missing evidence. Publishing, comparing, or
+challenging a contract grants no telemetry, collector, code, deployment, spending, or
+operational authority.
