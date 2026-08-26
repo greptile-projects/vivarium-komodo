@@ -1,5 +1,24 @@
 # Docs
 
+## Bounded operational runbook rehearsals
+
+Each runbook exposes revision-bound rehearsals at
+`/repositories/{repository}/runbooks/{runbook}/rehearsals`. A rehearsal freezes one
+published runbook version, an isolated or explicitly policy-approved environment,
+duration and cost limits, and synthetic or permitted failure scenarios with exact
+service, dependency, credential, policy, and runbook-step inputs. Human and approved
+agent attempts retain branch decisions, commands, sanitized outputs, timing,
+artifacts, permission evidence, costs, achieved outcomes, and manual gaps.
+
+Readiness is derived only when every scenario has current complete proof. Missing
+permission, input or environment drift, incomplete commands or outputs, exceeded
+bounds, manual work, and unmet outcomes remain visible. Destructive steps must be
+simulated or explicitly excluded. Append-only observations of changed bound inputs
+stale only affected attempts, preserving the obsolete evidence without presenting it
+as current proof. Durable state defaults beneath `$RUNBOOK_REHEARSAL_ROOT`; rehearsal
+records grant no repository, secret, agent, credential, deployment, environment, or
+operational authority. The Response view exposes the same proof and gaps.
+
 ## Capacity planning workflow
 
 The complete forecast-to-verified-capacity regression boundary is

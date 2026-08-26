@@ -126,6 +126,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/reviewwork"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/roadmapdelivery"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/roadmapvalidations"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/runbookrehearsals"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/runbooks"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/runtimeinvestigations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/runtimeprobes"
@@ -617,6 +618,14 @@ func main() {
 		runbookRoot = "data/runbooks"
 	}
 	runbookStore, err := runbooks.New(runbookRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	runbookRehearsalRoot := os.Getenv("RUNBOOK_REHEARSAL_ROOT")
+	if runbookRehearsalRoot == "" {
+		runbookRehearsalRoot = "data/runbook-rehearsals"
+	}
+	runbookRehearsalStore, err := runbookrehearsals.New(runbookRehearsalRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1315,6 +1324,7 @@ func main() {
 	registerResponseAlertsHTTP(mux, responseAlertStore, responsePolicyStore, responseRotationStore, incidentStore, repositoryCatalog, credentials)
 	registerResponseOutcomesHTTP(mux, responseOutcomeStore, responseAlertStore, repositoryCatalog, credentials)
 	registerRunbooksHTTP(mux, runbookStore, repositoryCatalog, credentials)
+	registerRunbookRehearsalsHTTP(mux, runbookRehearsalStore, runbookStore, repositoryCatalog, credentials)
 	registerAccessibilityCommitmentsHTTP(mux, accessibilityCommitmentStore, repositoryCatalog, credentials)
 	registerDataCommitmentsHTTP(mux, dataCommitmentStore, repositoryCatalog, credentials)
 	registerLocalePlansHTTP(mux, localePlanStore, repositoryCatalog, credentials)
