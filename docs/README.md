@@ -6627,3 +6627,21 @@ references. Reads keep uncovered resources, ownership conflicts, unavailable ski
 unachievable targets, inaccessible governing rules, and expiring exceptions visible.
 The same contract is shown in the repository Response view. A policy records who is
 expected to respond; it does not page anyone or grant operational authority.
+
+Teams publish durable duty schedules through
+`/repositories/{repository}/response-rotations`, pinned to an exact response-policy
+version. A rotation records participant time zones, availability, membership and
+access observations, role qualifications, workload limits, handoff windows, absence
+rules, layered backups, and context-revision-bound shifts. Reads project current and
+upcoming responders and derive actionable owner escalation for missing qualifications,
+unavailability, workload exhaustion, membership or access loss, overlapping shifts,
+missed handoffs, and uncovered intervals.
+
+The assigned participant can acknowledge inspected duty context. Current responders
+or rotation owners can propose a swap, delegation, or override, but responsibility
+does not move until the exact recipient accepts the shift's unchanged context revision
+and references. Events and transfers are append-only and optimistic; they retain who
+reported or accepted what and when. The Response view exposes the same schedule,
+context, gaps, acknowledgements, and pending recipient decisions. Rotation assignment
+grants no repository, team, secret, communication, incident, deployment, environment,
+security, privacy, continuity, governance, or operational authority.
