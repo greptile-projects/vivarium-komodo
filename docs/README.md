@@ -6823,3 +6823,23 @@ exact contract version and assumption to one or more revisioned citations, retai
 whether it was agent-authored, and rejects missing evidence. Publishing, comparing, or
 challenging a contract grants no telemetry, collector, code, deployment, spending, or
 operational authority.
+
+A current complete contract can be connected to ordinary implementation work at
+`POST /repositories/{repository}/signal-contracts/{contract}/implementations`.
+The plan freezes the contract version and base revision and retains exact permitted
+task, session, workspace, and pull-request resources in application, library, or
+infrastructure repositories, together with human or agent ownership. The connection
+records existing permission; it does not manufacture repository or agent access.
+
+Repository writers publish exact-candidate proof at
+`/repositories/{repository}/pull-requests/{pull}/telemetry-checks/runs`, and readers
+inspect it on the parent resource. Each bounded synthetic journey and failure binds
+the current pull revision and repository configuration revision, and must report
+emission, schema, units, correlation, sampling, redaction, access-boundary,
+performance-overhead, and failure-behavior results. Evidence bodies are not retained:
+the pull surface stores only sanitized signal, log, trace, coverage, performance, and
+cost summaries with digests, accessibility, authorship, contract differences, and the
+ordinary review, privacy, security, provenance, and merge checks that still govern the
+candidate. Missing, failed, inconclusive, inaccessible, or unsanitized proof cannot be
+reported as passing. Durable records live beneath `$SIGNAL_IMPLEMENTATION_ROOT`
+(default `apps/api/data/signal-implementations`).
