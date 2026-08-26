@@ -139,6 +139,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityreports"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityscenarios"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/serviceobjectives"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/signalcontracts"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/stackedchanges"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/storage"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/supportquestions"
@@ -556,6 +557,14 @@ func main() {
 		observabilityGapRoot = "data/observability-gaps"
 	}
 	observabilityGapStore, err := observabilitygaps.New(observabilityGapRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	signalContractRoot := os.Getenv("SIGNAL_CONTRACT_ROOT")
+	if signalContractRoot == "" {
+		signalContractRoot = "data/signal-contracts"
+	}
+	signalContractStore, err := signalcontracts.New(signalContractRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1334,6 +1343,7 @@ func main() {
 	registerPerformanceGoalsHTTP(mux, performanceGoalStore, repositoryCatalog, releaseStore, credentials, pullRequestStore)
 	registerCapacityObjectivesHTTP(mux, capacityObjectiveStore, repositoryCatalog, credentials)
 	registerObservabilityGapsHTTP(mux, observabilityGapStore, repositoryCatalog, credentials)
+	registerSignalContractsHTTP(mux, signalContractStore, repositoryCatalog, credentials)
 	registerCapacityModelsHTTP(mux, capacityModelStore, repositoryCatalog, credentials)
 	registerCapacityRehearsalsHTTP(mux, capacityRehearsalStore, repositoryCatalog, credentials)
 	registerCapacityPlansHTTP(mux, capacityPlanStore, repositoryCatalog, credentials)
