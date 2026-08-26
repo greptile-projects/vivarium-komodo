@@ -529,6 +529,8 @@ func (s *Store) Act(repo, id, actor string, in WorkspaceActionInput) (Alert, err
 		a.Status = "suppressed"
 	case "escalate":
 		a.Status = "escalated"
+	case "resolve":
+		a.Status = "resolved"
 	case "observe":
 		if !validAudience(in.Audience) {
 			return a, ErrInvalid

@@ -6663,3 +6663,21 @@ repository mutation endpoint and its digest is never returned. A qualifying work
 can create and link an ordinary incident through `/workspace/incident`, preserving the
 alert record while mitigation continues through existing incident and deployment
 authority boundaries.
+
+Resolved and reviewed response learning is retained separately at
+`/repositories/{repository}/response-outcomes`. Each outcome freezes one exact alert
+revision and derives acknowledgement and resolution seconds, handoffs, escalations,
+missed targets, alert and deduplication volume, false positives, interruptions,
+responder time, agent cost, incident count, and affected and recovered users. User
+outcome text is accepted only with explicit consent; `owners`, `repository`, and
+`public` audiences control projection, and owners-only records are excluded from other
+collaborators' reads.
+
+Named outcome owners can append a confirmed, corrected, or disputed review, propose a
+signal- or routing-policy correction, and link ordinary reliability, documentation,
+automation, or staffing work to a human or agent owner. A correction that materially
+changes authority remains `pending_ordinary_approval` until a different named owner
+approves it. Repeated paging or missed targets, a coverage/unavailable-responder gap,
+or unsafe automation creates an explicit affected-scope routing pause or declared
+backup activation. These controls do not edit the pinned policy or rotation and never
+expand permissions; native repository and operational authority remains decisive.
