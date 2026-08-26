@@ -1,5 +1,23 @@
 # Docs
 
+## Context-bound runbook launches
+
+`/repositories/{repository}/runbook-executions` recommends and launches an exact
+operational runbook revision from an alert, incident, deployment, failed workflow,
+service objective, support thread, or manual observation. Recommendation requests
+explain scope, resource, and skill matches, expose stale or missing rehearsal proof
+and current runbook findings, and deliberately never select a procedure automatically.
+
+A launch freezes the origin revision and timeline, inherited audience, affected
+resources, signal window, release and environment context, permitted evidence,
+precondition decisions, current access evidence, and exact rehearsal proof. Failed
+preconditions, inaccessible dependencies, unpermitted evidence, missing authority,
+and obsolete proof produce a durable blocked execution with explicit responder choices.
+Idempotency returns the original record and a distinct duplicate launch against the
+same origin is rejected. State defaults beneath `$RUNBOOK_EXECUTION_ROOT`; launch
+records coordinate context but grant no repository, secret, workflow, agent,
+communication, incident, deployment, environment, credential, or operational authority.
+
 ## Bounded operational runbook rehearsals
 
 Each runbook exposes revision-bound rehearsals at

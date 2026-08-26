@@ -1,5 +1,19 @@
 # AGENTS.md
 
+Context-bound runbook launches live beneath `$RUNBOOK_EXECUTION_ROOT` (default
+`apps/api/data/runbook-executions`). Repository readers can request explained,
+non-automatic recommendations for an alert, incident, deployment, failed workflow,
+service objective, support thread, or manual observation. Repository writers launch
+an exact current runbook version while freezing the origin timeline and audience,
+affected resources, signal window, releases, environment state, permitted evidence,
+precondition decisions, current access evidence, and rehearsal proof. Stale or missing
+proof, current runbook findings, ambiguous matches, failed preconditions, unavailable
+dependencies, denied evidence, missing authority, and duplicate executions remain
+explicit blockers or choices. Idempotent retries return the original record. Launches
+grant no repository, secret, workflow, agent, communication, incident, deployment,
+environment, credential, or operational authority. The public API is
+`/repositories/{repository}/runbook-executions`.
+
 Revision-bound runbook rehearsals live beneath `$RUNBOOK_REHEARSAL_ROOT` (default
 `apps/api/data/runbook-rehearsals`) and beneath each runbook's `/rehearsals` resource.
 Repository readers define bounded synthetic or permitted failure scenarios against an
