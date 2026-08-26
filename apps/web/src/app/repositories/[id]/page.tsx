@@ -26,6 +26,7 @@ import { ResponsePolicies } from "@/components/response-policies";
 import { ResponseRotations } from "@/components/response-rotations";
 import { ResponseAlerts } from "@/components/response-alerts";
 import { ResponseOutcomes } from "@/components/response-outcomes";
+import { Runbooks } from "@/components/runbooks";
 import { CapacityModels } from "@/components/capacity-models";
 import { CapacityRehearsals } from "@/components/capacity-rehearsals";
 import { CapacityPlans } from "@/components/capacity-plans";
@@ -2028,7 +2029,7 @@ export default function RepositoryPage({
       ) : view === "performance" ? (
         <><CapacityObjectives repository={repository.id} actor={actor} /><CapacityModels repository={repository.id} actor={actor} /><CapacityRehearsals repository={repository.id} /><CapacityPlans repository={repository.id} /><PerformanceGoals repository={repository.id} actor={actor} /></>
       ) : view === "response" ? (
-        <><ResponsePolicies repository={repository.id} actor={actor} /><ResponseRotations repository={repository.id} actor={actor} /><ResponseAlerts repository={repository.id} actor={actor} /><ResponseOutcomes repository={repository.id} actor={actor} /></>
+        <><Runbooks repository={repository.id} /><ResponsePolicies repository={repository.id} actor={actor} /><ResponseRotations repository={repository.id} actor={actor} /><ResponseAlerts repository={repository.id} actor={actor} /><ResponseOutcomes repository={repository.id} actor={actor} /></>
       ) : view === "accessibility" ? (
         <><AccessibilityAssessments repository={repository.id} actor={actor} /><AccessibilityCommitments repository={repository.id} actor={actor} /><AccessibilityBarriers repository={repository.id} actor={actor} /></>
       ) : view === "privacy" ? (
