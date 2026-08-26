@@ -208,6 +208,21 @@ delegated stage, pause, or throttle steps. Delivery records grant no spending,
 provider, quota, repository, agent, credential, release, environment, deployment, or
 operational authority.
 
+Reviewed passing instrumentation revisions roll out beneath `$SIGNAL_ROLLOUT_ROOT`
+(default `apps/api/data/signal-rollouts`) and each signal contract's `/rollouts`
+resource. A rollout freezes the exact contract, passing telemetry-check run, deployed
+and collector revisions, protected environment stages, services, audiences, regions,
+traffic percentages, privacy controls, operators, controller, and cardinality,
+storage, and query-cost bounds. Append-only production windows retain signal health,
+coverage, latency, missingness, sampling bias, cardinality, storage, query cost,
+pipeline loss, malformed payloads, sensitive-data detection, collector health, and
+service health. Derived privacy exposure and service regressions roll back; malformed
+payloads, outages, loss, and budget breaches pause; cardinality and sampling skew
+narrow collection. Only named human operators can observe or control a rollout, and
+current failing proof blocks resume. Rollout records grant no data, telemetry,
+collector, repository, agent, credential, release, deployment, environment, spending,
+or operational authority.
+
 Evidence-selected capacity delivery programs live beneath `$CAPACITY_PLAN_ROOT`
 (default `apps/api/data/capacity-plans`). Repository writers freeze one objective,
 model, rehearsal, and supported candidate into an immutable phased plan with

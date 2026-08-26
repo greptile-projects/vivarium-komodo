@@ -6843,3 +6843,25 @@ ordinary review, privacy, security, provenance, and merge checks that still gove
 candidate. Missing, failed, inconclusive, inaccessible, or unsanitized proof cannot be
 reported as passing. Durable records live beneath `$SIGNAL_IMPLEMENTATION_ROOT`
 (default `apps/api/data/signal-implementations`).
+
+Passing reviewed candidates can be staged at
+`/repositories/{repository}/signal-contracts/{contract}/rollouts`. Creation requires
+the exact current complete contract and a passing telemetry-check run whose candidate
+revision is the deployed revision. Each rollout freezes collector and environment
+revisions, active controller, named human operators, privacy controls, and progressive
+service, audience, region, and traffic stages, with explicit cardinality, storage, and
+query-cost ceilings. Durable state lives beneath `$SIGNAL_ROLLOUT_ROOT` (default
+`apps/api/data/signal-rollouts`).
+
+Operators append revision-checked production windows at `/{rollout}/observations`;
+reads expose health, coverage, latency, missingness, sampling bias, cardinality,
+storage, query cost, pipeline loss, malformed payloads, unexpected sensitive data,
+collector status, service status, and the evidence references supporting each window.
+`/{rollout}/controls` accepts pause, narrow, resume, and rollback from named human
+operators. Privacy exposure or service regression deterministically rolls back;
+malformed payloads, collector outage, pipeline loss, or budget breach pauses; and
+cardinality or sampling skew narrows collection. Triggering observations remain
+append-only, and resume is rejected until current passing evidence clears every
+finding. Agents cannot publish observations or controls, and rollout records grant no
+telemetry, data, collector, release, deployment, environment, or operational
+authority. The Reliability repository view presents the same state and controls.
