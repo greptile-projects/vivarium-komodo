@@ -17,6 +17,25 @@ changed. Durable state defaults beneath `$OBSERVABILITY_GAP_ROOT`; these records
 no telemetry, repository, secret, deployment, environment, incident, communication,
 or operational authority.
 
+## Signal use and lifecycle governance
+
+Each observability gap exposes `/signal-evaluations`, where writers pin the exact gap,
+contract, rollout, collector, query window, and result digest used to answer the
+original question. Queries explicitly correlate signals with release, deployment,
+code, dependency, and user-journey revisions. Repository-visible humans and bounded
+read-only agents can publish reproducible cited findings, uncertainty, and a result
+for each original success criterion without receiving repository-write authority.
+
+Owners either connect accepted evidence to an ordinary service objective, response
+alert, runbook, investigation, quality check, or decision revision, or connect
+misleading and insufficient evidence to repair work. Lifecycle decisions preserve
+the original findings, historical meaning, and provenance. Independent policy
+approval and acknowledgement from every declared revision-exact consumer precede a
+retain, revise, reduce, archive, or remove action; archive and removal additionally
+require cited evidence and a timestamp proving obsolete collection stopped. State
+defaults beneath `$SIGNAL_EVALUATION_ROOT`, and evaluation records grant none of the
+connected telemetry, repository, data, policy, or operational authority.
+
 ## Collaborative live runbook execution
 
 Ready launches at `/repositories/{repository}/runbook-executions` now freeze the

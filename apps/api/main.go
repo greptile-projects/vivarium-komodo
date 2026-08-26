@@ -140,6 +140,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/securityscenarios"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/serviceobjectives"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/signalcontracts"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/signalevaluations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/signalimplementations"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/signalrollouts"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/stackedchanges"
@@ -583,6 +584,14 @@ func main() {
 		signalRolloutRoot = "data/signal-rollouts"
 	}
 	signalRolloutStore, err := signalrollouts.New(signalRolloutRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	signalEvaluationRoot := os.Getenv("SIGNAL_EVALUATION_ROOT")
+	if signalEvaluationRoot == "" {
+		signalEvaluationRoot = "data/signal-evaluations"
+	}
+	signalEvaluationStore, err := signalevaluations.New(signalEvaluationRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1364,6 +1373,7 @@ func main() {
 	registerSignalContractsHTTP(mux, signalContractStore, repositoryCatalog, credentials)
 	registerSignalImplementationsHTTP(mux, signalImplementationStore, repositoryCatalog, credentials, signalImplementationSources{contracts: signalContractStore, pulls: pullRequestStore})
 	registerSignalRolloutsHTTP(mux, signalRolloutStore, repositoryCatalog, credentials, signalRolloutSources{contracts: signalContractStore, runs: signalImplementationStore})
+	registerSignalEvaluationsHTTP(mux, signalEvaluationStore, observabilityGapStore, repositoryCatalog, credentials)
 	registerCapacityModelsHTTP(mux, capacityModelStore, repositoryCatalog, credentials)
 	registerCapacityRehearsalsHTTP(mux, capacityRehearsalStore, repositoryCatalog, credentials)
 	registerCapacityPlansHTTP(mux, capacityPlanStore, repositoryCatalog, credentials)

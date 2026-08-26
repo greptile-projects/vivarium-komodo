@@ -38,6 +38,22 @@ public API is `/repositories/{repository}/observability-gaps`, and gaps appear i
 Reliability view. Gaps grant no repository, telemetry, secret, deployment,
 environment, incident, communication, or operational authority.
 
+Gap-scoped signal evaluations live beneath `$SIGNAL_EVALUATION_ROOT` (default
+`apps/api/data/signal-evaluations`) and the observability gap's
+`/signal-evaluations` resource. Repository writers freeze exact signal-contract,
+rollout, collector, and gap revisions into reproducible queries correlated with
+releases, deployments, code, dependencies, and user journeys. Permitted humans and
+read-only agents append accessible revisioned citations, findings, uncertainty, and
+success-criterion results. Owners connect accepted findings to ordinary service
+objective, alert, runbook, investigation, quality-check, or decision revisions, while
+misleading or insufficient evidence names ordinary repair work. Retain, revise,
+reduce, archive, and remove decisions require independent policy approval, explicit
+consumer impacts and acknowledgements, historical semantics, and provenance; archive
+or removal remains blocked until cited evidence verifies collection stopped. Prior
+queries, findings, conclusions, and lifecycle attempts are never rewritten, and these
+records grant no repository, telemetry, collector, data, policy, deployment,
+environment, spending, or operational authority.
+
 `executable_runbook_workflow_test.go` is the black-box boundary for the complete
 reviewed-procedure-to-proven-recovery loop. It composes public runbook, rehearsal,
 and execution APIs while retaining failed preconditions, stale proof, duplicate
