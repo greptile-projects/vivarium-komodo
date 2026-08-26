@@ -1,5 +1,17 @@
 # AGENTS.md
 
+Versioned response coverage policies live beneath `$RESPONSE_POLICY_ROOT` (default
+`apps/api/data/response-policies`). Repository writers map repository, service,
+environment, user-journey, and dependency signal classes and severities to accountable
+teams, required skills, response targets, escalation paths, communication audiences,
+expected actions, and incident criteria. Immutable versions cite exact organization
+membership, service ownership, access, privacy, security, and continuity rules and
+retain attributable uncovered resources, conflicting ownership, unavailable teams or
+skills, impossible targets, inaccessible rules, and expiring exceptions. The public API
+is `/repositories/{repository}/response-policies`, and policies appear in the Response
+repository view. They grant no repository, team, secret, communication, incident,
+deployment, environment, security, privacy, continuity, or operational authority.
+
 `capacity_planning_workflow_test.go` is the black-box boundary for the complete
 accepted-roadmap-outcome-to-verified-capacity loop. It composes stock Git with the
 public capacity objective, model, rehearsal, plan, and delivery APIs while retaining

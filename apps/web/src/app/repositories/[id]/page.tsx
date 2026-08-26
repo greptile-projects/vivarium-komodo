@@ -22,6 +22,7 @@ import { Extensions } from "@/components/extensions";
 import { GovernanceCharter } from "@/components/governance-charter";
 import { PerformanceGoals } from "@/components/performance-goals";
 import { CapacityObjectives } from "@/components/capacity-objectives";
+import { ResponsePolicies } from "@/components/response-policies";
 import { CapacityModels } from "@/components/capacity-models";
 import { CapacityRehearsals } from "@/components/capacity-rehearsals";
 import { CapacityPlans } from "@/components/capacity-plans";
@@ -1353,6 +1354,8 @@ export default function RepositoryPage({
                               ? "funds"
                             : query.view === "performance"
                               ? "performance"
+                            : query.view === "response"
+                              ? "response"
                             : query.view === "accessibility"
                               ? "accessibility"
                             : query.view === "privacy"
@@ -1453,6 +1456,7 @@ export default function RepositoryPage({
         view === "teams" ||
         view === "funds" ||
         view === "performance" ||
+        view === "response" ||
         view === "accessibility" ||
         view === "privacy" ||
         view === "locales" ||
@@ -1809,6 +1813,13 @@ export default function RepositoryPage({
           Capacity & performance
         </button>
         <button
+          className={view === "response" ? "active" : ""}
+          onClick={() => navigate({ view: "response", path: "" })}
+        >
+          <Clock size={15} />
+          Response
+        </button>
+        <button
           className={view === "accessibility" ? "active" : ""}
           onClick={() => navigate({ view: "accessibility", path: "" })}
         >
@@ -2013,6 +2024,8 @@ export default function RepositoryPage({
         <DeliveryTeams repository={repository.id} actor={actor} selected={query.team} />
       ) : view === "performance" ? (
         <><CapacityObjectives repository={repository.id} actor={actor} /><CapacityModels repository={repository.id} actor={actor} /><CapacityRehearsals repository={repository.id} /><CapacityPlans repository={repository.id} /><PerformanceGoals repository={repository.id} actor={actor} /></>
+      ) : view === "response" ? (
+        <ResponsePolicies repository={repository.id} actor={actor} />
       ) : view === "accessibility" ? (
         <><AccessibilityAssessments repository={repository.id} actor={actor} /><AccessibilityCommitments repository={repository.id} actor={actor} /><AccessibilityBarriers repository={repository.id} actor={actor} /></>
       ) : view === "privacy" ? (
