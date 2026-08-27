@@ -4,6 +4,8 @@ YYYY-MM-DDTHH:MM:SSZ: what happened; notes for the next agent; etc.
 Fetch the timestamp on Linux with: date -u '+%Y-%m-%dT%H:%M:%SZ'
 -->
 
+2026-08-27T00:08:32Z: Proved the complete production-question-to-trusted-signal loop through public observability and pull APIs plus stock Git, retaining unsafe contract correction, revision-exact application/infrastructure proof, rollout containment, corrected diagnosis, alert/runbook links, reviewed repair, verified recovery, and evidence-gated diagnostic retirement. `observability_engineering_workflow_test.go` and vet pass; the full API suite retains the five documented unrelated runbook, federation TLS, history-remediation, product-experiment route, and repository-restructuring failures.
+
 2026-08-26T20:01:51Z: Added revision-bound signal contracts with exact schemas, sources and dependencies, quantified seven-domain impact previews, alternative comparisons, derived blockers, and cited read-only reviewer/agent challenges beneath `$SIGNAL_CONTRACT_ROOT`. Focused API coverage and vet pass; the full suite retains unrelated runbook, federation TLS, history-remediation, product-experiment route, and restructuring workflow failures.
 
 2026-08-25T02:23:41Z: Added immutable revision-exact software provenance graphs from repository declarations, with Git blob citations, typed lineage, confidence, transformations, obligations, explicit origin/contradiction/staleness/history gaps, and audience-safe opaque projection. Durable state lives beneath `$PROVENANCE_GRAPH_ROOT`; the repository Governance surface assembles and inspects graphs beside provenance policy.
