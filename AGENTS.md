@@ -15,6 +15,17 @@ remain attributable blocking or incomplete findings. The public API is
 repository, telemetry, collector, secret, deployment, environment, spending, or
 operational authority.
 
+`observability_engineering_workflow_test.go` is the black-box boundary for the
+complete production-question-to-retired-diagnostic loop. It composes public gap,
+contract, implementation, rollout, evaluation, pull-request, and stock Git surfaces
+while retaining schema conflict, sensitive and unbounded data, missing correlation,
+biased sampling, cardinality and pipeline containment, agent cost breach, a corrected
+misleading conclusion, alert and rehearsed-runbook links, reviewed repair provenance,
+verified production recovery, stale-consumer blocking, and collection-stop proof.
+Observability records remain evidence and coordination only; native repository,
+review, telemetry, data-policy, deployment, environment, and operational authority
+continues to govern every connected action.
+
 Accepted current signal contracts create non-authoritative implementation plans and
 exact pull-request telemetry proof beneath `$SIGNAL_IMPLEMENTATION_ROOT` (default
 `apps/api/data/signal-implementations`). Plans retain permitted human- or agent-owned

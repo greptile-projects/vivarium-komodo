@@ -1,5 +1,25 @@
 # Docs
 
+## Collaborative observability engineering workflow
+
+The complete unanswered-question-to-retired-diagnostic regression boundary is
+`observability_engineering_workflow_test.go`. A production investigation opens a
+shared observability gap, and human owners plus a read-only agent correct an initially
+sensitive, unbounded, schema-conflicting design into a privacy-, cardinality-, and
+cost-bounded contract. Stock Git and ordinary pull-request review retain the exact
+application and collector changes, while failed and passing telemetry previews retain
+missing correlation, redaction, schema, authorship, and agent-cost evidence.
+
+Progressive production windows narrow biased and excessive-cardinality collection,
+pause a collector outage and pipeline loss, and require current passing evidence for
+operator recovery. Reproducible queries preserve a misleading first conclusion and
+its correction, then connect supported evidence to an actionable alert, a rehearsed
+runbook revision, and an ordinary reviewed repair. A verified post-repair outcome is
+still insufficient to remove the temporary signal until every exact consumer
+acknowledges migration and cited evidence proves collection stopped. No record in the
+workflow replaces repository, review, telemetry, privacy, deployment, environment,
+or operational authority.
+
 ## Collaborative observability gaps
 
 `/repositories/{repository}/observability-gaps` makes an unanswered operational
