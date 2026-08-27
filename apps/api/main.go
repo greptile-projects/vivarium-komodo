@@ -11,6 +11,7 @@ import (
 	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilitycommitments"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/accessibilitypolicies"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/activities"
+	"github.com/greptile-projects/vivarium-komodo/apps/api/adoptioncampaigns"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/adoptionworkspaces"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/agentdiscovery"
 	"github.com/greptile-projects/vivarium-komodo/apps/api/agentevaluations"
@@ -329,6 +330,14 @@ func main() {
 		provenanceBundleRoot = "data/provenance-bundles"
 	}
 	provenanceBundleStore, err := provenancebundles.New(provenanceBundleRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	adoptionCampaignRoot := os.Getenv("ADOPTION_CAMPAIGN_ROOT")
+	if adoptionCampaignRoot == "" {
+		adoptionCampaignRoot = "data/adoption-campaigns"
+	}
+	adoptionCampaignStore, err := adoptioncampaigns.New(adoptionCampaignRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1406,6 +1415,7 @@ func main() {
 	registerProvenanceGraphsHTTP(mux, provenanceGraphStore, repositoryCatalog, credentials)
 	registerProvenanceAssessmentsHTTP(mux, provenanceAssessmentStore, provenanceGraphStore, provenancePolicyStore, pullRequestStore, repositoryCatalog, credentials)
 	registerProvenanceBundlesHTTP(mux, provenanceBundleStore, releaseStore, checkRunStore, provenanceGraphStore, provenanceAssessmentStore, packageStore, repositoryCatalog, credentials)
+	registerAdoptionCampaignsHTTP(mux, adoptionCampaignStore, releaseStore, provenanceBundleStore, repositoryCatalog, credentials)
 	registerHistoryRemediationsHTTP(mux, historyRemediationStore, repositoryCatalog, credentials)
 	registerThreatModelsHTTP(mux, threatModelStore, repositoryCatalog, credentials, threatModelSources{pulls: pullRequestStore, plans: proposalStore, scenarios: securityScenarioStore})
 	registerSecurityScenariosHTTP(mux, securityScenarioStore, threatModelStore, repositoryCatalog, credentials, pullRequestStore, previewStore)

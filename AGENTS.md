@@ -1,5 +1,18 @@
 # AGENTS.md
 
+Versioned release adoption campaigns live beneath `$ADOPTION_CAMPAIGN_ROOT` (default
+`apps/api/data/adoption-campaigns`). Repository owners open a campaign only from an
+exact release and independently verifiable provenance-bundle digest, freezing that
+attested release across later campaign versions. Definitions retain target audiences,
+supported and explicitly unsupported starting versions, desired coverage, deadlines,
+success evidence, support and rollback policy, accountable owners, and revision-exact
+change, decision, documentation, package, API, schema, and compatibility context.
+Reads derive superseded releases, overlapping audience campaigns, missing ownership,
+unsupported upgrade paths, elapsed deadlines, and attributable changed commitments.
+The public API is `/repositories/{repository}/adoption-campaigns`, and campaigns appear
+with Releases. They grant no repository, consumer, package, API, schema, support,
+deployment, environment, rollback, spending, or operational authority.
+
 Revision-bound signal contracts live beneath `$SIGNAL_CONTRACT_ROOT` (default
 `apps/api/data/signal-contracts`). Repository writers publish optimistic immutable
 definitions for metrics, logs, traces, profiles, and events with schemas, units,

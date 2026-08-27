@@ -57,6 +57,7 @@ import { SecurityExpectations } from "@/components/security-expectations";
 import { ProvenancePolicies } from "@/components/provenance-policies";
 import { ProvenanceGraphs } from "@/components/provenance-graphs";
 import { ProvenanceBundles } from "@/components/provenance-bundles";
+import { AdoptionCampaigns } from "@/components/adoption-campaigns";
 import { ThreatModels } from "@/components/threat-models";
 import { SecurityScenarios } from "@/components/security-scenarios";
 import { HistoryRemediations } from "@/components/history-remediations";
@@ -2079,7 +2080,7 @@ export default function RepositoryPage({
           branches={branches.items}
           actor={actor}
           selected={query.release}
-        /><ProvenanceBundles repository={repository.id} owner={actor===repository.owner_id}/></>
+        /><ProvenanceBundles repository={repository.id} owner={actor===repository.owner_id}/><AdoptionCampaigns repository={repository.id} owner={actor===repository.owner_id}/></>
       ) : view === "incidents" ? (
         <IncidentWorkspace
           repository={repository}
