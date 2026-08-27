@@ -1,5 +1,21 @@
 # Docs
 
+## Collaborative release adoption
+
+Release publication can be followed by a versioned adoption campaign at
+`/repositories/{repository}/adoption-campaigns`. A repository owner must bind the
+campaign to the exact release ID, commit, version, signed provenance bundle, and bundle
+payload digest. The campaign states accountable audiences and coverage targets,
+supported starting versions and upgrade references, a deadline, measurable evidence,
+support and rollback policy, and revision-exact adopter context across changes,
+decisions, documentation, packages, APIs, schemas, and compatibility requirements.
+Later definitions cannot silently move the release binding. Reads surface newer
+releases, competing campaigns for the same audience, missing owners, unsupported
+paths, passed deadlines, and changed commitments without rewriting earlier versions.
+The Releases web view exposes the same definitions and blockers. These records express
+coordination and intended outcomes; they do not authorize consumer changes, release,
+deployment, support, rollback, or operational action.
+
 ## Collaborative observability engineering workflow
 
 The complete unanswered-question-to-retired-diagnostic regression boundary is
